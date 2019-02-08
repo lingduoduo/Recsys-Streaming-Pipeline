@@ -1,3 +1,39 @@
+####  Spark Scala Shell
+
+```
+./bin/spark-shell
+```
+To exit the Scala Spark shell, type :quit or :q.
+
+* :history - displays what was entered during the previous Spark shell session as well as the current session. 
+* :load - loads and executes the code in the provided file. 
+* :reset - resets the shell to a clean state.
+* :silent - stop the shell from displaying the default output after evaluating an expression. To re-enable the output, simply type :silent again.
+* :quit - quit the shell 
+* :type - displays the type of a variable
+
+```
+val ages = Array(20, 50, 35, 41)
+ages.foreach(println)
+```
+
+```
+scala> spark.conf.getAll.foreach(println)
+(spark.driver.host,172.133.8.170)
+(spark.driver.port,50778)
+(spark.repl.class.uri,spark://172.133.8.170:50778/classes)
+(spark.jars,)
+(spark.repl.class.outputDir,/private/var/folders/59/0pbnsns93t5cgn8b5n2kpxt00000gn/T/spark-6b33becf-5b7c-4e22-9e79-f5d0d28406b4/repl-ccbb0304-5a3b-462f-b252-851bd5d4e091)
+(spark.app.name,Spark shell)
+(spark.ui.showConsoleProgress,true)
+(spark.executor.id,driver)
+(spark.submit.deployMode,client)
+(spark.master,local[*])
+(spark.home,/usr/local/Cellar/apache-spark/2.3.1/libexec)
+(spark.sql.catalogImplementation,hive)
+(spark.app.id,local-1543337107085)
+```
+
 #### Spark Python Shell
 
 ```
