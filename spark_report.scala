@@ -497,22 +497,18 @@ val deepnet_callback = session.sql("select dt, count(distinct post_id) from smp_
   "and (msg like '%deepnet%' and (msg like '%tumblr-en-US% ' or msg like '%tumblr-video-en-US% ' )) group by dt order by dt desc ")
 deepnet_callback.show()
 
+println("\n" + "Check confidence breakdown" + "\n")
+val new_smp_post_classifications_even_breakdown = session.sql("select post_id, blog_id, classification, confidence from new_smp_post_classifications where dt between '2019-01-15' and '2019-01-21' and classification != 'NONE' group by  post_id, blog_id, classification, confidence")
+new_smp_post_classifications_even_breakdown .show()
+val confidenceBucket = new_smp_post_classifications_even_breakdown.withColumn("confidencebins", new_smp_post_classifications_even_breakdown.col("confidence").divide(0.1).cast("integer"))
 
-
-// println("\n" + "Check confidence breakdown" + "\n")
-// val new_smp_post_classifications_even_breakdown = session.sql("select post_id, blog_id, classification, confidence from new_smp_post_classifications where dt between '2019-01-15' and '2019-01-21' and classification != 'NONE' group by  post_id, blog_id, classification, confidence")
-// new_smp_post_classifications_even_breakdown .show()
-// val confidenceBucket = new_smp_post_classifications_even_breakdown.withColumn("confidencebins", new_smp_post_classifications_even_breakdown.col("confidence").divide(0.1).cast("integer"))
-
-// val new_smp_post_classifications_breakdown = session.sql(
-//     "select post_id, blog_id, classification, confidence " +
-//     "from new_smp_post_classifications " +
-//     "where dt between '2019-01-15' and '2019-01-21' " +
-//     "and classification != 'NONE' " +
-//     "group by  post_id, blog_id, classification, confidence")
-// new_smp_post_classifications_breakdown.show()
-
-
+val new_smp_post_classifications_breakdown = session.sql(
+    "select post_id, blog_id, classification, confidence " +
+    "from new_smp_post_classifications " +
+    "where dt between '2019-01-15' and '2019-01-21' " +
+    "and classification != 'NONE' " +
+    "group by  post_id, blog_id, classification, confidence")
+new_smp_post_classifications_breakdown.show()
 
 println("\n" + "Check confidence breakdown" + "\n")
 val new_smp_post_classifications_breakdown = session.sql("select classification," +
