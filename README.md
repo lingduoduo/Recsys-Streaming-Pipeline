@@ -1,3 +1,45 @@
+## Querying the data stream
+
+First, what is a data stream? In computer science, a stream is a sequence of unbounded data elements made available over a span of time. You can think of a stream as items on a conveyor belt being processed one at a time, in a continuous flow, rather than in large batches, or, to continue the warehouse analogy, a delivery truck periodically dropping off a large load of items all at once. Streams are processed differently than batch data—most normal system functions can’t operate on streams, because they have potentially unlimited data.
+
+You can run queries on the data that’s in the stream. It wouldn’t be the same as querying all of the data in the data lake. You would also need a shorter time interval to query, such as 1 hour or 24 hours. You could ask questions like, how many users signed up in the past hour? How many financial transactions occurred in the past 2 hours?
+
+Streams are not meant to hold massive amounts of data; they’re designed to hold data only for a short time, typically from 5 minutes to 24 hours. A streaming platform has three key capabilities. First, it can publish and subscribe to streams of data, like traditional message queues or enterprise messaging systems can. Second, it stores data streams in a reliable, fault-tolerant way. Finally, it can process streams as they arrive.
+
+## Apache Kafka
+
+Kafka is an open source stream-processing software platform that started as a distributed message queue for stream data ingestion. Over time, it developed into a full-fledged streaming platform by including processing capabilities as well. Written in Scala and Java, Kafka offers a unified, high-throughput, low-latency platform for handling real-time data feeds.
+
+Apache Kafka is used for two types of applications:
+
+Real-time streaming data pipelines that reliably get data between systems or applications
+
+Real-time streaming applications that transform or react to the streams of data
+
+Tools to use for stream processing
+The following tools can be used to process streaming data:
+
+## Spark Streaming
+
+Although Kafka is often referred to as the “message bus,” Spark can provide a streaming engine in conjunction with the Kafka operation. The same data is going through Kafka; however, you are using the Spark engine to enable processing of live data streams. This is a streaming module of the Apache Spark ecosystem (Figure 6-2) known for scalable, high-throughput, and fault-tolerant stream data processing.
+
+![Screen Shot 2021-08-12 at 4.20.18 PM](/Users/ling/Desktop/Screen Shot 2021-08-12 at 4.20.18 PM.png)
+With Spark 2.0, Spark Streaming (now known as Structured Streaming) has evolved significantly in terms of capabilities and simplicity, enabling you to write code for streaming applications the same way you write batch jobs. Internally, it uses the same core APIs as Spark Batch with all of the optimizations intact. It supports Java, Scala, and Python. Structured Streaming can read data from HDFS, Flume, Kafka, Twitter, and ZeroMQ. You can also define your own custom data sources, which could be storage such as the Amazon S3 object store or a streaming database like Druid.
+
+## Apache Flink
+
+Apache Flink is a scalable, high-throughput, and fault-tolerant stream-processing framework popular for its very low-latency processing capabilities. Flink was built by developers from the Apache Software Foundation, most of whom are employed by data Artisans (recently acquired by Alibaba).
+
+The core of Apache Flink is a distributed streaming dataflow engine written in Java and Scala. Flink executes operators in a continuous flow, allowing multiple jobs to be processed in parallel as new data arrives.
+
+There are several key differences between Spark Streaming and Flink. Spark is a microbatch technology that allows latency to be counted in seconds. Alternatively, Flink offers event-by-event stream processing, so latency can be measured in milliseconds. Flink is usually used for business scenarios where very low end-to-end latency is important, such as real-time fraud detection. Spark is usually used for streaming ingestion and streaming processing, for which low latency is unimportant.
+
+A point in favor of using Spark most of the time is its popularity. Data engineers are familiar with Spark for batch and ETL use cases, so they end up using Spark for streaming as well for familiarity and ease of use—unless there is a strong need for very low-latency stream processing.
+
+## Apache Druid
+
+This is an open source, high-performance, and column-oriented distributed database built for event-driven data that was designed for real-time, subsecond OLAP queries on large datasets. Druid is currently in incubation (see the following note) at the Apache Foundation. Druid has two query languages: a SQL dialect and a JSON-over-HTTP API. Druid is extremely powerful when it comes to running fast interactive analytics on real-time and historical information.
+
 ####  Spark Scala Shell
 
 ```
