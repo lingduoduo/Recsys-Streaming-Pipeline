@@ -1,0 +1,13 @@
+# Scala / SBT build outputs
+target/
+project/target/
+project/project/
+
+# IDE / language-server caches
+.bsp/
+.metals/
+.scala-build/
+
+# Local Spark checkpoints and logs
+spark-warehouse/
+derby.log

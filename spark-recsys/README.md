@@ -35,7 +35,7 @@ Prerequisites:
 brew install sbt
 ```
 
-Install Apache Spark 3.5.x and make sure `spark-submit` is on your `PATH`.
+Install Apache Spark 3.5.x and use Java 17. If Spark is installed outside `/Users/linghuang/opt/spark-3.5.1-bin-hadoop3`, set `SPARK_HOME`.
 
 Start Kafka, Zookeeper, and Redis:
 
@@ -60,6 +60,12 @@ cd ..
 spark-submit \
   --class com.demo.streaming.UserEventStreamingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
+```
+
+Or use the project launcher from `spark-recsys`:
+
+```bash
+./run-streaming-job.sh
 ```
 
 Start the retrieval service (separate terminal):

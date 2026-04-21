@@ -1,6 +1,6 @@
 package com.demo.streaming
 
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
@@ -56,7 +56,7 @@ object UserEventStreamingJob {
       )
 
     parsed.writeStream.foreachBatch { (batch: DataFrame, _: Long) =>
-      batch.foreachPartition { rows =>
+      batch.foreachPartition { rows: Iterator[Row] =>
         // Single pass: collect user→items and per-item counts
         val userItems = scala.collection.mutable.Map.empty[String, scala.collection.mutable.ArrayBuffer[String]]
         val itemCounts = scala.collection.mutable.Map.empty[String, Int]
