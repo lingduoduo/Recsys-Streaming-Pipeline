@@ -1,0 +1,9 @@
+userId,movieId,rating,timestamp
+user_1,item_1,4.0,1713600001
+user_1,item_3,5.0,1713600010
+user_1,item_2,3.0,1713600020
+user_2,item_4,4.5,1713600002
+user_2,item_2,3.5,1713600007
+user_2,item_5,2.0,1713600011
+user_3,item_1,5.0,1713600003
+user_3,item_6,4.0,1713600009
