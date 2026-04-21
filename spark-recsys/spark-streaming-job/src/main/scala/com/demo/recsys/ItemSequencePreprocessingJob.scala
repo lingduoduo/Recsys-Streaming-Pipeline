@@ -1,8 +1,7 @@
 package com.demo.recsys
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
-import org.apache.spark.sql.expressions.UserDefinedFunction
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 object ItemSequencePreprocessingJob {
@@ -102,13 +101,6 @@ object ItemSequencePreprocessingJob {
       ratingColumn: String,
       timestampColumn: String
   ): DataFrame = {
-    val sortUdf: UserDefinedFunction = udf { rows: Seq[Row] =>
-      rows
-        .map(row => (row.getString(0), row.getLong(1)))
-        .sortBy(_._2)
-        .map(_._1)
-    }
-
     ratingSamples
       .select(
         col(userIdColumn).cast("string").as("userId"),
@@ -123,8 +115,10 @@ object ItemSequencePreprocessingJob {
           col("rating") >= lit(minRating)
       )
       .groupBy("userId")
-      .agg(sortUdf(collect_list(struct(col("movieId"), col("timestamp")))).as("movieIds"))
-      .where(size(col("movieIds")) > 1)
+      // sort_array on struct sorts by first field (timestamp) — no UDF needed
+      .agg(sort_array(collect_list(struct(col("timestamp"), col("movieId")))).as("sortedPairs"))
+      .where(size(col("sortedPairs")) > 1)
+      .withColumn("movieIds", transform(col("sortedPairs"), x => x.getField("movieId")))
       .withColumn("movieIdStr", array_join(col("movieIds"), " "))
       .select("userId", "movieIds", "movieIdStr")
   }

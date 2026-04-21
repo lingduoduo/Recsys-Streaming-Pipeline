@@ -2,11 +2,18 @@
 
 A two-path recommendation system demo:
 
-- **Real-time retrieval** — Kafka click events → Spark Structured Streaming → Redis → Spring Boot REST API.
-- **Offline Item2Vec** — historical ratings → item sequences → Word2Vec embeddings.
+- **Real-time retrieval** — Kafka click events → Spark Structured Streaming → Redis → Spring Boot REST API ([RecSys](https://github.com/lingduoduo/RecSys)).
+- **Offline embeddings** — historical ratings → Item2Vec/item metadata/ALS embeddings → user and item vectors.
 
 ```
 ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob ──► embedding.txt
+      │                                                               │
+      └────────────────────► UserEmbeddingTrainingJob ◄──────────────┘
+                                      │
+                                      ▼
+                              user_embedding.txt
+
+ratings.csv ──► AlsEmbeddingTrainingJob ──► als/userFactors + als/itemFactors
 
 producer.py ──► Kafka (user_events)
                     │
@@ -217,4 +224,120 @@ Embedding output — one item per line:
 
 ```text
 item_1:0.0123 -0.4567 0.8910 ...
+```
+
+### UserEmbeddingTrainingJob
+
+Builds user embeddings by averaging the embeddings of items a user rated positively.
+
+This keeps the user-vector path intentionally simple. Item embeddings can come from:
+
+- Word2Vec / Item2Vec trained on watch or rating sequences.
+- Content embeddings from title, genre, description, or other metadata.
+- ALS or matrix factorization, which can directly learn both user and item latent vectors.
+
+Steps:
+1. Load `ratings.csv`.
+2. Keep positive ratings (`rating >= 3.5` by default).
+3. Load item embeddings in `movieId:v1 v2 ...` format.
+4. Join ratings with item embeddings by `movieId`.
+5. Group by `userId`.
+6. Average the positive items' vectors to produce `userEmbedding`.
+
+```bash
+spark-submit \
+  --class com.demo.recsys.UserEmbeddingTrainingJob \
+  path/to/spark-recsys-job.jar \
+  spark-recsys/sampledata/ratings.csv \
+  spark-recsys/sampledata/embedding.txt \
+  spark-recsys/sampledata/user_embedding.txt
+```
+
+For a quick local demo without first running Item2Vec, use the sample item vectors:
+
+```bash
+spark-submit \
+  --class com.demo.recsys.UserEmbeddingTrainingJob \
+  path/to/spark-recsys-job.jar \
+  spark-recsys/sampledata/ratings.csv \
+  spark-recsys/sampledata/item_embedding_sample.txt \
+  spark-recsys/sampledata/user_embedding.txt
+```
+
+Environment variable form:
+
+```bash
+RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
+ITEM2VEC_EMBEDDING_PATH=spark-recsys/sampledata/embedding.txt \
+USER_EMBEDDING_OUTPUT_PATH=spark-recsys/sampledata/user_embedding.txt \
+spark-submit --class com.demo.recsys.UserEmbeddingTrainingJob path/to/spark-recsys-job.jar
+```
+
+User embedding output:
+
+```text
+user_1:0.9 0.1 0.0
+```
+
+### AlsEmbeddingTrainingJob
+
+Trains Spark ML `ALS` directly on ratings and exports learned user and item latent factors.
+
+ALS is the simplest path when you want Spark to learn both sides of the embedding space from collaborative behavior:
+
+```scala
+val als = new ALS()
+  .setUserCol("userIdInt")
+  .setItemCol("movieIdInt")
+  .setRatingCol("rating")
+  .setRank(16)
+  .setMaxIter(10)
+  .setRegParam(0.1)
+
+val model = als.fit(ratingsDf)
+val userFactors = model.userFactors
+val itemFactors = model.itemFactors
+```
+
+The job maps string IDs like `user_1` and `item_1` to integer ALS IDs, trains the model, then maps factors back to the original IDs before writing output.
+
+Default hyperparameters:
+
+| Parameter | Default | Env var |
+|---|---|---|
+| `rank` | `16` | `ALS_RANK` |
+| `maxIter` | `10` | `ALS_MAX_ITER` |
+| `regParam` | `0.1` | `ALS_REG_PARAM` |
+
+```bash
+spark-submit \
+  --class com.demo.recsys.AlsEmbeddingTrainingJob \
+  path/to/spark-recsys-job.jar \
+  spark-recsys/sampledata/ratings.csv \
+  spark-recsys/sampledata/als
+```
+
+Environment variable form:
+
+```bash
+RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
+ALS_EMBEDDING_OUTPUT_PATH=spark-recsys/sampledata/als \
+ALS_RANK=16 \
+ALS_MAX_ITER=10 \
+ALS_REG_PARAM=0.1 \
+spark-submit --class com.demo.recsys.AlsEmbeddingTrainingJob path/to/spark-recsys-job.jar
+```
+
+Output:
+
+```text
+spark-recsys/sampledata/als/userFactors/part-...
+spark-recsys/sampledata/als/itemFactors/part-...
+```
+
+Each line uses the same text embedding shape as the other jobs:
+
+```text
+user_1:0.0123 -0.4567 0.8910 ...
+item_1:0.1111 0.2222 0.3333 ...
 ```
