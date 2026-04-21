@@ -29,6 +29,14 @@ producer.py ──► Kafka (user_events)
 
 ## Quick Start
 
+Prerequisites:
+
+```bash
+brew install sbt
+```
+
+Install Apache Spark 3.5.x and make sure `spark-submit` is on your `PATH`.
+
 Start Kafka, Zookeeper, and Redis:
 
 ```bash
@@ -45,9 +53,13 @@ python producer.py
 Run the streaming job (separate terminal):
 
 ```bash
+cd spark-streaming-job
+sbt assembly
+cd ..
+
 spark-submit \
   --class com.demo.streaming.UserEventStreamingJob \
-  path/to/spark-recsys-job.jar
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 Start the retrieval service (separate terminal):
@@ -113,7 +125,7 @@ Redis keys written:
 ```bash
 spark-submit \
   --class com.demo.streaming.UserEventStreamingJob \
-  path/to/spark-recsys-job.jar
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 ### Retrieval Service
@@ -174,7 +186,7 @@ Output columns: `userId`, `movieIds`, `movieIdStr`
 ```bash
 spark-submit \
   --class com.demo.recsys.ItemSequencePreprocessingJob \
-  path/to/spark-recsys-job.jar \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   spark-recsys/sampledata/ratings.csv \
   /tmp/spark-recsys/item-sequences
 ```
@@ -184,7 +196,7 @@ Environment variable form:
 ```bash
 RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
 ITEM_SEQUENCES_OUTPUT_PATH=/tmp/spark-recsys/item-sequences \
-spark-submit --class com.demo.recsys.ItemSequencePreprocessingJob path/to/spark-recsys-job.jar
+spark-submit --class com.demo.recsys.ItemSequencePreprocessingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 ### Item2VecTrainingJob
@@ -203,7 +215,7 @@ Default hyperparameters:
 ```bash
 spark-submit \
   --class com.demo.recsys.Item2VecTrainingJob \
-  path/to/spark-recsys-job.jar \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   spark-recsys/sampledata/ratings.csv \
   spark-recsys/sampledata/embedding.txt \
   item_1
@@ -217,7 +229,7 @@ Environment variable form:
 RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
 ITEM2VEC_EMBEDDING_PATH=spark-recsys/sampledata/embedding.txt \
 ITEM2VEC_QUERY_ITEM=item_1 \
-spark-submit --class com.demo.recsys.Item2VecTrainingJob path/to/spark-recsys-job.jar
+spark-submit --class com.demo.recsys.Item2VecTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 Embedding output — one item per line:
@@ -247,7 +259,7 @@ Steps:
 ```bash
 spark-submit \
   --class com.demo.recsys.UserEmbeddingTrainingJob \
-  path/to/spark-recsys-job.jar \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   spark-recsys/sampledata/ratings.csv \
   spark-recsys/sampledata/embedding.txt \
   spark-recsys/sampledata/user_embedding.txt
@@ -258,7 +270,7 @@ For a quick local demo without first running Item2Vec, use the sample item vecto
 ```bash
 spark-submit \
   --class com.demo.recsys.UserEmbeddingTrainingJob \
-  path/to/spark-recsys-job.jar \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   spark-recsys/sampledata/ratings.csv \
   spark-recsys/sampledata/item_embedding_sample.txt \
   spark-recsys/sampledata/user_embedding.txt
@@ -270,7 +282,7 @@ Environment variable form:
 RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
 ITEM2VEC_EMBEDDING_PATH=spark-recsys/sampledata/embedding.txt \
 USER_EMBEDDING_OUTPUT_PATH=spark-recsys/sampledata/user_embedding.txt \
-spark-submit --class com.demo.recsys.UserEmbeddingTrainingJob path/to/spark-recsys-job.jar
+spark-submit --class com.demo.recsys.UserEmbeddingTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 User embedding output:
@@ -312,7 +324,7 @@ Default hyperparameters:
 ```bash
 spark-submit \
   --class com.demo.recsys.AlsEmbeddingTrainingJob \
-  path/to/spark-recsys-job.jar \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   spark-recsys/sampledata/ratings.csv \
   spark-recsys/sampledata/als
 ```
@@ -325,7 +337,7 @@ ALS_EMBEDDING_OUTPUT_PATH=spark-recsys/sampledata/als \
 ALS_RANK=16 \
 ALS_MAX_ITER=10 \
 ALS_REG_PARAM=0.1 \
-spark-submit --class com.demo.recsys.AlsEmbeddingTrainingJob path/to/spark-recsys-job.jar
+spark-submit --class com.demo.recsys.AlsEmbeddingTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 Output:
