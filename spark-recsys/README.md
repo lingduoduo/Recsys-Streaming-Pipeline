@@ -193,14 +193,14 @@ Output columns: `userId`, `movieIds`, `movieIdStr`
 spark-submit \
   --class com.demo.recsys.ItemSequencePreprocessingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  spark-recsys/sampledata/ratings.csv \
+  sampledata/ratings.csv \
   /tmp/spark-recsys/item-sequences
 ```
 
 Environment variable form:
 
 ```bash
-RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
 ITEM_SEQUENCES_OUTPUT_PATH=/tmp/spark-recsys/item-sequences \
 spark-submit --class com.demo.recsys.ItemSequencePreprocessingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
@@ -216,14 +216,15 @@ Default hyperparameters:
 | `vectorSize` | `10` |
 | `windowSize` | `5` |
 | `numIterations` | `10` |
+| `minCount` | `1` |
 | `numSynonyms` | `20` |
 
 ```bash
 spark-submit \
   --class com.demo.recsys.Item2VecTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  spark-recsys/sampledata/ratings.csv \
-  spark-recsys/sampledata/embedding.txt \
+  sampledata/ratings.csv \
+  sampledata/embedding.txt \
   item_1
 ```
 
@@ -232,8 +233,8 @@ Arguments: `<ratings-path> <embedding-output-path> <query-item>`
 Environment variable form:
 
 ```bash
-RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
-ITEM2VEC_EMBEDDING_PATH=spark-recsys/sampledata/embedding.txt \
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ITEM2VEC_EMBEDDING_PATH=sampledata/embedding.txt \
 ITEM2VEC_QUERY_ITEM=item_1 \
 spark-submit --class com.demo.recsys.Item2VecTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
@@ -266,9 +267,9 @@ Steps:
 spark-submit \
   --class com.demo.recsys.UserEmbeddingTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  spark-recsys/sampledata/ratings.csv \
-  spark-recsys/sampledata/embedding.txt \
-  spark-recsys/sampledata/user_embedding.txt
+  sampledata/ratings.csv \
+  sampledata/embedding.txt \
+  sampledata/user_embedding.txt
 ```
 
 For a quick local demo without first running Item2Vec, use the sample item vectors:
@@ -277,17 +278,17 @@ For a quick local demo without first running Item2Vec, use the sample item vecto
 spark-submit \
   --class com.demo.recsys.UserEmbeddingTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  spark-recsys/sampledata/ratings.csv \
-  spark-recsys/sampledata/item_embedding_sample.txt \
-  spark-recsys/sampledata/user_embedding.txt
+  sampledata/ratings.csv \
+  sampledata/item_embedding_sample.txt \
+  sampledata/user_embedding.txt
 ```
 
 Environment variable form:
 
 ```bash
-RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
-ITEM2VEC_EMBEDDING_PATH=spark-recsys/sampledata/embedding.txt \
-USER_EMBEDDING_OUTPUT_PATH=spark-recsys/sampledata/user_embedding.txt \
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ITEM2VEC_EMBEDDING_PATH=sampledata/embedding.txt \
+USER_EMBEDDING_OUTPUT_PATH=sampledata/user_embedding.txt \
 spark-submit --class com.demo.recsys.UserEmbeddingTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
@@ -331,15 +332,15 @@ Default hyperparameters:
 spark-submit \
   --class com.demo.recsys.AlsEmbeddingTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  spark-recsys/sampledata/ratings.csv \
-  spark-recsys/sampledata/als
+  sampledata/ratings.csv \
+  sampledata/als
 ```
 
 Environment variable form:
 
 ```bash
-RATINGS_INPUT_PATH=spark-recsys/sampledata/ratings.csv \
-ALS_EMBEDDING_OUTPUT_PATH=spark-recsys/sampledata/als \
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ALS_EMBEDDING_OUTPUT_PATH=sampledata/als \
 ALS_RANK=16 \
 ALS_MAX_ITER=10 \
 ALS_REG_PARAM=0.1 \
@@ -349,8 +350,8 @@ spark-submit --class com.demo.recsys.AlsEmbeddingTrainingJob spark-streaming-job
 Output:
 
 ```text
-spark-recsys/sampledata/als/userFactors/part-...
-spark-recsys/sampledata/als/itemFactors/part-...
+sampledata/als/userFactors/part-...
+sampledata/als/itemFactors/part-...
 ```
 
 Each line uses the same text embedding shape as the other jobs:

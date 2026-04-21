@@ -11,3 +11,8 @@ project/project/
 # Local Spark checkpoints and logs
 spark-warehouse/
 derby.log
+
+# Generated recommendation demo outputs
+spark-recsys/sampledata/embedding.txt
+spark-recsys/sampledata/user_embedding.txt
+spark-recsys/sampledata/als/

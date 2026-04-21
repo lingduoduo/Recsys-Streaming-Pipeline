@@ -12,6 +12,7 @@ object Item2VecTrainingJob {
   private val DefaultVectorSize = 10
   private val DefaultWindowSize = 5
   private val DefaultNumIterations = 10
+  private val DefaultMinCount = 1
   private val DefaultQueryItem = "592"
   private val DefaultNumSynonyms = 20
   private val DefaultRedisKeyPrefix = "i2vEmb"
@@ -46,6 +47,7 @@ object Item2VecTrainingJob {
         redisPort = sys.env.get("REDIS_PORT").flatMap(toIntOption).getOrElse(6379),
         redisKeyPrefix = sys.env.getOrElse("ITEM2VEC_REDIS_KEY_PREFIX", DefaultRedisKeyPrefix),
         redisTtlSeconds = sys.env.get("ITEM2VEC_REDIS_TTL_SECONDS").flatMap(toIntOption).getOrElse(DefaultRedisTtlSeconds),
+        minCount = sys.env.get("ITEM2VEC_MIN_COUNT").flatMap(toIntOption).getOrElse(DefaultMinCount),
         saveToRedis = sys.env.getOrElse("ITEM2VEC_SAVE_TO_REDIS", "false").toBoolean
       )
     } finally {
@@ -69,6 +71,7 @@ object Item2VecTrainingJob {
       redisPort = sys.env.get("REDIS_PORT").flatMap(toIntOption).getOrElse(6379),
       redisKeyPrefix = sys.env.getOrElse("ITEM2VEC_REDIS_KEY_PREFIX", DefaultRedisKeyPrefix),
       redisTtlSeconds = sys.env.get("ITEM2VEC_REDIS_TTL_SECONDS").flatMap(toIntOption).getOrElse(DefaultRedisTtlSeconds),
+      minCount = sys.env.get("ITEM2VEC_MIN_COUNT").flatMap(toIntOption).getOrElse(DefaultMinCount),
       saveToRedis = sys.env.getOrElse("ITEM2VEC_SAVE_TO_REDIS", "false").toBoolean
     )
   }
@@ -81,6 +84,7 @@ object Item2VecTrainingJob {
       windowSize: Int = DefaultWindowSize,
       numIterations: Int = DefaultNumIterations,
       numSynonyms: Int = DefaultNumSynonyms,
+      minCount: Int = DefaultMinCount,
       redisHost: String = "localhost",
       redisPort: Int = 6379,
       redisKeyPrefix: String = DefaultRedisKeyPrefix,
@@ -91,6 +95,7 @@ object Item2VecTrainingJob {
       .setVectorSize(vectorSize)
       .setWindowSize(windowSize)
       .setNumIterations(numIterations)
+      .setMinCount(minCount)
 
     val model = word2vec.fit(samples)
     val vectors = model.getVectors
