@@ -1,79 +1,63 @@
-package com.tumblr.search.jobs
+package com.demo.analysis
 
-import com.tumblr.lucille2.spark.{TumblrArgs, TumblrSparkJob}
-import com.tumblr.lucille2.typed.{FsPath, FsPathResolver}
-
-import org.apache.log4j.{Level, Logger}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Dataset, Row, SparkSession}
-import org.apache.spark.sql.functions.udf
+import org.apache.spark.sql.{Dataset, SparkSession}
+import org.apache.spark.sql.functions._
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.classification.LogisticRegression
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{OneHotEncoder, StringIndexer, VectorAssembler}
-import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 
-object ActiveUsersJob extends TumblrSparkJob {
+object ActiveUsersJob {
 
-    override def run(implicit sc: SparkContext, args: TumblrArgs, pr: FsPathResolver) = {
-
-        val output: String = "hdfs:///cig/spark-active-users"
+    def main(args: Array[String]): Unit = {
+        val hiveMetastoreUri = sys.env.getOrElse("HIVE_METASTORE_URI", "thrift://localhost:9083")
 
         val session = SparkSession
           .builder()
           .appName("Active User Analysis")
-          .config("hive.metastore.uris", "thrift://hive-server.bf2.tumblr.net:9083")
+          .config("hive.metastore.uris", hiveMetastoreUri)
           .config("spark.sql.warehouse.dir", "hdfs:///user/hive/warehouse")
           .enableHiveSupport()
           .getOrCreate()
 
-        val results = session.sql("select * from active_user_social_message_post_search")
+        try {
+            val results = session.sql("select * from active_user_social_message_post_search")
+            results.cache()
 
-        val devices = Set("android", "ios", "web", "other")
-        
-         for (device <- devices) {
+            val devices = Set("android", "ios", "web", "other")
+            for (device <- devices) {
+                println("Device Type:\n" + device)
+                val df = results.where(results.col("devicetype") === device)
+                deviceReport(df)
+                dataPreparation(df)
+            }
 
-              println("Device Type:" + "\n")
-              println(device)
-
-              // Device reports
-              val df = results.where(results.col("devicetype") === device)
-              deviceReport(df)
-
-              // Data preparation
-              dataPreparation(df)
-
-          }
+            results.unpersist()
+        } finally {
+            session.stop()
+        }
     }
 
-    def deviceReport(df: Dataset[_]) = {
+    def deviceReport(df: Dataset[_]): Unit = {
+        println("Number of users:\n" + df.count())
 
-        println("Number of users:" + "\n")
-        println(df.count().toString)
-
-        println("Count by suspended" + "\n")
+        println("Count by suspended\n")
         val results1 = df.groupBy("issuspended").count().as("count")
         results1.orderBy(results1.col("count").desc).show()
 
-        println("Count by suspended and geo" + "\n")
+        println("Count by suspended and geo\n")
         val results2 = df.groupBy("issuspended", "geo").count().as("count")
-        val results3 = results2.groupBy("geo").pivot("issuspended").agg(
-          "count" -> "sum"
-        )
+        val results3 = results2.groupBy("geo").pivot("issuspended").agg("count" -> "sum")
         results3.orderBy(results3.col("true").desc).show()
 
-        println("Distribution by email domain" + "\n")
+        println("Distribution by email domain\n")
         val results4 = df.groupBy("issuspended", "email_domain").count().as("count")
-        val results5 = results4.groupBy("email_domain").pivot("issuspended").agg(
-          "count" -> "sum"
-        )
+        val results5 = results4.groupBy("email_domain").pivot("issuspended").agg("count" -> "sum")
         results5.orderBy(results5.col("true").desc).show()
     }
 
-    def dataPreparation(df: Dataset[_]) = {
-
-      // Define schema
+    def dataPreparation(df: Dataset[_]): Unit = {
       val df2 = df.select(
         df("userid").cast(IntegerType).as("userid"),
         df("issuspended").cast(StringType).as("issuspended"),
@@ -117,106 +101,52 @@ object ActiveUsersJob extends TumblrSparkJob {
         df("days_search").cast(IntegerType).as("days_search")
       )
 
-      // Geo filter
-      val geos = Set("US", "GB", "DE", "RU", "MX", "AU", "CA", "XO", "KR")
-      val geo_filter = udf((geo: String) => {
-            if (geos.contains(geo)) geo
-            else "other"
-      })
-      val df3 = df2.withColumn("geo", geo_filter(df2.col("geo")))
-
-      // Email domain filter
-      val email_domains = Set("gmail.com", "yahoo.com", "hotmail.com", "mail.ru", "outlook.com", "icloud.com", "bk.ru", "inbox.ru")
-      val email_domains_filter = udf((email_domain: String) => {
-        if (email_domains.contains(email_domain)) email_domain
-        else "other"
-      })
-      val df4 = df3.withColumn("email_domain", email_domains_filter(df3.col("email_domain")))
-      df4.groupBy(df4.col("email_domain")).count().show()
-
-      // Geo Indexer and encoder
-      val geoIndexer = new StringIndexer()
-        .setInputCol("geo")
-        .setOutputCol("geoIdx")
-        .setHandleInvalid("skip")
-
-      val geoEncoder = new OneHotEncoder()
-        .setInputCol("geoIdx")
-        .setOutputCol("geoEncoder")
-
-      // Email Indexer and encoder
-      val email_domainsIndexer = new StringIndexer()
-        .setInputCol("email_domain")
-        .setOutputCol("email_domainIdx")
-        .setHandleInvalid("skip")
-
-      val email_domainsEncoder = new OneHotEncoder()
-        .setInputCol("email_domainIdx")
-        .setOutputCol("email_domainEncoder")
-
-      // Label generation
-      val labelIndexer = new StringIndexer()
-        .setInputCol("issuspended")
-        .setOutputCol("label")
-
-      // Assemble the features into a vector
-      val cols = Array(
-        "label",
-        "geoEncoder",
-        "email_domainEncoder",
-        "account_age",
-        "l7",
-        "tot_follow",
-        "tot_unfollow",
-        "tot_received_follow",
-        "tot_received_unfollow",
-        "tot_blog_subscription",
-        "tot_received_blog_subscription",
-        "followers",
-        "received_followers",
-        "days_follow",
-        "days_unfollow",
-        "days_received_follow",
-        "days_received_unfollow",
-        "days_blog_subscription",
-        "days_received_blog_subscription",
-        "tot_new_message",
-        "tot_message",
-        "tot_replies",
-        "num_max_daily_new_message",
-        "mean",
-        "std",
-        "days_new_message",
-        "days_message",
-        "days_replies",
-        "tot_original_post",
-        "tot_reblog_post",
-        "tot_like_post",
-        "days_original_post",
-        "days_reblog_post",
-        "days_reply_post"
-    //    "tot_search",
-    //    "tot_blacklistterm",
-    //    "days_search"
+      // Replace UDFs with native isin/when — optimizer-transparent, no serialization overhead
+      val df3 = df2.withColumn("geo",
+        when(col("geo").isin("US", "GB", "DE", "RU", "MX", "AU", "CA", "XO", "KR"), col("geo"))
+          .otherwise(lit("other"))
       )
-      val assembler = new VectorAssembler()
-        .setInputCols(cols)
-        .setOutputCol("features")
 
-      // Split the dataset
-      val Splits = df4.randomSplit(Array(0.7, 0.3))
-      val (train_set, test_set) = (Splits(0), Splits(1))
+      val df4 = df3.withColumn("email_domain",
+        when(col("email_domain").isin("gmail.com", "yahoo.com", "hotmail.com", "mail.ru", "outlook.com", "icloud.com", "bk.ru", "inbox.ru"), col("email_domain"))
+          .otherwise(lit("other"))
+      )
+      df4.groupBy("email_domain").count().show()
 
-      val logisticRegression = new LogisticRegression().setFamily("binomial")
-      val pipeline = new Pipeline().setStages(Array(geoIndexer, geoEncoder, email_domainsIndexer, email_domainsEncoder, labelIndexer, assembler, logisticRegression))
+      val geoIndexer = new StringIndexer()
+        .setInputCol("geo").setOutputCol("geoIdx").setHandleInvalid("skip")
+      val geoEncoder = new OneHotEncoder()
+        .setInputCol("geoIdx").setOutputCol("geoEncoder")
+      val email_domainsIndexer = new StringIndexer()
+        .setInputCol("email_domain").setOutputCol("email_domainIdx").setHandleInvalid("skip")
+      val email_domainsEncoder = new OneHotEncoder()
+        .setInputCol("email_domainIdx").setOutputCol("email_domainEncoder")
+      val labelIndexer = new StringIndexer()
+        .setInputCol("issuspended").setOutputCol("label")
 
-      val model = pipeline.fit(train_set)
+      val cols = Array(
+        "label", "geoEncoder", "email_domainEncoder",
+        "account_age", "l7",
+        "tot_follow", "tot_unfollow", "tot_received_follow", "tot_received_unfollow",
+        "tot_blog_subscription", "tot_received_blog_subscription",
+        "followers", "received_followers",
+        "days_follow", "days_unfollow", "days_received_follow", "days_received_unfollow",
+        "days_blog_subscription", "days_received_blog_subscription",
+        "tot_new_message", "tot_message", "tot_replies", "num_max_daily_new_message",
+        "mean", "std",
+        "days_new_message", "days_message", "days_replies",
+        "tot_original_post", "tot_reblog_post", "tot_like_post",
+        "days_original_post", "days_reblog_post", "days_reply_post"
+      )
+      val assembler = new VectorAssembler().setInputCols(cols).setOutputCol("features")
 
-      // perform the predictions
-      val predictions = model.transform(test_set)
-      val evaluator = new BinaryClassificationEvaluator()
-      println("Accuracy" + "\n")
-      println(evaluator.evaluate(predictions))
+      val Array(train_set, test_set) = df4.randomSplit(Array(0.7, 0.3))
 
+      val pipeline = new Pipeline().setStages(
+        Array(geoIndexer, geoEncoder, email_domainsIndexer, email_domainsEncoder, labelIndexer, assembler,
+          new LogisticRegression().setFamily("binomial"))
+      )
+      val predictions = pipeline.fit(train_set).transform(test_set)
+      println("Accuracy\n" + new BinaryClassificationEvaluator().evaluate(predictions))
     }
 }
