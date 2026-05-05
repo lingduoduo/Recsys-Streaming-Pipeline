@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); [[ \"$file\" == *.py ]] && test_files=$(find /Users/linghuang/Git/Recsys-Streaming-Pipeline -name 'test_*.py' -o -name '*_test.py' 2>/dev/null | head -1); if [[ -n \"$test_files\" ]]; then cd /Users/linghuang/Git/Recsys-Streaming-Pipeline && python -m pytest --tb=short -q 2>&1 | tail -20; fi || true",
+            "statusMessage": "Running tests..."
+          }
+        ]
+      }
+    ]
+  }
+}
