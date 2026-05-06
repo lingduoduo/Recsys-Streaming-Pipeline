@@ -3,6 +3,7 @@ package com.demo.recsys
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
 
 object ItemSequencePreprocessingJob {
   private val DefaultMinRating = 3.5
@@ -77,10 +78,16 @@ object ItemSequencePreprocessingJob {
       ratingColumn: String = "rating",
       timestampColumn: String = "timestamp"
   ): DataFrame = {
+    val schema = StructType(Seq(
+      StructField(userIdColumn, StringType),
+      StructField(itemIdColumn, StringType),
+      StructField(ratingColumn, DoubleType),
+      StructField(timestampColumn, LongType)
+    ))
     val ratingSamples = sparkSession.read
       .format("csv")
       .option("header", "true")
-      .option("inferSchema", "true")
+      .schema(schema)
       .load(ratingsPath)
 
     processItemSequenceDataFrame(

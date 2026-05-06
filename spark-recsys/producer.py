@@ -7,6 +7,8 @@ from kafka import KafkaProducer
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "user_events")
 EVENTS_PER_SECOND = max(float(os.getenv("EVENTS_PER_SECOND", "1")), 0.1)
+NUM_USERS = max(int(os.getenv("NUM_USERS", "5")), 1)
+NUM_ITEMS = max(int(os.getenv("NUM_ITEMS", "10")), 1)
 
 producer = KafkaProducer(
     bootstrap_servers=BOOTSTRAP_SERVERS,
@@ -18,8 +20,8 @@ producer = KafkaProducer(
     compression_type="gzip",
 )
 
-users = [f"user_{i}" for i in range(1, 6)]
-items = [f"item_{i}" for i in range(1, 11)]
+users = [f"user_{i}" for i in range(1, NUM_USERS + 1)]
+items = [f"item_{i}" for i in range(1, NUM_ITEMS + 1)]
 
 try:
     while True:

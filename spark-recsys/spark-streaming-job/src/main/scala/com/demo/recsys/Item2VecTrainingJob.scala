@@ -2,9 +2,9 @@ package com.demo.recsys
 
 import java.io.{BufferedWriter, File, FileWriter}
 
-import org.apache.spark.mllib.feature.Word2Vec
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.ml.feature.{Word2Vec => MLWord2Vec}
+import org.apache.spark.ml.linalg.{Vector => MLVector}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.params.SetParams
 
@@ -38,7 +38,7 @@ object Item2VecTrainingJob {
       .getOrCreate()
 
     try {
-      val samples = ItemSequencePreprocessingJob.processItemSequence(spark, ratingsPath)
+      val samples = ItemSequencePreprocessingJob.processItemSequenceDataFrame(spark, ratingsPath)
       trainItem2vec(
         samples = samples,
         embeddingPath = embeddingPath,
@@ -48,15 +48,14 @@ object Item2VecTrainingJob {
         redisKeyPrefix = sys.env.getOrElse("ITEM2VEC_REDIS_KEY_PREFIX", DefaultRedisKeyPrefix),
         redisTtlSeconds = sys.env.get("ITEM2VEC_REDIS_TTL_SECONDS").flatMap(toIntOption).getOrElse(DefaultRedisTtlSeconds),
         minCount = sys.env.get("ITEM2VEC_MIN_COUNT").flatMap(toIntOption).getOrElse(DefaultMinCount),
-        saveToRedis = sys.env.getOrElse("ITEM2VEC_SAVE_TO_REDIS", "false").toBoolean
+        saveToRedis = toBooleanEnv("ITEM2VEC_SAVE_TO_REDIS", default = false)
       )
     } finally {
       spark.stop()
     }
   }
 
-  def trainItem2vec(samples: RDD[Seq[String]]): Unit = {
-    // Mirror ItemSequencePreprocessingJob: try classpath resource dirs before falling back to a relative path.
+  def trainItem2vec(samples: DataFrame): Unit = {
     val defaultEmbeddingPath = sys.env
       .get("ITEM2VEC_EMBEDDING_PATH")
       .orElse(Option(getClass.getResource("/webroot/sampledata/")).map(_.getPath + "embedding.txt"))
@@ -72,12 +71,12 @@ object Item2VecTrainingJob {
       redisKeyPrefix = sys.env.getOrElse("ITEM2VEC_REDIS_KEY_PREFIX", DefaultRedisKeyPrefix),
       redisTtlSeconds = sys.env.get("ITEM2VEC_REDIS_TTL_SECONDS").flatMap(toIntOption).getOrElse(DefaultRedisTtlSeconds),
       minCount = sys.env.get("ITEM2VEC_MIN_COUNT").flatMap(toIntOption).getOrElse(DefaultMinCount),
-      saveToRedis = sys.env.getOrElse("ITEM2VEC_SAVE_TO_REDIS", "false").toBoolean
+      saveToRedis = toBooleanEnv("ITEM2VEC_SAVE_TO_REDIS", default = false)
     )
   }
 
   def trainItem2vec(
-      samples: RDD[Seq[String]],
+      samples: DataFrame,
       embeddingPath: String,
       queryItem: String = DefaultQueryItem,
       vectorSize: Int = DefaultVectorSize,
@@ -91,20 +90,30 @@ object Item2VecTrainingJob {
       redisTtlSeconds: Int = DefaultRedisTtlSeconds,
       saveToRedis: Boolean = false
   ): Unit = {
-    val word2vec = new Word2Vec()
+    val word2vec = new MLWord2Vec()
+      .setInputCol("movieIds")
+      .setOutputCol("_ignored")
       .setVectorSize(vectorSize)
       .setWindowSize(windowSize)
-      .setNumIterations(numIterations)
+      .setMaxIter(numIterations)
       .setMinCount(minCount)
 
     val model = word2vec.fit(samples)
-    val vectors = model.getVectors
+    val vectors: Map[String, Array[Float]] = model.getVectors
+      .collect()
+      .map { row => row.getString(0) -> row.getAs[MLVector](1).toDense.values.map(_.toFloat) }
+      .toMap
 
     if (vectors.contains(queryItem)) {
-      val synonyms = model.findSynonyms(queryItem, numSynonyms)
-      for ((synonym, cosineSimilarity) <- synonyms) {
-        println(s"$synonym $cosineSimilarity")
-      }
+      vectors.toSeq
+        .map { case (word, vec) =>
+          val dot = vec.zip(vectors(queryItem)).map { case (a, b) => a * b }.sum
+          word -> dot
+        }
+        .filter(_._1 != queryItem)
+        .sortBy(-_._2)
+        .take(numSynonyms)
+        .foreach { case (synonym, score) => println(s"$synonym $score") }
     } else {
       println(s"Query item '$queryItem' was not found in the trained Item2Vec vocabulary.")
     }
@@ -142,6 +151,7 @@ object Item2VecTrainingJob {
   ): Unit = {
     val jedis = new Jedis(redisHost, redisPort)
     try {
+
       val pipeline = jedis.pipelined()
       val params = SetParams.setParams().ex(ttlSeconds)
       var count = 0
@@ -159,4 +169,14 @@ object Item2VecTrainingJob {
   private def toIntOption(value: String): Option[Int] =
     try Some(value.toInt)
     catch { case _: NumberFormatException => None }
+
+  private def toBooleanEnv(key: String, default: Boolean): Boolean =
+    sys.env.get(key).map(_.trim.toLowerCase) match {
+      case Some("true")  => true
+      case Some("false") => false
+      case Some(other)   =>
+        System.err.println(s"Unrecognised boolean value for $key: '$other', using default=$default")
+        default
+      case None => default
+    }
 }

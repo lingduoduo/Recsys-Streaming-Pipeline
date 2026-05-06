@@ -1,9 +1,10 @@
 package com.demo.recsys
 
-import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
 
 object AlsEmbeddingTrainingJob {
   private val DefaultRank = 16
@@ -42,22 +43,6 @@ object AlsEmbeddingTrainingJob {
     } finally {
       spark.stop()
     }
-  }
-
-  def trainAlsEmbeddings(
-      sparkSession: SparkSession,
-      ratingsPath: String,
-      rank: Int = DefaultRank,
-      maxIter: Int = DefaultMaxIter,
-      regParam: Double = DefaultRegParam
-  ): (DataFrame, DataFrame) = {
-    trainAlsEmbeddings(
-      sparkSession = sparkSession,
-      ratings = readRatings(sparkSession, ratingsPath),
-      rank = rank,
-      maxIter = maxIter,
-      regParam = regParam
-    )
   }
 
   def trainAlsEmbeddings(
@@ -103,37 +88,44 @@ object AlsEmbeddingTrainingJob {
     val model = als.fit(indexedRatings)
     indexedRatings.unpersist()
 
-    val userIdMap = userIndexer.labels.zipWithIndex
-      .map { case (userId, index) => (index, userId) }
-      .toSeq
-      .toDF("id", "userId")
+    val userDecoder = new IndexToString()
+      .setInputCol("idDouble")
+      .setOutputCol("userId")
+      .setLabels(userIndexer.labels)
 
-    val movieIdMap = itemIndexer.labels.zipWithIndex
-      .map { case (movieId, index) => (index, movieId) }
-      .toSeq
-      .toDF("id", "movieId")
+    val movieDecoder = new IndexToString()
+      .setInputCol("idDouble")
+      .setOutputCol("movieId")
+      .setLabels(itemIndexer.labels)
 
-    val userFactors = model.userFactors
-      .join(userIdMap, Seq("id"))
+    val userFactors = userDecoder
+      .transform(model.userFactors.withColumn("idDouble", col("id").cast(DoubleType)))
       .select(col("userId"), col("features").as("userEmbedding"))
 
-    val itemFactors = model.itemFactors
-      .join(movieIdMap, Seq("id"))
+    val itemFactors = movieDecoder
+      .transform(model.itemFactors.withColumn("idDouble", col("id").cast(DoubleType)))
       .select(col("movieId"), col("features").as("itemEmbedding"))
 
     (userFactors, itemFactors)
   }
 
+  private val ratingsSchema = StructType(Seq(
+    StructField("userId", StringType),
+    StructField("movieId", StringType),
+    StructField("rating", DoubleType),
+    StructField("timestamp", LongType)
+  ))
+
   private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame =
     sparkSession.read
       .format("csv")
       .option("header", "true")
-      .option("inferSchema", "true")
+      .schema(ratingsSchema)
       .load(ratingsPath)
       .select(
-        col("userId").cast("string").as("userId"),
-        col("movieId").cast("string").as("movieId"),
-        col("rating").cast("double").as("rating")
+        col("userId"),
+        col("movieId"),
+        col("rating")
       )
       .where(
         col("userId").isNotNull &&

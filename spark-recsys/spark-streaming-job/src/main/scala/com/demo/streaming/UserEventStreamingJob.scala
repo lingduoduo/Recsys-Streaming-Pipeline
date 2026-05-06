@@ -4,9 +4,11 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
+import org.slf4j.LoggerFactory
 import redis.clients.jedis.Jedis
 
 object UserEventStreamingJob {
+  private val log = LoggerFactory.getLogger(getClass)
 
   def main(args: Array[String]): Unit = {
     val appName = sys.env.getOrElse("SPARK_APP_NAME", "UserEventStreamingJob")
@@ -41,7 +43,7 @@ object UserEventStreamingJob {
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("subscribe", kafkaTopic)
-      .option("startingOffsets", "latest")
+      .option("startingOffsets", "earliest")
       .option("failOnDataLoss", "false")
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
@@ -68,18 +70,18 @@ object UserEventStreamingJob {
             userItems.getOrElseUpdate(user, scala.collection.mutable.ArrayBuffer.empty) += item
             itemCounts(item) = itemCounts.getOrElse(item, 0) + 1
           } catch {
-            case _: Exception => // skip malformed rows
+            case e: Exception =>
+              log.warn("Skipping malformed row: {}", e.getMessage)
           }
         }
 
         val jedis = new Jedis(redisHost, redisPort)
-        val pipeline = jedis.pipelined()
-        var pendingCommands = 0
-
-        def flushIfNeeded(): Unit =
-          if (pendingCommands >= redisPipelineSize) { pipeline.sync(); pendingCommands = 0 }
-
         try {
+          val pipeline = jedis.pipelined()
+          var pendingCommands = 0
+
+          def flushIfNeeded(): Unit =
+            if (pendingCommands >= redisPipelineSize) { pipeline.sync(); pendingCommands = 0 }
           // One LPUSH (with all items) + one LTRIM per user instead of per event
           userItems.foreach { case (user, items) =>
             val recentKey = s"user:$user:recent"
@@ -100,6 +102,7 @@ object UserEventStreamingJob {
         } finally {
           jedis.close()
         }
+
       }
     }
       .option("checkpointLocation", checkpointLocation)
