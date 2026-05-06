@@ -1,4 +1,15 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline status)",
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline diff)",
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline log --oneline -5)",
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline checkout -b optimize/spark-recsys)",
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline add spark-recsys/spark-streaming-job/src/main/scala/com/demo/recsys/AlsEmbeddingTrainingJob.scala spark-recsys/spark-streaming-job/src/main/scala/com/demo/recsys/Item2VecTrainingJob.scala spark-recsys/spark-streaming-job/src/main/scala/com/demo/recsys/UserEmbeddingTrainingJob.scala)",
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline commit -m ' *)",
+      "Bash(git -C /Users/linghuang/Git/Recsys-Streaming-Pipeline push -u origin optimize/spark-recsys)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
