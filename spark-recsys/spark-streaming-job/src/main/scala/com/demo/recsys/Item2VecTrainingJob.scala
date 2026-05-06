@@ -55,26 +55,6 @@ object Item2VecTrainingJob {
     }
   }
 
-  def trainItem2vec(samples: DataFrame): Unit = {
-    val defaultEmbeddingPath = sys.env
-      .get("ITEM2VEC_EMBEDDING_PATH")
-      .orElse(Option(getClass.getResource("/webroot/sampledata/")).map(_.getPath + "embedding.txt"))
-      .orElse(Option(getClass.getResource("/sampledata/")).map(_.getPath + "embedding.txt"))
-      .getOrElse("spark-recsys/sampledata/embedding.txt")
-
-    trainItem2vec(
-      samples = samples,
-      embeddingPath = defaultEmbeddingPath,
-      queryItem = sys.env.getOrElse("ITEM2VEC_QUERY_ITEM", DefaultQueryItem),
-      redisHost = sys.env.getOrElse("REDIS_HOST", "localhost"),
-      redisPort = sys.env.get("REDIS_PORT").flatMap(toIntOption).getOrElse(6379),
-      redisKeyPrefix = sys.env.getOrElse("ITEM2VEC_REDIS_KEY_PREFIX", DefaultRedisKeyPrefix),
-      redisTtlSeconds = sys.env.get("ITEM2VEC_REDIS_TTL_SECONDS").flatMap(toIntOption).getOrElse(DefaultRedisTtlSeconds),
-      minCount = sys.env.get("ITEM2VEC_MIN_COUNT").flatMap(toIntOption).getOrElse(DefaultMinCount),
-      saveToRedis = toBooleanEnv("ITEM2VEC_SAVE_TO_REDIS", default = false)
-    )
-  }
-
   def trainItem2vec(
       samples: DataFrame,
       embeddingPath: String,

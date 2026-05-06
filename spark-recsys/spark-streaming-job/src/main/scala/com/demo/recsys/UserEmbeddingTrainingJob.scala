@@ -1,7 +1,6 @@
 package com.demo.recsys
 
-import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.expressions.UserDefinedFunction
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import scala.util.Try
@@ -9,7 +8,6 @@ import scala.util.Try
 object UserEmbeddingTrainingJob {
   private val DefaultMinRating = 3.5
 
-  case class Rating(userId: String, movieId: String, rating: Double)
   case class ItemEmbedding(movieId: String, vector: Seq[Double])
 
   def main(args: Array[String]): Unit = {
@@ -69,34 +67,19 @@ object UserEmbeddingTrainingJob {
       itemEmbeddings: DataFrame,
       minRating: Double
   ): DataFrame = {
-    val averageVecs: UserDefinedFunction = udf { vecs: Seq[Seq[Double]] =>
-      if (vecs.isEmpty) Seq.empty[Double]
-      else {
-        val n = vecs.head.length
-        val sum = Array.fill[Double](n)(0.0)
-        vecs.foreach { vec =>
-          var i = 0
-          while (i < n) { sum(i) += vec(i); i += 1 }
-        }
-        val sz = vecs.size.toDouble
-        sum.map(_ / sz).toSeq
-      }
-    }
-
-    val vectorToString: UserDefinedFunction = udf { vec: Seq[Double] =>
-      vec.mkString(" ")
-    }
-
-    val positiveRatings = ratings.filter(col("rating") >= lit(minRating))
-    val joined = positiveRatings.join(itemEmbeddings, Seq("movieId"))
-
-    val userGrouped = joined
+    val userGrouped = ratings.filter(col("rating") >= lit(minRating))
+      .join(itemEmbeddings, Seq("movieId"))
       .groupBy("userId")
       .agg(collect_list(col("vector")).as("vecs"))
 
+    val sumVec = aggregate(
+      col("vecs"),
+      array_repeat(lit(0.0), size(element_at(col("vecs"), 1))),
+      (acc: Column, v: Column) => zip_with(acc, v, (a: Column, b: Column) => a + b)
+    )
     userGrouped
-      .withColumn("userEmbedding", averageVecs(col("vecs")))
-      .withColumn("userEmbeddingStr", vectorToString(col("userEmbedding")))
+      .withColumn("userEmbedding", transform(sumVec, (x: Column) => x / size(col("vecs"))))
+      .withColumn("userEmbeddingStr", array_join(transform(col("userEmbedding"), (x: Column) => x.cast("string")), " "))
       .select("userId", "userEmbedding", "userEmbeddingStr")
   }
 
@@ -107,18 +90,13 @@ object UserEmbeddingTrainingJob {
     StructField("timestamp", LongType)
   ))
 
-  private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame = {
-    import sparkSession.implicits._
-
+  private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame =
     sparkSession.read
       .format("csv")
       .option("header", "true")
       .schema(ratingsSchema)
       .load(ratingsPath)
       .select(col("userId"), col("movieId"), col("rating"))
-      .as[Rating]
-      .toDF()
-  }
 
   private def readItemEmbeddings(sparkSession: SparkSession, itemEmbeddingPath: String): DataFrame = {
     import sparkSession.implicits._

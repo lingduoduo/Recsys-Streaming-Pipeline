@@ -38,8 +38,8 @@ object AlsEmbeddingTrainingJob {
         regParam = sys.env.get("ALS_REG_PARAM").flatMap(toDoubleOption).getOrElse(DefaultRegParam)
       )
 
-      writeFactors(userFactors, s"$outputPath/userFactors")
-      writeFactors(itemFactors, s"$outputPath/itemFactors")
+      writeFactors(userFactors, s"$outputPath/userFactors", "userId", "userEmbedding")
+      writeFactors(itemFactors, s"$outputPath/itemFactors", "movieId", "itemEmbedding")
     } finally {
       spark.stop()
     }
@@ -133,14 +133,11 @@ object AlsEmbeddingTrainingJob {
           col("rating").isNotNull
       )
 
-  private def writeFactors(factors: DataFrame, outputPath: String): Unit = {
-    val idColumn = factors.columns.head
-    val embeddingColumn = factors.columns(1)
+  private def writeFactors(factors: DataFrame, outputPath: String, idCol: String, embeddingCol: String): Unit = {
     val vectorToString = udf { vector: Seq[Float] => vector.mkString(" ") }
-
     factors
-      .withColumn("embeddingStr", vectorToString(col(embeddingColumn)))
-      .select(concat_ws(":", col(idColumn), col("embeddingStr")).as("value"))
+      .withColumn("embeddingStr", vectorToString(col(embeddingCol)))
+      .select(concat_ws(":", col(idCol), col("embeddingStr")).as("value"))
       .write
       .mode("overwrite")
       .text(outputPath)
