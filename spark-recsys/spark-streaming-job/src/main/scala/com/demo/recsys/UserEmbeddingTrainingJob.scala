@@ -3,6 +3,8 @@ package com.demo.recsys
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import scala.util.Try
 
 object UserEmbeddingTrainingJob {
   private val DefaultMinRating = 3.5
@@ -98,19 +100,22 @@ object UserEmbeddingTrainingJob {
       .select("userId", "userEmbedding", "userEmbeddingStr")
   }
 
+  private val ratingsSchema = StructType(Seq(
+    StructField("userId", StringType),
+    StructField("movieId", StringType),
+    StructField("rating", DoubleType),
+    StructField("timestamp", LongType)
+  ))
+
   private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame = {
     import sparkSession.implicits._
 
     sparkSession.read
       .format("csv")
       .option("header", "true")
-      .option("inferSchema", "true")
+      .schema(ratingsSchema)
       .load(ratingsPath)
-      .select(
-        col("userId").cast("string").as("userId"),
-        col("movieId").cast("string").as("movieId"),
-        col("rating").cast("double").as("rating")
-      )
+      .select(col("userId"), col("movieId"), col("rating"))
       .as[Rating]
       .toDF()
   }
@@ -125,8 +130,8 @@ object UserEmbeddingTrainingJob {
         if (parts.length != 2 || parts(0).trim.isEmpty || parts(1).trim.isEmpty) {
           None
         } else {
-          val vector = parts(1).trim.split("\\s+").map(_.toDouble).toSeq
-          Some(ItemEmbedding(parts(0).trim, vector))
+          Try(parts(1).trim.split("\\s+").map(_.toDouble).toSeq).toOption
+            .map(vector => ItemEmbedding(parts(0).trim, vector))
         }
       }
       .toDF()

@@ -1,3 +1,5 @@
+# Dev-only: Kafka and Redis run with no authentication.
+# Do not use this compose file as-is for staging or production.
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
