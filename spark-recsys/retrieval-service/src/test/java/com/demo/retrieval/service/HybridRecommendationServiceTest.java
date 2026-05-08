@@ -18,9 +18,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -55,18 +57,47 @@ class HybridRecommendationServiceTest {
         when(redis.opsForSet()).thenReturn(setOps);
         when(redis.opsForHash()).thenReturn(hashOps);
         when(setOps.size(anyString())).thenReturn(1L);
-        when(hashOps.get(anyString(), anyString())).thenReturn("10");
-        when(hashOps.entries(anyString())).thenReturn(Map.of(
-            "requests", "2",
-            "recommendations_served", "4",
-            "clicks", "1",
-            "pseudo_regret_total", "0.2",
-            "reward_total", "1.0",
-            "estimated_reward_total", "2.5",
-            "novelty_total", "1.2",
-            "cold_start_impressions", "1",
-            "exploratory_impressions", "2"
-        ));
+        when(hashOps.get(anyString(), anyString())).thenAnswer(invocation -> switch (invocation.getArgument(0).toString()) {
+            case "bandit:metrics:ucb" -> "10";
+            case "bandit:metrics:thompson" -> "7";
+            default -> "17";
+        });
+        when(hashOps.entries(anyString())).thenAnswer(invocation -> switch (invocation.getArgument(0).toString()) {
+            case "bandit:metrics" -> Map.of(
+                "requests", "5",
+                "recommendations_served", "9",
+                "clicks", "3",
+                "pseudo_regret_total", "0.5",
+                "reward_total", "2.0",
+                "estimated_reward_total", "5.0",
+                "novelty_total", "2.4",
+                "cold_start_impressions", "2",
+                "exploratory_impressions", "4"
+            );
+            case "bandit:metrics:ucb" -> Map.of(
+                "requests", "2",
+                "recommendations_served", "4",
+                "clicks", "1",
+                "pseudo_regret_total", "0.2",
+                "reward_total", "1.0",
+                "estimated_reward_total", "2.5",
+                "novelty_total", "1.2",
+                "cold_start_impressions", "1",
+                "exploratory_impressions", "2"
+            );
+            case "bandit:metrics:thompson" -> Map.of(
+                "requests", "3",
+                "recommendations_served", "5",
+                "clicks", "2",
+                "pseudo_regret_total", "0.3",
+                "reward_total", "1.0",
+                "estimated_reward_total", "2.5",
+                "novelty_total", "1.2",
+                "cold_start_impressions", "1",
+                "exploratory_impressions", "2"
+            );
+            default -> Map.of();
+        });
         // executePipelined used by trackServedRecommendations — return empty result list
         when(redis.executePipelined(any(SessionCallback.class))).thenReturn(List.of());
 
@@ -142,8 +173,66 @@ class HybridRecommendationServiceTest {
         assertEquals(Boolean.TRUE, result.get("clicked"));
         assertTrue(result.containsKey("metrics"));
         verify(hashOps).increment("bandit:metrics", "clicks", 1L);
+        verify(hashOps).increment("bandit:metrics:ucb", "clicks", 1L);
         verify(valueOps).increment("bandit:item:item4:clicks", 1);
         verify(hashOps).increment("bandit:metrics", "reward_total", 1.0);
+        verify(hashOps).increment("bandit:metrics:ucb", "reward_total", 1.0);
+    }
+
+    @Test
+    void aggregateMetricsExposePerAlgorithmBreakdown() {
+        Map<String, Object> metrics = service.getAggregateMetrics();
+
+        assertEquals("ucb", metrics.get("algorithm"));
+        assertEquals(2L, metrics.get("requests"));
+        assertEquals(0.2, metrics.get("cumulativePseudoRegret"));
+        Map<String, Object> allAlgorithms = (Map<String, Object>) metrics.get("allAlgorithms");
+        assertTrue(allAlgorithms.containsKey("ucb"));
+        assertTrue(allAlgorithms.containsKey("thompson"));
+        Map<String, Object> thompsonMetrics = (Map<String, Object>) allAlgorithms.get("thompson");
+        assertEquals(3L, thompsonMetrics.get("requests"));
+        Map<String, Object> globalMetrics = (Map<String, Object>) metrics.get("global");
+        assertEquals("all", globalMetrics.get("algorithm"));
+        assertEquals(5L, globalMetrics.get("requests"));
+    }
+
+    @Test
+    void ucbExplorationBonusMatchesConfiguredFormula() throws Exception {
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getBandit().setAlgorithm("ucb");
+        properties.getBandit().setExplorationAlpha(0.75);
+        properties.getBandit().setColdStartBoost(1.35);
+        properties.getBandit().setMaxExplorationBonus(1.0);
+
+        HybridRecommendationService localService = new HybridRecommendationService(redis, properties);
+        double bonus = invokeExplorationBonus(localService, 4L, 1L, 100L, true);
+
+        double expected = Math.min(0.75 * Math.sqrt(2.0 * Math.log(102.0) / 5.0) * 1.35, 1.0);
+        assertEquals(expected, bonus, 1.0e-9);
+    }
+
+    @Test
+    void thompsonSamplingBonusStaysWithinBoundsAndProducesSamples() throws Exception {
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getBandit().setAlgorithm("thompson");
+        properties.getBandit().setExplorationAlpha(0.75);
+        properties.getBandit().setMaxExplorationBonus(0.25);
+
+        HybridRecommendationService localService = new HybridRecommendationService(redis, properties);
+        double first = invokeExplorationBonus(localService, 4L, 1L, 100L, true);
+        boolean sawDifferentSample = false;
+
+        for (int i = 0; i < 20; i++) {
+            double sample = invokeExplorationBonus(localService, 4L, 1L, 100L, true);
+            assertTrue(sample >= 0.0);
+            assertTrue(sample <= 0.25);
+            if (Double.compare(first, sample) != 0) {
+                sawDifferentSample = true;
+            }
+        }
+
+        assertTrue(sawDifferentSample, "expected Thompson sampling to produce non-identical draws");
+        assertNotEquals(0.0, first);
     }
 
     private MovieProfile movie(List<String> genres, List<String> tags, boolean newRelease) {
@@ -152,5 +241,23 @@ class HybridRecommendationServiceTest {
         profile.setTags(tags);
         profile.setNewRelease(newRelease);
         return profile;
+    }
+
+    private double invokeExplorationBonus(
+        HybridRecommendationService localService,
+        long itemImpressions,
+        long clicks,
+        long totalImpressions,
+        boolean coldStart
+    ) throws Exception {
+        Method method = HybridRecommendationService.class.getDeclaredMethod(
+            "computeExplorationBonus",
+            long.class,
+            long.class,
+            long.class,
+            boolean.class
+        );
+        method.setAccessible(true);
+        return (double) method.invoke(localService, itemImpressions, clicks, totalImpressions, coldStart);
     }
 }

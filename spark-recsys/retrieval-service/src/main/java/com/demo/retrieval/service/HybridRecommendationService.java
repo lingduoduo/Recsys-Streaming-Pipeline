@@ -30,6 +30,7 @@ public class HybridRecommendationService {
     private static final Logger log = LoggerFactory.getLogger(HybridRecommendationService.class);
     private static final String GLOBAL_POPULARITY_KEY = "global:item_popularity";
     private static final String METRICS_HASH_KEY = "bandit:metrics";
+    private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson");
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
 
@@ -105,7 +106,7 @@ public class HybridRecommendationService {
                 recent,
                 List.of(),
                 List.of(),
-                Map.of("eligibleCandidateCount", 0, "algorithm", properties.getBandit().getAlgorithm())
+                Map.of("eligibleCandidateCount", 0, "algorithm", currentAlgorithm())
             );
         }
 
@@ -146,7 +147,7 @@ public class HybridRecommendationService {
             .toList();
 
         Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("algorithm", properties.getBandit().getAlgorithm());
+        metrics.put("algorithm", currentAlgorithm());
         metrics.put("eligibleCandidateCount", eligible.size());
         metrics.put("randomizationPool", Math.min(properties.getCandidateGeneration().getTopNRandomizationPool(), scored.size()));
         metrics.put("pseudoRegret", round(pseudoRegret));
@@ -181,27 +182,19 @@ public class HybridRecommendationService {
     }
 
     public Map<String, Object> getAggregateMetrics() {
-        Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(METRICS_HASH_KEY)).orElseGet(Map::of);
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        long requests = readLong(raw.get("requests"));
-        long served = readLong(raw.get("recommendations_served"));
-        long clicks = readLong(raw.get("clicks"));
-        double pseudoRegret = readDouble(raw.get("pseudo_regret_total"));
-        double rewardTotal = readDouble(raw.get("reward_total"));
-        double estimatedRewardTotal = readDouble(raw.get("estimated_reward_total"));
-        double noveltyTotal = readDouble(raw.get("novelty_total"));
+        String algorithm = currentAlgorithm();
+        Map<String, Object> metrics = buildAggregateMetricsForAlgorithm(algorithm);
 
-        metrics.put("requests", requests);
-        metrics.put("recommendationsServed", served);
-        metrics.put("clicks", clicks);
-        metrics.put("ctr", served == 0 ? 0.0 : round((double) clicks / served));
-        metrics.put("avgObservedReward", served == 0 ? 0.0 : round(rewardTotal / served));
-        metrics.put("avgEstimatedReward", served == 0 ? 0.0 : round(estimatedRewardTotal / served));
-        metrics.put("avgPseudoRegret", requests == 0 ? 0.0 : round(pseudoRegret / requests));
-        metrics.put("avgNoveltyScore", served == 0 ? 0.0 : round(noveltyTotal / served));
-        metrics.put("coldStartImpressions", readLong(raw.get("cold_start_impressions")));
-        metrics.put("exploratoryImpressions", readLong(raw.get("exploratory_impressions")));
-        metrics.put("catalogCoverage", round(resolveCatalogCoverage()));
+        Map<String, Object> allAlgorithms = new LinkedHashMap<>();
+        for (String candidate : supportedAlgorithms()) {
+            Map<String, Object> candidateMetrics = buildAggregateMetricsForAlgorithm(candidate);
+            if (hasRecordedActivity(candidateMetrics) || candidate.equals(algorithm)) {
+                allAlgorithms.put(candidate, candidateMetrics);
+            }
+        }
+
+        metrics.put("allAlgorithms", allAlgorithms);
+        metrics.put("global", buildAggregateMetricsFromHash(METRICS_HASH_KEY, "all"));
         return metrics;
     }
 
@@ -394,15 +387,76 @@ public class HybridRecommendationService {
 
     private void incrementMetric(String field, long amount) {
         redis.opsForHash().increment(METRICS_HASH_KEY, field, amount);
+        redis.opsForHash().increment(metricsHashKey(currentAlgorithm()), field, amount);
     }
 
     private void incrementMetric(String field, double amount) {
         redis.opsForHash().increment(METRICS_HASH_KEY, field, amount);
+        redis.opsForHash().increment(metricsHashKey(currentAlgorithm()), field, amount);
     }
 
     private long resolveLongMetric(String field) {
-        Object value = redis.opsForHash().get(METRICS_HASH_KEY, field);
+        Object value = redis.opsForHash().get(metricsHashKey(currentAlgorithm()), field);
         return readLong(value);
+    }
+
+    private Map<String, Object> buildAggregateMetricsForAlgorithm(String algorithm) {
+        return buildAggregateMetricsFromHash(metricsHashKey(algorithm), algorithm);
+    }
+
+    private Map<String, Object> buildAggregateMetricsFromHash(String hashKey, String algorithm) {
+        Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(hashKey)).orElseGet(Map::of);
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        long requests = readLong(raw.get("requests"));
+        long served = readLong(raw.get("recommendations_served"));
+        long clicks = readLong(raw.get("clicks"));
+        double pseudoRegret = readDouble(raw.get("pseudo_regret_total"));
+        double rewardTotal = readDouble(raw.get("reward_total"));
+        double estimatedRewardTotal = readDouble(raw.get("estimated_reward_total"));
+        double noveltyTotal = readDouble(raw.get("novelty_total"));
+
+        metrics.put("algorithm", algorithm);
+        metrics.put("requests", requests);
+        metrics.put("recommendationsServed", served);
+        metrics.put("clicks", clicks);
+        metrics.put("ctr", served == 0 ? 0.0 : round((double) clicks / served));
+        metrics.put("avgObservedReward", served == 0 ? 0.0 : round(rewardTotal / served));
+        metrics.put("avgEstimatedReward", served == 0 ? 0.0 : round(estimatedRewardTotal / served));
+        metrics.put("avgPseudoRegret", requests == 0 ? 0.0 : round(pseudoRegret / requests));
+        metrics.put("cumulativePseudoRegret", round(pseudoRegret));
+        metrics.put("avgNoveltyScore", served == 0 ? 0.0 : round(noveltyTotal / served));
+        metrics.put("coldStartImpressions", readLong(raw.get("cold_start_impressions")));
+        metrics.put("exploratoryImpressions", readLong(raw.get("exploratory_impressions")));
+        metrics.put("catalogCoverage", round(resolveCatalogCoverage()));
+        return metrics;
+    }
+
+    private boolean hasRecordedActivity(Map<String, Object> metrics) {
+        Object requests = metrics.get("requests");
+        return requests instanceof Number number && number.longValue() > 0L;
+    }
+
+    private List<String> supportedAlgorithms() {
+        String current = currentAlgorithm();
+        if (SUPPORTED_ALGORITHMS.contains(current)) {
+            return SUPPORTED_ALGORITHMS;
+        }
+
+        List<String> algorithms = new ArrayList<>(SUPPORTED_ALGORITHMS);
+        algorithms.add(current);
+        return algorithms;
+    }
+
+    private String currentAlgorithm() {
+        String algorithm = properties.getBandit().getAlgorithm();
+        if (algorithm == null || algorithm.isBlank()) {
+            return "ucb";
+        }
+        return algorithm.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String metricsHashKey(String algorithm) {
+        return METRICS_HASH_KEY + ":" + algorithm;
     }
 
     private double resolveCatalogCoverage() {
@@ -415,7 +469,7 @@ public class HybridRecommendationService {
     }
 
     private double computeExplorationBonus(long itemImpressions, long clicks, long totalImpressions, boolean coldStart) {
-        String algorithm = properties.getBandit().getAlgorithm().toLowerCase(Locale.ROOT);
+        String algorithm = currentAlgorithm();
         double alpha = properties.getBandit().getExplorationAlpha();
         double maxBonus = properties.getBandit().getMaxExplorationBonus();
 

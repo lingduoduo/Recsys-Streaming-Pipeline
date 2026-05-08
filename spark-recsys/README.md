@@ -37,7 +37,7 @@ For each recommendation request, the service:
    - embedding relevance
    - content similarity from genres and tags
    - popularity
-   - exploration bonus for low-exposure items
+   - exploration bonus for low-exposure items via `ucb` or `thompson`
 5. Randomizes the top scoring pool slightly to avoid deterministic repetition.
 6. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
 
@@ -163,7 +163,7 @@ curl -X POST http://localhost:8080/feedback \
 
 ### `GET /metrics`
 
-Returns aggregate online metrics such as:
+Returns aggregate online metrics for the currently configured algorithm, plus a built-in per-algorithm comparison view.
 
 - `requests`
 - `recommendationsServed`
@@ -172,10 +172,20 @@ Returns aggregate online metrics such as:
 - `avgObservedReward`
 - `avgEstimatedReward`
 - `avgPseudoRegret`
+- `cumulativePseudoRegret`
 - `avgNoveltyScore`
 - `coldStartImpressions`
 - `exploratoryImpressions`
 - `catalogCoverage`
+- `allAlgorithms.ucb`
+- `allAlgorithms.thompson`
+- `global`
+
+Metrics are stored in Redis under:
+
+- `bandit:metrics` for all traffic combined
+- `bandit:metrics:ucb`
+- `bandit:metrics:thompson`
 
 ### `GET /embedding/{item}`
 
@@ -280,6 +290,12 @@ Runtime overrides:
 | `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
 | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
+
+Bandit algorithm notes:
+
+- `ucb` uses an upper-confidence-bound style exploration term based on total impressions and per-item exposure.
+- `thompson` uses Beta sampling from clicks and failures, with an optimistic prior for cold-start items.
+- Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb` or `RECSYS_BANDIT_ALGORITHM=thompson`.
 
 ## Offline Path
 
