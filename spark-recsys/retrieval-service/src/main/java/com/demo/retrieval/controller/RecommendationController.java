@@ -4,6 +4,7 @@ import com.demo.retrieval.service.FeedbackRequest;
 import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.RecommendationResult;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,7 +83,7 @@ public class RecommendationController {
     }
 
     @PostMapping("/feedback")
-    public Map<String, Object> feedback(@RequestBody FeedbackRequest request) {
+    public Map<String, Object> feedback(@Valid @RequestBody FeedbackRequest request) {
         return recommendationService.recordFeedback(request);
     }
 

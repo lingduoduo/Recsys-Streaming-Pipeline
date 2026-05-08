@@ -4,8 +4,10 @@ import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ListOperations;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -15,14 +17,15 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,9 +63,12 @@ class HybridRecommendationServiceTest {
             "pseudo_regret_total", "0.2",
             "reward_total", "1.0",
             "estimated_reward_total", "2.5",
+            "novelty_total", "1.2",
             "cold_start_impressions", "1",
             "exploratory_impressions", "2"
         ));
+        // executePipelined used by trackServedRecommendations — return empty result list
+        when(redis.executePipelined(any(SessionCallback.class))).thenReturn(List.of());
 
         RecommendationProperties properties = new RecommendationProperties();
         properties.getCandidateGeneration().setTopNRandomizationPool(1);
@@ -83,25 +89,36 @@ class HybridRecommendationServiceTest {
 
     @Test
     void recommendInjectsColdStartCandidatesAndReturnsDiagnostics() {
-        when(listOps.range("user:u1:recent", 0L, 1L)).thenReturn(List.of("item1"));
-        when(zSetOps.reverseRange("global:item_popularity", 0L, 5L)).thenReturn(new LinkedHashSet<>(List.of("item2", "item4")));
-        when(zSetOps.score("global:item_popularity", "item2")).thenReturn(10.0);
-        when(zSetOps.score("global:item_popularity", "item4")).thenReturn(2.0);
-        when(zSetOps.score("global:item_popularity", "item7")).thenReturn(1.0);
+        // recent items — fetched with RECENT_HISTORY_SIZE window
+        when(listOps.range(eq("user:u1:recent"), eq(0L), anyLong())).thenReturn(List.of("item1"));
 
-        when(valueOps.get(anyString())).thenAnswer(invocation -> switch (invocation.getArgument(0).toString()) {
-            case "uEmb:u1" -> null;
-            case "i2vEmb:item1" -> "1.0 0.0";
-            case "i2vEmb:item2" -> "0.0 1.0";
-            case "i2vEmb:item4" -> "1.0 0.0";
-            case "i2vEmb:item7" -> "0.7 0.1";
-            case "bandit:item:item2:impressions" -> "12";
-            case "bandit:item:item2:clicks" -> "3";
-            case "bandit:item:item4:impressions" -> "0";
-            case "bandit:item:item4:clicks" -> "0";
-            case "bandit:item:item7:impressions" -> "1";
-            case "bandit:item:item7:clicks" -> "0";
-            default -> null;
+        // popularity — single ZREVRANGE WITHSCORES call
+        Set<ZSetOperations.TypedTuple<String>> popularTuples = new LinkedHashSet<>(List.of(
+            new DefaultTypedTuple<>("item2", 10.0),
+            new DefaultTypedTuple<>("item4", 2.0)
+        ));
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(popularTuples);
+
+        // item vectors
+        when(valueOps.get("uEmb:u1")).thenReturn(null);
+        when(valueOps.get("i2vEmb:item1")).thenReturn("1.0 0.0");
+        when(valueOps.get("i2vEmb:item2")).thenReturn("0.0 1.0");
+        when(valueOps.get("i2vEmb:item4")).thenReturn("1.0 0.0");
+        when(valueOps.get("i2vEmb:item7")).thenReturn("0.7 0.1");
+
+        // batch counter fetch via multiGet — impressions for cold-start filter, then impressions+clicks for scoring
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "bandit:item:item2:impressions" -> "12";
+                case "bandit:item:item2:clicks" -> "3";
+                case "bandit:item:item4:impressions" -> "0";
+                case "bandit:item:item4:clicks" -> "0";
+                case "bandit:item:item7:impressions" -> "1";
+                case "bandit:item:item7:clicks" -> "0";
+                default -> null;
+            }).toList();
         });
 
         RecommendationResult result = service.recommend("u1", 2);
@@ -110,9 +127,11 @@ class HybridRecommendationServiceTest {
         assertEquals(List.of("item1"), result.recent());
         assertEquals(2, result.recommendations().size());
         assertTrue(result.recommendations().contains("item4"));
+        assertFalse(result.recommendations().contains("item1")); // recently viewed — must be excluded
         assertFalse(result.candidateDiagnostics().isEmpty());
         assertEquals("ucb", result.metrics().get("algorithm"));
-        verify(valueOps).increment("bandit:item:item4:impressions", 1);
+        // tracking writes are batched into a single executePipelined call
+        verify(redis).executePipelined(any(SessionCallback.class));
     }
 
     @Test

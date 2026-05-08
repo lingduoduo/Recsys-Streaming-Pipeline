@@ -29,37 +29,37 @@ recsys:
     content-weight: ${RECSYS_CONTENT_WEIGHT:0.25}
     popularity-weight: ${RECSYS_POPULARITY_WEIGHT:0.15}
   catalog:
-    item_1:
+    item1:
       title: "Retro Space Adventure"
       genres: ["sci-fi", "adventure"]
       tags: ["space", "classic", "ensemble"]
       new-release: false
-    item_2:
+    item2:
       title: "City Heat"
       genres: ["action", "thriller"]
       tags: ["crime", "urban", "fast-paced"]
       new-release: false
-    item_3:
+    item3:
       title: "Midnight Runway"
       genres: ["drama", "romance"]
       tags: ["fashion", "character", "emotional"]
       new-release: false
-    item_4:
+    item4:
       title: "Deep Blue Signal"
       genres: ["sci-fi", "thriller"]
       tags: ["ai", "mystery", "future"]
       new-release: true
-    item_5:
+    item5:
       title: "Wild Terrain"
       genres: ["adventure", "family"]
       tags: ["nature", "uplifting", "journey"]
       new-release: true
-    item_6:
+    item6:
       title: "Glass Horizon"
       genres: ["drama", "sci-fi"]
       tags: ["future", "reflective", "arthouse"]
       new-release: false
-    item_7:
+    item7:
       title: "Laugh Circuit"
       genres: ["comedy", "sci-fi"]
       tags: ["robots", "workplace", "feel-good"]
