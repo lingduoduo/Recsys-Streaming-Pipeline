@@ -33,6 +33,7 @@ public class HybridRecommendationService {
     private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson");
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
+    private static final double WARM_PRIOR_STRENGTH = 2.0;
 
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
@@ -254,13 +255,8 @@ public class HybridRecommendationService {
             + (properties.getBandit().getContentWeight() * content)
             + (properties.getBandit().getPopularityWeight() * popularity);
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.isNewRelease());
-        double exploration = computeExplorationBonus(impressions, clicks, totalImpressions, coldStart);
-
-        // Warm items: blend empirical CTR (30%) with model base score (70%); cold-start: trust model only
-        double empiricalCtr = impressions > 0 ? clamp((double) clicks / impressions) : 0.0;
-        double estimatedReward = impressions > 0
-            ? clamp(0.7 * baseScore + 0.3 * empiricalCtr)
-            : clamp(baseScore);
+        BanditArmScore armScore = computeBanditArmScore(baseScore, impressions, clicks, totalImpressions, coldStart);
+        double estimatedReward = armScore.posteriorMean();
         double novelty = 1.0 / (impressions + 1.0);
 
         return new ScoredCandidate(
@@ -269,8 +265,8 @@ public class HybridRecommendationService {
             relevance,
             content,
             popularity,
-            exploration,
-            baseScore + exploration,
+            armScore.explorationBonus(),
+            armScore.rankingScore(),
             coldStart,
             novelty,
             impressions,
@@ -468,23 +464,41 @@ public class HybridRecommendationService {
         return exposed == null ? 0.0 : (double) exposed / catalogSize;
     }
 
-    private double computeExplorationBonus(long itemImpressions, long clicks, long totalImpressions, boolean coldStart) {
+    private BanditArmScore computeBanditArmScore(
+        double baseScore,
+        long itemImpressions,
+        long clicks,
+        long totalImpressions,
+        boolean coldStart
+    ) {
         String algorithm = currentAlgorithm();
-        double alpha = properties.getBandit().getExplorationAlpha();
-        double maxBonus = properties.getBandit().getMaxExplorationBonus();
+        long failures = Math.max(itemImpressions - clicks, 0L);
+        double priorStrength = coldStart
+            ? Math.max(WARM_PRIOR_STRENGTH, properties.getBandit().getColdStartBoost() * 4.0)
+            : WARM_PRIOR_STRENGTH;
+        double priorAlpha = 1.0 + (clamp(baseScore) * priorStrength);
+        double priorBeta = 1.0 + ((1.0 - clamp(baseScore)) * priorStrength);
+        double posteriorAlpha = priorAlpha + clicks;
+        double posteriorBeta = priorBeta + failures;
+        double posteriorMean = clamp(posteriorAlpha / (posteriorAlpha + posteriorBeta));
 
-        double bonus;
         if ("thompson".equals(algorithm)) {
-            // Optimistic Beta prior for cold start: Beta(clicks+2, failures+1) shifts mean toward success
-            double alphaPrior = coldStart ? clicks + 2.0 : clicks + 1.0;
-            double betaPrior = Math.max(itemImpressions - clicks, 0) + 1.0;
-            bonus = alpha * sampleBeta(alphaPrior, betaPrior);
-        } else {
-            // UCB1: coefficient sqrt(2) is the standard; cold start items earn a larger confidence interval
-            double confidence = Math.sqrt(2.0 * Math.log(totalImpressions + 2.0) / (itemImpressions + 1.0));
-            bonus = alpha * confidence * (coldStart ? properties.getBandit().getColdStartBoost() : 1.0);
+            double sampledPosterior = clamp(sampleBeta(posteriorAlpha, posteriorBeta));
+            double explorationMagnitude = Math.min(
+                Math.abs(sampledPosterior - posteriorMean),
+                properties.getBandit().getMaxExplorationBonus()
+            );
+            return new BanditArmScore(posteriorMean, explorationMagnitude, sampledPosterior);
         }
-        return Math.min(bonus, maxBonus);
+
+        double effectivePulls = itemImpressions + priorStrength;
+        double confidence = Math.sqrt(Math.log(totalImpressions + 2.0) / (2.0 * (effectivePulls + 1.0)));
+        double bonus = properties.getBandit().getExplorationAlpha() * confidence;
+        if (coldStart) {
+            bonus *= properties.getBandit().getColdStartBoost();
+        }
+        bonus = Math.min(bonus, properties.getBandit().getMaxExplorationBonus());
+        return new BanditArmScore(posteriorMean, bonus, posteriorMean + bonus);
     }
 
     private double contentScore(MovieProfile profile, Set<String> userGenres, Set<String> userTags) {
@@ -622,6 +636,13 @@ public class HybridRecommendationService {
         double noveltyScore,
         long impressions,
         long clicks
+    ) {
+    }
+
+    private record BanditArmScore(
+        double posteriorMean,
+        double explorationBonus,
+        double rankingScore
     ) {
     }
 }

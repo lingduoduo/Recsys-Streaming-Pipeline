@@ -293,8 +293,9 @@ Runtime overrides:
 
 Bandit algorithm notes:
 
-- `ucb` uses an upper-confidence-bound style exploration term based on total impressions and per-item exposure.
-- `thompson` uses Beta sampling from clicks and failures, with an optimistic prior for cold-start items.
+- `ucb` builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
+- `thompson` builds the same posterior and ranks items by a Beta posterior sample, which gives a concrete stochastic arm draw per request.
+- The recommender's relevance, content, and popularity blend acts as the prior mean for both algorithms, so bandit updates refine rather than replace the base ranker.
 - Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb` or `RECSYS_BANDIT_ALGORITHM=thompson`.
 
 ## Offline Path
