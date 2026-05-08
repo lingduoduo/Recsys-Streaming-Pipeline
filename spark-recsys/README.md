@@ -1,41 +1,66 @@
 # Spark Recsys
 
-A two-path recommendation system demo:
+`spark-recsys` is a small recommendation-system playground with two complementary paths:
 
-- **Real-time retrieval** — Kafka click events → Spark Structured Streaming → Redis → Spring Boot REST API ([RecSys](https://github.com/lingduoduo/RecSys)).
-- **Offline embeddings** — historical ratings → Item2Vec/item metadata/ALS embeddings → user and item vectors.
+- A real-time Kafka -> Spark Structured Streaming -> Redis pipeline that keeps recent user history and global popularity fresh.
+- An offline Spark training flow that builds Item2Vec, user, and ALS embeddings from historical ratings.
 
+The retrieval layer is a Spring Boot service that combines those signals with a lightweight bandit-style ranking policy, cold-start candidate generation, and feedback tracking.
+
+## Architecture
+
+```text
+producer.py -> Kafka topic: user_events -> UserEventStreamingJob -> Redis
+                                                          |-> user:{id}:recent
+                                                          |-> global:item_popularity
+
+ratings.csv -> ItemSequencePreprocessingJob -> Item2VecTrainingJob -> embedding.txt
+                                                                   -> Redis i2vEmb:{item}
+
+ratings.csv + embedding.txt -> UserEmbeddingTrainingJob -> user_embedding.txt
+ratings.csv -> AlsEmbeddingTrainingJob -> als/userFactors + als/itemFactors
+
+Redis + catalog config -> retrieval-service -> /recommend/{user}
+                                           -> /feedback
+                                           -> /metrics
+                                           -> /embedding/{item}
 ```
-ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob ──► embedding.txt
-      │                                                               │
-      └────────────────────► UserEmbeddingTrainingJob ◄──────────────┘
-                                      │
-                                      ▼
-                              user_embedding.txt
 
-ratings.csv ──► AlsEmbeddingTrainingJob ──► als/userFactors + als/itemFactors
+## What The Retrieval Service Does
 
-producer.py ──► Kafka (user_events)
-                    │
-                    ▼
-          UserEventStreamingJob (Spark Streaming)
-                    │
-          ┌─────────┴──────────┐
-          │ user:{id}:recent   │  global:item_popularity
-          └─────────┬──────────┘
-                    ▼
-        GET /recommend/{user}  (Spring Boot)
-```
+For each recommendation request, the service:
+
+1. Loads the user's recent click history from Redis.
+2. Pulls popular items from `global:item_popularity`.
+3. Generates extra cold-start candidates from the configured catalog.
+4. Scores candidates with a weighted blend of:
+   - embedding relevance
+   - content similarity from genres and tags
+   - popularity
+   - exploration bonus for low-exposure items
+5. Randomizes the top scoring pool slightly to avoid deterministic repetition.
+6. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
+
+The default catalog and ranking weights live in `retrieval-service/src/main/resources/application.yml`.
 
 ## Quick Start
 
 Prerequisites:
 
-```bash
-brew install sbt
-```
+- Java 17
+- Apache Spark 3.5.x with Scala 2.12
+- `sbt`
+- Maven 3.8+
+- Docker / Docker Compose
+- Python 3
 
-Install Apache Spark 3.5.x and use Java 17. If Spark is installed outside `/Users/linghuang/opt/spark-3.5.1-bin-hadoop3`, set `SPARK_HOME`.
+Build the Spark job jar:
+
+```bash
+cd spark-streaming-job
+sbt assembly
+cd ..
+```
 
 Start Kafka, Zookeeper, and Redis:
 
@@ -43,90 +68,20 @@ Start Kafka, Zookeeper, and Redis:
 docker compose up -d
 ```
 
-Send synthetic click events:
+Start the clickstream producer:
 
 ```bash
 pip install kafka-python
 python producer.py
 ```
 
-Run the streaming job (separate terminal):
-
-```bash
-cd spark-streaming-job
-sbt assembly
-cd ..
-
-spark-submit \
-  --class com.demo.streaming.UserEventStreamingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-```
-
-Or use the project launcher from `spark-recsys`:
+Run the streaming job:
 
 ```bash
 ./run-streaming-job.sh
 ```
 
-Start the retrieval service (separate terminal):
-
-```bash
-cd retrieval-service
-mvn spring-boot:run
-```
-
-Query recommendations:
-
-```bash
-curl http://localhost:8080/recommend/user_1
-curl http://localhost:8080/recommend/user_1?limit=10
-```
-
-## Real-Time Path
-
-### producer.py
-
-Publishes synthetic click events to the `user_events` Kafka topic.
-
-| Env var | Default | Description |
-|---|---|---|
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
-| `KAFKA_TOPIC` | `user_events` | Topic to publish to |
-| `EVENTS_PER_SECOND` | `1` | Publish rate |
-
-Event schema:
-
-```json
-{"user_id": "user_1", "item_id": "item_3", "event_type": "click", "timestamp": 1713600001}
-```
-
-### UserEventStreamingJob
-
-Spark Structured Streaming job that consumes `user_events` and writes to Redis.
-
-For each micro-batch it:
-1. Collects all items per user and increments per-item click counts.
-2. Issues one `LPUSH` (multi-item) + one `LTRIM` per unique user.
-3. Issues one `ZINCRBY` per unique item using the aggregated count.
-
-Redis keys written:
-
-| Key | Type | Contents |
-|---|---|---|
-| `user:{id}:recent` | list | Most-recent N clicked items (newest first) |
-| `global:item_popularity` | sorted set | Cumulative click count per item |
-
-| Env var | Default | Description |
-|---|---|---|
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
-| `KAFKA_TOPIC` | `user_events` | Topic to consume |
-| `REDIS_HOST` | `localhost` | Redis host |
-| `REDIS_PORT` | `6379` | Redis port |
-| `RECENT_ITEMS_LIMIT` | `20` | Max items kept per user |
-| `REDIS_PIPELINE_SIZE` | `500` | Commands per pipeline flush |
-| `MAX_OFFSETS_PER_TRIGGER` | `5000` | Kafka offsets per trigger |
-| `TRIGGER_INTERVAL` | `5 seconds` | Micro-batch interval |
-| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` | Checkpoint path |
+Or run it directly with `spark-submit`:
 
 ```bash
 spark-submit \
@@ -134,60 +89,203 @@ spark-submit \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
-### Retrieval Service
-
-Spring Boot service at port 8080.
-
-**`GET /recommend/{user}?limit=6`**
-
-Returns recent items the user clicked plus globally popular items (excluding recent ones).
-
-```json
-{
-  "user": "user_1",
-  "recent": ["item_7", "item_2"],
-  "recommendations": ["item_5", "item_9", "item_1"]
-}
-```
-
-| Parameter | Default | Max |
-|---|---|---|
-| `limit` | `6` | `50` |
-
-Build and run:
+Start the retrieval service:
 
 ```bash
 cd retrieval-service
 mvn spring-boot:run
 ```
+
+Query the API:
+
+```bash
+curl http://localhost:8080/recommend/user_1
+curl http://localhost:8080/recommend/user_1?limit=10
+curl http://localhost:8080/metrics
+```
+
+## API
+
+### `GET /recommend/{user}?limit=6`
+
+Returns recent interactions, selected recommendations, per-item diagnostics, and request-level metrics.
+
+Example response:
+
+```json
+{
+  "user": "user_1",
+  "recent": ["item_7", "item_2"],
+  "recommendations": ["item_5", "item_4", "item_1"],
+  "diagnostics": [
+    {
+      "item": "item_5",
+      "estimatedReward": 0.71,
+      "relevanceScore": 0.62,
+      "contentScore": 0.67,
+      "explorationBonus": 0.19,
+      "banditScore": 0.78,
+      "coldStart": true,
+      "impressions": 2,
+      "clicks": 1
+    }
+  ],
+  "metrics": {
+    "algorithm": "ucb",
+    "eligibleCandidateCount": 8,
+    "randomizationPool": 5,
+    "pseudoRegret": 0.04,
+    "avgEstimatedReward": 0.68,
+    "avgExplorationBonus": 0.12,
+    "coldStartShare": 0.5,
+    "catalogCoverage": 0.57
+  }
+}
+```
+
+Notes:
+
+- `limit` defaults to `6`.
+- `limit` is clamped to `1..50`.
+- User and item IDs must match `[a-zA-Z0-9_:-]{1,64}`.
+
+### `POST /feedback`
+
+Records user feedback for an exposed item and updates aggregate metrics.
+
+Example:
+
+```bash
+curl -X POST http://localhost:8080/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{"item":"item_5","clicked":true,"reward":1.0}'
+```
+
+### `GET /metrics`
+
+Returns aggregate online metrics such as:
+
+- `requests`
+- `recommendationsServed`
+- `clicks`
+- `ctr`
+- `avgObservedReward`
+- `avgEstimatedReward`
+- `avgPseudoRegret`
+- `avgNoveltyScore`
+- `coldStartImpressions`
+- `exploratoryImpressions`
+- `catalogCoverage`
+
+### `GET /embedding/{item}`
+
+Returns an item embedding from Redis using key `i2vEmb:{item}`.
+
+## Real-Time Path
+
+### `producer.py`
+
+Publishes synthetic click events to Kafka topic `user_events`.
+
+Environment variables:
+
+| Env var | Default | Description |
+|---|---|---|
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
+| `KAFKA_TOPIC` | `user_events` | Topic to publish to |
+| `EVENTS_PER_SECOND` | `1` | Event rate |
+| `NUM_USERS` | `5` | Size of synthetic user pool |
+| `NUM_ITEMS` | `10` | Size of synthetic item pool |
+
+Event schema:
+
+```json
+{"user_id":"user_1","item_id":"item_3","event_type":"click","timestamp":1713600001}
+```
+
+### `UserEventStreamingJob`
+
+Consumes click events from Kafka and writes Redis state used by the retrieval service.
+
+For each micro-batch it:
+
+1. Aggregates clicked items per user.
+2. Writes batched `LPUSH` plus `LTRIM` updates to `user:{id}:recent`.
+3. Aggregates per-item click counts.
+4. Writes `ZINCRBY` updates to `global:item_popularity`.
+
+Redis keys written:
+
+| Key | Type | Contents |
+|---|---|---|
+| `user:{id}:recent` | list | Most recent clicked items, newest first |
+| `global:item_popularity` | sorted set | Global click counts |
+
+Environment variables:
+
+| Env var | Default |
+|---|---|
+| `SPARK_APP_NAME` | `UserEventStreamingJob` |
+| `SPARK_MASTER` | `local[*]` |
+| `SPARK_SQL_SHUFFLE_PARTITIONS` | `4` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` |
+| `KAFKA_TOPIC` | `user_events` |
+| `REDIS_HOST` | `localhost` |
+| `REDIS_PORT` | `6379` |
+| `RECENT_ITEMS_LIMIT` | `20` |
+| `REDIS_PIPELINE_SIZE` | `500` |
+| `MAX_OFFSETS_PER_TRIGGER` | `5000` |
+| `TRIGGER_INTERVAL` | `5 seconds` |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
+
+## Retrieval Service Configuration
+
+`retrieval-service/src/main/resources/application.yml` defines Redis connectivity plus recommendation settings under `recsys`.
+
+Important properties:
+
+| Property | Default |
+|---|---|
+| `recsys.embeddings.item-prefix` | `i2vEmb` |
+| `recsys.embeddings.user-prefix` | `uEmb` |
+| `recsys.candidate-generation.popularity-fetch-multiplier` | `5` |
+| `recsys.candidate-generation.cold-start-pool-size` | `25` |
+| `recsys.candidate-generation.top-n-randomization-pool` | `5` |
+| `recsys.bandit.algorithm` | `ucb` |
+| `recsys.bandit.exploration-alpha` | `0.75` |
+| `recsys.bandit.max-exploration-bonus` | `0.25` |
+| `recsys.bandit.cold-start-exposure-threshold` | `5` |
+| `recsys.bandit.cold-start-boost` | `1.35` |
+| `recsys.bandit.relevance-weight` | `0.6` |
+| `recsys.bandit.content-weight` | `0.25` |
+| `recsys.bandit.popularity-weight` | `0.15` |
+
+Runtime overrides:
 
 | Env var | Default |
 |---|---|
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |
+| `ITEM_EMBEDDING_PREFIX` | `i2vEmb` |
+| `USER_EMBEDDING_PREFIX` | `uEmb` |
+| `RECSYS_POPULARITY_FETCH_MULTIPLIER` | `5` |
+| `RECSYS_COLD_START_POOL_SIZE` | `25` |
+| `RECSYS_RANDOMIZATION_POOL` | `5` |
+| `RECSYS_BANDIT_ALGORITHM` | `ucb` |
+| `RECSYS_EXPLORATION_ALPHA` | `0.75` |
+| `RECSYS_MAX_EXPLORATION_BONUS` | `0.25` |
+| `RECSYS_COLD_START_THRESHOLD` | `5` |
+| `RECSYS_COLD_START_BOOST` | `1.35` |
+| `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
+| `RECSYS_CONTENT_WEIGHT` | `0.25` |
+| `RECSYS_POPULARITY_WEIGHT` | `0.15` |
 
 ## Offline Path
 
-### ItemSequencePreprocessingJob
+### `ItemSequencePreprocessingJob`
 
-Converts a ratings CSV into time-ordered item sequences per user.
-
-Steps:
-1. Load `ratings.csv`.
-2. Keep positive interactions (`rating >= 3.5` by default).
-3. Group by user and sort each user's items by `timestamp`.
-4. Emit one space-separated sequence per user.
-
-Example input → output:
-
-```
-userId,movieId,rating,timestamp        →   item_1 item_3
-user_1,item_1,4.0,1713600001
-user_1,item_3,5.0,1713600010
-```
-
-Output columns: `userId`, `movieIds`, `movieIdStr`
+Builds time-ordered item sequences from ratings with `rating >= 3.5`.
 
 ```bash
 spark-submit \
@@ -197,27 +295,16 @@ spark-submit \
   /tmp/spark-recsys/item-sequences
 ```
 
-Environment variable form:
+Environment variables:
 
-```bash
-RATINGS_INPUT_PATH=sampledata/ratings.csv \
-ITEM_SEQUENCES_OUTPUT_PATH=/tmp/spark-recsys/item-sequences \
-spark-submit --class com.demo.recsys.ItemSequencePreprocessingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-```
-
-### Item2VecTrainingJob
-
-Trains Spark MLlib `Word2Vec` on sequences from `ItemSequencePreprocessingJob` and writes item embeddings to a text file.
-
-Default hyperparameters:
-
-| Parameter | Default |
+| Env var | Description |
 |---|---|
-| `vectorSize` | `10` |
-| `windowSize` | `5` |
-| `numIterations` | `10` |
-| `minCount` | `1` |
-| `numSynonyms` | `20` |
+| `RATINGS_INPUT_PATH` | Ratings CSV input |
+| `ITEM_SEQUENCES_OUTPUT_PATH` | Optional output path |
+
+### `Item2VecTrainingJob`
+
+Trains Spark MLlib `Word2Vec` on item sequences and writes item embeddings to a text file. It can also publish embeddings into Redis for the retrieval service.
 
 ```bash
 spark-submit \
@@ -228,51 +315,41 @@ spark-submit \
   item_1
 ```
 
-Arguments: `<ratings-path> <embedding-output-path> <query-item>`
+Key environment variables:
 
-Environment variable form:
+| Env var | Default |
+|---|---|
+| `RATINGS_INPUT_PATH` | required if arg omitted |
+| `ITEM2VEC_EMBEDDING_PATH` | `spark-recsys/sampledata/embedding.txt` |
+| `ITEM2VEC_QUERY_ITEM` | `592` |
+| `ITEM2VEC_REDIS_KEY_PREFIX` | `i2vEmb` |
+| `ITEM2VEC_REDIS_TTL_SECONDS` | `86400` |
+| `ITEM2VEC_MIN_COUNT` | `1` |
+| `ITEM2VEC_SAVE_TO_REDIS` | `false` |
+
+Example: train and write embeddings to Redis:
 
 ```bash
-RATINGS_INPUT_PATH=sampledata/ratings.csv \
-ITEM2VEC_EMBEDDING_PATH=sampledata/embedding.txt \
-ITEM2VEC_QUERY_ITEM=item_1 \
-spark-submit --class com.demo.recsys.Item2VecTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
+ITEM2VEC_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+REDIS_PORT=6379 \
+spark-submit \
+  --class com.demo.recsys.Item2VecTrainingJob \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  sampledata/ratings.csv \
+  sampledata/embedding.txt \
+  item_1
 ```
 
-Embedding output — one item per line:
+Output format:
 
 ```text
 item_1:0.0123 -0.4567 0.8910 ...
 ```
 
-### UserEmbeddingTrainingJob
+### `UserEmbeddingTrainingJob`
 
-Builds user embeddings by averaging the embeddings of items a user rated positively.
-
-This keeps the user-vector path intentionally simple. Item embeddings can come from:
-
-- Word2Vec / Item2Vec trained on watch or rating sequences.
-- Content embeddings from title, genre, description, or other metadata.
-- ALS or matrix factorization, which can directly learn both user and item latent vectors.
-
-Steps:
-1. Load `ratings.csv`.
-2. Keep positive ratings (`rating >= 3.5` by default).
-3. Load item embeddings in `movieId:v1 v2 ...` format.
-4. Join ratings with item embeddings by `movieId`.
-5. Group by `userId`.
-6. Average the positive items' vectors to produce `userEmbedding`.
-
-```bash
-spark-submit \
-  --class com.demo.recsys.UserEmbeddingTrainingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  sampledata/ratings.csv \
-  sampledata/embedding.txt \
-  sampledata/user_embedding.txt
-```
-
-For a quick local demo without first running Item2Vec, use the sample item vectors:
+Builds a user embedding by averaging the vectors of positively rated items.
 
 ```bash
 spark-submit \
@@ -283,50 +360,24 @@ spark-submit \
   sampledata/user_embedding.txt
 ```
 
-Environment variable form:
+Key environment variables:
 
-```bash
-RATINGS_INPUT_PATH=sampledata/ratings.csv \
-ITEM2VEC_EMBEDDING_PATH=sampledata/embedding.txt \
-USER_EMBEDDING_OUTPUT_PATH=sampledata/user_embedding.txt \
-spark-submit --class com.demo.recsys.UserEmbeddingTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-```
+| Env var | Default |
+|---|---|
+| `RATINGS_INPUT_PATH` | required if arg omitted |
+| `ITEM2VEC_EMBEDDING_PATH` | required if arg omitted |
+| `USER_EMBEDDING_OUTPUT_PATH` | `spark-recsys/sampledata/user_embedding.txt` |
+| `USER_EMBEDDING_MIN_RATING` | `3.5` |
 
-User embedding output:
+Output format:
 
 ```text
 user_1:0.9 0.1 0.0
 ```
 
-### AlsEmbeddingTrainingJob
+### `AlsEmbeddingTrainingJob`
 
-Trains Spark ML `ALS` directly on ratings and exports learned user and item latent factors.
-
-ALS is the simplest path when you want Spark to learn both sides of the embedding space from collaborative behavior:
-
-```scala
-val als = new ALS()
-  .setUserCol("userIdInt")
-  .setItemCol("movieIdInt")
-  .setRatingCol("rating")
-  .setRank(16)
-  .setMaxIter(10)
-  .setRegParam(0.1)
-
-val model = als.fit(ratingsDf)
-val userFactors = model.userFactors
-val itemFactors = model.itemFactors
-```
-
-The job maps string IDs like `user_1` and `item_1` to integer ALS IDs, trains the model, then maps factors back to the original IDs before writing output.
-
-Default hyperparameters:
-
-| Parameter | Default | Env var |
-|---|---|---|
-| `rank` | `16` | `ALS_RANK` |
-| `maxIter` | `10` | `ALS_MAX_ITER` |
-| `regParam` | `0.1` | `ALS_REG_PARAM` |
+Trains Spark ML `ALS` directly on ratings and writes latent user and item factors.
 
 ```bash
 spark-submit \
@@ -336,27 +387,25 @@ spark-submit \
   sampledata/als
 ```
 
-Environment variable form:
+Key environment variables:
 
-```bash
-RATINGS_INPUT_PATH=sampledata/ratings.csv \
-ALS_EMBEDDING_OUTPUT_PATH=sampledata/als \
-ALS_RANK=16 \
-ALS_MAX_ITER=10 \
-ALS_REG_PARAM=0.1 \
-spark-submit --class com.demo.recsys.AlsEmbeddingTrainingJob spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-```
+| Env var | Default |
+|---|---|
+| `RATINGS_INPUT_PATH` | required if arg omitted |
+| `ALS_EMBEDDING_OUTPUT_PATH` | `spark-recsys/sampledata/als` |
+| `ALS_RANK` | `16` |
+| `ALS_MAX_ITER` | `10` |
+| `ALS_REG_PARAM` | `0.1` |
 
-Output:
+Output paths:
 
 ```text
 sampledata/als/userFactors/part-...
 sampledata/als/itemFactors/part-...
 ```
 
-Each line uses the same text embedding shape as the other jobs:
+## Notes
 
-```text
-user_1:0.0123 -0.4567 0.8910 ...
-item_1:0.1111 0.2222 0.3333 ...
-```
+- `docker-compose.yml` is explicitly for local development and runs Kafka and Redis without authentication.
+- `run-streaming-job.sh` expects `spark-streaming-job/target/scala-2.12/spark-recsys-job.jar` to exist.
+- The retrieval service can serve recommendations without embeddings, but the relevance component will be zero until vectors are loaded.
