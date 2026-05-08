@@ -4,8 +4,11 @@ import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -28,6 +31,7 @@ public class HybridRecommendationService {
     private static final String GLOBAL_POPULARITY_KEY = "global:item_popularity";
     private static final String METRICS_HASH_KEY = "bandit:metrics";
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
+    private static final int RECENT_HISTORY_SIZE = 50;
 
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
@@ -39,21 +43,25 @@ public class HybridRecommendationService {
 
     public RecommendationResult recommend(String user, int limit) {
         List<String> recent;
-        Set<String> popular;
+        Set<ZSetOperations.TypedTuple<String>> popularWithScores;
         try {
-            recent = Optional.ofNullable(redis.opsForList().range("user:" + user + ":recent", 0, limit - 1L))
+            recent = Optional.ofNullable(redis.opsForList().range("user:" + user + ":recent", 0, RECENT_HISTORY_SIZE - 1L))
                 .orElseGet(List::of);
-            popular = Optional.ofNullable(
-                redis.opsForZSet().reverseRange(
-                    GLOBAL_POPULARITY_KEY,
-                    0,
-                    Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit) - 1L
-                )
+            int fetchSize = Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit);
+            popularWithScores = Optional.ofNullable(
+                redis.opsForZSet().reverseRangeWithScores(GLOBAL_POPULARITY_KEY, 0, fetchSize - 1L)
             ).orElseGet(Set::of);
         } catch (Exception e) {
             log.error("Redis fetch failed for user {}", user, e);
             return new RecommendationResult(user, List.of(), List.of(), List.of(), Map.of());
         }
+
+        // Build popularity map from a single ZREVRANGE WITHSCORES call (eliminates per-item ZSCORE N+1)
+        Map<String, Double> popularityMap = popularWithScores.stream()
+            .filter(t -> t.getValue() != null && t.getScore() != null)
+            .collect(Collectors.toMap(ZSetOperations.TypedTuple::getValue, t -> Math.log1p(t.getScore())));
+        Set<String> popular = popularityMap.keySet();
+        double maxPopularity = popularityMap.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
 
         Set<String> recentSet = new HashSet<>(recent);
         List<String> seedItems = recent.isEmpty() ? List.copyOf(popular) : recent;
@@ -76,11 +84,18 @@ public class HybridRecommendationService {
         contentCandidates.stream().filter(item -> !recentSet.contains(item)).forEach(eligible::add);
 
         double[] userVector = resolveUserVector(user, recent);
-        double maxPopularity = resolveMaxPopularity(popular);
         long totalImpressions = resolveLongMetric("recommendations_served");
 
-        List<ScoredCandidate> scored = eligible.stream()
-            .map(item -> scoreCandidate(item, userVector, userGenres, userTags, maxPopularity, totalImpressions))
+        // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
+        List<String> eligibleList = new ArrayList<>(eligible);
+        Map<String, long[]> counters = batchFetchCounters(eligibleList);
+
+        List<ScoredCandidate> scored = eligibleList.stream()
+            .map(item -> {
+                long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
+                return scoreCandidate(item, userVector, userGenres, userTags,
+                    popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1]);
+            })
             .sorted(Comparator.comparingDouble(ScoredCandidate::banditScore).reversed())
             .collect(Collectors.toCollection(ArrayList::new));
 
@@ -196,13 +211,31 @@ public class HybridRecommendationService {
             return Set.of();
         }
 
-        return catalog.entrySet().stream()
-            .filter(entry -> !excludedItems.contains(entry.getKey()))
-            .filter(entry -> entry.getValue().isNewRelease() || resolveItemCounter(entry.getKey(), "impressions") < properties.getBandit().getColdStartExposureThreshold())
-            .sorted(Comparator.comparingDouble((Map.Entry<String, MovieProfile> entry) ->
-                contentScore(entry.getValue(), userGenres, userTags)).reversed())
+        // Collect non-excluded candidate IDs, then batch-fetch their impression counts
+        List<String> candidateIds = catalog.keySet().stream()
+            .filter(id -> !excludedItems.contains(id))
+            .toList();
+
+        List<String> impressionKeys = candidateIds.stream()
+            .map(id -> "bandit:item:" + id + ":impressions")
+            .toList();
+        List<String> impressionValues = Optional.ofNullable(redis.opsForValue().multiGet(impressionKeys))
+            .orElseGet(() -> Collections.nCopies(candidateIds.size(), null));
+
+        Map<String, Long> impressionMap = new LinkedHashMap<>();
+        for (int i = 0; i < candidateIds.size(); i++) {
+            impressionMap.put(candidateIds.get(i), readLong(impressionValues.get(i)));
+        }
+
+        int threshold = properties.getBandit().getColdStartExposureThreshold();
+        return candidateIds.stream()
+            .filter(id -> {
+                MovieProfile p = catalog.get(id);
+                return p.isNewRelease() || impressionMap.getOrDefault(id, 0L) < threshold;
+            })
+            .sorted(Comparator.comparingDouble((String id) ->
+                contentScore(catalog.get(id), userGenres, userTags)).reversed())
             .limit(properties.getCandidateGeneration().getColdStartPoolSize())
-            .map(Map.Entry::getKey)
             .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -211,25 +244,26 @@ public class HybridRecommendationService {
         double[] userVector,
         Set<String> userGenres,
         Set<String> userTags,
+        double itemPopularity,
         double maxPopularity,
-        long totalImpressions
+        long totalImpressions,
+        long impressions,
+        long clicks
     ) {
         MovieProfile profile = properties.getCatalog().get(itemId);
 
         double[] itemVector = resolveItemVector(itemId);
         double relevance = itemVector.length == 0 || userVector.length == 0 ? 0.0 : cosine(userVector, itemVector);
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
-        double popularity = maxPopularity == 0.0 ? 0.0 : resolvePopularity(itemId) / maxPopularity;
+        double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
 
         double baseScore = (properties.getBandit().getRelevanceWeight() * normalizeScore(relevance))
             + (properties.getBandit().getContentWeight() * content)
             + (properties.getBandit().getPopularityWeight() * popularity);
-        long impressions = resolveItemCounter(itemId, "impressions");
-        long clicks = resolveItemCounter(itemId, "clicks");
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.isNewRelease());
         double exploration = computeExplorationBonus(impressions, clicks, totalImpressions, coldStart);
 
-        // Blend empirical CTR with model score for warm items; trust model-only for cold start
+        // Warm items: blend empirical CTR (30%) with model base score (70%); cold-start: trust model only
         double empiricalCtr = impressions > 0 ? clamp((double) clicks / impressions) : 0.0;
         double estimatedReward = impressions > 0
             ? clamp(0.7 * baseScore + 0.3 * empiricalCtr)
@@ -264,13 +298,45 @@ public class HybridRecommendationService {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private void trackServedRecommendations(List<ScoredCandidate> selected) {
-        ValueOperations<String, String> valueOps = redis.opsForValue();
-        for (ScoredCandidate candidate : selected) {
-            incrementItemCounter(candidate.itemId(), "impressions", 1);
-            redis.opsForSet().add(EXPOSED_ITEMS_KEY, candidate.itemId());
-            valueOps.set("bandit:last_served:" + candidate.itemId(), String.valueOf(System.currentTimeMillis()));
+        // Pipeline all writes into a single round-trip instead of 3 × |selected| sequential calls
+        long now = System.currentTimeMillis();
+        redis.executePipelined(new SessionCallback<>() {
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                for (ScoredCandidate c : selected) {
+                    operations.opsForValue().increment("bandit:item:" + c.itemId() + ":impressions", 1);
+                    operations.opsForSet().add(EXPOSED_ITEMS_KEY, c.itemId());
+                    operations.opsForValue().set("bandit:last_served:" + c.itemId(), String.valueOf(now));
+                }
+                return null;
+            }
+        });
+    }
+
+    // Batch-fetch impression + click counters for a list of item IDs in two mget calls
+    private Map<String, long[]> batchFetchCounters(List<String> itemIds) {
+        if (itemIds.isEmpty()) {
+            return Map.of();
         }
+        List<String> impressionKeys = itemIds.stream().map(id -> "bandit:item:" + id + ":impressions").toList();
+        List<String> clickKeys = itemIds.stream().map(id -> "bandit:item:" + id + ":clicks").toList();
+
+        List<String> allKeys = new ArrayList<>(impressionKeys.size() + clickKeys.size());
+        allKeys.addAll(impressionKeys);
+        allKeys.addAll(clickKeys);
+
+        List<String> values = Optional.ofNullable(redis.opsForValue().multiGet(allKeys))
+            .orElseGet(() -> Collections.nCopies(allKeys.size(), null));
+
+        Map<String, long[]> result = new LinkedHashMap<>();
+        for (int i = 0; i < itemIds.size(); i++) {
+            long impressions = readLong(values.get(i));
+            long clicks = readLong(values.get(itemIds.size() + i));
+            result.put(itemIds.get(i), new long[]{impressions, clicks});
+        }
+        return result;
     }
 
     private double[] resolveUserVector(String user, List<String> recent) {
@@ -322,10 +388,6 @@ public class HybridRecommendationService {
         return vector;
     }
 
-    private long resolveItemCounter(String itemId, String counter) {
-        return readLong(redis.opsForValue().get("bandit:item:" + itemId + ":" + counter));
-    }
-
     private void incrementItemCounter(String itemId, String counter, long amount) {
         redis.opsForValue().increment("bandit:item:" + itemId + ":" + counter, amount);
     }
@@ -369,15 +431,6 @@ public class HybridRecommendationService {
             bonus = alpha * confidence * (coldStart ? properties.getBandit().getColdStartBoost() : 1.0);
         }
         return Math.min(bonus, maxBonus);
-    }
-
-    private double resolvePopularity(String itemId) {
-        Double score = redis.opsForZSet().score(GLOBAL_POPULARITY_KEY, itemId);
-        return score == null ? 0.0 : Math.log1p(score);
-    }
-
-    private double resolveMaxPopularity(Set<String> popular) {
-        return popular.stream().mapToDouble(this::resolvePopularity).max().orElse(0.0);
     }
 
     private double contentScore(MovieProfile profile, Set<String> userGenres, Set<String> userTags) {
