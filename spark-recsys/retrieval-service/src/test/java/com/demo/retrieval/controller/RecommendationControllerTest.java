@@ -1,23 +1,23 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.service.HybridRecommendationService;
+import com.demo.retrieval.service.RecommendationResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(RecommendationController.class)
@@ -29,6 +29,9 @@ class RecommendationControllerTest {
 
     @MockBean
     private StringRedisTemplate redis;
+
+    @MockBean
+    private HybridRecommendationService recommendationService;
 
     // --- /embedding ---
 
@@ -69,7 +72,7 @@ class RecommendationControllerTest {
 
     @Test
     void embeddingReturnsBadRequestForInvalidItemId() throws Exception {
-        mockMvc.perform(get("/embedding/../../etc/passwd"))
+        mockMvc.perform(get("/embedding/item!"))
             .andExpect(status().isBadRequest());
     }
 
@@ -77,28 +80,30 @@ class RecommendationControllerTest {
 
     @Test
     void recommendExcludesRecentlyViewedItems() throws Exception {
-        ListOperations<String, String> listOps = mock(ListOperations.class);
-        ZSetOperations<String, String> zsetOps = mock(ZSetOperations.class);
-        when(redis.opsForList()).thenReturn(listOps);
-        when(redis.opsForZSet()).thenReturn(zsetOps);
-        when(listOps.range("user:u1:recent", 0L, 5L)).thenReturn(List.of("item1", "item2"));
-        Set<String> popular = new LinkedHashSet<>(List.of("item1", "item3", "item4"));
-        when(zsetOps.reverseRange("global:item_popularity", 0L, 11L)).thenReturn(popular);
+        when(recommendationService.recommend("u1", 6)).thenReturn(
+            new RecommendationResult(
+                "u1",
+                List.of("item1", "item2"),
+                List.of("item3", "item4"),
+                List.of(Map.of("item", "item3", "coldStart", true)),
+                Map.of("pseudoRegret", 0.1)
+            )
+        );
 
         mockMvc.perform(get("/recommend/u1"))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.recent[0]").value("item1"))
             .andExpect(jsonPath("$.recommendations[0]").value("item3"))
-            .andExpect(jsonPath("$.recommendations[1]").value("item4"));
+            .andExpect(jsonPath("$.recommendations[1]").value("item4"))
+            .andExpect(jsonPath("$.diagnostics[0].item").value("item3"))
+            .andExpect(jsonPath("$.metrics.pseudoRegret").value(0.1));
     }
 
     @Test
     void recommendReturnsEmptyListWhenRedisIsEmpty() throws Exception {
-        ListOperations<String, String> listOps = mock(ListOperations.class);
-        ZSetOperations<String, String> zsetOps = mock(ZSetOperations.class);
-        when(redis.opsForList()).thenReturn(listOps);
-        when(redis.opsForZSet()).thenReturn(zsetOps);
-        when(listOps.range(anyString(), anyLong(), anyLong())).thenReturn(List.of());
-        when(zsetOps.reverseRange(anyString(), anyLong(), anyLong())).thenReturn(Set.of());
+        when(recommendationService.recommend("u1", 6)).thenReturn(
+            new RecommendationResult("u1", List.of(), List.of(), List.of(), Map.of("eligibleCandidateCount", 0))
+        );
 
         mockMvc.perform(get("/recommend/u1"))
             .andExpect(status().isOk())
@@ -107,21 +112,39 @@ class RecommendationControllerTest {
 
     @Test
     void recommendReturnsBadRequestForInvalidUserId() throws Exception {
-        mockMvc.perform(get("/recommend/<script>alert(1)</script>"))
+        mockMvc.perform(get("/recommend/user!"))
             .andExpect(status().isBadRequest());
     }
 
     @Test
     void recommendBoundsLimitToMaxLimit() throws Exception {
-        ListOperations<String, String> listOps = mock(ListOperations.class);
-        ZSetOperations<String, String> zsetOps = mock(ZSetOperations.class);
-        when(redis.opsForList()).thenReturn(listOps);
-        when(redis.opsForZSet()).thenReturn(zsetOps);
-        when(listOps.range(anyString(), anyLong(), anyLong())).thenReturn(List.of());
-        when(zsetOps.reverseRange(anyString(), anyLong(), anyLong())).thenReturn(Set.of());
+        when(recommendationService.recommend("u1", 50)).thenReturn(
+            new RecommendationResult("u1", List.of(), List.of(), List.of(), Map.of())
+        );
 
-        // limit=999 must be capped to MAX_LIMIT=50: range call uses (0, 49)
         mockMvc.perform(get("/recommend/u1?limit=999"))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void feedbackEndpointDelegatesToRecommendationService() throws Exception {
+        when(recommendationService.recordFeedback(any())).thenReturn(Map.of("status", "ok", "clicked", true));
+
+        mockMvc.perform(post("/feedback")
+                .contentType("application/json")
+                .content("{\"user\":\"u1\",\"item\":\"item4\",\"clicked\":true,\"reward\":1.0}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"))
+            .andExpect(jsonPath("$.clicked").value(true));
+    }
+
+    @Test
+    void metricsEndpointReturnsAggregateMetrics() throws Exception {
+        when(recommendationService.getAggregateMetrics()).thenReturn(Map.of("ctr", 0.25, "requests", 4));
+
+        mockMvc.perform(get("/metrics"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.ctr").value(0.25))
+            .andExpect(jsonPath("$.requests").value(4));
     }
 }

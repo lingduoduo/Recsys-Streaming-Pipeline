@@ -1,14 +1,27 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.service.FeedbackRequest;
+import com.demo.retrieval.service.HybridRecommendationService;
+import com.demo.retrieval.service.RecommendationResult;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.constraints.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import java.util.*;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -19,9 +32,11 @@ public class RecommendationController {
     private static final int MAX_LIMIT = 50;
 
     private final StringRedisTemplate redis;
+    private final HybridRecommendationService recommendationService;
 
-    public RecommendationController(StringRedisTemplate redis) {
+    public RecommendationController(StringRedisTemplate redis, HybridRecommendationService recommendationService) {
         this.redis = redis;
+        this.recommendationService = recommendationService;
     }
 
     @GetMapping("/embedding/{item}")
@@ -56,32 +71,24 @@ public class RecommendationController {
         @RequestParam(defaultValue = DEFAULT_LIMIT) int limit
     ) {
         int boundedLimit = Math.max(1, Math.min(limit, MAX_LIMIT));
-
-        List<String> recent;
-        Set<String> popular;
-        try {
-            recent = Optional
-                .ofNullable(redis.opsForList().range("user:" + user + ":recent", 0, boundedLimit - 1))
-                .orElseGet(List::of);
-            popular = Optional
-                .ofNullable(redis.opsForZSet().reverseRange("global:item_popularity", 0, (boundedLimit * 2L) - 1))
-                .orElseGet(Set::of);
-        } catch (Exception e) {
-            log.error("Redis fetch failed for user {}", user, e);
-            return Map.of("user", user, "recent", List.of(), "recommendations", List.of());
-        }
-
-        Set<String> recentSet = new HashSet<>(recent);
-        List<String> recommendations = popular.stream()
-            .filter(item -> !recentSet.contains(item))
-            .limit(boundedLimit)
-            .collect(Collectors.toList());
-
+        RecommendationResult result = recommendationService.recommend(user, boundedLimit);
         return Map.of(
-            "user", user,
-            "recent", recent,
-            "recommendations", recommendations
+            "user", result.user(),
+            "recent", result.recent(),
+            "recommendations", result.recommendations(),
+            "diagnostics", result.candidateDiagnostics(),
+            "metrics", result.metrics()
         );
+    }
+
+    @PostMapping("/feedback")
+    public Map<String, Object> feedback(@RequestBody FeedbackRequest request) {
+        return recommendationService.recordFeedback(request);
+    }
+
+    @GetMapping("/metrics")
+    public Map<String, Object> metrics() {
+        return recommendationService.getAggregateMetrics();
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
