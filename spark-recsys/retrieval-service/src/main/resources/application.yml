@@ -11,3 +11,56 @@ spring:
           min-idle: 4
 server:
   port: ${SERVER_PORT:8080}
+recsys:
+  embeddings:
+    item-prefix: ${ITEM_EMBEDDING_PREFIX:i2vEmb}
+    user-prefix: ${USER_EMBEDDING_PREFIX:uEmb}
+  candidate-generation:
+    popularity-fetch-multiplier: ${RECSYS_POPULARITY_FETCH_MULTIPLIER:5}
+    cold-start-pool-size: ${RECSYS_COLD_START_POOL_SIZE:25}
+    top-n-randomization-pool: ${RECSYS_RANDOMIZATION_POOL:5}
+  bandit:
+    algorithm: ${RECSYS_BANDIT_ALGORITHM:ucb}
+    exploration-alpha: ${RECSYS_EXPLORATION_ALPHA:0.75}
+    max-exploration-bonus: ${RECSYS_MAX_EXPLORATION_BONUS:0.25}
+    cold-start-exposure-threshold: ${RECSYS_COLD_START_THRESHOLD:5}
+    cold-start-boost: ${RECSYS_COLD_START_BOOST:1.35}
+    relevance-weight: ${RECSYS_RELEVANCE_WEIGHT:0.6}
+    content-weight: ${RECSYS_CONTENT_WEIGHT:0.25}
+    popularity-weight: ${RECSYS_POPULARITY_WEIGHT:0.15}
+  catalog:
+    item_1:
+      title: "Retro Space Adventure"
+      genres: ["sci-fi", "adventure"]
+      tags: ["space", "classic", "ensemble"]
+      new-release: false
+    item_2:
+      title: "City Heat"
+      genres: ["action", "thriller"]
+      tags: ["crime", "urban", "fast-paced"]
+      new-release: false
+    item_3:
+      title: "Midnight Runway"
+      genres: ["drama", "romance"]
+      tags: ["fashion", "character", "emotional"]
+      new-release: false
+    item_4:
+      title: "Deep Blue Signal"
+      genres: ["sci-fi", "thriller"]
+      tags: ["ai", "mystery", "future"]
+      new-release: true
+    item_5:
+      title: "Wild Terrain"
+      genres: ["adventure", "family"]
+      tags: ["nature", "uplifting", "journey"]
+      new-release: true
+    item_6:
+      title: "Glass Horizon"
+      genres: ["drama", "sci-fi"]
+      tags: ["future", "reflective", "arthouse"]
+      new-release: false
+    item_7:
+      title: "Laugh Circuit"
+      genres: ["comedy", "sci-fi"]
+      tags: ["robots", "workplace", "feel-good"]
+      new-release: true
