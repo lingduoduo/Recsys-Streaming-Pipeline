@@ -205,10 +205,20 @@ class HybridRecommendationServiceTest {
         properties.getBandit().setMaxExplorationBonus(1.0);
 
         HybridRecommendationService localService = new HybridRecommendationService(redis, properties);
-        double bonus = invokeExplorationBonus(localService, 4L, 1L, 100L, true);
+        Object armScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
+        double posteriorMean = invokeArmScoreDouble(armScore, "posteriorMean");
+        double bonus = invokeArmScoreDouble(armScore, "explorationBonus");
+        double rankingScore = invokeArmScoreDouble(armScore, "rankingScore");
 
-        double expected = Math.min(0.75 * Math.sqrt(2.0 * Math.log(102.0) / 5.0) * 1.35, 1.0);
-        assertEquals(expected, bonus, 1.0e-9);
+        double priorStrength = Math.max(2.0, 1.35 * 4.0);
+        double posteriorAlpha = 1.0 + (0.6 * priorStrength) + 1.0;
+        double posteriorBeta = 1.0 + (0.4 * priorStrength) + 3.0;
+        double expectedMean = posteriorAlpha / (posteriorAlpha + posteriorBeta);
+        double expectedBonus = Math.min(0.75 * Math.sqrt(Math.log(102.0) / (2.0 * (4.0 + priorStrength + 1.0))) * 1.35, 1.0);
+
+        assertEquals(expectedMean, posteriorMean, 1.0e-9);
+        assertEquals(expectedBonus, bonus, 1.0e-9);
+        assertEquals(expectedMean + expectedBonus, rankingScore, 1.0e-9);
     }
 
     @Test
@@ -219,18 +229,27 @@ class HybridRecommendationServiceTest {
         properties.getBandit().setMaxExplorationBonus(0.25);
 
         HybridRecommendationService localService = new HybridRecommendationService(redis, properties);
-        double first = invokeExplorationBonus(localService, 4L, 1L, 100L, true);
+        Object firstArmScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
+        double first = invokeArmScoreDouble(firstArmScore, "rankingScore");
+        double firstBonus = invokeArmScoreDouble(firstArmScore, "explorationBonus");
+        double posteriorMean = invokeArmScoreDouble(firstArmScore, "posteriorMean");
         boolean sawDifferentSample = false;
 
         for (int i = 0; i < 20; i++) {
-            double sample = invokeExplorationBonus(localService, 4L, 1L, 100L, true);
+            Object armScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
+            double sample = invokeArmScoreDouble(armScore, "rankingScore");
+            double bonus = invokeArmScoreDouble(armScore, "explorationBonus");
             assertTrue(sample >= 0.0);
-            assertTrue(sample <= 0.25);
+            assertTrue(sample <= 1.0);
+            assertTrue(bonus >= 0.0);
+            assertTrue(bonus <= 0.25);
             if (Double.compare(first, sample) != 0) {
                 sawDifferentSample = true;
             }
         }
 
+        assertTrue(posteriorMean > 0.0);
+        assertTrue(firstBonus <= 0.25);
         assertTrue(sawDifferentSample, "expected Thompson sampling to produce non-identical draws");
         assertNotEquals(0.0, first);
     }
@@ -243,21 +262,29 @@ class HybridRecommendationServiceTest {
         return profile;
     }
 
-    private double invokeExplorationBonus(
+    private Object invokeBanditArmScore(
         HybridRecommendationService localService,
+        double baseScore,
         long itemImpressions,
         long clicks,
         long totalImpressions,
         boolean coldStart
     ) throws Exception {
         Method method = HybridRecommendationService.class.getDeclaredMethod(
-            "computeExplorationBonus",
+            "computeBanditArmScore",
+            double.class,
             long.class,
             long.class,
             long.class,
             boolean.class
         );
         method.setAccessible(true);
-        return (double) method.invoke(localService, itemImpressions, clicks, totalImpressions, coldStart);
+        return method.invoke(localService, baseScore, itemImpressions, clicks, totalImpressions, coldStart);
+    }
+
+    private double invokeArmScoreDouble(Object armScore, String methodName) throws Exception {
+        Method accessor = armScore.getClass().getDeclaredMethod(methodName);
+        accessor.setAccessible(true);
+        return (double) accessor.invoke(armScore);
     }
 }
