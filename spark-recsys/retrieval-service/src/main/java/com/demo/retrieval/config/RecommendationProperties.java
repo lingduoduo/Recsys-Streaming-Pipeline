@@ -12,6 +12,8 @@ public class RecommendationProperties {
     private Embeddings embeddings = new Embeddings();
     private CandidateGeneration candidateGeneration = new CandidateGeneration();
     private Bandit bandit = new Bandit();
+    private ReplayBuffer replayBuffer = new ReplayBuffer();
+    private RewardModel rewardModel = new RewardModel();
     private Map<String, MovieProfile> catalog = new LinkedHashMap<>();
 
     public Embeddings getEmbeddings() {
@@ -36,6 +38,22 @@ public class RecommendationProperties {
 
     public void setBandit(Bandit bandit) {
         this.bandit = bandit;
+    }
+
+    public ReplayBuffer getReplayBuffer() {
+        return replayBuffer;
+    }
+
+    public void setReplayBuffer(ReplayBuffer replayBuffer) {
+        this.replayBuffer = replayBuffer;
+    }
+
+    public RewardModel getRewardModel() {
+        return rewardModel;
+    }
+
+    public void setRewardModel(RewardModel rewardModel) {
+        this.rewardModel = rewardModel;
     }
 
     public Map<String, MovieProfile> getCatalog() {
@@ -169,6 +187,84 @@ public class RecommendationProperties {
 
         public void setPopularityWeight(double popularityWeight) {
             this.popularityWeight = popularityWeight;
+        }
+    }
+
+    public static class ReplayBuffer {
+        private int maxSize = 10000;
+        private int candidateSnapshotSize = 20;
+
+        public int getMaxSize() {
+            return maxSize;
+        }
+
+        public void setMaxSize(int maxSize) {
+            this.maxSize = maxSize;
+        }
+
+        public int getCandidateSnapshotSize() {
+            return candidateSnapshotSize;
+        }
+
+        public void setCandidateSnapshotSize(int candidateSnapshotSize) {
+            this.candidateSnapshotSize = candidateSnapshotSize;
+        }
+    }
+
+    public static class RewardModel {
+        private double weight = 0.25;
+        private double globalWeight = 0.15;
+        private double itemWeight = 0.45;
+        private double genreWeight = 0.25;
+        private double tagWeight = 0.15;
+        private int minFeatureCount = 3;
+
+        public double getWeight() {
+            return weight;
+        }
+
+        public void setWeight(double weight) {
+            this.weight = weight;
+        }
+
+        public double getGlobalWeight() {
+            return globalWeight;
+        }
+
+        public void setGlobalWeight(double globalWeight) {
+            this.globalWeight = globalWeight;
+        }
+
+        public double getItemWeight() {
+            return itemWeight;
+        }
+
+        public void setItemWeight(double itemWeight) {
+            this.itemWeight = itemWeight;
+        }
+
+        public double getGenreWeight() {
+            return genreWeight;
+        }
+
+        public void setGenreWeight(double genreWeight) {
+            this.genreWeight = genreWeight;
+        }
+
+        public double getTagWeight() {
+            return tagWeight;
+        }
+
+        public void setTagWeight(double tagWeight) {
+            this.tagWeight = tagWeight;
+        }
+
+        public int getMinFeatureCount() {
+            return minFeatureCount;
+        }
+
+        public void setMinFeatureCount(int minFeatureCount) {
+            this.minFeatureCount = minFeatureCount;
         }
     }
 
