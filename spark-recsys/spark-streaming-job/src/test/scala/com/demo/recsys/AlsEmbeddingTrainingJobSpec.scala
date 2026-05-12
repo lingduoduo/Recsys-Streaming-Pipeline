@@ -26,7 +26,8 @@ class AlsEmbeddingTrainingJobSpec extends AnyFlatSpec with Matchers with BeforeA
   }
 
   private def sampleRatings() = {
-    import spark.implicits._
+    val sparkSession = spark
+    import sparkSession.implicits._
     Seq(
       ("u1", "m1", 4.0), ("u1", "m2", 3.5), ("u1", "m3", 5.0),
       ("u2", "m1", 3.0), ("u2", "m2", 4.5), ("u2", "m4", 4.0),
@@ -88,7 +89,7 @@ class AlsEmbeddingTrainingJobSpec extends AnyFlatSpec with Matchers with BeforeA
     lines.foreach { line =>
       val parts = line.split(":", 2)
       parts.length shouldBe 2
-      parts(0).trim should not be empty
+      parts(0).trim shouldNot be(empty)
       parts(1).trim.split("\\s+").foreach { token =>
         noException should be thrownBy token.toDouble
       }

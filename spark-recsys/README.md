@@ -1,8 +1,9 @@
 # Spark Recsys
 
-`spark-recsys` is a small recommendation-system playground with two complementary paths:
+`spark-recsys` is a small recommendation-system playground with three complementary paths:
 
 - A real-time Kafka -> Spark Structured Streaming -> Redis pipeline that keeps recent user history and global popularity fresh.
+- A training-data pipeline that joins behavior logs into feature+label samples, writes them to Kafka and HDFS-compatible storage, then rebuilds request-level slates for online learning.
 - An offline Spark training flow that builds Item2Vec, user, and ALS embeddings from historical ratings.
 
 The retrieval layer is a Spring Boot service that combines those signals with content-based retrieval, a lightweight UCB/Thompson bandit policy, a Redis replay buffer, a simple reward model, cold-start candidate generation, and feedback tracking.
@@ -13,6 +14,13 @@ The retrieval layer is a Spring Boot service that combines those signals with co
 producer.py -> Kafka topic: user_events -> UserEventStreamingJob -> Redis
                                                           |-> user:{id}:recent
                                                           |-> global:item_popularity
+
+producer.py -> Kafka topic: behavior_logs -> OnlineJoinerStreamingJob
+                                      |-> Kafka topic: training_samples
+                                      |-> Parquet path: /tmp/spark-recsys/training-samples
+
+Kafka topic: training_samples -> ExperienceCollectorStreamingJob
+                              -> Kafka topic: training_experiences
 
 ratings.csv -> ItemSequencePreprocessingJob -> Item2VecTrainingJob -> embedding.txt
                                                                    -> Redis i2vEmb:{item}
@@ -207,14 +215,32 @@ Environment variables:
 |---|---|---|
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
 | `KAFKA_TOPIC` | `user_events` | Topic to publish to |
+| `PRODUCER_MODE` | `clickstream` | `clickstream` emits simple clicks; `behavior` emits impressions plus click/order feedback |
 | `EVENTS_PER_SECOND` | `1` | Event rate |
 | `NUM_USERS` | `5` | Size of synthetic user pool |
 | `NUM_ITEMS` | `10` | Size of synthetic item pool |
+| `SLATE_SIZE` | `5` | Items per recommendation request in behavior mode |
 
 Event schema:
 
 ```json
 {"user_id":"user_1","item_id":"item_3","event_type":"click","timestamp":1713600001}
+```
+
+Behavior workflow schema:
+
+```json
+{
+  "request_id": "req_abc123",
+  "user_id": "user_1",
+  "item_id": "item_3",
+  "event_type": "impression",
+  "timestamp": 1713600001,
+  "position": 0,
+  "user_features": {"tier": "vip"},
+  "item_features": {"bucket": "b1"},
+  "context_features": {"device": "ios", "country": "US"}
+}
 ```
 
 ### `UserEventStreamingJob`
@@ -251,6 +277,59 @@ Environment variables:
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
+
+### `OnlineJoinerStreamingJob`
+
+Consumes Kafka behavior logs and turns recommendation impressions plus later feedback into training samples with `features + label`.
+
+```bash
+PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python producer.py
+
+SPARK_MAIN_CLASS=com.demo.streaming.OnlineJoinerStreamingJob \
+ONLINE_JOINER_INPUT_TOPIC=behavior_logs \
+ONLINE_JOINER_OUTPUT_TOPIC=training_samples \
+ONLINE_JOINER_HDFS_OUTPUT_PATH=/tmp/spark-recsys/training-samples \
+./run-streaming-job.sh
+```
+
+For each micro-batch it:
+
+1. Keeps `impression` / `exposure` rows as candidate training examples.
+2. Aggregates `click`, `order`, and `purchase` feedback by `request_id + user_id + item_id`.
+3. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0`, `1.0`, `2.0`).
+4. Writes samples to Kafka for online model updates and to Parquet for HDFS-style offline training storage.
+
+Environment variables:
+
+| Env var | Default |
+|---|---|
+| `SPARK_APP_NAME` | `OnlineJoinerStreamingJob` |
+| `ONLINE_JOINER_INPUT_TOPIC` | `behavior_logs` |
+| `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
+| `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |
+
+### `ExperienceCollectorStreamingJob`
+
+Consumes item-level samples from Kafka and rebuilds each recommendation request as a list-level experience, also called an impression list or slate.
+
+```bash
+SPARK_MAIN_CLASS=com.demo.streaming.ExperienceCollectorStreamingJob \
+EXPERIENCE_COLLECTOR_INPUT_TOPIC=training_samples \
+EXPERIENCE_COLLECTOR_OUTPUT_TOPIC=training_experiences \
+./run-streaming-job.sh
+```
+
+For each micro-batch it groups samples by `request_id + user_id`, sorts items by `position`, and emits a slate JSON containing request context, item features, item labels, slate size, and aggregate slate reward.
+
+Environment variables:
+
+| Env var | Default |
+|---|---|
+| `SPARK_APP_NAME` | `ExperienceCollectorStreamingJob` |
+| `EXPERIENCE_COLLECTOR_INPUT_TOPIC` | `training_samples` |
+| `EXPERIENCE_COLLECTOR_OUTPUT_TOPIC` | `training_experiences` |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/experience-collector` |
 
 ## Retrieval Service Configuration
 

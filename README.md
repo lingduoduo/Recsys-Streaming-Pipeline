@@ -55,7 +55,7 @@ spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
 
 ## spark-recsys
 
-A two-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, and an offline Item2Vec embedding trainer with a Spring Boot retrieval service.
+A three-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, a Kafka→Spark online joiner and slate collector for training data, and offline embedding trainers with a Spring Boot retrieval service.
 
 ### Architecture
 
@@ -64,6 +64,11 @@ Real-time path
 ──────────────
 producer.py  ──Kafka──►  UserEventStreamingJob  ──Redis──►  retrieval-service
 (user events)            (Structured Streaming)              (Spring Boot)
+
+Training-data path
+──────────────────
+behavior logs ──Kafka──► OnlineJoinerStreamingJob ──Kafka/HDFS──► training samples
+training samples ──Kafka──► ExperienceCollectorStreamingJob ──Kafka──► slates
 
 Offline path
 ────────────
@@ -76,6 +81,7 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | Component | Language | Description |
 |-----------|----------|-------------|
 | `spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
+| `spark-streaming-job` | Scala / Spark | Joins behavior logs into feature+label samples and reconstructs request-level slates |
 | `spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
 | `retrieval-service` | Java / Spring Boot | REST API serving recommendations and Item2Vec embeddings from Redis |
 | `producer.py` | Python | Kafka producer that generates synthetic user–item events |
