@@ -1,6 +1,7 @@
 package com.demo.recsys
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions.col
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -23,7 +24,8 @@ class ItemSequencePreprocessingJobSpec extends AnyFlatSpec with Matchers with Be
   }
 
   private def makeRatings(rows: (String, String, Double, Long)*) = {
-    import spark.implicits._
+    val sparkSession = spark
+    import sparkSession.implicits._
     rows.toDF("userId", "movieId", "rating", "timestamp")
   }
 
@@ -41,7 +43,7 @@ class ItemSequencePreprocessingJobSpec extends AnyFlatSpec with Matchers with Be
       ratingColumn = "rating",
       timestampColumn = "timestamp"
     )
-    val row = result.filter(spark.implicits.StringToColumn("userId") === "u1").first()
+    val row = result.filter(col("userId") === "u1").first()
     row.getAs[Seq[String]]("movieIds") shouldBe Seq("item2", "item3", "item1")
   }
 
@@ -78,7 +80,7 @@ class ItemSequencePreprocessingJobSpec extends AnyFlatSpec with Matchers with Be
       ratingColumn = "rating",
       timestampColumn = "timestamp"
     )
-    val row = result.filter(spark.implicits.StringToColumn("userId") === "u1").first()
+    val row = result.filter(col("userId") === "u1").first()
     row.getAs[Seq[String]]("movieIds") should not contain "item2"
   }
 
@@ -96,7 +98,7 @@ class ItemSequencePreprocessingJobSpec extends AnyFlatSpec with Matchers with Be
       ratingColumn = "rating",
       timestampColumn = "timestamp"
     )
-    val row = result.filter(spark.implicits.StringToColumn("userId") === "u1").first()
+    val row = result.filter(col("userId") === "u1").first()
     val ids   = row.getAs[Seq[String]]("movieIds")
     val idStr = row.getAs[String]("movieIdStr")
     idStr shouldBe ids.mkString(" ")

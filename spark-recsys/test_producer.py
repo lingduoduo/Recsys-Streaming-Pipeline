@@ -6,7 +6,7 @@ import types
 
 
 def load_producer_module():
-    """Import producer.py without executing the top-level KafkaProducer connection."""
+    """Import producer.py without creating a KafkaProducer connection."""
     kafka_stub = types.ModuleType("kafka")
     kafka_stub.KafkaProducer = lambda **kwargs: None
     sys.modules.setdefault("kafka", kafka_stub)
@@ -16,24 +16,13 @@ def load_producer_module():
         os.path.join(os.path.dirname(__file__), "producer.py"),
     )
     mod = importlib.util.module_from_spec(spec)
-    # Patch out the blocking while-loop so import exits immediately
-    import unittest.mock as mock
-    with mock.patch("time.sleep", side_effect=KeyboardInterrupt):
-        try:
-            spec.loader.exec_module(mod)
-        except (KeyboardInterrupt, AttributeError):
-            pass
+    spec.loader.exec_module(mod)
     return mod
 
 
 def make_event(users, items):
-    import random
-    return {
-        "user_id": random.choice(users),
-        "item_id": random.choice(items),
-        "event_type": "click",
-        "timestamp": int(time.time()),
-    }
+    mod = load_producer_module()
+    return mod.make_click_event(users, items)
 
 
 class TestEventSchema:
@@ -104,3 +93,15 @@ class TestEnvConfig:
         monkeypatch.setenv("NUM_USERS", "0")
         num = max(int(os.getenv("NUM_USERS", "5")), 1)
         assert num == 1
+
+
+class TestBehaviorWorkflowEvents:
+    def test_behavior_slate_contains_impressions_with_request_id(self):
+        mod = load_producer_module()
+        events = mod.make_behavior_slate(["user_1"], ["item_1", "item_2", "item_3"])
+        impressions = [event for event in events if event["event_type"] == "impression"]
+        assert len(impressions) >= 1
+        assert all(event["request_id"] == impressions[0]["request_id"] for event in impressions)
+        assert all("user_features" in event for event in impressions)
+        assert all("item_features" in event for event in impressions)
+        assert all("context_features" in event for event in impressions)

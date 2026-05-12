@@ -16,6 +16,14 @@ lazy val root = (project in file("."))
       "org.apache.spark" %% "spark-mllib" % "3.5.1" % Test,
       "org.scalatest"    %% "scalatest"  % "3.2.18" % Test
     ),
+    Test / fork := true,
+    Test / parallelExecution := false,
+    Test / javaOptions ++= Seq(
+      "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+      "--add-opens=java.base/java.nio=ALL-UNNAMED",
+      "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+      "--add-opens=java.base/java.util=ALL-UNNAMED"
+    ),
     assembly / assemblyJarName := "spark-recsys-job.jar",
     assembly / assemblyMergeStrategy := {
       case PathList("META-INF", xs @ _*) =>
