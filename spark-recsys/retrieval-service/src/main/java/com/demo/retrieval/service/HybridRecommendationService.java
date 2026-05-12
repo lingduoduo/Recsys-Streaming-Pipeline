@@ -1,5 +1,8 @@
 package com.demo.retrieval.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import org.slf4j.Logger;
@@ -30,6 +33,12 @@ public class HybridRecommendationService {
     private static final Logger log = LoggerFactory.getLogger(HybridRecommendationService.class);
     private static final String GLOBAL_POPULARITY_KEY = "global:item_popularity";
     private static final String METRICS_HASH_KEY = "bandit:metrics";
+    private static final String REPLAY_BUFFER_KEY = "replay:recommendations";
+    private static final String REPLAY_PENDING_PREFIX = "replay:pending:";
+    private static final String REWARD_MODEL_GLOBAL_KEY = "reward-model:global";
+    private static final String REWARD_MODEL_ITEM_PREFIX = "reward-model:item:";
+    private static final String REWARD_MODEL_GENRE_PREFIX = "reward-model:genre:";
+    private static final String REWARD_MODEL_TAG_PREFIX = "reward-model:tag:";
     private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson");
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
@@ -37,6 +46,7 @@ public class HybridRecommendationService {
 
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(StringRedisTemplate redis, RecommendationProperties properties) {
         this.redis = redis;
@@ -114,7 +124,11 @@ public class HybridRecommendationService {
         randomizeTopN(scored, properties.getCandidateGeneration().getTopNRandomizationPool());
 
         List<ScoredCandidate> selected = scored.stream().limit(limit).toList();
-        trackServedRecommendations(selected);
+        List<String> candidateSnapshot = scored.stream()
+            .limit(Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
+            .map(ScoredCandidate::itemId)
+            .toList();
+        trackServedRecommendations(user, recent, userGenres, userTags, candidateSnapshot, selected);
 
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
         double pseudoRegret = computePseudoRegret(scored, selected, limit);
@@ -138,6 +152,7 @@ public class HybridRecommendationService {
                 row.put("estimatedReward", round(candidate.estimatedReward()));
                 row.put("relevanceScore", round(candidate.relevanceScore()));
                 row.put("contentScore", round(candidate.contentScore()));
+                row.put("rewardModelScore", round(candidate.rewardModelScore()));
                 row.put("explorationBonus", round(candidate.explorationBonus()));
                 row.put("banditScore", round(candidate.banditScore()));
                 row.put("coldStart", candidate.coldStart());
@@ -172,6 +187,8 @@ public class HybridRecommendationService {
             incrementItemCounter(itemId, "clicks", 1);
         }
         incrementMetric("reward_total", reward);
+        updateRewardModel(itemId, reward);
+        appendFeedbackToReplayBuffer(request);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
@@ -254,8 +271,11 @@ public class HybridRecommendationService {
         double baseScore = (properties.getBandit().getRelevanceWeight() * normalizeScore(relevance))
             + (properties.getBandit().getContentWeight() * content)
             + (properties.getBandit().getPopularityWeight() * popularity);
+        double rewardModelScore = estimateRewardFromModel(itemId, profile, baseScore);
+        double rewardModelWeight = clamp(properties.getRewardModel().getWeight());
+        double learnedPrior = (baseScore * (1.0 - rewardModelWeight)) + (rewardModelScore * rewardModelWeight);
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.isNewRelease());
-        BanditArmScore armScore = computeBanditArmScore(baseScore, impressions, clicks, totalImpressions, coldStart);
+        BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart);
         double estimatedReward = armScore.posteriorMean();
         double novelty = 1.0 / (impressions + 1.0);
 
@@ -265,6 +285,7 @@ public class HybridRecommendationService {
             relevance,
             content,
             popularity,
+            rewardModelScore,
             armScore.explorationBonus(),
             armScore.rankingScore(),
             coldStart,
@@ -288,8 +309,14 @@ public class HybridRecommendationService {
     }
 
     @SuppressWarnings("unchecked")
-    private void trackServedRecommendations(List<ScoredCandidate> selected) {
-        // Pipeline all writes into a single round-trip instead of 3 × |selected| sequential calls
+    private void trackServedRecommendations(
+        String user,
+        List<String> recent,
+        Set<String> userGenres,
+        Set<String> userTags,
+        List<String> candidateSnapshot,
+        List<ScoredCandidate> selected
+    ) {
         long now = System.currentTimeMillis();
         redis.executePipelined(new SessionCallback<>() {
             @Override
@@ -298,10 +325,80 @@ public class HybridRecommendationService {
                     operations.opsForValue().increment("bandit:item:" + c.itemId() + ":impressions", 1);
                     operations.opsForSet().add(EXPOSED_ITEMS_KEY, c.itemId());
                     operations.opsForValue().set("bandit:last_served:" + c.itemId(), String.valueOf(now));
+                    serializeReplayContext(user, recent, userGenres, userTags, candidateSnapshot, c, now)
+                        .ifPresent(payload -> operations.opsForValue().set(pendingReplayKey(user, c.itemId()), payload));
                 }
                 return null;
             }
         });
+    }
+
+    private Optional<String> serializeReplayContext(
+        String user,
+        List<String> recent,
+        Set<String> userGenres,
+        Set<String> userTags,
+        List<String> candidateSnapshot,
+        ScoredCandidate selected,
+        long timestamp
+    ) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("type", "recommendation");
+        event.put("user", user);
+        event.put("context", Map.of(
+            "recent", recent,
+            "genres", userGenres,
+            "tags", userTags
+        ));
+        event.put("candidates", candidateSnapshot);
+        event.put("action", selected.itemId());
+        event.put("estimatedReward", round(selected.estimatedReward()));
+        event.put("rewardModelScore", round(selected.rewardModelScore()));
+        event.put("banditScore", round(selected.banditScore()));
+        event.put("coldStart", selected.coldStart());
+        event.put("timestamp", timestamp);
+        try {
+            return Optional.of(objectMapper.writeValueAsString(event));
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize replay context for user {} item {}", user, selected.itemId(), e);
+            return Optional.empty();
+        }
+    }
+
+    private void appendFeedbackToReplayBuffer(FeedbackRequest request) {
+        Map<String, Object> event = readPendingReplayContext(request.user(), request.item()).orElseGet(LinkedHashMap::new);
+        event.putIfAbsent("type", "recommendation");
+        event.putIfAbsent("user", request.user());
+        event.putIfAbsent("action", request.item());
+        event.put("clicked", request.clicked());
+        event.put("reward", request.reward());
+        event.put("feedbackTimestamp", System.currentTimeMillis());
+
+        try {
+            redis.opsForList().rightPush(REPLAY_BUFFER_KEY, objectMapper.writeValueAsString(event));
+            int maxSize = Math.max(1, properties.getReplayBuffer().getMaxSize());
+            redis.opsForList().trim(REPLAY_BUFFER_KEY, -maxSize, -1);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to append replay event for user {} item {}", request.user(), request.item(), e);
+        }
+    }
+
+    private Optional<Map<String, Object>> readPendingReplayContext(String user, String item) {
+        String raw = redis.opsForValue().get(pendingReplayKey(user, item));
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readValue(raw, new TypeReference<>() {
+            }));
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to deserialize pending replay context for user {} item {}", user, item, e);
+            return Optional.empty();
+        }
+    }
+
+    private String pendingReplayKey(String user, String item) {
+        return REPLAY_PENDING_PREFIX + user + ":" + item;
     }
 
     // Batch-fetch impression + click counters for a list of item IDs in two mget calls
@@ -379,6 +476,86 @@ public class HybridRecommendationService {
 
     private void incrementItemCounter(String itemId, String counter, long amount) {
         redis.opsForValue().increment("bandit:item:" + itemId + ":" + counter, amount);
+    }
+
+    private void updateRewardModel(String itemId, double reward) {
+        incrementRewardStats(REWARD_MODEL_GLOBAL_KEY, reward);
+        incrementRewardStats(REWARD_MODEL_ITEM_PREFIX + itemId, reward);
+
+        MovieProfile profile = properties.getCatalog().get(itemId);
+        if (profile == null) {
+            return;
+        }
+        normalize(profile.getGenres()).forEach(genre -> incrementRewardStats(REWARD_MODEL_GENRE_PREFIX + genre, reward));
+        normalize(profile.getTags()).forEach(tag -> incrementRewardStats(REWARD_MODEL_TAG_PREFIX + tag, reward));
+    }
+
+    private void incrementRewardStats(String key, double reward) {
+        redis.opsForHash().increment(key, "count", 1L);
+        redis.opsForHash().increment(key, "reward_total", reward);
+    }
+
+    private double estimateRewardFromModel(String itemId, MovieProfile profile, double fallback) {
+        double weightedReward = 0.0;
+        double totalWeight = 0.0;
+
+        RewardEstimate global = readRewardEstimate(REWARD_MODEL_GLOBAL_KEY);
+        if (global.count() > 0) {
+            double weight = properties.getRewardModel().getGlobalWeight() * confidence(global.count());
+            weightedReward += global.mean() * weight;
+            totalWeight += weight;
+        }
+
+        RewardEstimate item = readRewardEstimate(REWARD_MODEL_ITEM_PREFIX + itemId);
+        if (item.count() > 0) {
+            double weight = properties.getRewardModel().getItemWeight() * confidence(item.count());
+            weightedReward += item.mean() * weight;
+            totalWeight += weight;
+        }
+
+        if (profile != null) {
+            RewardEstimate genre = aggregateFeatureEstimates(REWARD_MODEL_GENRE_PREFIX, normalize(profile.getGenres()));
+            if (genre.count() > 0) {
+                double weight = properties.getRewardModel().getGenreWeight() * confidence(genre.count());
+                weightedReward += genre.mean() * weight;
+                totalWeight += weight;
+            }
+
+            RewardEstimate tag = aggregateFeatureEstimates(REWARD_MODEL_TAG_PREFIX, normalize(profile.getTags()));
+            if (tag.count() > 0) {
+                double weight = properties.getRewardModel().getTagWeight() * confidence(tag.count());
+                weightedReward += tag.mean() * weight;
+                totalWeight += weight;
+            }
+        }
+
+        if (totalWeight == 0.0) {
+            return clamp(fallback);
+        }
+        return clamp(weightedReward / totalWeight);
+    }
+
+    private RewardEstimate aggregateFeatureEstimates(String prefix, Set<String> features) {
+        long count = 0L;
+        double rewardTotal = 0.0;
+        for (String feature : features) {
+            RewardEstimate estimate = readRewardEstimate(prefix + feature);
+            count += estimate.count();
+            rewardTotal += estimate.mean() * estimate.count();
+        }
+        return count == 0L ? new RewardEstimate(0L, 0.0) : new RewardEstimate(count, rewardTotal / count);
+    }
+
+    private RewardEstimate readRewardEstimate(String key) {
+        Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(key)).orElseGet(Map::of);
+        long count = readLong(raw.get("count"));
+        double rewardTotal = readDouble(raw.get("reward_total"));
+        return count == 0L ? new RewardEstimate(0L, 0.0) : new RewardEstimate(count, clamp(rewardTotal / count));
+    }
+
+    private double confidence(long count) {
+        int minCount = Math.max(1, properties.getRewardModel().getMinFeatureCount());
+        return Math.min(1.0, (double) count / minCount);
     }
 
     private void incrementMetric(String field, long amount) {
@@ -630,6 +807,7 @@ public class HybridRecommendationService {
         double relevanceScore,
         double contentScore,
         double popularityScore,
+        double rewardModelScore,
         double explorationBonus,
         double banditScore,
         boolean coldStart,
@@ -643,6 +821,12 @@ public class HybridRecommendationService {
         double posteriorMean,
         double explorationBonus,
         double rankingScore
+    ) {
+    }
+
+    private record RewardEstimate(
+        long count,
+        double mean
     ) {
     }
 }

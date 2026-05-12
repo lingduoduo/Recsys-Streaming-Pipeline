@@ -5,7 +5,7 @@
 - A real-time Kafka -> Spark Structured Streaming -> Redis pipeline that keeps recent user history and global popularity fresh.
 - An offline Spark training flow that builds Item2Vec, user, and ALS embeddings from historical ratings.
 
-The retrieval layer is a Spring Boot service that combines those signals with a lightweight bandit-style ranking policy, cold-start candidate generation, and feedback tracking.
+The retrieval layer is a Spring Boot service that combines those signals with content-based retrieval, a lightweight UCB/Thompson bandit policy, a Redis replay buffer, a simple reward model, cold-start candidate generation, and feedback tracking.
 
 ## Architecture
 
@@ -37,9 +37,11 @@ For each recommendation request, the service:
    - embedding relevance
    - content similarity from genres and tags
    - popularity
+   - learned reward estimates from item, genre, tag, and global feedback
    - exploration bonus for low-exposure items via `ucb` or `thompson`
 5. Randomizes the top scoring pool slightly to avoid deterministic repetition.
-6. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
+6. Stores pending recommendation context for replay-buffer training.
+7. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
 
 The default catalog and ranking weights live in `retrieval-service/src/main/resources/application.yml`.
 
@@ -123,6 +125,7 @@ Example response:
       "estimatedReward": 0.71,
       "relevanceScore": 0.62,
       "contentScore": 0.67,
+      "rewardModelScore": 0.58,
       "explorationBonus": 0.19,
       "banditScore": 0.78,
       "coldStart": true,
@@ -152,6 +155,7 @@ Notes:
 ### `POST /feedback`
 
 Records user feedback for an exposed item and updates aggregate metrics.
+It also appends a rewarded recommendation event to the Redis replay buffer and updates the online reward-model counters.
 
 Example:
 
@@ -269,6 +273,14 @@ Important properties:
 | `recsys.bandit.relevance-weight` | `0.6` |
 | `recsys.bandit.content-weight` | `0.25` |
 | `recsys.bandit.popularity-weight` | `0.15` |
+| `recsys.replay-buffer.max-size` | `10000` |
+| `recsys.replay-buffer.candidate-snapshot-size` | `20` |
+| `recsys.reward-model.weight` | `0.25` |
+| `recsys.reward-model.global-weight` | `0.15` |
+| `recsys.reward-model.item-weight` | `0.45` |
+| `recsys.reward-model.genre-weight` | `0.25` |
+| `recsys.reward-model.tag-weight` | `0.15` |
+| `recsys.reward-model.min-feature-count` | `3` |
 
 Runtime overrides:
 
@@ -290,13 +302,32 @@ Runtime overrides:
 | `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
 | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
+| `RECSYS_REPLAY_BUFFER_MAX_SIZE` | `10000` |
+| `RECSYS_REPLAY_CANDIDATE_SNAPSHOT_SIZE` | `20` |
+| `RECSYS_REWARD_MODEL_WEIGHT` | `0.25` |
+| `RECSYS_REWARD_GLOBAL_WEIGHT` | `0.15` |
+| `RECSYS_REWARD_ITEM_WEIGHT` | `0.45` |
+| `RECSYS_REWARD_GENRE_WEIGHT` | `0.25` |
+| `RECSYS_REWARD_TAG_WEIGHT` | `0.15` |
+| `RECSYS_REWARD_MIN_FEATURE_COUNT` | `3` |
 
 Bandit algorithm notes:
 
 - `ucb` builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
 - `thompson` builds the same posterior and ranks items by a Beta posterior sample, which gives a concrete stochastic arm draw per request.
-- The recommender's relevance, content, and popularity blend acts as the prior mean for both algorithms, so bandit updates refine rather than replace the base ranker.
+- The recommender's relevance, content, popularity, and learned reward-model blend acts as the prior mean for both algorithms, so bandit updates refine rather than replace the base ranker.
 - Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb` or `RECSYS_BANDIT_ALGORITHM=thompson`.
+
+Replay and reward-model Redis keys:
+
+| Key | Type | Contents |
+|---|---|---|
+| `replay:pending:{user}:{item}` | string | Last recommendation context for a served user-item pair |
+| `replay:recommendations` | list | Rewarded replay events from `/feedback` |
+| `reward-model:global` | hash | Global count and reward total |
+| `reward-model:item:{item}` | hash | Per-item count and reward total |
+| `reward-model:genre:{genre}` | hash | Per-genre count and reward total |
+| `reward-model:tag:{tag}` | hash | Per-tag count and reward total |
 
 ## Offline Path
 
@@ -420,6 +451,40 @@ Output paths:
 sampledata/als/userFactors/part-...
 sampledata/als/itemFactors/part-...
 ```
+
+## Cold-Start RL Extension Plan
+
+The current retrieval service is intentionally the right starting point for a cold-start recommendation project: it already has content-based retrieval, item embeddings, online feedback, and a UCB/Thompson-style exploration layer. The next steps should extend that path gradually rather than jumping straight to a full DQN ranker.
+
+Recommended build order:
+
+1. Strengthen the existing baseline:
+   - content-based retrieval from genres, tags, popularity, and embeddings
+   - UCB bandit exploration for low-exposure and cold-start items
+   - replay buffer storing `(user, context, candidates, action, reward, timestamp)`
+   - reward model that predicts click or normalized reward from user, item, and context features
+2. Add the RL framing:
+   - model recommendation as contextual Q-learning where the state is the user/session context, the action is the recommended item, and the reward comes from `/feedback`
+   - keep the UCB ranker as the online-safe policy while the Q-value model is trained offline or in shadow mode
+3. Scale with DQN ranking:
+   - replace tabular Q-values with a neural scorer over user, item, and content embeddings
+   - rank candidate items by predicted Q-value rather than treating the full catalog as the action space
+   - train from the replay buffer with negative samples from exposed-but-unclicked items
+4. Stabilize with Double DQN:
+   - use the online network to choose the next best item
+   - use the target network to evaluate that item
+   - periodically update the target network to reduce overestimation and ranking churn
+5. Improve cold-start sample efficiency with Dyna-style planning:
+   - train a lightweight environment or reward model from observed feedback
+   - generate simulated feedback for new or low-exposure items
+   - mix real replay and simulated replay, with lower weight on simulated samples
+
+Clean project story:
+
+- Q-learning gives the recommendation loop an RL framing.
+- DQN makes the ranking policy scalable with user and item embeddings.
+- Double DQN makes the learned ranker more stable.
+- Dyna-Q improves cold-start sample efficiency by learning from simulated feedback before enough real impressions arrive.
 
 ## Notes
 

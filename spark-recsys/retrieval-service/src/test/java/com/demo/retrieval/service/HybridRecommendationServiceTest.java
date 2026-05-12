@@ -12,6 +12,7 @@ import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.mockito.ArgumentCaptor;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -160,6 +161,7 @@ class HybridRecommendationServiceTest {
         assertTrue(result.recommendations().contains("item4"));
         assertFalse(result.recommendations().contains("item1")); // recently viewed — must be excluded
         assertFalse(result.candidateDiagnostics().isEmpty());
+        assertTrue(result.candidateDiagnostics().get(0).containsKey("rewardModelScore"));
         assertEquals("ucb", result.metrics().get("algorithm"));
         // tracking writes are batched into a single executePipelined call
         verify(redis).executePipelined(any(SessionCallback.class));
@@ -167,6 +169,10 @@ class HybridRecommendationServiceTest {
 
     @Test
     void feedbackAggregatesBusinessMetrics() {
+        when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
+            {"user":"u1","context":{"recent":["item1"]},"candidates":["item4","item2"],"action":"item4"}
+            """);
+
         Map<String, Object> result = service.recordFeedback(new FeedbackRequest("u1", "item4", true, 1.0));
 
         assertEquals("ok", result.get("status"));
@@ -177,6 +183,16 @@ class HybridRecommendationServiceTest {
         verify(valueOps).increment("bandit:item:item4:clicks", 1);
         verify(hashOps).increment("bandit:metrics", "reward_total", 1.0);
         verify(hashOps).increment("bandit:metrics:ucb", "reward_total", 1.0);
+        verify(hashOps).increment("reward-model:global", "count", 1L);
+        verify(hashOps).increment("reward-model:item:item4", "reward_total", 1.0);
+        verify(hashOps).increment("reward-model:genre:sci-fi", "reward_total", 1.0);
+        verify(hashOps).increment("reward-model:tag:future", "reward_total", 1.0);
+        verify(listOps).trim("replay:recommendations", -10000L, -1L);
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(listOps).rightPush(eq("replay:recommendations"), payload.capture());
+        assertTrue(payload.getValue().contains("\"reward\":1.0"));
+        assertTrue(payload.getValue().contains("\"clicked\":true"));
     }
 
     @Test

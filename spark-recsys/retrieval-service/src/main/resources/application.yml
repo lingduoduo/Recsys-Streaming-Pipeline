@@ -28,6 +28,16 @@ recsys:
     relevance-weight: ${RECSYS_RELEVANCE_WEIGHT:0.6}
     content-weight: ${RECSYS_CONTENT_WEIGHT:0.25}
     popularity-weight: ${RECSYS_POPULARITY_WEIGHT:0.15}
+  replay-buffer:
+    max-size: ${RECSYS_REPLAY_BUFFER_MAX_SIZE:10000}
+    candidate-snapshot-size: ${RECSYS_REPLAY_CANDIDATE_SNAPSHOT_SIZE:20}
+  reward-model:
+    weight: ${RECSYS_REWARD_MODEL_WEIGHT:0.25}
+    global-weight: ${RECSYS_REWARD_GLOBAL_WEIGHT:0.15}
+    item-weight: ${RECSYS_REWARD_ITEM_WEIGHT:0.45}
+    genre-weight: ${RECSYS_REWARD_GENRE_WEIGHT:0.25}
+    tag-weight: ${RECSYS_REWARD_TAG_WEIGHT:0.15}
+    min-feature-count: ${RECSYS_REWARD_MIN_FEATURE_COUNT:3}
   catalog:
     item1:
       title: "Retro Space Adventure"
