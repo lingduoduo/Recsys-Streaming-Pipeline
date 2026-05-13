@@ -1,5 +1,6 @@
 package com.demo.streaming
 
+import com.demo.common.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -11,26 +12,20 @@ object UserEventStreamingJob {
   private val log = LoggerFactory.getLogger(getClass)
 
   def main(args: Array[String]): Unit = {
-    val appName = sys.env.getOrElse("SPARK_APP_NAME", "UserEventStreamingJob")
-    val master = sys.env.getOrElse("SPARK_MASTER", "local[*]")
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     val kafkaTopic = sys.env.getOrElse("KAFKA_TOPIC", "user_events")
     val redisHost = sys.env.getOrElse("REDIS_HOST", "localhost")
-    val redisPort = sys.env.get("REDIS_PORT").flatMap(toIntOption).getOrElse(6379)
+    val redisPort = Env.int("REDIS_PORT", 6379)
     val checkpointLocation = sys.env.getOrElse(
       "SPARK_CHECKPOINT_LOCATION",
       "/tmp/spark-recsys/user-event-streaming-job"
     )
     val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
     val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "5 seconds")
-    val recentItemsLimit = math.max(1, sys.env.get("RECENT_ITEMS_LIMIT").flatMap(toIntOption).getOrElse(20))
-    val redisPipelineSize = math.max(3, sys.env.get("REDIS_PIPELINE_SIZE").flatMap(toIntOption).getOrElse(500))
+    val recentItemsLimit = math.max(1, Env.int("RECENT_ITEMS_LIMIT", 20))
+    val redisPipelineSize = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
 
-    val spark = SparkSession.builder()
-      .appName(appName)
-      .master(master)
-      .config("spark.sql.shuffle.partitions", sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", "4"))
-      .getOrCreate()
+    val spark = SparkSessions.create("UserEventStreamingJob", defaultShufflePartitions = 4)
 
     val schema = StructType(Seq(
       StructField("user_id", StringType, nullable = false),
@@ -110,11 +105,4 @@ object UserEventStreamingJob {
       .start()
       .awaitTermination()
   }
-
-  private def toIntOption(value: String): Option[Int] =
-    try {
-      Some(value.toInt)
-    } catch {
-      case _: NumberFormatException => None
-    }
 }

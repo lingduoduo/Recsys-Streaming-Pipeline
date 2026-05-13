@@ -1,5 +1,6 @@
 package com.demo.recsys
 
+import com.demo.common.{Env, SparkSessions}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -9,18 +10,10 @@ object ItemSequencePreprocessingJob {
   private val DefaultMinRating = 3.5
 
   def main(args: Array[String]): Unit = {
-    val inputPath = args.headOption.orElse(sys.env.get("RATINGS_INPUT_PATH")).getOrElse {
-      throw new IllegalArgumentException(
-        "Missing ratings input path. Pass it as the first argument or set RATINGS_INPUT_PATH."
-      )
-    }
-    val outputPath = args.lift(1).orElse(sys.env.get("ITEM_SEQUENCES_OUTPUT_PATH"))
+    val inputPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
+    val outputPath = Env.argOrEnv(args, 1, "ITEM_SEQUENCES_OUTPUT_PATH")
 
-    val spark = SparkSession.builder()
-      .appName(sys.env.getOrElse("SPARK_APP_NAME", "ItemSequencePreprocessingJob"))
-      .master(sys.env.getOrElse("SPARK_MASTER", "local[*]"))
-      .config("spark.sql.shuffle.partitions", sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", "8"))
-      .getOrCreate()
+    val spark = SparkSessions.create("ItemSequencePreprocessingJob")
 
     try {
       val userSequences = processItemSequenceDataFrame(spark, inputPath)
