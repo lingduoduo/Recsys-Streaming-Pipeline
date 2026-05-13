@@ -1,5 +1,6 @@
 package com.demo.recsys
 
+import com.demo.common.{Env, SparkSessions}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -12,30 +13,20 @@ object AlsEmbeddingTrainingJob {
   private val DefaultRegParam = 0.1
 
   def main(args: Array[String]): Unit = {
-    val ratingsPath = args.headOption.orElse(sys.env.get("RATINGS_INPUT_PATH")).getOrElse {
-      throw new IllegalArgumentException(
-        "Missing ratings input path. Pass it as the first argument or set RATINGS_INPUT_PATH."
-      )
-    }
-    val outputPath = args
-      .lift(1)
-      .orElse(sys.env.get("ALS_EMBEDDING_OUTPUT_PATH"))
+    val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
+    val outputPath = Env.argOrEnv(args, 1, "ALS_EMBEDDING_OUTPUT_PATH")
       .getOrElse("spark-recsys/sampledata/als")
 
-    val spark = SparkSession.builder()
-      .appName(sys.env.getOrElse("SPARK_APP_NAME", "AlsEmbeddingTrainingJob"))
-      .master(sys.env.getOrElse("SPARK_MASTER", "local[*]"))
-      .config("spark.sql.shuffle.partitions", sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", "8"))
-      .getOrCreate()
+    val spark = SparkSessions.create("AlsEmbeddingTrainingJob")
 
     try {
       val ratings = readRatings(spark, ratingsPath)
       val (userFactors, itemFactors) = trainAlsEmbeddings(
         sparkSession = spark,
         ratings = ratings,
-        rank = sys.env.get("ALS_RANK").flatMap(toIntOption).getOrElse(DefaultRank),
-        maxIter = sys.env.get("ALS_MAX_ITER").flatMap(toIntOption).getOrElse(DefaultMaxIter),
-        regParam = sys.env.get("ALS_REG_PARAM").flatMap(toDoubleOption).getOrElse(DefaultRegParam)
+        rank = Env.int("ALS_RANK", DefaultRank),
+        maxIter = Env.int("ALS_MAX_ITER", DefaultMaxIter),
+        regParam = Env.double("ALS_REG_PARAM", DefaultRegParam)
       )
 
       writeFactors(userFactors, s"$outputPath/userFactors", "userId", "userEmbedding")
@@ -142,12 +133,4 @@ object AlsEmbeddingTrainingJob {
       .mode("overwrite")
       .text(outputPath)
   }
-
-  private def toIntOption(value: String): Option[Int] =
-    try Some(value.toInt)
-    catch { case _: NumberFormatException => None }
-
-  private def toDoubleOption(value: String): Option[Double] =
-    try Some(value.toDouble)
-    catch { case _: NumberFormatException => None }
 }

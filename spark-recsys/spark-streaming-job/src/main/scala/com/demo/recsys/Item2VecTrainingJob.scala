@@ -2,6 +2,7 @@ package com.demo.recsys
 
 import java.io.{BufferedWriter, File, FileWriter}
 
+import com.demo.common.{Env, SparkSessions}
 import org.apache.spark.ml.feature.{Word2Vec => MLWord2Vec}
 import org.apache.spark.ml.linalg.{Vector => MLVector}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -20,22 +21,12 @@ object Item2VecTrainingJob {
   private val DefaultRedisPipelineSize = 500
 
   def main(args: Array[String]): Unit = {
-    val ratingsPath = args.headOption.orElse(sys.env.get("RATINGS_INPUT_PATH")).getOrElse {
-      throw new IllegalArgumentException(
-        "Missing ratings input path. Pass it as the first argument or set RATINGS_INPUT_PATH."
-      )
-    }
-    val embeddingPath = args
-      .lift(1)
-      .orElse(sys.env.get("ITEM2VEC_EMBEDDING_PATH"))
+    val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
+    val embeddingPath = Env.argOrEnv(args, 1, "ITEM2VEC_EMBEDDING_PATH")
       .getOrElse("spark-recsys/sampledata/embedding.txt")
-    val queryItem = args.lift(2).orElse(sys.env.get("ITEM2VEC_QUERY_ITEM")).getOrElse(DefaultQueryItem)
+    val queryItem = Env.argOrEnv(args, 2, "ITEM2VEC_QUERY_ITEM").getOrElse(DefaultQueryItem)
 
-    val spark = SparkSession.builder()
-      .appName(sys.env.getOrElse("SPARK_APP_NAME", "Item2VecTrainingJob"))
-      .master(sys.env.getOrElse("SPARK_MASTER", "local[*]"))
-      .config("spark.sql.shuffle.partitions", sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", "8"))
-      .getOrCreate()
+    val spark = SparkSessions.create("Item2VecTrainingJob")
 
     try {
       val samples = ItemSequencePreprocessingJob.processItemSequenceDataFrame(spark, ratingsPath)
@@ -44,11 +35,11 @@ object Item2VecTrainingJob {
         embeddingPath = embeddingPath,
         queryItem = queryItem,
         redisHost = sys.env.getOrElse("REDIS_HOST", "localhost"),
-        redisPort = sys.env.get("REDIS_PORT").flatMap(toIntOption).getOrElse(6379),
+        redisPort = Env.int("REDIS_PORT", 6379),
         redisKeyPrefix = sys.env.getOrElse("ITEM2VEC_REDIS_KEY_PREFIX", DefaultRedisKeyPrefix),
-        redisTtlSeconds = sys.env.get("ITEM2VEC_REDIS_TTL_SECONDS").flatMap(toIntOption).getOrElse(DefaultRedisTtlSeconds),
-        minCount = sys.env.get("ITEM2VEC_MIN_COUNT").flatMap(toIntOption).getOrElse(DefaultMinCount),
-        saveToRedis = toBooleanEnv("ITEM2VEC_SAVE_TO_REDIS", default = false)
+        redisTtlSeconds = Env.int("ITEM2VEC_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds),
+        minCount = Env.int("ITEM2VEC_MIN_COUNT", DefaultMinCount),
+        saveToRedis = Env.boolean("ITEM2VEC_SAVE_TO_REDIS", default = false)
       )
     } finally {
       spark.stop()
@@ -145,18 +136,4 @@ object Item2VecTrainingJob {
       jedis.close()
     }
   }
-
-  private def toIntOption(value: String): Option[Int] =
-    try Some(value.toInt)
-    catch { case _: NumberFormatException => None }
-
-  private def toBooleanEnv(key: String, default: Boolean): Boolean =
-    sys.env.get(key).map(_.trim.toLowerCase) match {
-      case Some("true")  => true
-      case Some("false") => false
-      case Some(other)   =>
-        System.err.println(s"Unrecognised boolean value for $key: '$other', using default=$default")
-        default
-      case None => default
-    }
 }

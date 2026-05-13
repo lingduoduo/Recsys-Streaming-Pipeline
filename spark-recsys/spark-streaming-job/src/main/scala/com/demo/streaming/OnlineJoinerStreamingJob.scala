@@ -1,5 +1,6 @@
 package com.demo.streaming
 
+import com.demo.common.SparkSessions
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -20,8 +21,6 @@ object OnlineJoinerStreamingJob {
   ))
 
   def main(args: Array[String]): Unit = {
-    val appName = sys.env.getOrElse("SPARK_APP_NAME", "OnlineJoinerStreamingJob")
-    val master = sys.env.getOrElse("SPARK_MASTER", "local[*]")
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     val inputTopic = sys.env.getOrElse("ONLINE_JOINER_INPUT_TOPIC", "behavior_logs")
     val outputTopic = sys.env.getOrElse("ONLINE_JOINER_OUTPUT_TOPIC", "training_samples")
@@ -33,11 +32,7 @@ object OnlineJoinerStreamingJob {
     val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
     val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds")
 
-    val spark = SparkSession.builder()
-      .appName(appName)
-      .master(master)
-      .config("spark.sql.shuffle.partitions", sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", "8"))
-      .getOrCreate()
+    val spark = SparkSessions.create("OnlineJoinerStreamingJob")
 
     val raw = spark.readStream
       .format("kafka")

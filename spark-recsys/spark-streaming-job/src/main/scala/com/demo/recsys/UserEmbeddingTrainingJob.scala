@@ -1,5 +1,6 @@
 package com.demo.recsys
 
+import com.demo.common.{Env, SparkSessions}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -11,33 +12,19 @@ object UserEmbeddingTrainingJob {
   case class ItemEmbedding(movieId: String, vector: Seq[Double])
 
   def main(args: Array[String]): Unit = {
-    val ratingsPath = args.headOption.orElse(sys.env.get("RATINGS_INPUT_PATH")).getOrElse {
-      throw new IllegalArgumentException(
-        "Missing ratings input path. Pass it as the first argument or set RATINGS_INPUT_PATH."
-      )
-    }
-    val itemEmbeddingPath = args.lift(1).orElse(sys.env.get("ITEM2VEC_EMBEDDING_PATH")).getOrElse {
-      throw new IllegalArgumentException(
-        "Missing item embedding path. Pass it as the second argument or set ITEM2VEC_EMBEDDING_PATH."
-      )
-    }
-    val userEmbeddingPath = args
-      .lift(2)
-      .orElse(sys.env.get("USER_EMBEDDING_OUTPUT_PATH"))
+    val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
+    val itemEmbeddingPath = Env.requiredArgOrEnv(args, 1, "ITEM2VEC_EMBEDDING_PATH", "item embedding path")
+    val userEmbeddingPath = Env.argOrEnv(args, 2, "USER_EMBEDDING_OUTPUT_PATH")
       .getOrElse("spark-recsys/sampledata/user_embedding.txt")
 
-    val spark = SparkSession.builder()
-      .appName(sys.env.getOrElse("SPARK_APP_NAME", "UserEmbeddingTrainingJob"))
-      .master(sys.env.getOrElse("SPARK_MASTER", "local[*]"))
-      .config("spark.sql.shuffle.partitions", sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", "8"))
-      .getOrCreate()
+    val spark = SparkSessions.create("UserEmbeddingTrainingJob")
 
     try {
       val userEmbeddings = trainUserEmbeddings(
         sparkSession = spark,
         ratingsPath = ratingsPath,
         itemEmbeddingPath = itemEmbeddingPath,
-        minRating = sys.env.get("USER_EMBEDDING_MIN_RATING").flatMap(toDoubleOption).getOrElse(DefaultMinRating)
+        minRating = Env.double("USER_EMBEDDING_MIN_RATING", DefaultMinRating)
       )
 
       userEmbeddings
@@ -114,8 +101,4 @@ object UserEmbeddingTrainingJob {
       }
       .toDF()
   }
-
-  private def toDoubleOption(value: String): Option[Double] =
-    try Some(value.toDouble)
-    catch { case _: NumberFormatException => None }
 }
