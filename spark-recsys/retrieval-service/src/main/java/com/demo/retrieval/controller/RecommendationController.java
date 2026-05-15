@@ -1,10 +1,13 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.FeedbackRequest;
 import com.demo.retrieval.service.HybridRecommendationService;
+import com.demo.retrieval.service.ModelPrediction;
 import com.demo.retrieval.service.RecommendationResult;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,10 +37,16 @@ public class RecommendationController {
 
     private final StringRedisTemplate redis;
     private final HybridRecommendationService recommendationService;
+    private final DeepLearningPredictionService predictionService;
 
-    public RecommendationController(StringRedisTemplate redis, HybridRecommendationService recommendationService) {
+    public RecommendationController(
+        StringRedisTemplate redis,
+        HybridRecommendationService recommendationService,
+        DeepLearningPredictionService predictionService
+    ) {
         this.redis = redis;
         this.recommendationService = recommendationService;
+        this.predictionService = predictionService;
     }
 
     @GetMapping("/embedding/{item}")
@@ -82,6 +91,34 @@ public class RecommendationController {
         );
     }
 
+    @GetMapping("/predict/{user}/{item}")
+    public Map<String, Object> predict(
+        @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user,
+        @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String item
+    ) {
+        return predictionService.predict(user, item)
+            .map(this::predictionPayload)
+            .orElseGet(() -> Map.of(
+                "user", user,
+                "item", item,
+                "error", "unknown_user_or_item",
+                "metadata", predictionService.metadata()
+            ));
+    }
+
+    @GetMapping("/predict/id")
+    public Map<String, Object> predictById(
+        @RequestParam @Min(0) long userId,
+        @RequestParam @Min(0) long itemId
+    ) {
+        return predictionPayload(predictionService.predict(userId, itemId));
+    }
+
+    @GetMapping("/predict/metadata")
+    public Map<String, Object> predictionMetadata() {
+        return predictionService.metadata();
+    }
+
     @PostMapping("/feedback")
     public Map<String, Object> feedback(@Valid @RequestBody FeedbackRequest request) {
         return recommendationService.recordFeedback(request);
@@ -96,5 +133,20 @@ public class RecommendationController {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleValidation(ConstraintViolationException e) {
         return Map.of("error", "Invalid input: id must be 1-64 alphanumeric characters");
+    }
+
+    private Map<String, Object> predictionPayload(ModelPrediction prediction) {
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("model", prediction.model());
+        if (prediction.user() != null) {
+            payload.put("user", prediction.user());
+        }
+        if (prediction.item() != null) {
+            payload.put("item", prediction.item());
+        }
+        payload.put("userId", prediction.userId());
+        payload.put("itemId", prediction.itemId());
+        payload.put("score", prediction.score());
+        return payload;
     }
 }

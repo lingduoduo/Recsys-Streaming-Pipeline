@@ -1,6 +1,8 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
+import com.demo.retrieval.service.ModelPrediction;
 import com.demo.retrieval.service.RecommendationResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,9 @@ class RecommendationControllerTest {
 
     @MockBean
     private HybridRecommendationService recommendationService;
+
+    @MockBean
+    private DeepLearningPredictionService predictionService;
 
     // --- /embedding ---
 
@@ -124,6 +129,54 @@ class RecommendationControllerTest {
 
         mockMvc.perform(get("/recommend/u1?limit=999"))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void predictReturnsModelScoreForKnownLookupIds() throws Exception {
+        when(predictionService.predict("user_employee_01", "action_benefits")).thenReturn(
+            java.util.Optional.of(new ModelPrediction(
+                "user_employee_01",
+                "action_benefits",
+                0L,
+                0L,
+                0.42,
+                "mlp_embedding"
+            ))
+        );
+
+        mockMvc.perform(get("/predict/user_employee_01/action_benefits"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.model").value("mlp_embedding"))
+            .andExpect(jsonPath("$.user").value("user_employee_01"))
+            .andExpect(jsonPath("$.item").value("action_benefits"))
+            .andExpect(jsonPath("$.userId").value(0))
+            .andExpect(jsonPath("$.itemId").value(0))
+            .andExpect(jsonPath("$.score").value(0.42));
+    }
+
+    @Test
+    void predictReturnsUnknownErrorForMissingLookupIds() throws Exception {
+        when(predictionService.predict("missing", "action_benefits")).thenReturn(java.util.Optional.empty());
+        when(predictionService.metadata()).thenReturn(Map.of("model", "mlp_embedding", "users", 32, "items", 12));
+
+        mockMvc.perform(get("/predict/missing/action_benefits"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.error").value("unknown_user_or_item"))
+            .andExpect(jsonPath("$.metadata.users").value(32));
+    }
+
+    @Test
+    void predictByIdReturnsModelScore() throws Exception {
+        when(predictionService.predict(0L, 1L)).thenReturn(
+            new ModelPrediction(null, null, 0L, 1L, 0.61, "mlp_embedding")
+        );
+
+        mockMvc.perform(get("/predict/id?userId=0&itemId=1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.model").value("mlp_embedding"))
+            .andExpect(jsonPath("$.userId").value(0))
+            .andExpect(jsonPath("$.itemId").value(1))
+            .andExpect(jsonPath("$.score").value(0.61));
     }
 
     @Test
