@@ -124,6 +124,7 @@ public class RecommendationProperties {
         private double relevanceWeight = 0.6;
         private double contentWeight = 0.25;
         private double popularityWeight = 0.15;
+        private double deepLearningWeight = 0.0;
 
         public String getAlgorithm() {
             return algorithm;
@@ -187,6 +188,14 @@ public class RecommendationProperties {
 
         public void setPopularityWeight(double popularityWeight) {
             this.popularityWeight = popularityWeight;
+        }
+
+        public double getDeepLearningWeight() {
+            return deepLearningWeight;
+        }
+
+        public void setDeepLearningWeight(double deepLearningWeight) {
+            this.deepLearningWeight = deepLearningWeight;
         }
     }
 

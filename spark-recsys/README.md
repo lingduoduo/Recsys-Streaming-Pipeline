@@ -6,7 +6,7 @@
 - A training-data pipeline that joins behavior logs into feature+label samples, writes them to Kafka and HDFS-compatible storage, then rebuilds request-level slates for online learning.
 - An offline Spark training flow that builds Item2Vec, user, and ALS embeddings from historical ratings.
 
-The retrieval layer is a Spring Boot service that combines those signals with content-based retrieval, a lightweight UCB/Thompson bandit policy, a Redis replay buffer, a simple reward model, cold-start candidate generation, and feedback tracking.
+The retrieval layer is a Spring Boot service that combines three scoring model types — an offline ONNX deep-learning model, an online learning reward model updated in real time from the feedback stream, and a UCB/Thompson bandit RL policy — with content-based retrieval, a Redis replay buffer, cold-start candidate generation, and feedback tracking.
 
 ## Architecture
 
@@ -34,6 +34,30 @@ Redis + catalog config -> retrieval-service -> /recommend/{user}
                                            -> /embedding/{item}
 ```
 
+## Scoring Model Architecture
+
+Candidate items are scored from three model types, each with a different learning paradigm:
+
+| Model type | Class | Signal | When it learns |
+|---|---|---|---|
+| **Offline** | `DeepLearningPredictionService` | ONNX MLP score for a (user, item) pair; loaded from `mlp_embedding_model.onnx` at startup | At training time; static at serve time |
+| **Online learning** | `OnlineLearningService` | Weighted mean reward per item, genre, tag, and globally; stored as Redis hashes | After every `/feedback` call |
+| **RL (bandit)** | `HybridRecommendationService` | UCB or Thompson Sampling arm score using impression/click counts per item | After every served impression |
+
+The final per-candidate score is computed as:
+
+```
+offlineScore  = relevanceWeight × cosine(userEmb, itemEmb)
+              + contentWeight   × genreTagOverlap
+              + popularityWeight × normalizedPopularity
+              + deepLearningWeight × onnxScore
+
+learnedPrior  = offlineScore × (1 − onlineWeight) + onlineScore × onlineWeight
+
+banditScore   = BetaPosteriorMean(learnedPrior, clicks, impressions)
+              + explorationBonus(UCB | Thompson)
+```
+
 ## What The Retrieval Service Does
 
 For each recommendation request, the service:
@@ -41,12 +65,7 @@ For each recommendation request, the service:
 1. Loads the user's recent click history from Redis.
 2. Pulls popular items from `global:item_popularity`.
 3. Generates extra cold-start candidates from the configured catalog.
-4. Scores candidates with a weighted blend of:
-   - embedding relevance
-   - content similarity from genres and tags
-   - popularity
-   - learned reward estimates from item, genre, tag, and global feedback
-   - exploration bonus for low-exposure items via `ucb` or `thompson`
+4. Scores candidates by combining all three model types: offline ONNX scores, online reward-model estimates, and the bandit arm score (see above).
 5. Randomizes the top scoring pool slightly to avoid deterministic repetition.
 6. Stores pending recommendation context for replay-buffer training.
 7. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
@@ -133,7 +152,8 @@ Example response:
       "estimatedReward": 0.71,
       "relevanceScore": 0.62,
       "contentScore": 0.67,
-      "rewardModelScore": 0.58,
+      "dlScore": 0.74,
+      "onlineScore": 0.58,
       "explorationBonus": 0.19,
       "banditScore": 0.78,
       "coldStart": true,
@@ -160,17 +180,40 @@ Notes:
 - `limit` is clamped to `1..50`.
 - User and item IDs must match `[a-zA-Z0-9_:-]{1,64}`.
 
+### `GET /predict/{user}/{item}`
+
+Scores a single (user, item) pair using the offline ONNX model. Returns an error if either ID is not in the model's lookup table.
+
+```bash
+curl http://localhost:8080/predict/user_1/item_5
+```
+
+```json
+{"model":"mlp_embedding","user":"user_1","item":"item_5","userId":0,"itemId":4,"score":0.742}
+```
+
+### `GET /predict/id?userId=0&itemId=4`
+
+Same as above but accepts raw integer lookup IDs directly.
+
+### `GET /predict/metadata`
+
+Returns model name, lookup table sizes, and ONNX input/output names for the loaded offline model.
+
 ### `POST /feedback`
 
-Records user feedback for an exposed item and updates aggregate metrics.
-It also appends a rewarded recommendation event to the Redis replay buffer and updates the online reward-model counters.
+Records user feedback for an exposed item. On each call it:
+
+1. Increments bandit click/impression counters (RL update).
+2. Calls `OnlineLearningService.update()` to adjust the online reward model for the item, its genres, its tags, and the global prior (online learning update).
+3. Appends a rewarded event to the Redis replay buffer.
 
 Example:
 
 ```bash
 curl -X POST http://localhost:8080/feedback \
   -H 'Content-Type: application/json' \
-  -d '{"item":"item_5","clicked":true,"reward":1.0}'
+  -d '{"user":"user_1","item":"item_5","clicked":true,"reward":1.0}'
 ```
 
 ### `GET /metrics`
@@ -352,6 +395,7 @@ Important properties:
 | `recsys.bandit.relevance-weight` | `0.6` |
 | `recsys.bandit.content-weight` | `0.25` |
 | `recsys.bandit.popularity-weight` | `0.15` |
+| `recsys.bandit.deep-learning-weight` | `0.0` |
 | `recsys.replay-buffer.max-size` | `10000` |
 | `recsys.replay-buffer.candidate-snapshot-size` | `20` |
 | `recsys.reward-model.weight` | `0.25` |
@@ -381,6 +425,7 @@ Runtime overrides:
 | `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
 | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
+| `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
 | `RECSYS_REPLAY_BUFFER_MAX_SIZE` | `10000` |
 | `RECSYS_REPLAY_CANDIDATE_SNAPSHOT_SIZE` | `20` |
 | `RECSYS_REWARD_MODEL_WEIGHT` | `0.25` |
@@ -394,7 +439,8 @@ Bandit algorithm notes:
 
 - `ucb` builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
 - `thompson` builds the same posterior and ranks items by a Beta posterior sample, which gives a concrete stochastic arm draw per request.
-- The recommender's relevance, content, popularity, and learned reward-model blend acts as the prior mean for both algorithms, so bandit updates refine rather than replace the base ranker.
+- The `learnedPrior` fed to the bandit is a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model), so bandit updates refine rather than replace the base ranker.
+- Set `RECSYS_DEEP_LEARNING_WEIGHT` to a value between `0.0` and `1.0` to enable the offline ONNX model's contribution to `offlineScore`. The weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
 - Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb` or `RECSYS_BANDIT_ALGORITHM=thompson`.
 
 Replay and reward-model Redis keys:
@@ -537,11 +583,12 @@ The current retrieval service is intentionally the right starting point for a co
 
 Recommended build order:
 
-1. Strengthen the existing baseline:
+1. ✅ Strengthen the existing baseline *(implemented)*:
    - content-based retrieval from genres, tags, popularity, and embeddings
-   - UCB bandit exploration for low-exposure and cold-start items
+   - offline ONNX MLP score (`DeepLearningPredictionService`) blended via `deep-learning-weight`
+   - online reward model (`OnlineLearningService`) updated from the feedback stream
+   - UCB/Thompson bandit exploration for low-exposure and cold-start items
    - replay buffer storing `(user, context, candidates, action, reward, timestamp)`
-   - reward model that predicts click or normalized reward from user, item, and context features
 2. Add the RL framing:
    - model recommendation as contextual Q-learning where the state is the user/session context, the action is the recommended item, and the reward comes from `/feedback`
    - keep the UCB ranker as the online-safe policy while the Q-value model is trained offline or in shadow mode

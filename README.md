@@ -55,7 +55,7 @@ spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
 
 ## spark-recsys
 
-A three-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, a Kafka→Spark online joiner and slate collector for training data, and offline embedding trainers with a Spring Boot retrieval service.
+A three-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, a Kafka→Spark online joiner and slate collector for training data, and offline embedding trainers with a Spring Boot retrieval service that combines an offline ONNX model, a real-time online learning reward model, and a UCB/Thompson bandit RL policy.
 
 ### Architecture
 
@@ -114,8 +114,12 @@ cd spark-recsys/retrieval-service && mvn spring-boot:run
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/recommend/{userId}` | Top-N recent items for a user |
-| `GET` | `/popular` | Global item popularity ranking |
+| `GET` | `/recommend/{user}?limit=6` | Ranked recommendations with per-item diagnostics and request metrics |
+| `GET` | `/predict/{user}/{item}` | Offline ONNX model score for a (user, item) pair |
+| `GET` | `/predict/id?userId=&itemId=` | Same as above using raw integer lookup IDs |
+| `GET` | `/predict/metadata` | Loaded model name, lookup table sizes, and ONNX input/output names |
+| `POST` | `/feedback` | Record a click/reward signal; triggers online learning and bandit updates |
+| `GET` | `/metrics` | Aggregate bandit metrics (CTR, regret, novelty, coverage) per algorithm |
 | `GET` | `/embedding/{item}` | Item2Vec embedding vector for an item |
 
 See [spark-recsys/README.md](spark-recsys/README.md) for full configuration, environment variable reference, and architecture details.
