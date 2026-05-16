@@ -1,13 +1,17 @@
 package com.demo.recsys
 
 import com.demo.common.{Env, SparkSessions}
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
+import redis.clients.jedis.Jedis
+import redis.clients.jedis.params.SetParams
 import scala.util.Try
 
 object UserEmbeddingTrainingJob {
-  private val DefaultMinRating = 3.5
+  private val DefaultMinRating      = 3.5
+  private val DefaultRedisTtlSeconds = 60 * 60 * 24
+  private val DefaultPipelineSize    = 500
 
   case class ItemEmbedding(movieId: String, vector: Seq[Double])
 
@@ -17,21 +21,35 @@ object UserEmbeddingTrainingJob {
     val userEmbeddingPath = Env.argOrEnv(args, 2, "USER_EMBEDDING_OUTPUT_PATH")
       .getOrElse("spark-recsys/sampledata/user_embedding.txt")
 
+    val saveToRedis = Env.boolean("USER_EMBEDDING_SAVE_TO_REDIS", default = false)
     val spark = SparkSessions.create("UserEmbeddingTrainingJob")
 
     try {
-      val userEmbeddings = trainUserEmbeddings(
+      val raw = trainUserEmbeddings(
         sparkSession = spark,
         ratingsPath = ratingsPath,
         itemEmbeddingPath = itemEmbeddingPath,
         minRating = Env.double("USER_EMBEDDING_MIN_RATING", DefaultMinRating)
       )
+      // Cache only when writing to both sinks to avoid recomputing the join+aggregation.
+      val userEmbeddings = if (saveToRedis) raw.cache() else raw
 
       userEmbeddings
         .select(concat_ws(":", col("userId"), col("userEmbeddingStr")).as("value"))
         .write
         .mode("overwrite")
         .text(userEmbeddingPath)
+
+      if (saveToRedis) {
+        writeUserEmbeddingsToRedis(
+          userEmbeddings  = userEmbeddings,
+          redisHost       = sys.env.getOrElse("REDIS_HOST", "localhost"),
+          redisPort       = Env.int("REDIS_PORT", 6379),
+          redisKeyPrefix  = sys.env.getOrElse("USER_EMBEDDING_REDIS_KEY_PREFIX", "uEmb"),
+          redisTtlSeconds = Env.int("USER_EMBEDDING_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
+        )
+        userEmbeddings.unpersist()
+      }
     } finally {
       spark.stop()
     }
@@ -84,6 +102,38 @@ object UserEmbeddingTrainingJob {
       .schema(ratingsSchema)
       .load(ratingsPath)
       .select(col("userId"), col("movieId"), col("rating"))
+
+  private def writeUserEmbeddingsToRedis(
+      userEmbeddings: DataFrame,
+      redisHost: String,
+      redisPort: Int,
+      redisKeyPrefix: String,
+      redisTtlSeconds: Int,
+      pipelineSize: Int = DefaultPipelineSize
+  ): Unit = {
+    val host   = redisHost
+    val port   = redisPort
+    val prefix = redisKeyPrefix
+    val ttl    = redisTtlSeconds
+    val batch  = pipelineSize
+
+    userEmbeddings.foreachPartition { rows: Iterator[Row] =>
+      val jedis = new Jedis(host, port)
+      try {
+        val pipeline = jedis.pipelined()
+        val params = SetParams.setParams().ex(ttl)
+        var count = 0
+        rows.foreach { row =>
+          pipeline.set(s"$prefix:${row.getAs[String]("userId")}", row.getAs[String]("userEmbeddingStr"), params)
+          count += 1
+          if (count % batch == 0) pipeline.sync()
+        }
+        if (count % batch != 0) pipeline.sync()
+      } finally {
+        jedis.close()
+      }
+    }
+  }
 
   private def readItemEmbeddings(sparkSession: SparkSession, itemEmbeddingPath: String): DataFrame = {
     import sparkSession.implicits._
