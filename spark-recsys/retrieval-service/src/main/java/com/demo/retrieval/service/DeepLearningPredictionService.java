@@ -12,7 +12,10 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.LongBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -22,6 +25,11 @@ public class DeepLearningPredictionService {
     private static final String MODEL_NAME = "mlp_embedding";
     private static final String MODEL_RESOURCE = "mlp_embedding_model.onnx";
     private static final String LOOKUP_RESOURCE = "mlp_embedding_lookups.json";
+    // Offline layer: set these env vars to load model artifacts from the filesystem
+    // so models can be updated without redeployment. Falls back to classpath resources
+    // when not set (used in development and tests).
+    private static final String MODEL_PATH_ENV = "ONNX_MODEL_PATH";
+    private static final String LOOKUPS_PATH_ENV = "ONNX_LOOKUPS_PATH";
     private static final String USER_INPUT = "user_ids";
     private static final String ITEM_INPUT = "item_ids";
 
@@ -33,13 +41,20 @@ public class DeepLearningPredictionService {
     public DeepLearningPredictionService(ObjectMapper objectMapper) {
         try {
             this.environment = OrtEnvironment.getEnvironment();
-            this.session = environment.createSession(new ClassPathResource(MODEL_RESOURCE).getContentAsByteArray());
+            this.session = environment.createSession(loadModelBytes());
             LookupTables lookups = readLookups(objectMapper);
             this.userLookup = lookups.userLookup();
             this.itemLookup = lookups.itemLookup();
         } catch (IOException | OrtException e) {
             throw new IllegalStateException("Failed to load deep learning prediction artifacts", e);
         }
+    }
+
+    private static byte[] loadModelBytes() throws IOException {
+        String path = System.getenv(MODEL_PATH_ENV);
+        return path != null && !path.isBlank()
+            ? Files.readAllBytes(Path.of(path))
+            : new ClassPathResource(MODEL_RESOURCE).getContentAsByteArray();
     }
 
     public Optional<ModelPrediction> predict(String user, String item) {
@@ -101,11 +116,11 @@ public class DeepLearningPredictionService {
     }
 
     private LookupTables readLookups(ObjectMapper objectMapper) throws IOException {
-        Map<String, Map<String, Long>> raw = objectMapper.readValue(
-            new ClassPathResource(LOOKUP_RESOURCE).getInputStream(),
-            new TypeReference<>() {
-            }
-        );
+        String path = System.getenv(LOOKUPS_PATH_ENV);
+        InputStream stream = path != null && !path.isBlank()
+            ? Files.newInputStream(Path.of(path))
+            : new ClassPathResource(LOOKUP_RESOURCE).getInputStream();
+        Map<String, Map<String, Long>> raw = objectMapper.readValue(stream, new TypeReference<>() {});
         return new LookupTables(
             Map.copyOf(raw.getOrDefault("user_lookup", new LinkedHashMap<>())),
             Map.copyOf(raw.getOrDefault("item_lookup", new LinkedHashMap<>()))

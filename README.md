@@ -55,7 +55,7 @@ spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
 
 ## spark-recsys
 
-A three-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, a Kafka→Spark online joiner and slate collector for training data, and offline embedding trainers with a Spring Boot retrieval service that combines an offline ONNX model, a real-time online learning reward model, and a UCB/Thompson bandit RL policy.
+A three-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, a Kafka→Spark online joiner and slate collector for training data, and offline embedding trainers with a Spring Boot retrieval service that combines an offline ONNX model, a real-time online learning reward model, and a UCB/Thompson bandit RL policy. Feature storage uses a three-tier design: offline files (ONNX model + Parquet training samples), Redis (real-time embeddings, counters, user history), and a Caffeine in-memory cache that collapses per-request Redis round-trips from O(N×features) to O(1).
 
 ### Architecture
 
@@ -128,10 +128,11 @@ See [spark-recsys/README.md](spark-recsys/README.md) for full configuration, env
 
 ## Requirements
 
-- Java 11+, Scala 2.12
-- Apache Spark 3.x
+- Java 17, Scala 2.12
+- Apache Spark 3.5.x
 - Apache Kafka 3.x
-- Redis 6+
+- Redis 7+
 - Maven 3.8+ (retrieval service)
+- Docker / Docker Compose (local infrastructure)
 
 > **Note:** This repository is for learning and demonstration purposes. See individual sub-project READMEs for production configuration guidance.

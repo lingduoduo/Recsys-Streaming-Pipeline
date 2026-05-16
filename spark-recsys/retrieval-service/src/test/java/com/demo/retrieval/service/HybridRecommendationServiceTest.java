@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.lang.reflect.Method;
 
@@ -116,7 +117,11 @@ class HybridRecommendationServiceTest {
         catalog.put("item7", movie(List.of("comedy"), List.of("robots"), true));
         properties.setCatalog(catalog);
 
-        service = new HybridRecommendationService(redis, properties);
+        FeatureCache featureCache = new FeatureCache(properties);
+        OnlineLearningService onlineLearningService = new OnlineLearningService(redis, properties, featureCache);
+        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
+        when(predictionService.predict(anyString(), anyString())).thenReturn(Optional.empty());
+        service = new HybridRecommendationService(redis, properties, predictionService, onlineLearningService, featureCache);
     }
 
     @Test
@@ -132,17 +137,17 @@ class HybridRecommendationServiceTest {
         when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
             .thenReturn(popularTuples);
 
-        // item vectors
+        // user vector — individual GET; no direct embedding stored, triggers recent-items fallback
         when(valueOps.get("uEmb:u1")).thenReturn(null);
-        when(valueOps.get("i2vEmb:item1")).thenReturn("1.0 0.0");
-        when(valueOps.get("i2vEmb:item2")).thenReturn("0.0 1.0");
-        when(valueOps.get("i2vEmb:item4")).thenReturn("1.0 0.0");
-        when(valueOps.get("i2vEmb:item7")).thenReturn("0.7 0.1");
 
-        // batch counter fetch via multiGet — impressions for cold-start filter, then impressions+clicks for scoring
+        // item vectors served via MGET (batch warm) + bandit counters via MGET (batchFetchCounters)
         when(valueOps.multiGet(any())).thenAnswer(invocation -> {
             List<String> keys = invocation.getArgument(0);
             return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:item1" -> "1.0 0.0";
+                case "i2vEmb:item2" -> "0.0 1.0";
+                case "i2vEmb:item4" -> "1.0 0.0";
+                case "i2vEmb:item7" -> "0.7 0.1";
                 case "bandit:item:item2:impressions" -> "12";
                 case "bandit:item:item2:clicks" -> "3";
                 case "bandit:item:item4:impressions" -> "0";
@@ -220,7 +225,10 @@ class HybridRecommendationServiceTest {
         properties.getBandit().setColdStartBoost(1.35);
         properties.getBandit().setMaxExplorationBonus(1.0);
 
-        HybridRecommendationService localService = new HybridRecommendationService(redis, properties);
+        FeatureCache localCache = new FeatureCache(properties);
+        HybridRecommendationService localService = new HybridRecommendationService(
+            redis, properties, mock(DeepLearningPredictionService.class),
+            new OnlineLearningService(redis, properties, localCache), localCache);
         Object armScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
         double posteriorMean = invokeArmScoreDouble(armScore, "posteriorMean");
         double bonus = invokeArmScoreDouble(armScore, "explorationBonus");
@@ -244,7 +252,10 @@ class HybridRecommendationServiceTest {
         properties.getBandit().setExplorationAlpha(0.75);
         properties.getBandit().setMaxExplorationBonus(0.25);
 
-        HybridRecommendationService localService = new HybridRecommendationService(redis, properties);
+        FeatureCache localCache = new FeatureCache(properties);
+        HybridRecommendationService localService = new HybridRecommendationService(
+            redis, properties, mock(DeepLearningPredictionService.class),
+            new OnlineLearningService(redis, properties, localCache), localCache);
         Object firstArmScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
         double first = invokeArmScoreDouble(firstArmScore, "rankingScore");
         double firstBonus = invokeArmScoreDouble(firstArmScore, "explorationBonus");

@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class HybridRecommendationService {
@@ -44,18 +45,21 @@ public class HybridRecommendationService {
     private final RecommendationProperties properties;
     private final DeepLearningPredictionService predictionService;
     private final OnlineLearningService onlineLearningService;
+    private final FeatureCache featureCache;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(
         StringRedisTemplate redis,
         RecommendationProperties properties,
         DeepLearningPredictionService predictionService,
-        OnlineLearningService onlineLearningService
+        OnlineLearningService onlineLearningService,
+        FeatureCache featureCache
     ) {
         this.redis = redis;
         this.properties = properties;
         this.predictionService = predictionService;
         this.onlineLearningService = onlineLearningService;
+        this.featureCache = featureCache;
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -99,6 +103,10 @@ public class HybridRecommendationService {
         LinkedHashSet<String> eligible = new LinkedHashSet<>();
         popular.stream().filter(item -> !recentSet.contains(item)).forEach(eligible::add);
         contentCandidates.stream().filter(item -> !recentSet.contains(item)).forEach(eligible::add);
+
+        // Warm item-vector cache for all candidates + recent history in one MGET, then the scoring
+        // loop and user-vector fallback aggregation are pure cache reads with no Redis round-trips.
+        batchWarmItemVectors(new ArrayList<>(eligible), recent);
 
         double[] userVector = resolveUserVector(user, recent);
         long totalImpressions = resolveLongMetric("recommendations_served");
@@ -164,7 +172,7 @@ public class HybridRecommendationService {
                 row.put("relevanceScore", round(candidate.relevanceScore()));
                 row.put("contentScore", round(candidate.contentScore()));
                 row.put("dlScore", round(candidate.dlScore()));
-                row.put("onlineScore", round(candidate.onlineScore()));
+                row.put("rewardModelScore", round(candidate.onlineScore()));
                 row.put("explorationBonus", round(candidate.explorationBonus()));
                 row.put("banditScore", round(candidate.banditScore()));
                 row.put("coldStart", candidate.coldStart());
@@ -469,7 +477,26 @@ public class HybridRecommendationService {
     }
 
     private double[] resolveItemVector(String item) {
-        return parseVector(redis.opsForValue().get(properties.getEmbeddings().getItemPrefix() + ":" + item));
+        double[] cached = featureCache.getItemVector(item);
+        if (cached != null) return cached;
+        double[] vector = parseVector(redis.opsForValue().get(properties.getEmbeddings().getItemPrefix() + ":" + item));
+        featureCache.putItemVector(item, vector);
+        return vector;
+    }
+
+    private void batchWarmItemVectors(List<String> candidates, List<String> recentHistory) {
+        String prefix = properties.getEmbeddings().getItemPrefix() + ":";
+        List<String> coldItems = Stream.concat(candidates.stream(), recentHistory.stream())
+            .distinct()
+            .filter(item -> !featureCache.hasItemVector(item))
+            .collect(Collectors.toCollection(ArrayList::new));
+        if (coldItems.isEmpty()) return;
+        List<String> keys = coldItems.stream().map(item -> prefix + item).toList();
+        List<String> raw = Optional.ofNullable(redis.opsForValue().multiGet(keys))
+            .orElseGet(() -> Collections.nCopies(coldItems.size(), null));
+        for (int i = 0; i < coldItems.size(); i++) {
+            featureCache.putItemVector(coldItems.get(i), parseVector(raw.get(i)));
+        }
     }
 
     private double[] parseVector(String raw) {

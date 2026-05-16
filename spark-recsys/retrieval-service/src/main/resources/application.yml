@@ -12,6 +12,11 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 recsys:
+  cache:
+    item-vector-max-size: ${RECSYS_ITEM_VECTOR_CACHE_SIZE:10000}
+    item-vector-ttl-seconds: ${RECSYS_ITEM_VECTOR_TTL:300}
+    reward-max-size: ${RECSYS_REWARD_CACHE_SIZE:50000}
+    reward-ttl-seconds: ${RECSYS_REWARD_TTL:30}
   embeddings:
     item-prefix: ${ITEM_EMBEDDING_PREFIX:i2vEmb}
     user-prefix: ${USER_EMBEDDING_PREFIX:uEmb}

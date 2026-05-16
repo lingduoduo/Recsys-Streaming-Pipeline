@@ -9,6 +9,7 @@ import java.util.Map;
 
 @ConfigurationProperties(prefix = "recsys")
 public class RecommendationProperties {
+    private Cache cache = new Cache();
     private Embeddings embeddings = new Embeddings();
     private CandidateGeneration candidateGeneration = new CandidateGeneration();
     private Bandit bandit = new Bandit();
@@ -56,12 +57,36 @@ public class RecommendationProperties {
         this.rewardModel = rewardModel;
     }
 
+    public Cache getCache() {
+        return cache;
+    }
+
+    public void setCache(Cache cache) {
+        this.cache = cache;
+    }
+
     public Map<String, MovieProfile> getCatalog() {
         return catalog;
     }
 
     public void setCatalog(Map<String, MovieProfile> catalog) {
         this.catalog = catalog;
+    }
+
+    public static class Cache {
+        private int itemVectorMaxSize = 10_000;
+        private long itemVectorTtlSeconds = 300;
+        private int rewardMaxSize = 50_000;
+        private long rewardTtlSeconds = 30;
+
+        public int getItemVectorMaxSize() { return itemVectorMaxSize; }
+        public void setItemVectorMaxSize(int itemVectorMaxSize) { this.itemVectorMaxSize = itemVectorMaxSize; }
+        public long getItemVectorTtlSeconds() { return itemVectorTtlSeconds; }
+        public void setItemVectorTtlSeconds(long itemVectorTtlSeconds) { this.itemVectorTtlSeconds = itemVectorTtlSeconds; }
+        public int getRewardMaxSize() { return rewardMaxSize; }
+        public void setRewardMaxSize(int rewardMaxSize) { this.rewardMaxSize = rewardMaxSize; }
+        public long getRewardTtlSeconds() { return rewardTtlSeconds; }
+        public void setRewardTtlSeconds(long rewardTtlSeconds) { this.rewardTtlSeconds = rewardTtlSeconds; }
     }
 
     public static class Embeddings {
