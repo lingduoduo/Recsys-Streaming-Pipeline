@@ -46,10 +46,9 @@ object OnlineJoinerStreamingJob {
 
     raw.writeStream
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
-        // Persist parsed events so buildTrainingSamples doesn't scan the Kafka
-        // batch twice (once for impressions, once for feedback groupBy).
-        val events = parseEvents(batch).persist(StorageLevel.MEMORY_AND_DISK_SER)
-        val samples = buildTrainingSamples(events)
+        // buildTrainingSamples now does a single-pass groupBy (one shuffle) instead of
+        // filter+groupBy+join (two shuffles), so events no longer needs to be persisted.
+        val samples = buildTrainingSamples(parseEvents(batch))
           .withColumn("batch_id", lit(batchId))
           .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
@@ -74,7 +73,6 @@ object OnlineJoinerStreamingJob {
             .save(outputPath)
         } finally {
           samples.unpersist()
-          events.unpersist()
         }
         ()
       }
@@ -97,41 +95,34 @@ object OnlineJoinerStreamingJob {
       )
 
   def buildTrainingSamples(events: DataFrame): DataFrame = {
-    val normalized = events
-      .withColumn("event_type_normalized", lower(trim(col("event_type"))))
-      .withColumn("event_time", to_timestamp(from_unixtime(col("timestamp"))))
+    val isImpression = col("etype").isin("impression", "exposure")
+    val isFeedback   = col("etype").isin("click", "order", "purchase")
 
-    val impressions = normalized
-      .filter(col("event_type_normalized").isin("impression", "exposure"))
-      .select(
-        col("request_id"),
-        col("user_id"),
-        col("item_id"),
-        coalesce(col("position"), lit(0)).as("position"),
-        col("timestamp").as("impression_ts"),
-        col("event_time").as("impression_time"),
-        coalesce(col("user_features"), typedLit(Map.empty[String, String])).as("user_features"),
-        coalesce(col("item_features"), typedLit(Map.empty[String, String])).as("item_features"),
-        coalesce(col("context_features"), typedLit(Map.empty[String, String])).as("context_features")
-      )
-
-    val feedback = normalized
-      .filter(col("event_type_normalized").isin("click", "order", "purchase"))
+    events
+      .withColumn("etype", lower(trim(col("event_type"))))
+      // Single-pass conditional groupBy: one shuffle replaces (groupBy feedback) + (left join).
+      // Because the producer keys behavior events by request_id, all events in a slate
+      // co-partition in Kafka → Spark reads them together, making this groupBy partition-local.
       .groupBy("request_id", "user_id", "item_id")
       .agg(
-        max(when(col("event_type_normalized") === "click", 1).otherwise(0)).as("clicked"),
-        max(when(col("event_type_normalized").isin("order", "purchase"), 1).otherwise(0)).as("ordered"),
-        max(col("timestamp")).as("last_feedback_ts")
+        max(when(isImpression, col("position"))).as("position"),
+        max(when(isImpression, col("timestamp"))).as("impression_ts"),
+        max(when(isImpression, to_timestamp(from_unixtime(col("timestamp"))))).as("impression_time"),
+        first(when(isImpression, col("user_features")),    ignoreNulls = true).as("user_features"),
+        first(when(isImpression, col("item_features")),    ignoreNulls = true).as("item_features"),
+        first(when(isImpression, col("context_features")), ignoreNulls = true).as("context_features"),
+        max(when(col("etype") === "click", lit(1)).otherwise(lit(0))).as("clicked"),
+        max(when(col("etype").isin("order", "purchase"), lit(1)).otherwise(lit(0))).as("ordered"),
+        max(when(isFeedback, col("timestamp"))).as("last_feedback_ts")
       )
-
-    impressions
-      .join(feedback, Seq("request_id", "user_id", "item_id"), "left")
+      // Drop groups that have no impression in this batch (pure late-feedback events)
+      .filter(col("impression_ts").isNotNull)
       .select(
         concat_ws(":", col("request_id"), col("user_id"), col("item_id")).as("sample_id"),
         col("request_id"),
         col("user_id"),
         col("item_id"),
-        col("position"),
+        coalesce(col("position"), lit(0)).as("position"),
         col("impression_ts"),
         col("impression_time"),
         coalesce(col("clicked"), lit(0)).as("clicked"),
@@ -140,9 +131,9 @@ object OnlineJoinerStreamingJob {
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
         col("last_feedback_ts"),
-        col("user_features"),
-        col("item_features"),
-        col("context_features")
+        coalesce(col("user_features"),     typedLit(Map.empty[String, String])).as("user_features"),
+        coalesce(col("item_features"),     typedLit(Map.empty[String, String])).as("item_features"),
+        coalesce(col("context_features"),  typedLit(Map.empty[String, String])).as("context_features")
       )
   }
 }
