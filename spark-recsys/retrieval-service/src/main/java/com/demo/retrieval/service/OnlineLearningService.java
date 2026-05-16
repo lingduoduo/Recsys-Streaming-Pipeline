@@ -28,10 +28,12 @@ public class OnlineLearningService {
 
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
+    private final FeatureCache featureCache;
 
-    public OnlineLearningService(StringRedisTemplate redis, RecommendationProperties properties) {
+    public OnlineLearningService(StringRedisTemplate redis, RecommendationProperties properties, FeatureCache featureCache) {
         this.redis = redis;
         this.properties = properties;
+        this.featureCache = featureCache;
     }
 
     /** Score a (item, profile) pair using accumulated reward statistics. Falls back to {@code fallback} when no data exists. */
@@ -96,15 +98,23 @@ public class OnlineLearningService {
     }
 
     private RewardEstimate readRewardEstimate(@NonNull String key) {
+        FeatureCache.RewardModelStats cached = featureCache.getRewardStats(key);
+        if (cached != null) {
+            return cached.count() == 0L
+                ? new RewardEstimate(0L, 0.0)
+                : new RewardEstimate(cached.count(), clamp(cached.rewardTotal() / cached.count()));
+        }
         Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(key)).orElseGet(Map::of);
         long count = readLong(raw.get("count"));
         double rewardTotal = readDouble(raw.get("reward_total"));
+        featureCache.putRewardStats(key, new FeatureCache.RewardModelStats(count, rewardTotal));
         return count == 0L ? new RewardEstimate(0L, 0.0) : new RewardEstimate(count, clamp(rewardTotal / count));
     }
 
     private void incrementRewardStats(@NonNull String key, double reward) {
         redis.opsForHash().increment(key, "count", 1L);
         redis.opsForHash().increment(key, "reward_total", reward);
+        featureCache.invalidateRewardStats(key);
     }
 
     private double confidence(long count) {

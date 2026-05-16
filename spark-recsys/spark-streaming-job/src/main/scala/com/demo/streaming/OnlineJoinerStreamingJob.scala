@@ -5,6 +5,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
+import org.apache.spark.storage.StorageLevel
 
 object OnlineJoinerStreamingJob {
 
@@ -45,27 +46,36 @@ object OnlineJoinerStreamingJob {
 
     raw.writeStream
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
-        val samples = buildTrainingSamples(parseEvents(batch))
+        // Persist parsed events so buildTrainingSamples doesn't scan the Kafka
+        // batch twice (once for impressions, once for feedback groupBy).
+        val events = parseEvents(batch).persist(StorageLevel.MEMORY_AND_DISK_SER)
+        val samples = buildTrainingSamples(events)
           .withColumn("batch_id", lit(batchId))
-          .cache()
+          .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-        samples
-          .select(
-            col("sample_id").as("key"),
-            to_json(struct(samples.columns.map(col): _*)).as("value")
-          )
-          .write
-          .format("kafka")
-          .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-          .option("topic", outputTopic)
-          .save()
+        try {
+          samples
+            .select(
+              col("sample_id").as("key"),
+              to_json(struct(samples.columns.map(col): _*)).as("value")
+            )
+            .write
+            .format("kafka")
+            .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+            .option("topic", outputTopic)
+            .save()
 
-        samples.write
-          .mode("append")
-          .format("parquet")
-          .save(outputPath)
-
-        samples.unpersist()
+          samples
+            .withColumn("date", to_date(col("impression_time")))
+            .write
+            .mode("append")
+            .partitionBy("date")
+            .format("parquet")
+            .save(outputPath)
+        } finally {
+          samples.unpersist()
+          events.unpersist()
+        }
         ()
       }
       .option("checkpointLocation", checkpointLocation)

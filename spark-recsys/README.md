@@ -11,27 +11,34 @@ The retrieval layer is a Spring Boot service that combines three scoring model t
 ## Architecture
 
 ```text
-producer.py -> Kafka topic: user_events -> UserEventStreamingJob -> Redis
-                                                          |-> user:{id}:recent
-                                                          |-> global:item_popularity
+producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis
+                                                                        |── user:{id}:recent  (TTL 7d)
+                                                                        └── global:item_popularity
 
-producer.py -> Kafka topic: behavior_logs -> OnlineJoinerStreamingJob
-                                      |-> Kafka topic: training_samples
-                                      |-> Parquet path: /tmp/spark-recsys/training-samples
+producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob
+                                                    |──► Kafka: training_samples
+                                                    └──► Parquet: training-samples/date=YYYY-MM-DD/
 
-Kafka topic: training_samples -> ExperienceCollectorStreamingJob
-                              -> Kafka topic: training_experiences
+Kafka: training_samples ──► ExperienceCollectorStreamingJob ──► Kafka: training_experiences
 
-ratings.csv -> ItemSequencePreprocessingJob -> Item2VecTrainingJob -> embedding.txt
-                                                                   -> Redis i2vEmb:{item}
+ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob ──► embedding.txt
+                                                                     └──► Redis i2vEmb:{item}
 
-ratings.csv + embedding.txt -> UserEmbeddingTrainingJob -> user_embedding.txt
-ratings.csv -> AlsEmbeddingTrainingJob -> als/userFactors + als/itemFactors
+ratings.csv + embedding.txt ──► UserEmbeddingTrainingJob ──► user_embedding.txt
+ratings.csv ──► AlsEmbeddingTrainingJob ──► als/userFactors + als/itemFactors
 
-Redis + catalog config -> retrieval-service -> /recommend/{user}
-                                           -> /feedback
-                                           -> /metrics
-                                           -> /embedding/{item}
+                 ┌─── Offline: ONNX model file (ONNX_MODEL_PATH)
+                 │    lookup tables (ONNX_LOOKUPS_PATH)
+retrieval-service├─── Redis: embeddings, bandit counters, user history, reward stats
+                 └─── In-memory: FeatureCache (Caffeine)
+                      item vectors (i2vEmb:*, TTL 5 min)
+                      reward model stats (reward-model:*, TTL 30 s)
+                        │
+                        ▼
+                 /recommend/{user}
+                 /feedback
+                 /metrics
+                 /embedding/{item}
 ```
 
 ## Scoring Model Architecture
@@ -57,6 +64,20 @@ learnedPrior  = offlineScore × (1 − onlineWeight) + onlineScore × onlineWeig
 banditScore   = BetaPosteriorMean(learnedPrior, clicks, impressions)
               + explorationBonus(UCB | Thompson)
 ```
+
+## Storage Architecture
+
+Feature data is split across three tiers by access pattern and update frequency.
+
+| Tier | Technology | What lives there | Update frequency |
+|------|-----------|-----------------|-----------------|
+| **Offline** | Filesystem | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Training jobs; hot-swap without redeploy via env vars |
+| **Redis** | Redis | User recent-click lists, global item popularity, item/user embeddings, bandit counters, reward model stats, replay buffer | Streaming jobs (every micro-batch) and `/feedback` calls |
+| **In-memory** | Caffeine | Item vectors (`i2vEmb:*`), reward model statistics (`reward-model:*`) | Populated from Redis on first request; TTL-expired and invalidated on write |
+
+The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop a single `MGET` warms all candidate and recent-item vectors; reward model estimates are cached per key for `rewardTtlSeconds` and invalidated immediately when `/feedback` updates them.
+
+**Offline model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the model artifacts on the filesystem without rebuilding the JAR. Falls back to the classpath resources when the env vars are unset (development and test default).
 
 ## What The Retrieval Service Does
 
@@ -153,7 +174,7 @@ Example response:
       "relevanceScore": 0.62,
       "contentScore": 0.67,
       "dlScore": 0.74,
-      "onlineScore": 0.58,
+      "rewardModelScore": 0.58,
       "explorationBonus": 0.19,
       "banditScore": 0.78,
       "coldStart": true,
@@ -250,7 +271,7 @@ Returns an item embedding from Redis using key `i2vEmb:{item}`.
 
 ### `producer.py`
 
-Publishes synthetic click events to Kafka topic `user_events`.
+Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. Uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
 
 Environment variables:
 
@@ -258,11 +279,12 @@ Environment variables:
 |---|---|---|
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
 | `KAFKA_TOPIC` | `user_events` | Topic to publish to |
-| `PRODUCER_MODE` | `clickstream` | `clickstream` emits simple clicks; `behavior` emits impressions plus click/order feedback |
-| `EVENTS_PER_SECOND` | `1` | Event rate |
+| `PRODUCER_MODE` | `clickstream` | `clickstream` emits simple clicks keyed by `user_id`; `behavior` emits full slates keyed by `request_id` |
+| `EVENTS_PER_SECOND` | `1` | Target event rate (loop corrects for send latency) |
 | `NUM_USERS` | `5` | Size of synthetic user pool |
 | `NUM_ITEMS` | `10` | Size of synthetic item pool |
 | `SLATE_SIZE` | `5` | Items per recommendation request in behavior mode |
+| `LOG_EVERY` | `100` | Print a log line every N sent events (not every event) |
 
 Event schema:
 
@@ -288,21 +310,21 @@ Behavior workflow schema:
 
 ### `UserEventStreamingJob`
 
-Consumes click events from Kafka and writes Redis state used by the retrieval service.
+Consumes click events from Kafka and writes Redis state used by the retrieval service. Redis connections are managed through a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than opening a new TCP connection per partition.
 
 For each micro-batch it:
 
-1. Aggregates clicked items per user.
-2. Writes batched `LPUSH` plus `LTRIM` updates to `user:{id}:recent`.
+1. Aggregates clicked items per user in a single pass.
+2. Writes one `LPUSH` + `LTRIM` + `EXPIRE` per user to `user:{id}:recent` (not one write per event).
 3. Aggregates per-item click counts.
-4. Writes `ZINCRBY` updates to `global:item_popularity`.
+4. Writes one `ZINCRBY` per unique item to `global:item_popularity`.
 
 Redis keys written:
 
-| Key | Type | Contents |
-|---|---|---|
-| `user:{id}:recent` | list | Most recent clicked items, newest first |
-| `global:item_popularity` | sorted set | Global click counts |
+| Key | Type | Contents | TTL |
+|---|---|---|---|
+| `user:{id}:recent` | list | Most recent clicked items, newest first | `RECENT_ITEMS_TTL_SECONDS` (default 7 days) |
+| `global:item_popularity` | sorted set | Global click counts | none |
 
 Environment variables:
 
@@ -316,7 +338,9 @@ Environment variables:
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
 | `RECENT_ITEMS_LIMIT` | `20` |
+| `RECENT_ITEMS_TTL_SECONDS` | `604800` (7 days) |
 | `REDIS_PIPELINE_SIZE` | `500` |
+| `REDIS_POOL_MAX_TOTAL` | `8` |
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
@@ -337,10 +361,13 @@ ONLINE_JOINER_HDFS_OUTPUT_PATH=/tmp/spark-recsys/training-samples \
 
 For each micro-batch it:
 
-1. Keeps `impression` / `exposure` rows as candidate training examples.
-2. Aggregates `click`, `order`, and `purchase` feedback by `request_id + user_id + item_id`.
-3. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0`, `1.0`, `2.0`).
-4. Writes samples to Kafka for online model updates and to Parquet for HDFS-style offline training storage.
+1. Persists the parsed event batch (`MEMORY_AND_DISK_SER`) so the impression filter and feedback groupBy read from memory rather than re-parsing Kafka bytes twice.
+2. Keeps `impression` / `exposure` rows as candidate training examples.
+3. Aggregates `click`, `order`, and `purchase` feedback by `request_id + user_id + item_id`.
+4. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0`, `1.0`, `2.0`).
+5. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes them to both sinks inside a `try/finally` that always unpersists.
+6. Writes samples to Kafka for online model updates.
+7. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
 
 Environment variables:
 
@@ -376,9 +403,27 @@ Environment variables:
 
 ## Retrieval Service Configuration
 
-`retrieval-service/src/main/resources/application.yml` defines Redis connectivity plus recommendation settings under `recsys`.
+`retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
 
-Important properties:
+### Offline model paths
+
+Set these to load model artifacts from the filesystem instead of the bundled classpath resources. Unset (default) → use classpath (development and test).
+
+| Env var | Default | Description |
+|---|---|---|
+| `ONNX_MODEL_PATH` | *(classpath)* | Absolute path to `mlp_embedding_model.onnx` on the filesystem |
+| `ONNX_LOOKUPS_PATH` | *(classpath)* | Absolute path to `mlp_embedding_lookups.json` on the filesystem |
+
+### In-memory cache (FeatureCache)
+
+| Property | Env var | Default | Description |
+|---|---|---|---|
+| `recsys.cache.item-vector-max-size` | `RECSYS_ITEM_VECTOR_CACHE_SIZE` | `10000` | Maximum cached item vectors |
+| `recsys.cache.item-vector-ttl-seconds` | `RECSYS_ITEM_VECTOR_TTL` | `300` | Item vector TTL (seconds); matches training job cadence |
+| `recsys.cache.reward-max-size` | `RECSYS_REWARD_CACHE_SIZE` | `50000` | Maximum cached reward model stat entries |
+| `recsys.cache.reward-ttl-seconds` | `RECSYS_REWARD_TTL` | `30` | Reward model stat TTL; invalidated immediately on `/feedback` writes |
+
+### Recommendation properties
 
 | Property | Default |
 |---|---|
@@ -434,6 +479,12 @@ Runtime overrides:
 | `RECSYS_REWARD_GENRE_WEIGHT` | `0.25` |
 | `RECSYS_REWARD_TAG_WEIGHT` | `0.15` |
 | `RECSYS_REWARD_MIN_FEATURE_COUNT` | `3` |
+| `RECSYS_ITEM_VECTOR_CACHE_SIZE` | `10000` |
+| `RECSYS_ITEM_VECTOR_TTL` | `300` |
+| `RECSYS_REWARD_CACHE_SIZE` | `50000` |
+| `RECSYS_REWARD_TTL` | `30` |
+| `ONNX_MODEL_PATH` | *(classpath fallback)* |
+| `ONNX_LOOKUPS_PATH` | *(classpath fallback)* |
 
 Bandit algorithm notes:
 
