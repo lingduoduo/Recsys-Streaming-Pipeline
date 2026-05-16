@@ -361,13 +361,12 @@ ONLINE_JOINER_HDFS_OUTPUT_PATH=/tmp/spark-recsys/training-samples \
 
 For each micro-batch it:
 
-1. Persists the parsed event batch (`MEMORY_AND_DISK_SER`) so the impression filter and feedback groupBy read from memory rather than re-parsing Kafka bytes twice.
-2. Keeps `impression` / `exposure` rows as candidate training examples.
-3. Aggregates `click`, `order`, and `purchase` feedback by `request_id + user_id + item_id`.
-4. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0`, `1.0`, `2.0`).
-5. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes them to both sinks inside a `try/finally` that always unpersists.
-6. Writes samples to Kafka for online model updates.
-7. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
+1. Runs a **single-pass conditional `groupBy`** over `(request_id, user_id, item_id)` that replaces the previous double-filter + join pattern: impression/exposure rows contribute position, timestamp, and feature fields; click/order/purchase rows contribute feedback signals — one shuffle instead of two (groupBy + join), one scan instead of two.
+2. Drops groups with no impression in this batch (`impression_ts IS NULL`) — pure late-feedback events with no matching slate exposure.
+3. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0` = not clicked, `1.0` = clicked, `2.0` = ordered).
+4. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes them to both sinks inside a `try/finally` that always unpersists.
+5. Writes samples to Kafka for online model updates.
+6. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
 
 Environment variables:
 
