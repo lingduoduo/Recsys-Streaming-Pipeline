@@ -3,14 +3,18 @@ package com.demo.recsys
 import com.demo.common.{Env, SparkSessions}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
+import redis.clients.jedis.Jedis
+import redis.clients.jedis.params.SetParams
 
 object AlsEmbeddingTrainingJob {
-  private val DefaultRank = 16
-  private val DefaultMaxIter = 10
-  private val DefaultRegParam = 0.1
+  private val DefaultRank            = 16
+  private val DefaultMaxIter         = 10
+  private val DefaultRegParam        = 0.1
+  private val DefaultRedisTtlSeconds = 60 * 60 * 24
+  private val DefaultPipelineSize    = 500
 
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
@@ -31,6 +35,16 @@ object AlsEmbeddingTrainingJob {
 
       writeFactors(userFactors, s"$outputPath/userFactors", "userId", "userEmbedding")
       writeFactors(itemFactors, s"$outputPath/itemFactors", "movieId", "itemEmbedding")
+
+      if (Env.boolean("ALS_SAVE_TO_REDIS", default = false)) {
+        val redisHost       = sys.env.getOrElse("REDIS_HOST", "localhost")
+        val redisPort       = Env.int("REDIS_PORT", 6379)
+        val redisTtlSeconds = Env.int("ALS_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
+        writeFactorsToRedis(userFactors, "userId",  "userEmbedding", redisHost, redisPort,
+          sys.env.getOrElse("ALS_USER_REDIS_KEY_PREFIX", "uEmb"),    redisTtlSeconds)
+        writeFactorsToRedis(itemFactors, "movieId", "itemEmbedding", redisHost, redisPort,
+          sys.env.getOrElse("ALS_ITEM_REDIS_KEY_PREFIX", "i2vEmb"),  redisTtlSeconds)
+      }
     } finally {
       spark.stop()
     }
@@ -123,6 +137,43 @@ object AlsEmbeddingTrainingJob {
           col("movieId").isNotNull &&
           col("rating").isNotNull
       )
+
+  private def writeFactorsToRedis(
+      factors: DataFrame,
+      idCol: String,
+      embeddingCol: String,
+      redisHost: String,
+      redisPort: Int,
+      keyPrefix: String,
+      redisTtlSeconds: Int,
+      pipelineSize: Int = DefaultPipelineSize
+  ): Unit = {
+    val vectorToString = udf { v: Seq[Float] => v.mkString(" ") }
+    val host   = redisHost
+    val port   = redisPort
+    val prefix = keyPrefix
+    val ttl    = redisTtlSeconds
+    val batch  = pipelineSize
+
+    factors
+      .withColumn("embStr", vectorToString(col(embeddingCol)))
+      .foreachPartition { rows: Iterator[Row] =>
+        val jedis = new Jedis(host, port)
+        try {
+          val pipeline = jedis.pipelined()
+          val params = SetParams.setParams().ex(ttl)
+          var count = 0
+          rows.foreach { row =>
+            pipeline.set(s"$prefix:${row.getAs[String](idCol)}", row.getAs[String]("embStr"), params)
+            count += 1
+            if (count % batch == 0) pipeline.sync()
+          }
+          if (count % batch != 0) pipeline.sync()
+        } finally {
+          jedis.close()
+        }
+      }
+  }
 
   private def writeFactors(factors: DataFrame, outputPath: String, idCol: String, embeddingCol: String): Unit = {
     val vectorToString = udf { vector: Seq[Float] => vector.mkString(" ") }
