@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -169,12 +170,23 @@ class HybridRecommendationServiceTest {
         assertEquals(List.of("item1"), result.recent());
         assertEquals(2, result.recommendations().size());
         assertTrue(result.recommendations().contains("item4"));
+        assertTrue(result.recommendations().contains("item7"));
         assertFalse(result.recommendations().contains("item1")); // recently viewed — must be excluded
         assertFalse(result.candidateDiagnostics().isEmpty());
         assertTrue(result.candidateDiagnostics().get(0).containsKey("rewardModelScore"));
         assertEquals("ucb", result.metrics().get("algorithm"));
         // tracking writes are batched into a single executePipelined call
         verify(redis).executePipelined(any(SessionCallback.class));
+
+        ArgumentCaptor<String> pendingPayload = ArgumentCaptor.forClass(String.class);
+        verify(valueOps, atLeastOnce()).set(anyString(), pendingPayload.capture());
+        assertTrue(pendingPayload.getAllValues().stream().anyMatch(payload ->
+            payload.contains("\"type\":\"rl_experience\"") &&
+                payload.contains("\"state\"") &&
+                payload.contains("\"actionSpace\"") &&
+                payload.contains("\"modelPredictions\"") &&
+                payload.contains("\"policy\"")
+        ));
     }
 
     @Test
@@ -203,6 +215,7 @@ class HybridRecommendationServiceTest {
         verify(listOps).rightPush(eq("replay:recommendations"), payload.capture());
         assertTrue(payload.getValue().contains("\"reward\":1.0"));
         assertTrue(payload.getValue().contains("\"clicked\":true"));
+        assertTrue(payload.getValue().contains("\"nextState\""));
     }
 
     @Test
