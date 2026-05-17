@@ -49,7 +49,7 @@ Candidate items are scored from three model types, each with a different learnin
 |---|---|---|---|
 | **Offline** | `DeepLearningPredictionService` | ONNX MLP score for a (user, item) pair; loaded from `mlp_embedding_model.onnx` at startup | At training time; static at serve time |
 | **Online learning** | `OnlineLearningService` | Weighted mean reward per item, genre, tag, and globally; stored as Redis hashes | After every `/feedback` call |
-| **RL (bandit)** | `HybridRecommendationService` | UCB or Thompson Sampling arm score using impression/click counts per item | After every served impression |
+| **RL** | `HybridRecommendationService` | UCB, Thompson Sampling, or tabular Q-learning score using replay state/action/reward events | After impressions and `/feedback` rewards |
 
 The final per-candidate score is computed as:
 
@@ -443,6 +443,9 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 | `recsys.bandit.content-weight` | `0.25` |
 | `recsys.bandit.popularity-weight` | `0.15` |
 | `recsys.bandit.deep-learning-weight` | `0.0` |
+| `recsys.bandit.q-learning-alpha` | `0.1` |
+| `recsys.bandit.q-learning-gamma` | `0.9` |
+| `recsys.bandit.q-learning-epsilon` | `0.1` |
 | `recsys.replay-buffer.max-size` | `10000` |
 | `recsys.replay-buffer.candidate-snapshot-size` | `20` |
 | `recsys.reward-model.weight` | `0.25` |
@@ -492,9 +495,10 @@ Bandit algorithm notes:
 
 - `ucb` builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
 - `thompson` builds the same posterior and ranks items by a Beta posterior sample, which gives a concrete stochastic arm draw per request.
+- `q-learning` stores tabular Q-values in Redis under `q-learning:q:{stateKey}` and updates them from feedback with `Q(s,a) += alpha * (reward + gamma * max_a Q(s',a) - Q(s,a))`.
 - The `learnedPrior` fed to the bandit is a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model), so bandit updates refine rather than replace the base ranker.
 - Set `RECSYS_DEEP_LEARNING_WEIGHT` to a value between `0.0` and `1.0` to enable the offline ONNX model's contribution to `offlineScore`. The weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
-- Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb` or `RECSYS_BANDIT_ALGORITHM=thompson`.
+- Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb`, `RECSYS_BANDIT_ALGORITHM=thompson`, or `RECSYS_BANDIT_ALGORITHM=q-learning`.
 
 ### Realtime training write path
 

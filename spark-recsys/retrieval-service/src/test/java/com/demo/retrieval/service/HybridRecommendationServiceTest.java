@@ -219,6 +219,46 @@ class HybridRecommendationServiceTest {
     }
 
     @Test
+    void feedbackAppliesQLearningTemporalDifferenceUpdate() {
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getBandit().setAlgorithm("q-learning");
+        properties.getBandit().setQLearningAlpha(0.1);
+        properties.getBandit().setQLearningGamma(0.9);
+
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("item1", movie(List.of("sci-fi"), List.of("space"), false));
+        catalog.put("item4", movie(List.of("sci-fi", "thriller"), List.of("future"), true));
+        properties.setCatalog(catalog);
+
+        FeatureCache localCache = new FeatureCache(properties);
+        HybridRecommendationService localService = new HybridRecommendationService(
+            redis, properties, mock(DeepLearningPredictionService.class),
+            new OnlineLearningService(redis, properties, localCache), localCache);
+
+        when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
+            {"type":"rl_experience","user":"u1","state":{"recent":["item1"],"genres":["sci-fi"],"tags":["space"]},"action":"item4"}
+            """);
+        when(listOps.range(eq("user:u1:recent"), eq(0L), anyLong())).thenReturn(List.of("item1"));
+        when(hashOps.get(anyString(), eq("item4"))).thenAnswer(invocation ->
+            invocation.getArgument(0).toString().startsWith("q-learning:q:") ? "0.2" : "0"
+        );
+        when(hashOps.entries(anyString())).thenAnswer(invocation ->
+            invocation.getArgument(0).toString().startsWith("q-learning:q:")
+                ? Map.of("item2", "0.5", "item4", "0.4")
+                : Map.of()
+        );
+
+        localService.recordFeedback(new FeedbackRequest("u1", "item4", true, 1.0));
+
+        ArgumentCaptor<String> qKey = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> qValue = ArgumentCaptor.forClass(String.class);
+        verify(hashOps).put(qKey.capture(), eq("item4"), qValue.capture());
+        assertTrue(qKey.getValue().startsWith("q-learning:q:"));
+        assertEquals(0.325, Double.parseDouble(qValue.getValue()), 1.0e-9);
+        verify(hashOps).increment("bandit:metrics:q-learning", "q_updates", 1L);
+    }
+
+    @Test
     void aggregateMetricsExposePerAlgorithmBreakdown() {
         Map<String, Object> metrics = service.getAggregateMetrics();
 
