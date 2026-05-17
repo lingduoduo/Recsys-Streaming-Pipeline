@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -35,6 +36,9 @@ public class RecommendationController {
     private static final String DEFAULT_LIMIT = "6";
     private static final int MAX_LIMIT = 50;
 
+    @Value("${recsys.embeddings.item-prefix:i2vEmb}")
+    private String itemEmbeddingPrefix;
+
     private final StringRedisTemplate redis;
     private final HybridRecommendationService recommendationService;
     private final DeepLearningPredictionService predictionService;
@@ -53,7 +57,7 @@ public class RecommendationController {
     public Map<String, Object> embedding(
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String item
     ) {
-        String key = "i2vEmb:" + item;
+        String key = itemEmbeddingPrefix + ":" + item;
         String raw;
         try {
             raw = redis.opsForValue().get(key);
