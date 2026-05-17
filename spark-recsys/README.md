@@ -496,9 +496,10 @@ Bandit algorithm notes:
 - `ucb` builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
 - `thompson` builds the same posterior and ranks items by a Beta posterior sample, which gives a concrete stochastic arm draw per request.
 - `q-learning` stores tabular Q-values in Redis under `q-learning:q:{stateKey}` and updates them from feedback with `Q(s,a) += alpha * (reward + gamma * max_a Q(s',a) - Q(s,a))`.
+- `sarsa` stores tabular Q-values under `sarsa:q:{stateKey}` and updates with the on-policy target `reward + gamma * Q(s', a')`, where `a'` is selected by the same epsilon-greedy policy used for serving.
 - The `learnedPrior` fed to the bandit is a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model), so bandit updates refine rather than replace the base ranker.
 - Set `RECSYS_DEEP_LEARNING_WEIGHT` to a value between `0.0` and `1.0` to enable the offline ONNX model's contribution to `offlineScore`. The weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
-- Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb`, `RECSYS_BANDIT_ALGORITHM=thompson`, or `RECSYS_BANDIT_ALGORITHM=q-learning`.
+- Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb`, `RECSYS_BANDIT_ALGORITHM=thompson`, `RECSYS_BANDIT_ALGORITHM=q-learning`, or `RECSYS_BANDIT_ALGORITHM=sarsa`.
 
 ### Realtime training write path
 

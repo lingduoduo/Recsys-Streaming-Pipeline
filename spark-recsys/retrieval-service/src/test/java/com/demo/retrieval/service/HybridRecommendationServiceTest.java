@@ -259,6 +259,52 @@ class HybridRecommendationServiceTest {
     }
 
     @Test
+    void feedbackAppliesSarsaTemporalDifferenceUpdateWithPolicyNextAction() {
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getBandit().setAlgorithm("sarsa");
+        properties.getBandit().setQLearningAlpha(0.1);
+        properties.getBandit().setQLearningGamma(0.9);
+        properties.getBandit().setQLearningEpsilon(0.0);
+
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("item1", movie(List.of("sci-fi"), List.of("space"), false));
+        catalog.put("item2", movie(List.of("drama"), List.of("slow"), false));
+        catalog.put("item4", movie(List.of("sci-fi", "thriller"), List.of("future"), true));
+        properties.setCatalog(catalog);
+
+        FeatureCache localCache = new FeatureCache(properties);
+        HybridRecommendationService localService = new HybridRecommendationService(
+            redis, properties, mock(DeepLearningPredictionService.class),
+            new OnlineLearningService(redis, properties, localCache), localCache);
+
+        when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
+            {"type":"rl_experience","user":"u1","state":{"recent":["item1"],"genres":["sci-fi"],"tags":["space"]},"action":"item4"}
+            """);
+        when(listOps.range(eq("user:u1:recent"), eq(0L), anyLong())).thenReturn(List.of("item1"));
+        when(hashOps.get(anyString(), eq("item4"))).thenAnswer(invocation ->
+            invocation.getArgument(0).toString().startsWith("sarsa:q:") ? "0.2" : "0"
+        );
+        when(hashOps.entries(anyString())).thenAnswer(invocation ->
+            invocation.getArgument(0).toString().startsWith("sarsa:q:")
+                ? Map.of("item2", "0.3", "item4", "0.7")
+                : Map.of()
+        );
+
+        localService.recordFeedback(new FeedbackRequest("u1", "item4", true, 1.0));
+
+        ArgumentCaptor<String> qKey = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> qValue = ArgumentCaptor.forClass(String.class);
+        verify(hashOps).put(qKey.capture(), eq("item4"), qValue.capture());
+        assertTrue(qKey.getValue().startsWith("sarsa:q:"));
+        assertEquals(0.343, Double.parseDouble(qValue.getValue()), 1.0e-9);
+        verify(hashOps).increment("bandit:metrics:sarsa", "q_updates", 1L);
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(listOps).rightPush(eq("replay:recommendations"), payload.capture());
+        assertTrue(payload.getValue().contains("\"nextAction\":\"item4\""));
+    }
+
+    @Test
     void aggregateMetricsExposePerAlgorithmBreakdown() {
         Map<String, Object> metrics = service.getAggregateMetrics();
 

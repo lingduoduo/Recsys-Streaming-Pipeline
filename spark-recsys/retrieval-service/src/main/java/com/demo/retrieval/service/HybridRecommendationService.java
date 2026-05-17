@@ -41,8 +41,7 @@ public class HybridRecommendationService {
     private static final String METRICS_HASH_KEY = "bandit:metrics";
     private static final String REPLAY_BUFFER_KEY = "replay:recommendations";
     private static final String REPLAY_PENDING_PREFIX = "replay:pending:";
-    private static final String Q_VALUE_PREFIX = "q-learning:q:";
-    private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning");
+    private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning", "sarsa");
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = 2.0;
@@ -122,7 +121,7 @@ public class HybridRecommendationService {
         // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
         List<String> eligibleList = new ArrayList<>(eligible);
         Map<String, long[]> counters = batchFetchCounters(eligibleList);
-        Map<String, Double> qValues = isQLearning()
+        Map<String, Double> qValues = isTabularRl()
             ? batchFetchQValues(stateKey, eligibleList)
             : Map.of();
         Map<String, Double> dlScores = eligibleList.stream()
@@ -220,10 +219,10 @@ public class HybridRecommendationService {
 
         // Read-side: GET pending replay context before the pipeline (reads can't be pipelined with writes).
         Map<String, Object> replayEvent = readPendingReplayContext(request.user(), request.item()).orElseGet(LinkedHashMap::new);
-        String replayPayload = buildReplayPayload(request, replayEvent);
-        QLearningUpdate qLearningUpdate = isQLearning()
-            ? buildQLearningUpdate(request, replayEvent)
+        TabularRlUpdate tabularRlUpdate = isTabularRl()
+            ? buildTabularRlUpdate(request, replayEvent)
             : null;
+        String replayPayload = buildReplayPayload(request, replayEvent);
 
         // Collect keys invalidated by the pipeline so the in-memory cache is purged after the flush.
         List<String> cacheKeysToInvalidate = new ArrayList<>();
@@ -240,10 +239,10 @@ public class HybridRecommendationService {
                 operations.opsForHash().increment(METRICS_HASH_KEY, "reward_total", reward);
                 operations.opsForHash().increment(metricsHashKey(algorithm), "reward_total", reward);
                 onlineLearningService.pipelineUpdate(operations, itemId, reward, profile, cacheKeysToInvalidate);
-                if (qLearningUpdate != null) {
-                    operations.opsForHash().put(qLearningUpdate.qKey(), qLearningUpdate.action(), String.valueOf(qLearningUpdate.updatedValue()));
+                if (tabularRlUpdate != null) {
+                    operations.opsForHash().put(tabularRlUpdate.qKey(), tabularRlUpdate.action(), String.valueOf(tabularRlUpdate.updatedValue()));
                     operations.opsForHash().increment(metricsHashKey(algorithm), "q_updates", 1L);
-                    operations.opsForHash().increment(metricsHashKey(algorithm), "q_td_error_total", qLearningUpdate.tdError());
+                    operations.opsForHash().increment(metricsHashKey(algorithm), "q_td_error_total", tabularRlUpdate.tdError());
                 }
                 if (replayPayload != null) {
                     operations.opsForList().rightPush(REPLAY_BUFFER_KEY, replayPayload);
@@ -344,7 +343,7 @@ public class HybridRecommendationService {
         double learnedPrior = (offlineScore * (1.0 - onlineWeight)) + (onlineScore * onlineWeight);
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.isNewRelease());
         BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart);
-        double qLearningScore = computeQLearningRankingScore(learnedPrior, qValue);
+        double qLearningScore = computeTabularRlRankingScore(learnedPrior, qValue);
         double estimatedReward = armScore.posteriorMean();
         double novelty = 1.0 / (impressions + 1.0);
 
@@ -356,7 +355,7 @@ public class HybridRecommendationService {
             popularity,
             onlineScore,
             armScore.explorationBonus(),
-            isQLearning() ? qLearningScore : armScore.rankingScore(),
+            isTabularRl() ? qLearningScore : armScore.rankingScore(),
             coldStart,
             novelty,
             impressions,
@@ -516,7 +515,7 @@ public class HybridRecommendationService {
         return predictions;
     }
 
-    private QLearningUpdate buildQLearningUpdate(FeedbackRequest request, Map<String, Object> replayEvent) {
+    private TabularRlUpdate buildTabularRlUpdate(FeedbackRequest request, Map<String, Object> replayEvent) {
         Object rawState = replayEvent.get("state");
         if (!(rawState instanceof Map<?, ?> state)) {
             return null;
@@ -526,13 +525,14 @@ public class HybridRecommendationService {
         String qKey = qKeyForStateMap(state);
         double currentQ = readDouble(redis.opsForHash().get(qKey, action));
         Map<String, Object> nextState = buildCurrentState(request.user());
-        double nextBestQ = maxQValue(qKeyForStateMap(nextState));
+        NextActionValue nextActionValue = nextActionValue(nextState);
         double alpha = clamp(properties.getBandit().getQLearningAlpha());
         double gamma = clamp(properties.getBandit().getQLearningGamma());
-        double tdTarget = request.reward() + (gamma * nextBestQ);
+        double tdTarget = request.reward() + (gamma * nextActionValue.value());
         double tdError = tdTarget - currentQ;
         double updated = currentQ + (alpha * tdError);
-        return new QLearningUpdate(qKey, action, updated, tdError);
+        replayEvent.put("nextAction", nextActionValue.action());
+        return new TabularRlUpdate(qKey, action, updated, tdError);
     }
 
     private Map<String, Double> batchFetchQValues(String stateKey, List<String> itemIds) {
@@ -552,6 +552,50 @@ public class HybridRecommendationService {
             }
         }
         return result;
+    }
+
+    private NextActionValue nextActionValue(Map<String, Object> nextState) {
+        String qKey = qKeyForStateMap(nextState);
+        if ("sarsa".equals(currentAlgorithm())) {
+            return chooseSarsaNextAction(nextState, qKey);
+        }
+        return new NextActionValue(null, maxQValue(qKey));
+    }
+
+    private NextActionValue chooseSarsaNextAction(Map<String, Object> nextState, String qKey) {
+        List<String> actionSpace = nextActionSpace(nextState);
+        if (actionSpace.isEmpty()) {
+            return new NextActionValue(null, 0.0);
+        }
+
+        if (ThreadLocalRandom.current().nextDouble() < clamp(properties.getBandit().getQLearningEpsilon())) {
+            String action = actionSpace.get(ThreadLocalRandom.current().nextInt(actionSpace.size()));
+            return new NextActionValue(action, readDouble(redis.opsForHash().get(qKey, action)));
+        }
+
+        Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(qKey)).orElseGet(Map::of);
+        String bestAction = actionSpace.get(0);
+        double bestValue = readDouble(raw.get(bestAction));
+        for (String action : actionSpace) {
+            double value = readDouble(raw.get(action));
+            if (value > bestValue) {
+                bestAction = action;
+                bestValue = value;
+            }
+        }
+        return new NextActionValue(bestAction, bestValue);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> nextActionSpace(Map<String, Object> nextState) {
+        Object rawRecent = nextState.get("recent");
+        Set<String> recent = rawRecent instanceof List<?> values
+            ? values.stream().map(String::valueOf).collect(Collectors.toSet())
+            : Set.of();
+        List<String> actions = properties.getCatalog().keySet().stream()
+            .filter(item -> !recent.contains(item))
+            .toList();
+        return actions.isEmpty() ? List.copyOf(properties.getCatalog().keySet()) : actions;
     }
 
     private double maxQValue(String qKey) {
@@ -746,8 +790,8 @@ public class HybridRecommendationService {
         return algorithm.trim().toLowerCase(Locale.ROOT);
     }
 
-    private boolean isQLearning() {
-        return "q-learning".equals(currentAlgorithm());
+    private boolean isTabularRl() {
+        return "q-learning".equals(currentAlgorithm()) || "sarsa".equals(currentAlgorithm());
     }
 
     private String metricsHashKey(String algorithm) {
@@ -759,7 +803,7 @@ public class HybridRecommendationService {
     }
 
     private String qKeyForState(String stateKey) {
-        return Q_VALUE_PREFIX + stateKey;
+        return currentAlgorithm() + ":q:" + stateKey;
     }
 
     private String stateKey(Object state) {
@@ -820,7 +864,7 @@ public class HybridRecommendationService {
         return new BanditArmScore(posteriorMean, bonus, posteriorMean + bonus);
     }
 
-    private double computeQLearningRankingScore(double learnedPrior, Double qValue) {
+    private double computeTabularRlRankingScore(double learnedPrior, Double qValue) {
         if (ThreadLocalRandom.current().nextDouble() < clamp(properties.getBandit().getQLearningEpsilon())) {
             return ThreadLocalRandom.current().nextDouble();
         }
@@ -968,11 +1012,17 @@ public class HybridRecommendationService {
     ) {
     }
 
-    private record QLearningUpdate(
+    private record TabularRlUpdate(
         String qKey,
         String action,
         double updatedValue,
         double tdError
+    ) {
+    }
+
+    private record NextActionValue(
+        String action,
+        double value
     ) {
     }
 
