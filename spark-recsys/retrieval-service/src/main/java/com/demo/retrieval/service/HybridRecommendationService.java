@@ -195,6 +195,7 @@ public class HybridRecommendationService {
         return new RecommendationResult(user, recent, recommendations, diagnostics, metrics);
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public Map<String, Object> recordFeedback(FeedbackRequest request) {
         String itemId = request.item();
         if (itemId == null || itemId.isBlank()) {
@@ -202,13 +203,36 @@ public class HybridRecommendationService {
         }
 
         double reward = request.reward();
-        if (request.clicked()) {
-            incrementMetric("clicks", 1);
-            incrementItemCounter(itemId, "clicks", 1);
-        }
-        incrementMetric("reward_total", reward);
-        onlineLearningService.update(itemId, reward, properties.getCatalog().get(itemId));
-        appendFeedbackToReplayBuffer(request);
+        MovieProfile profile = properties.getCatalog().get(itemId);
+        String algorithm = currentAlgorithm();
+
+        // Read-side: GET pending replay context before the pipeline (reads can't be pipelined with writes).
+        String replayPayload = buildReplayPayload(request);
+
+        // Collect keys invalidated by the pipeline so the in-memory cache is purged after the flush.
+        List<String> cacheKeysToInvalidate = new ArrayList<>();
+
+        // Batch ALL feedback writes into one pipeline: ~22+ round-trips → 1.
+        redis.executePipelined(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations operations) {
+                if (request.clicked()) {
+                    operations.opsForHash().increment(METRICS_HASH_KEY, "clicks", 1L);
+                    operations.opsForHash().increment(metricsHashKey(algorithm), "clicks", 1L);
+                    operations.opsForValue().increment("bandit:item:" + itemId + ":clicks", 1);
+                }
+                operations.opsForHash().increment(METRICS_HASH_KEY, "reward_total", reward);
+                operations.opsForHash().increment(metricsHashKey(algorithm), "reward_total", reward);
+                onlineLearningService.pipelineUpdate(operations, itemId, reward, profile, cacheKeysToInvalidate);
+                if (replayPayload != null) {
+                    operations.opsForList().rightPush(REPLAY_BUFFER_KEY, replayPayload);
+                    operations.opsForList().trim(REPLAY_BUFFER_KEY, -(long) Math.max(1, properties.getReplayBuffer().getMaxSize()), -1L);
+                }
+                return null;
+            }
+        });
+
+        cacheKeysToInvalidate.forEach(featureCache::invalidateRewardStats);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
@@ -388,7 +412,9 @@ public class HybridRecommendationService {
         }
     }
 
-    private void appendFeedbackToReplayBuffer(FeedbackRequest request) {
+    // Reads the pending replay context (GET) and serializes the feedback event to JSON.
+    // Must run before the write pipeline because reads can't be issued inside executePipelined.
+    private String buildReplayPayload(FeedbackRequest request) {
         Map<String, Object> event = readPendingReplayContext(request.user(), request.item()).orElseGet(LinkedHashMap::new);
         event.putIfAbsent("type", "recommendation");
         event.putIfAbsent("user", request.user());
@@ -396,13 +422,11 @@ public class HybridRecommendationService {
         event.put("clicked", request.clicked());
         event.put("reward", request.reward());
         event.put("feedbackTimestamp", System.currentTimeMillis());
-
         try {
-            redis.opsForList().rightPush(REPLAY_BUFFER_KEY, objectMapper.writeValueAsString(event));
-            int maxSize = Math.max(1, properties.getReplayBuffer().getMaxSize());
-            redis.opsForList().trim(REPLAY_BUFFER_KEY, -maxSize, -1);
+            return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
-            log.warn("Failed to append replay event for user {} item {}", request.user(), request.item(), e);
+            log.warn("Failed to serialize replay event for user {} item {}", request.user(), request.item(), e);
+            return null;
         }
     }
 

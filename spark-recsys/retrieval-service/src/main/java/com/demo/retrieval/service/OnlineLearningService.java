@@ -86,6 +86,34 @@ public class OnlineLearningService {
         normalize(profile.getTags()).forEach(tag -> incrementRewardStats(TAG_PREFIX + tag, reward));
     }
 
+    /**
+     * Write reward stat increments into a caller-managed Redis pipeline.
+     * Avoids opening a new connection per feedback event; all writes are queued
+     * in the pipeline and flushed by the caller in one round-trip.
+     * The keys that were written are added to {@code keysToInvalidate} so the
+     * caller can purge them from the in-memory cache after the pipeline flushes.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void pipelineUpdate(
+            org.springframework.data.redis.core.RedisOperations ops,
+            String itemId, double reward, MovieProfile profile,
+            java.util.List<String> keysToInvalidate) {
+        pipelineIncrement(ops, GLOBAL_KEY, reward, keysToInvalidate);
+        pipelineIncrement(ops, ITEM_PREFIX + itemId, reward, keysToInvalidate);
+        if (profile == null) return;
+        normalize(profile.getGenres()).forEach(g -> pipelineIncrement(ops, GENRE_PREFIX + g, reward, keysToInvalidate));
+        normalize(profile.getTags()).forEach(t -> pipelineIncrement(ops, TAG_PREFIX + t, reward, keysToInvalidate));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void pipelineIncrement(
+            org.springframework.data.redis.core.RedisOperations ops,
+            String key, double reward, java.util.List<String> keysToInvalidate) {
+        ops.opsForHash().increment(key, "count", 1L);
+        ops.opsForHash().increment(key, "reward_total", reward);
+        keysToInvalidate.add(key);
+    }
+
     private RewardEstimate aggregateFeatureEstimates(String prefix, Set<String> features) {
         long count = 0L;
         double rewardTotal = 0.0;
