@@ -25,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -142,12 +143,12 @@ public class HybridRecommendationService {
 
         randomizeTopN(scored, properties.getCandidateGeneration().getTopNRandomizationPool());
 
+        String requestId = UUID.randomUUID().toString();
         List<ScoredCandidate> selected = scored.stream().limit(limit).toList();
-        List<String> candidateSnapshot = scored.stream()
+        List<ScoredCandidate> candidateSnapshot = scored.stream()
             .limit(Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
-            .map(ScoredCandidate::itemId)
             .toList();
-        trackServedRecommendations(user, recent, userGenres, userTags, candidateSnapshot, selected);
+        trackServedRecommendations(requestId, user, recent, userGenres, userTags, candidateSnapshot, selected);
 
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
         double pseudoRegret = computePseudoRegret(scored, selected, limit);
@@ -357,22 +358,24 @@ public class HybridRecommendationService {
 
     @SuppressWarnings("unchecked")
     private void trackServedRecommendations(
+        String requestId,
         String user,
         List<String> recent,
         Set<String> userGenres,
         Set<String> userTags,
-        List<String> candidateSnapshot,
+        List<ScoredCandidate> candidateSnapshot,
         List<ScoredCandidate> selected
     ) {
         long now = System.currentTimeMillis();
         redis.executePipelined(new SessionCallback<>() {
             @Override
             public Object execute(RedisOperations operations) throws DataAccessException {
-                for (ScoredCandidate c : selected) {
+                for (int i = 0; i < selected.size(); i++) {
+                    ScoredCandidate c = selected.get(i);
                     operations.opsForValue().increment("bandit:item:" + c.itemId() + ":impressions", 1);
                     operations.opsForSet().add(EXPOSED_ITEMS_KEY, c.itemId());
                     operations.opsForValue().set("bandit:last_served:" + c.itemId(), String.valueOf(now));
-                    serializeReplayContext(user, recent, userGenres, userTags, candidateSnapshot, c, now)
+                    serializeReplayContext(requestId, user, recent, userGenres, userTags, candidateSnapshot, c, i, selected.size(), now)
                         .ifPresent(payload -> operations.opsForValue().set(pendingReplayKey(user, c.itemId()), payload));
                 }
                 return null;
@@ -381,24 +384,36 @@ public class HybridRecommendationService {
     }
 
     private Optional<String> serializeReplayContext(
+        String requestId,
         String user,
         List<String> recent,
         Set<String> userGenres,
         Set<String> userTags,
-        List<String> candidateSnapshot,
+        List<ScoredCandidate> candidateSnapshot,
         ScoredCandidate selected,
+        int actionPosition,
+        int slateSize,
         long timestamp
     ) {
         Map<String, Object> event = new LinkedHashMap<>();
-        event.put("type", "recommendation");
+        event.put("type", "rl_experience");
+        event.put("schemaVersion", 1);
+        event.put("requestId", requestId);
         event.put("user", user);
-        event.put("context", Map.of(
-            "recent", recent,
-            "genres", userGenres,
-            "tags", userTags
-        ));
-        event.put("candidates", candidateSnapshot);
+        event.put("state", buildState(recent, userGenres, userTags));
+        event.put("context", event.get("state"));
+        event.put("actionSpace", candidateSnapshot.stream().map(this::candidateFeatures).toList());
+        event.put("candidates", candidateSnapshot.stream().map(ScoredCandidate::itemId).toList());
         event.put("action", selected.itemId());
+        event.put("actionPosition", actionPosition);
+        event.put("slateSize", slateSize);
+        event.put("policy", Map.of(
+            "name", currentAlgorithm(),
+            "rankingScore", round(selected.banditScore()),
+            "explorationBonus", round(selected.explorationBonus()),
+            "propensity", round(slateSize <= 0 ? 0.0 : 1.0 / slateSize)
+        ));
+        event.put("modelPredictions", modelPredictions(selected));
         event.put("estimatedReward", round(selected.estimatedReward()));
         event.put("onlineScore", round(selected.onlineScore()));
         event.put("banditScore", round(selected.banditScore()));
@@ -416,18 +431,66 @@ public class HybridRecommendationService {
     // Must run before the write pipeline because reads can't be issued inside executePipelined.
     private String buildReplayPayload(FeedbackRequest request) {
         Map<String, Object> event = readPendingReplayContext(request.user(), request.item()).orElseGet(LinkedHashMap::new);
-        event.putIfAbsent("type", "recommendation");
+        event.putIfAbsent("type", "rl_experience");
+        event.putIfAbsent("schemaVersion", 1);
         event.putIfAbsent("user", request.user());
         event.putIfAbsent("action", request.item());
         event.put("clicked", request.clicked());
         event.put("reward", request.reward());
         event.put("feedbackTimestamp", System.currentTimeMillis());
+        event.put("nextState", buildCurrentState(request.user()));
         try {
             return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize replay event for user {} item {}", request.user(), request.item(), e);
             return null;
         }
+    }
+
+    private Map<String, Object> buildCurrentState(String user) {
+        List<String> recent = Optional.ofNullable(redis.opsForList().range("user:" + user + ":recent", 0, RECENT_HISTORY_SIZE - 1L))
+            .orElseGet(List::of);
+        Set<String> genres = recent.stream()
+            .map(properties.getCatalog()::get)
+            .filter(p -> p != null)
+            .flatMap(p -> normalize(p.getGenres()).stream())
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> tags = recent.stream()
+            .map(properties.getCatalog()::get)
+            .filter(p -> p != null)
+            .flatMap(p -> normalize(p.getTags()).stream())
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        return buildState(recent, genres, tags);
+    }
+
+    private Map<String, Object> buildState(List<String> recent, Set<String> userGenres, Set<String> userTags) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("recent", recent);
+        state.put("genres", userGenres);
+        state.put("tags", userTags);
+        return state;
+    }
+
+    private Map<String, Object> candidateFeatures(ScoredCandidate candidate) {
+        Map<String, Object> features = new LinkedHashMap<>();
+        features.put("item", candidate.itemId());
+        features.put("modelPredictions", modelPredictions(candidate));
+        features.put("coldStart", candidate.coldStart());
+        features.put("impressions", candidate.impressions());
+        features.put("clicks", candidate.clicks());
+        return features;
+    }
+
+    private Map<String, Object> modelPredictions(ScoredCandidate candidate) {
+        Map<String, Object> predictions = new LinkedHashMap<>();
+        predictions.put("deepLearningScore", round(candidate.dlScore()));
+        predictions.put("rewardModelScore", round(candidate.onlineScore()));
+        predictions.put("estimatedReward", round(candidate.estimatedReward()));
+        predictions.put("relevanceScore", round(candidate.relevanceScore()));
+        predictions.put("contentScore", round(candidate.contentScore()));
+        predictions.put("popularityScore", round(candidate.popularityScore()));
+        predictions.put("banditScore", round(candidate.banditScore()));
+        return predictions;
     }
 
     private Optional<Map<String, Object>> readPendingReplayContext(String user, String item) {
