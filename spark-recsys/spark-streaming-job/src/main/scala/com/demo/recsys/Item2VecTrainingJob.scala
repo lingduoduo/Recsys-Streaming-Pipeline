@@ -2,23 +2,20 @@ package com.demo.recsys
 
 import java.io.{BufferedWriter, File, FileWriter}
 
-import com.demo.common.{Env, SparkSessions}
+import com.demo.common.{Env, RedisWriter, SparkSessions}
 import org.apache.spark.ml.feature.{Word2Vec => MLWord2Vec}
 import org.apache.spark.ml.linalg.{Vector => MLVector}
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import redis.clients.jedis.Jedis
-import redis.clients.jedis.params.SetParams
 
 object Item2VecTrainingJob {
-  private val DefaultVectorSize = 10
-  private val DefaultWindowSize = 5
-  private val DefaultNumIterations = 10
-  private val DefaultMinCount = 1
-  private val DefaultQueryItem = "592"
-  private val DefaultNumSynonyms = 20
-  private val DefaultRedisKeyPrefix = "i2vEmb"
+  private val DefaultVectorSize      = 10
+  private val DefaultWindowSize      = 5
+  private val DefaultNumIterations   = 10
+  private val DefaultMinCount        = 1
+  private val DefaultQueryItem       = "592"
+  private val DefaultNumSynonyms     = 20
+  private val DefaultRedisKeyPrefix  = "i2vEmb"
   private val DefaultRedisTtlSeconds = 60 * 60 * 24
-  private val DefaultRedisPipelineSize = 500
 
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
@@ -86,47 +83,24 @@ object Item2VecTrainingJob {
     writeEmbeddings(embeddingPath, vectors)
 
     if (saveToRedis) {
-      writeEmbeddingsToRedis(redisHost, redisPort, redisKeyPrefix, redisTtlSeconds, vectors)
+      RedisWriter.writeWithPipeline(
+        redisHost, redisPort,
+        vectors.iterator.map { case (id, vec) => id -> vec.mkString(" ") },
+        redisKeyPrefix, redisTtlSeconds
+      )
     }
   }
 
   private def writeEmbeddings(embeddingPath: String, vectors: Map[String, Array[Float]]): Unit = {
     val file = new File(embeddingPath)
     Option(file.getParentFile).foreach(_.mkdirs())
-
     val bw = new BufferedWriter(new FileWriter(file))
     try {
-      for (itemId <- vectors.keys.toSeq.sorted) {
-        bw.write(s"$itemId:${vectors(itemId).mkString(" ")}\n")
+      vectors.foreach { case (itemId, vec) =>
+        bw.write(s"$itemId:${vec.mkString(" ")}\n")
       }
     } finally {
       bw.close()
-    }
-  }
-
-  // Writes embeddings to Redis as  i2vEmb:{itemId} → "0.123 -0.456 ..."  with a TTL.
-  // Uses pipelining to avoid one round-trip per item.
-  private def writeEmbeddingsToRedis(
-      redisHost: String,
-      redisPort: Int,
-      keyPrefix: String,
-      ttlSeconds: Int,
-      vectors: Map[String, Array[Float]],
-      pipelineSize: Int = DefaultRedisPipelineSize
-  ): Unit = {
-    val jedis = new Jedis(redisHost, redisPort)
-    try {
-      val pipeline = jedis.pipelined()
-      val params = SetParams.setParams().ex(ttlSeconds)
-      var count = 0
-      for ((itemId, vector) <- vectors) {
-        pipeline.set(s"$keyPrefix:$itemId", vector.mkString(" "), params)
-        count += 1
-        if (count % pipelineSize == 0) pipeline.sync()
-      }
-      if (count % pipelineSize != 0) pipeline.sync()
-    } finally {
-      jedis.close()
     }
   }
 }
