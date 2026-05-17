@@ -223,11 +223,14 @@ Returns model name, lookup table sizes, and ONNX input/output names for the load
 
 ### `POST /feedback`
 
-Records user feedback for an exposed item. On each call it:
+Records user feedback for an exposed item. All Redis writes are batched in a single `executePipelined` call (one network round-trip instead of ~22). The three phases on each call:
 
-1. Increments bandit click/impression counters (RL update).
-2. Calls `OnlineLearningService.update()` to adjust the online reward model for the item, its genres, its tags, and the global prior (online learning update).
-3. Appends a rewarded event to the Redis replay buffer.
+1. **Read** — fetch the pending replay context written at serve time (`GET replay:pending:{user}:{item}`). Must happen before the pipeline because reads cannot be issued inside a write pipeline.
+2. **Write (pipelined)** — batch all writes in one flush:
+   - Increment bandit click counter and per-algorithm metrics hashes.
+   - Increment `OnlineLearningService` reward stats for the item, its genres, its tags, and the global prior (`HINCRBY` on `reward-model:*` hashes).
+   - Push the rewarded event to the replay buffer (`RPUSH` + `LTRIM`).
+3. **Invalidate** — purge affected `reward-model:*` keys from the Caffeine in-memory cache so the next `/recommend` request reads fresh stats.
 
 Example:
 
@@ -492,6 +495,30 @@ Bandit algorithm notes:
 - The `learnedPrior` fed to the bandit is a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model), so bandit updates refine rather than replace the base ranker.
 - Set `RECSYS_DEEP_LEARNING_WEIGHT` to a value between `0.0` and `1.0` to enable the offline ONNX model's contribution to `offlineScore`. The weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
 - Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb` or `RECSYS_BANDIT_ALGORITHM=thompson`.
+
+### Realtime training write path
+
+`/feedback` triggers online learning by updating reward statistics in Redis for the item, its genres and tags, and a global prior. Before pipelining, this was ~22 individual round-trips per feedback call. The current implementation collapses all writes into one:
+
+```
+GET  replay:pending:{user}:{item}           ← phase 1: read (before pipeline)
+─────────────────────────────── pipeline ───────────────────────────────────
+HINCRBY bandit:metrics clicks 1             ← if clicked
+HINCRBY bandit:metrics:{algo} clicks 1
+INCR    bandit:item:{item}:clicks
+HINCRBY bandit:metrics reward_total {r}
+HINCRBY bandit:metrics:{algo} reward_total {r}
+HINCRBY reward-model:global count 1         ← online learning update
+HINCRBY reward-model:global reward_total {r}
+HINCRBY reward-model:item:{item} count 1
+HINCRBY reward-model:item:{item} reward_total {r}
+HINCRBY reward-model:genre:{g} ...          ← one pair per genre
+HINCRBY reward-model:tag:{t} ...            ← one pair per tag
+RPUSH   replay:recommendations {payload}    ← replay buffer
+LTRIM   replay:recommendations -{max} -1
+─────────────────────────────── flush ──────────────────────────────────────
+featureCache.invalidateRewardStats(...)     ← phase 3: local cache purge
+```
 
 Replay and reward-model Redis keys:
 
