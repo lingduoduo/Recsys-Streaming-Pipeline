@@ -1,27 +1,11 @@
 package com.demo.recsys
 
-import org.apache.spark.sql.SparkSession
+import com.demo.SparkTestSupport
 import org.apache.spark.sql.functions.col
-import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-class ItemSequencePreprocessingJobSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
-
-  private var spark: SparkSession = _
-
-  override def beforeAll(): Unit = {
-    spark = SparkSession.builder()
-      .master("local[1]")
-      .appName("ItemSequencePreprocessingJobSpec")
-      .config("spark.sql.shuffle.partitions", "1")
-      .config("spark.ui.enabled", "false")
-      .getOrCreate()
-  }
-
-  override def afterAll(): Unit = {
-    spark.stop()
-  }
+class ItemSequencePreprocessingJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
   private def makeRatings(rows: (String, String, Double, Long)*) = {
     val sparkSession = spark

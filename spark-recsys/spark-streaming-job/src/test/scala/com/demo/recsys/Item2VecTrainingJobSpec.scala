@@ -1,34 +1,18 @@
 package com.demo.recsys
 
+import java.io.File
 import java.nio.file.Files
 
-import org.apache.spark.sql.SparkSession
-import org.scalatest.BeforeAndAfterAll
+import com.demo.SparkTestSupport
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-class Item2VecTrainingJobSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
-
-  private var spark: SparkSession = _
-
-  override def beforeAll(): Unit = {
-    spark = SparkSession.builder()
-      .master("local[1]")
-      .appName("Item2VecTrainingJobSpec")
-      .config("spark.sql.shuffle.partitions", "1")
-      .config("spark.ui.enabled", "false")
-      .getOrCreate()
-  }
-
-  override def afterAll(): Unit = {
-    spark.stop()
-  }
+class Item2VecTrainingJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
   private val VectorSize = 4
 
   private def sequences() = {
-    val s = spark
-    import s.implicits._
+    val s = spark; import s.implicits._
     Seq(
       ("u1", Seq("a", "b", "c", "d")),
       ("u2", Seq("b", "c", "d", "e")),
@@ -38,13 +22,14 @@ class Item2VecTrainingJobSpec extends AnyFlatSpec with Matchers with BeforeAndAf
     ).toDF("userId", "movieIds")
   }
 
-  private def tmpFile() = {
+  private def tmpFile(): File = {
     val f = Files.createTempFile("i2v-test", ".txt").toFile
     f.deleteOnExit()
     f
   }
 
-  "trainItem2vec" should "write embeddings in id:v1 v2 ... format" in {
+  // Trained once; the format and vocabulary tests both assert on this result.
+  private lazy val trainedLines: Seq[String] = {
     val out = tmpFile()
     Item2VecTrainingJob.trainItem2vec(
       samples = sequences(),
@@ -56,10 +41,12 @@ class Item2VecTrainingJobSpec extends AnyFlatSpec with Matchers with BeforeAndAf
       minCount = 1,
       saveToRedis = false
     )
+    scala.io.Source.fromFile(out).getLines().toSeq
+  }
 
-    val lines = scala.io.Source.fromFile(out).getLines().toSeq
-    lines should not be empty
-    lines.foreach { line =>
+  "trainItem2vec" should "write embeddings in id:v1 v2 ... format" in {
+    trainedLines should not be empty
+    trainedLines.foreach { line =>
       val sep = line.indexOf(':')
       withClue(s"line '$line' must have id:vector format") { sep should be > 0 }
       val values = line.substring(sep + 1).trim.split(' ')
@@ -73,20 +60,7 @@ class Item2VecTrainingJobSpec extends AnyFlatSpec with Matchers with BeforeAndAf
   }
 
   it should "include all vocabulary items in the embedding file" in {
-    val out = tmpFile()
-    Item2VecTrainingJob.trainItem2vec(
-      samples = sequences(),
-      embeddingPath = out.getAbsolutePath,
-      queryItem = "a",
-      vectorSize = VectorSize,
-      windowSize = 2,
-      numIterations = 2,
-      minCount = 1,
-      saveToRedis = false
-    )
-
-    val ids = scala.io.Source.fromFile(out).getLines()
-      .map(l => l.substring(0, l.indexOf(':'))).toSet
+    val ids = trainedLines.map(l => l.substring(0, l.indexOf(':'))).toSet
     ids should contain allOf ("a", "b", "c", "d", "e")
   }
 

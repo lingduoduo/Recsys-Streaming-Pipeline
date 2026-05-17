@@ -1,20 +1,17 @@
 package com.demo.recsys
 
-import com.demo.common.{Env, SparkSessions}
+import com.demo.common.{Env, RedisWriter, SparkSessions}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import redis.clients.jedis.Jedis
-import redis.clients.jedis.params.SetParams
 
 object AlsEmbeddingTrainingJob {
   private val DefaultRank            = 16
   private val DefaultMaxIter         = 10
   private val DefaultRegParam        = 0.1
   private val DefaultRedisTtlSeconds = 60 * 60 * 24
-  private val DefaultPipelineSize    = 500
 
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
@@ -41,7 +38,7 @@ object AlsEmbeddingTrainingJob {
         val redisPort       = Env.int("REDIS_PORT", 6379)
         val redisTtlSeconds = Env.int("ALS_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
         writeFactorsToRedis(userFactors, "userId",  "userEmbedding", redisHost, redisPort,
-          sys.env.getOrElse("ALS_USER_REDIS_KEY_PREFIX", "alsUserEmb"),  redisTtlSeconds)
+          sys.env.getOrElse("ALS_USER_REDIS_KEY_PREFIX", "alsUserEmb"), redisTtlSeconds)
         writeFactorsToRedis(itemFactors, "movieId", "itemEmbedding", redisHost, redisPort,
           sys.env.getOrElse("ALS_ITEM_REDIS_KEY_PREFIX", "alsItemEmb"), redisTtlSeconds)
       }
@@ -114,6 +111,21 @@ object AlsEmbeddingTrainingJob {
     (userFactors, itemFactors)
   }
 
+  private[recsys] def writeFactors(
+      factors: DataFrame,
+      outputPath: String,
+      idCol: String,
+      embeddingCol: String
+  ): Unit = {
+    val vectorToString = udf { vector: Seq[Float] => vector.mkString(" ") }
+    factors
+      .withColumn("embeddingStr", vectorToString(col(embeddingCol)))
+      .select(concat_ws(":", col(idCol), col("embeddingStr")).as("value"))
+      .write
+      .mode("overwrite")
+      .text(outputPath)
+  }
+
   private val ratingsSchema = StructType(Seq(
     StructField("userId", StringType),
     StructField("movieId", StringType),
@@ -127,11 +139,7 @@ object AlsEmbeddingTrainingJob {
       .option("header", "true")
       .schema(ratingsSchema)
       .load(ratingsPath)
-      .select(
-        col("userId"),
-        col("movieId"),
-        col("rating")
-      )
+      .select(col("userId"), col("movieId"), col("rating"))
       .where(
         col("userId").isNotNull &&
           col("movieId").isNotNull &&
@@ -145,43 +153,17 @@ object AlsEmbeddingTrainingJob {
       redisHost: String,
       redisPort: Int,
       keyPrefix: String,
-      redisTtlSeconds: Int,
-      pipelineSize: Int = DefaultPipelineSize
+      redisTtlSeconds: Int
   ): Unit = {
     val vectorToString = udf { v: Seq[Float] => v.mkString(" ") }
-    val host   = redisHost
-    val port   = redisPort
-    val prefix = keyPrefix
-    val ttl    = redisTtlSeconds
-    val batch  = pipelineSize
-
     factors
       .withColumn("embStr", vectorToString(col(embeddingCol)))
       .foreachPartition { rows: Iterator[Row] =>
-        val jedis = new Jedis(host, port)
-        try {
-          val pipeline = jedis.pipelined()
-          val params = SetParams.setParams().ex(ttl)
-          var count = 0
-          rows.foreach { row =>
-            pipeline.set(s"$prefix:${row.getAs[String](idCol)}", row.getAs[String]("embStr"), params)
-            count += 1
-            if (count % batch == 0) pipeline.sync()
-          }
-          if (count % batch != 0) pipeline.sync()
-        } finally {
-          jedis.close()
-        }
+        RedisWriter.writeWithPipeline(
+          redisHost, redisPort,
+          rows.map(r => r.getAs[String](idCol) -> r.getAs[String]("embStr")),
+          keyPrefix, redisTtlSeconds
+        )
       }
-  }
-
-  private def writeFactors(factors: DataFrame, outputPath: String, idCol: String, embeddingCol: String): Unit = {
-    val vectorToString = udf { vector: Seq[Float] => vector.mkString(" ") }
-    factors
-      .withColumn("embeddingStr", vectorToString(col(embeddingCol)))
-      .select(concat_ws(":", col(idCol), col("embeddingStr")).as("value"))
-      .write
-      .mode("overwrite")
-      .text(outputPath)
   }
 }

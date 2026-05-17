@@ -44,7 +44,8 @@ public class OnlineLearningService {
      * Batch-warm the reward-stats cache for a set of candidates before the scoring loop.
      * Collects every key that {@link #score} will need (global + per-item + per-genre + per-tag),
      * skips keys already in the Caffeine cache, and fetches the rest in one pipeline flush.
-     * After this call every subsequent {@link #score} invocation is a pure in-memory read.
+     * After this call every subsequent {@link #score} invocation is a cache-only read
+     * until entries expire (see recsys.cache.reward-ttl-seconds).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public void batchWarmRewardStats(Collection<String> itemIds, Map<String, MovieProfile> catalog) {
@@ -65,7 +66,6 @@ public class OnlineLearningService {
 
         List<Object> results = redis.executePipelined(new SessionCallback<Object>() {
             @Override
-            @SuppressWarnings("null")
             public Object execute(@NonNull org.springframework.data.redis.core.RedisOperations operations) {
                 cold.forEach(key -> operations.opsForHash().entries((Object) key));
                 return null;
