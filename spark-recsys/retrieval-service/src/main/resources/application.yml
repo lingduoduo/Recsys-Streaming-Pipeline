@@ -18,7 +18,11 @@ recsys:
     reward-max-size: ${RECSYS_REWARD_CACHE_SIZE:50000}
     reward-ttl-seconds: ${RECSYS_REWARD_TTL:30}
   embeddings:
+    # Item2Vec (offline): i2vEmb  — set ITEM_EMBEDDING_PREFIX=i2vEmb
+    # ALS      (offline): alsItemEmb — set ITEM_EMBEDDING_PREFIX=alsItemEmb
     item-prefix: ${ITEM_EMBEDDING_PREFIX:i2vEmb}
+    # User2Vec / averaged Item2Vec: uEmb      — set USER_EMBEDDING_PREFIX=uEmb
+    # ALS user factors:             alsUserEmb — set USER_EMBEDDING_PREFIX=alsUserEmb
     user-prefix: ${USER_EMBEDDING_PREFIX:uEmb}
   candidate-generation:
     popularity-fetch-multiplier: ${RECSYS_POPULARITY_FETCH_MULTIPLIER:5}

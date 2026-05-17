@@ -41,9 +41,9 @@ object AlsEmbeddingTrainingJob {
         val redisPort       = Env.int("REDIS_PORT", 6379)
         val redisTtlSeconds = Env.int("ALS_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
         writeFactorsToRedis(userFactors, "userId",  "userEmbedding", redisHost, redisPort,
-          sys.env.getOrElse("ALS_USER_REDIS_KEY_PREFIX", "uEmb"),    redisTtlSeconds)
+          sys.env.getOrElse("ALS_USER_REDIS_KEY_PREFIX", "alsUserEmb"),  redisTtlSeconds)
         writeFactorsToRedis(itemFactors, "movieId", "itemEmbedding", redisHost, redisPort,
-          sys.env.getOrElse("ALS_ITEM_REDIS_KEY_PREFIX", "i2vEmb"),  redisTtlSeconds)
+          sys.env.getOrElse("ALS_ITEM_REDIS_KEY_PREFIX", "alsItemEmb"), redisTtlSeconds)
       }
     } finally {
       spark.stop()

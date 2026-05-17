@@ -1,7 +1,6 @@
 package com.demo.recsys
 
 import com.demo.common.{Env, SparkSessions}
-import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -27,39 +26,6 @@ object ItemSequencePreprocessingJob {
     } finally {
       spark.stop()
     }
-  }
-
-  def processItemSequence(sparkSession: SparkSession): RDD[Seq[String]] = {
-    val defaultPath = sys.env
-      .get("RATINGS_INPUT_PATH")
-      .orElse(Option(getClass.getResource("/webroot/sampledata/ratings.csv")).map(_.getPath))
-      .orElse(Option(getClass.getResource("/sampledata/ratings.csv")).map(_.getPath))
-      .getOrElse("spark-recsys/sampledata/ratings.csv")
-
-    processItemSequence(sparkSession, defaultPath)
-  }
-
-  def processItemSequence(
-      sparkSession: SparkSession,
-      ratingsPath: String,
-      minRating: Double = DefaultMinRating,
-      userIdColumn: String = "userId",
-      itemIdColumn: String = "movieId",
-      ratingColumn: String = "rating",
-      timestampColumn: String = "timestamp"
-  ): RDD[Seq[String]] = {
-    processItemSequenceDataFrame(
-      sparkSession = sparkSession,
-      ratingsPath = ratingsPath,
-      minRating = minRating,
-      userIdColumn = userIdColumn,
-      itemIdColumn = itemIdColumn,
-      ratingColumn = ratingColumn,
-      timestampColumn = timestampColumn
-    )
-      .select("movieIdStr")
-      .rdd
-      .map(row => row.getAs[String]("movieIdStr").split(" ").toSeq)
   }
 
   def processItemSequenceDataFrame(
