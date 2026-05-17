@@ -70,7 +70,7 @@ public class RecommendationController {
                 .collect(Collectors.toList());
             return Map.of("item", item, "embedding", vector);
         } catch (NumberFormatException e) {
-            log.error("Corrupt embedding data for key {}: {}", key, raw, e);
+            log.warn("Corrupt embedding data for key {}", key);
             return Map.of("item", item, "embedding", List.of(), "error", "corrupt_data");
         }
     }
