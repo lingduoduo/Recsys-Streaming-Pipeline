@@ -130,6 +130,10 @@ public class HybridRecommendationService {
                 item -> predictionService.predict(user, item).map(p -> p.score()).orElse(0.0)
             ));
 
+        // Warm reward-stats cache for all candidates in one pipeline flush so every
+        // subsequent onlineLearningService.score() call is a pure in-memory read.
+        onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
+
         List<ScoredCandidate> scored = eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});

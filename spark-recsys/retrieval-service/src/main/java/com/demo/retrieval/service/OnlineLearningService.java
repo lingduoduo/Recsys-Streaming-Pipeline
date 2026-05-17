@@ -7,12 +7,16 @@ import org.springframework.stereotype.Service;
 
 import org.springframework.lang.NonNull;
 
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.springframework.data.redis.core.SessionCallback;
 
 /**
  * Online learning model: maintains per-item/genre/tag reward statistics in Redis,
@@ -34,6 +38,46 @@ public class OnlineLearningService {
         this.redis = redis;
         this.properties = properties;
         this.featureCache = featureCache;
+    }
+
+    /**
+     * Batch-warm the reward-stats cache for a set of candidates before the scoring loop.
+     * Collects every key that {@link #score} will need (global + per-item + per-genre + per-tag),
+     * skips keys already in the Caffeine cache, and fetches the rest in one pipeline flush.
+     * After this call every subsequent {@link #score} invocation is a pure in-memory read.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void batchWarmRewardStats(Collection<String> itemIds, Map<String, MovieProfile> catalog) {
+        Set<String> needed = new LinkedHashSet<>();
+        needed.add(GLOBAL_KEY);
+        for (String itemId : itemIds) {
+            needed.add(ITEM_PREFIX + itemId);
+            MovieProfile p = catalog.get(itemId);
+            if (p != null) {
+                normalize(p.getGenres()).forEach(g -> needed.add(GENRE_PREFIX + g));
+                normalize(p.getTags()).forEach(t -> needed.add(TAG_PREFIX + t));
+            }
+        }
+        List<String> cold = needed.stream()
+            .filter(k -> featureCache.getRewardStats(k) == null)
+            .toList();
+        if (cold.isEmpty()) return;
+
+        List<Object> results = redis.executePipelined(new SessionCallback<Object>() {
+            @Override
+            @SuppressWarnings("null")
+            public Object execute(@NonNull org.springframework.data.redis.core.RedisOperations operations) {
+                cold.forEach(key -> operations.opsForHash().entries((Object) key));
+                return null;
+            }
+        });
+
+        for (int i = 0; i < Math.min(cold.size(), results.size()); i++) {
+            Map<Object, Object> raw = (Map<Object, Object>) results.get(i);
+            long count = raw == null ? 0L : readLong(raw.get("count"));
+            double rewardTotal = raw == null ? 0.0 : readDouble(raw.get("reward_total"));
+            featureCache.putRewardStats(cold.get(i), new FeatureCache.RewardModelStats(count, rewardTotal));
+        }
     }
 
     /** Score a (item, profile) pair using accumulated reward statistics. Falls back to {@code fallback} when no data exists. */

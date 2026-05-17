@@ -175,8 +175,8 @@ class HybridRecommendationServiceTest {
         assertFalse(result.candidateDiagnostics().isEmpty());
         assertTrue(result.candidateDiagnostics().get(0).containsKey("rewardModelScore"));
         assertEquals("ucb", result.metrics().get("algorithm"));
-        // tracking writes are batched into a single executePipelined call
-        verify(redis).executePipelined(any(SessionCallback.class));
+        // reward-stat warm + tracking writes each use executePipelined
+        verify(redis, atLeastOnce()).executePipelined(any(SessionCallback.class));
 
         ArgumentCaptor<String> pendingPayload = ArgumentCaptor.forClass(String.class);
         verify(valueOps, atLeastOnce()).set(anyString(), pendingPayload.capture());
