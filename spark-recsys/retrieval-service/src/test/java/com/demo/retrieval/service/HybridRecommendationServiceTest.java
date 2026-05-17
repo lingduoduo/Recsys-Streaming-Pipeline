@@ -100,8 +100,13 @@ class HybridRecommendationServiceTest {
             );
             default -> Map.of();
         });
-        // executePipelined used by trackServedRecommendations — return empty result list
-        when(redis.executePipelined(any(SessionCallback.class))).thenReturn(List.of());
+        // Execute the SessionCallback against the same mock so individual operation
+        // verify() calls work after recordFeedback moves all writes into the pipeline.
+        when(redis.executePipelined(any(SessionCallback.class))).thenAnswer(invocation -> {
+            SessionCallback<?> cb = invocation.getArgument(0);
+            cb.execute(redis);
+            return List.of();
+        });
 
         RecommendationProperties properties = new RecommendationProperties();
         properties.getCandidateGeneration().setTopNRandomizationPool(1);
