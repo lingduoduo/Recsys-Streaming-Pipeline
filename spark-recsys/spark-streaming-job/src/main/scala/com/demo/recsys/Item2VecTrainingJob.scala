@@ -63,7 +63,7 @@ object Item2VecTrainingJob {
   ): Unit = {
     val word2vec = new MLWord2Vec()
       .setInputCol("movieIds")
-      .setOutputCol("_ignored")
+      .setOutputCol("embedding")
       .setVectorSize(vectorSize)
       .setWindowSize(windowSize)
       .setMaxIter(numIterations)
@@ -76,15 +76,9 @@ object Item2VecTrainingJob {
       .toMap
 
     if (vectors.contains(queryItem)) {
-      vectors.toSeq
-        .map { case (word, vec) =>
-          val dot = vec.zip(vectors(queryItem)).map { case (a, b) => a * b }.sum
-          word -> dot
-        }
-        .filter(_._1 != queryItem)
-        .sortBy(-_._2)
-        .take(numSynonyms)
-        .foreach { case (synonym, score) => println(s"$synonym $score") }
+      model.findSynonyms(queryItem, numSynonyms)
+        .collect()
+        .foreach { row => println(s"${row.getString(0)} ${row.getDouble(1)}") }
     } else {
       println(s"Query item '$queryItem' was not found in the trained Item2Vec vocabulary.")
     }
@@ -122,7 +116,6 @@ object Item2VecTrainingJob {
   ): Unit = {
     val jedis = new Jedis(redisHost, redisPort)
     try {
-
       val pipeline = jedis.pipelined()
       val params = SetParams.setParams().ex(ttlSeconds)
       var count = 0
