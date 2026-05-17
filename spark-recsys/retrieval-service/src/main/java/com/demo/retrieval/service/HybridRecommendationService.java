@@ -14,7 +14,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -37,7 +41,8 @@ public class HybridRecommendationService {
     private static final String METRICS_HASH_KEY = "bandit:metrics";
     private static final String REPLAY_BUFFER_KEY = "replay:recommendations";
     private static final String REPLAY_PENDING_PREFIX = "replay:pending:";
-    private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson");
+    private static final String Q_VALUE_PREFIX = "q-learning:q:";
+    private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning");
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = 2.0;
@@ -98,6 +103,8 @@ public class HybridRecommendationService {
             .filter(p -> p != null)
             .flatMap(p -> normalize(p.getTags()).stream())
             .collect(Collectors.toSet());
+        Map<String, Object> state = buildState(recent, userGenres, userTags);
+        String stateKey = stateKey(state);
 
         Set<String> contentCandidates = generateColdStartCandidates(recentSet, userGenres, userTags);
 
@@ -115,6 +122,9 @@ public class HybridRecommendationService {
         // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
         List<String> eligibleList = new ArrayList<>(eligible);
         Map<String, long[]> counters = batchFetchCounters(eligibleList);
+        Map<String, Double> qValues = isQLearning()
+            ? batchFetchQValues(stateKey, eligibleList)
+            : Map.of();
         Map<String, Double> dlScores = eligibleList.stream()
             .collect(Collectors.toMap(
                 item -> item,
@@ -126,7 +136,7 @@ public class HybridRecommendationService {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(item, userVector, userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
-                    dlScores.getOrDefault(item, 0.0));
+                    dlScores.getOrDefault(item, 0.0), qValues.get(item));
             })
             .sorted(Comparator.comparingDouble(ScoredCandidate::banditScore).reversed())
             .collect(Collectors.toCollection(ArrayList::new));
@@ -173,6 +183,7 @@ public class HybridRecommendationService {
                 row.put("relevanceScore", round(candidate.relevanceScore()));
                 row.put("contentScore", round(candidate.contentScore()));
                 row.put("dlScore", round(candidate.dlScore()));
+                row.put("qValue", round(candidate.qValue()));
                 row.put("rewardModelScore", round(candidate.onlineScore()));
                 row.put("explorationBonus", round(candidate.explorationBonus()));
                 row.put("banditScore", round(candidate.banditScore()));
@@ -208,7 +219,11 @@ public class HybridRecommendationService {
         String algorithm = currentAlgorithm();
 
         // Read-side: GET pending replay context before the pipeline (reads can't be pipelined with writes).
-        String replayPayload = buildReplayPayload(request);
+        Map<String, Object> replayEvent = readPendingReplayContext(request.user(), request.item()).orElseGet(LinkedHashMap::new);
+        String replayPayload = buildReplayPayload(request, replayEvent);
+        QLearningUpdate qLearningUpdate = isQLearning()
+            ? buildQLearningUpdate(request, replayEvent)
+            : null;
 
         // Collect keys invalidated by the pipeline so the in-memory cache is purged after the flush.
         List<String> cacheKeysToInvalidate = new ArrayList<>();
@@ -225,6 +240,11 @@ public class HybridRecommendationService {
                 operations.opsForHash().increment(METRICS_HASH_KEY, "reward_total", reward);
                 operations.opsForHash().increment(metricsHashKey(algorithm), "reward_total", reward);
                 onlineLearningService.pipelineUpdate(operations, itemId, reward, profile, cacheKeysToInvalidate);
+                if (qLearningUpdate != null) {
+                    operations.opsForHash().put(qLearningUpdate.qKey(), qLearningUpdate.action(), String.valueOf(qLearningUpdate.updatedValue()));
+                    operations.opsForHash().increment(metricsHashKey(algorithm), "q_updates", 1L);
+                    operations.opsForHash().increment(metricsHashKey(algorithm), "q_td_error_total", qLearningUpdate.tdError());
+                }
                 if (replayPayload != null) {
                     operations.opsForList().rightPush(REPLAY_BUFFER_KEY, replayPayload);
                     operations.opsForList().trim(REPLAY_BUFFER_KEY, -(long) Math.max(1, properties.getReplayBuffer().getMaxSize()), -1L);
@@ -305,7 +325,8 @@ public class HybridRecommendationService {
         long totalImpressions,
         long impressions,
         long clicks,
-        double dlScore
+        double dlScore,
+        Double qValue
     ) {
         MovieProfile profile = properties.getCatalog().get(itemId);
 
@@ -323,6 +344,7 @@ public class HybridRecommendationService {
         double learnedPrior = (offlineScore * (1.0 - onlineWeight)) + (onlineScore * onlineWeight);
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.isNewRelease());
         BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart);
+        double qLearningScore = computeQLearningRankingScore(learnedPrior, qValue);
         double estimatedReward = armScore.posteriorMean();
         double novelty = 1.0 / (impressions + 1.0);
 
@@ -334,12 +356,13 @@ public class HybridRecommendationService {
             popularity,
             onlineScore,
             armScore.explorationBonus(),
-            armScore.rankingScore(),
+            isQLearning() ? qLearningScore : armScore.rankingScore(),
             coldStart,
             novelty,
             impressions,
             clicks,
-            dlScore
+            dlScore,
+            qValue == null ? 0.0 : qValue
         );
     }
 
@@ -429,8 +452,7 @@ public class HybridRecommendationService {
 
     // Reads the pending replay context (GET) and serializes the feedback event to JSON.
     // Must run before the write pipeline because reads can't be issued inside executePipelined.
-    private String buildReplayPayload(FeedbackRequest request) {
-        Map<String, Object> event = readPendingReplayContext(request.user(), request.item()).orElseGet(LinkedHashMap::new);
+    private String buildReplayPayload(FeedbackRequest request, Map<String, Object> event) {
         event.putIfAbsent("type", "rl_experience");
         event.putIfAbsent("schemaVersion", 1);
         event.putIfAbsent("user", request.user());
@@ -466,8 +488,8 @@ public class HybridRecommendationService {
     private Map<String, Object> buildState(List<String> recent, Set<String> userGenres, Set<String> userTags) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("recent", recent);
-        state.put("genres", userGenres);
-        state.put("tags", userTags);
+        state.put("genres", userGenres.stream().sorted().toList());
+        state.put("tags", userTags.stream().sorted().toList());
         return state;
     }
 
@@ -484,6 +506,7 @@ public class HybridRecommendationService {
     private Map<String, Object> modelPredictions(ScoredCandidate candidate) {
         Map<String, Object> predictions = new LinkedHashMap<>();
         predictions.put("deepLearningScore", round(candidate.dlScore()));
+        predictions.put("qValue", round(candidate.qValue()));
         predictions.put("rewardModelScore", round(candidate.onlineScore()));
         predictions.put("estimatedReward", round(candidate.estimatedReward()));
         predictions.put("relevanceScore", round(candidate.relevanceScore()));
@@ -491,6 +514,52 @@ public class HybridRecommendationService {
         predictions.put("popularityScore", round(candidate.popularityScore()));
         predictions.put("banditScore", round(candidate.banditScore()));
         return predictions;
+    }
+
+    private QLearningUpdate buildQLearningUpdate(FeedbackRequest request, Map<String, Object> replayEvent) {
+        Object rawState = replayEvent.get("state");
+        if (!(rawState instanceof Map<?, ?> state)) {
+            return null;
+        }
+
+        String action = request.item();
+        String qKey = qKeyForStateMap(state);
+        double currentQ = readDouble(redis.opsForHash().get(qKey, action));
+        Map<String, Object> nextState = buildCurrentState(request.user());
+        double nextBestQ = maxQValue(qKeyForStateMap(nextState));
+        double alpha = clamp(properties.getBandit().getQLearningAlpha());
+        double gamma = clamp(properties.getBandit().getQLearningGamma());
+        double tdTarget = request.reward() + (gamma * nextBestQ);
+        double tdError = tdTarget - currentQ;
+        double updated = currentQ + (alpha * tdError);
+        return new QLearningUpdate(qKey, action, updated, tdError);
+    }
+
+    private Map<String, Double> batchFetchQValues(String stateKey, List<String> itemIds) {
+        if (itemIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Object> fields = new ArrayList<>(itemIds);
+        List<Object> values = Optional.ofNullable(redis.opsForHash().multiGet(qKeyForState(stateKey), fields))
+            .orElseGet(() -> Collections.nCopies(itemIds.size(), null));
+
+        Map<String, Double> result = new LinkedHashMap<>();
+        for (int i = 0; i < itemIds.size(); i++) {
+            Object raw = values.get(i);
+            if (raw != null) {
+                result.put(itemIds.get(i), readDouble(raw));
+            }
+        }
+        return result;
+    }
+
+    private double maxQValue(String qKey) {
+        Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(qKey)).orElseGet(Map::of);
+        return raw.values().stream()
+            .mapToDouble(this::readDouble)
+            .max()
+            .orElse(0.0);
     }
 
     private Optional<Map<String, Object>> readPendingReplayContext(String user, String item) {
@@ -677,8 +746,32 @@ public class HybridRecommendationService {
         return algorithm.trim().toLowerCase(Locale.ROOT);
     }
 
+    private boolean isQLearning() {
+        return "q-learning".equals(currentAlgorithm());
+    }
+
     private String metricsHashKey(String algorithm) {
         return METRICS_HASH_KEY + ":" + algorithm;
+    }
+
+    private String qKeyForStateMap(Map<?, ?> state) {
+        return qKeyForState(stateKey(state));
+    }
+
+    private String qKeyForState(String stateKey) {
+        return Q_VALUE_PREFIX + stateKey;
+    }
+
+    private String stateKey(Object state) {
+        try {
+            String canonical = objectMapper.writeValueAsString(state);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
+        } catch (JsonProcessingException | NoSuchAlgorithmException e) {
+            log.warn("Failed to build Q-learning state key; falling back to hashCode", e);
+            return Integer.toHexString(String.valueOf(state).hashCode());
+        }
     }
 
     private double resolveCatalogCoverage() {
@@ -725,6 +818,13 @@ public class HybridRecommendationService {
         }
         bonus = Math.min(bonus, properties.getBandit().getMaxExplorationBonus());
         return new BanditArmScore(posteriorMean, bonus, posteriorMean + bonus);
+    }
+
+    private double computeQLearningRankingScore(double learnedPrior, Double qValue) {
+        if (ThreadLocalRandom.current().nextDouble() < clamp(properties.getBandit().getQLearningEpsilon())) {
+            return ThreadLocalRandom.current().nextDouble();
+        }
+        return qValue == null ? learnedPrior : qValue;
     }
 
     private double contentScore(MovieProfile profile, Set<String> userGenres, Set<String> userTags) {
@@ -863,7 +963,16 @@ public class HybridRecommendationService {
         double noveltyScore,
         long impressions,
         long clicks,
-        double dlScore
+        double dlScore,
+        double qValue
+    ) {
+    }
+
+    private record QLearningUpdate(
+        String qKey,
+        String action,
+        double updatedValue,
+        double tdError
     ) {
     }
 

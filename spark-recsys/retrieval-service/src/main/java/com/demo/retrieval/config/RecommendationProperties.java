@@ -150,6 +150,9 @@ public class RecommendationProperties {
         private double contentWeight = 0.25;
         private double popularityWeight = 0.15;
         private double deepLearningWeight = 0.0;
+        private double qLearningAlpha = 0.1;
+        private double qLearningGamma = 0.9;
+        private double qLearningEpsilon = 0.1;
 
         public String getAlgorithm() {
             return algorithm;
@@ -221,6 +224,30 @@ public class RecommendationProperties {
 
         public void setDeepLearningWeight(double deepLearningWeight) {
             this.deepLearningWeight = deepLearningWeight;
+        }
+
+        public double getQLearningAlpha() {
+            return qLearningAlpha;
+        }
+
+        public void setQLearningAlpha(double qLearningAlpha) {
+            this.qLearningAlpha = qLearningAlpha;
+        }
+
+        public double getQLearningGamma() {
+            return qLearningGamma;
+        }
+
+        public void setQLearningGamma(double qLearningGamma) {
+            this.qLearningGamma = qLearningGamma;
+        }
+
+        public double getQLearningEpsilon() {
+            return qLearningEpsilon;
+        }
+
+        public void setQLearningEpsilon(double qLearningEpsilon) {
+            this.qLearningEpsilon = qLearningEpsilon;
         }
     }
 
