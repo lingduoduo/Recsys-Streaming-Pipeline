@@ -29,5 +29,5 @@ exec "$SPARK_SUBMIT" \
   --driver-memory "${SPARK_DRIVER_MEMORY:-1g}" \
   --executor-memory "${SPARK_EXECUTOR_MEMORY:-2g}" \
   --conf "spark.sql.shuffle.partitions=${SPARK_SQL_SHUFFLE_PARTITIONS:-4}" \
-  --class "${SPARK_MAIN_CLASS:-com.demo.streaming.UserEventStreamingJob}" \
+  --class "${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}" \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar

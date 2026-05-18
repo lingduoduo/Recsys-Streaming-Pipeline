@@ -1,6 +1,7 @@
-package com.demo.recsys
+package com.demo.task
 
-import com.demo.common.{Env, RedisWriter, SparkSessions}
+import com.demo.sink.RedisWriter
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
@@ -111,7 +112,7 @@ object AlsEmbeddingTrainingJob {
     (userFactors, itemFactors)
   }
 
-  private[recsys] def writeFactors(
+  private[task] def writeFactors(
       factors: DataFrame,
       outputPath: String,
       idCol: String,

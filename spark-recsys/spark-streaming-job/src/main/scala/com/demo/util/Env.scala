@@ -1,4 +1,4 @@
-package com.demo.common
+package com.demo.util
 
 object Env {
   def argOrEnv(args: Array[String], index: Int, envKey: String): Option[String] =

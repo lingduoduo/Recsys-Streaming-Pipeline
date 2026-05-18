@@ -1,8 +1,10 @@
-package com.demo.recsys
+package com.demo.task
 
 import java.io.{BufferedWriter, File, FileWriter}
 
-import com.demo.common.{Env, RedisWriter, SparkSessions}
+import com.demo.process.ItemSequencePreprocessingJob
+import com.demo.sink.RedisWriter
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.ml.feature.{Word2Vec => MLWord2Vec}
 import org.apache.spark.ml.linalg.{Vector => MLVector}
 import org.apache.spark.sql.{DataFrame, SparkSession}

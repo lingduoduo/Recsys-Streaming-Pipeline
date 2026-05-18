@@ -1,6 +1,6 @@
-package com.demo.recsys
+package com.demo.recommend
 
-import com.demo.common.{Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import redis.clients.jedis.Jedis
 
@@ -104,7 +104,7 @@ object EmbeddingCandidateGenerationJob {
     }.toDF("id", "vector")
   }
 
-  private[recsys] def cosine(u: Array[Double], v: Array[Double]): Double = {
+  private[recommend] def cosine(u: Array[Double], v: Array[Double]): Double = {
     var dot = 0.0; var nu = 0.0; var nv = 0.0
     var i = 0; val len = math.min(u.length, v.length)
     while (i < len) {

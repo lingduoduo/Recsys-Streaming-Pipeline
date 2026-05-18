@@ -1,6 +1,6 @@
-package com.demo.recsys
+package com.demo.process
 
-import com.demo.common.{Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._

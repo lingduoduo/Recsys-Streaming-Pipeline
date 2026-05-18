@@ -1,4 +1,4 @@
-package com.demo.recsys
+package com.demo.task
 
 import com.demo.SparkTestSupport
 import org.scalatest.flatspec.AnyFlatSpec

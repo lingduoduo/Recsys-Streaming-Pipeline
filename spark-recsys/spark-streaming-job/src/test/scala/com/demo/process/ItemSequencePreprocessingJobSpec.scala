@@ -1,4 +1,4 @@
-package com.demo.recsys
+package com.demo.process
 
 import com.demo.SparkTestSupport
 import org.apache.spark.sql.functions.col
