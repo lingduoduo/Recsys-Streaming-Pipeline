@@ -1,6 +1,6 @@
-# Spark Recsys
+# Streaming Recsys Platform
 
-`spark-recsys` is a small recommendation-system playground with three complementary paths:
+`spark-recsys` is a recommendation-system playground with three complementary paths:
 
 - A real-time Kafka -> Spark Structured Streaming -> Redis pipeline that keeps recent user history and global popularity fresh.
 - A training-data pipeline that joins behavior logs into feature+label samples, writes them to Kafka and HDFS-compatible storage, then rebuilds request-level slates for online learning.

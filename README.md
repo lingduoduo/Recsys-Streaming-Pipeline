@@ -1,20 +1,20 @@
-# Spark with Scala
+# Recsys Streaming Pipeline
 
-A collection of Apache Spark projects in Scala demonstrating data analysis, machine learning pipelines, and real-time recommendation systems.
+A recommendation-system playground that combines streaming data pipelines, offline embedding jobs, online learning, and bandit-style RL ranking. The repo includes Spark-based production paths, Spark/Flink learning notes, Kafka/Redis infrastructure, and a Spring Boot retrieval service.
 
 ## Repository Structure
 
 ```
-Spark-with-Scala/
-├── spark-analysis/          # Spark fundamentals, user analysis, and ML pipelines
-└── spark-recsys/            # Real-time recommendation system (streaming + retrieval)
+Recsys-Streaming-Pipeline/
+├── spark-analysis/          # Spark/Flink concepts, user analysis, and ML pipelines
+└── spark-recsys/            # Streaming recommendation platform and retrieval service
 ```
 
 ---
 
 ## spark-analysis
 
-Learning and production-grade Spark code covering core APIs, user behavior analysis, and binary classification.
+Learning and production-grade stream-processing notes and Spark code covering core APIs, Flink comparisons, user behavior analysis, and binary classification.
 
 ### Files
 
@@ -55,7 +55,7 @@ spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
 
 ## spark-recsys
 
-A three-path recommendation system: a real-time Kafka→Spark Streaming→Redis pipeline for live user history, a Kafka→Spark online joiner and slate collector for training data, and offline embedding trainers with a Spring Boot retrieval service that combines an offline ONNX model, a real-time online learning reward model, and a UCB/Thompson bandit RL policy. Feature storage uses a three-tier design: offline files (ONNX model + Parquet training samples), Redis (real-time embeddings, counters, user history), and a Caffeine in-memory cache that collapses per-request Redis round-trips from O(N×features) to O(1).
+A streaming recommendation platform: a real-time Kafka→Spark Streaming→Redis path for live user history, a Kafka→Spark online joiner and slate collector for training data, offline embedding trainers, and a Spring Boot retrieval service that combines an offline ONNX model, a real-time online learning reward model, and a UCB/Thompson bandit RL policy. Feature storage uses a three-tier design: offline files (ONNX model + Parquet training samples), Redis (real-time embeddings, counters, user history), and a Caffeine in-memory cache that collapses per-request Redis round-trips from O(N×features) to O(1).
 
 ### Architecture
 
@@ -83,31 +83,32 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | `spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
 | `spark-streaming-job` | Scala / Spark | Joins behavior logs into feature+label samples and reconstructs request-level slates |
 | `spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
-| `retrieval-service` | Java / Spring Boot | REST API serving recommendations and Item2Vec embeddings from Redis |
+| `retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
 | `producer.py` | Python | Kafka producer that generates synthetic user–item events |
 
 ### Quick Start
 
 ```bash
 # 1. Start infrastructure
-docker-compose up -d          # Kafka + Redis
+cd spark-recsys
+docker compose up -d          # Kafka + Redis
 
 # 2. Run producer
-python spark-recsys/producer/producer.py
+python producer.py
 
 # 3. Submit streaming job
 spark-submit \
-  --class com.demo.streaming.UserEventStreamingJob \
-  spark-recsys/spark-streaming-job/target/spark-streaming-job.jar
+  --class com.demo.task.UserEventStreamingJob \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 
 # 4. Train Item2Vec embeddings
 spark-submit \
-  --class com.demo.recsys.Item2VecTrainingJob \
-  spark-recsys/spark-streaming-job/target/spark-streaming-job.jar \
-  spark-recsys/sampledata/ratings.csv
+  --class com.demo.task.Item2VecTrainingJob \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  sampledata/ratings.csv
 
 # 5. Start retrieval service
-cd spark-recsys/retrieval-service && mvn spring-boot:run
+cd retrieval-service && mvn spring-boot:run
 ```
 
 ### Key Endpoints
