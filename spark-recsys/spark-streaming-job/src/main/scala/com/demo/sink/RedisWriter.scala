@@ -1,4 +1,4 @@
-package com.demo.common
+package com.demo.sink
 
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.params.SetParams

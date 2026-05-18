@@ -1,4 +1,4 @@
-package com.demo.streaming
+package com.demo.process
 
 import org.apache.spark.sql.SparkSession
 import org.scalatest.BeforeAndAfterAll

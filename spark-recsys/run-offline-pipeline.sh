@@ -86,7 +86,7 @@ exec "$SPARK_SUBMIT" \
   --driver-memory "${SPARK_DRIVER_MEMORY:-1g}" \
   --executor-memory "${SPARK_EXECUTOR_MEMORY:-2g}" \
   --conf "spark.sql.shuffle.partitions=${SPARK_SQL_SHUFFLE_PARTITIONS:-4}" \
-  --class com.demo.recsys.Item2VecTrainingJob \
+  --class com.demo.task.Item2VecTrainingJob \
   "$JAR" \
   "$RATINGS_INPUT_PATH" \
   "$EMBEDDING_PATH" \

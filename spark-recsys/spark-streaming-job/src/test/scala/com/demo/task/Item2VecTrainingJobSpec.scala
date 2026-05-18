@@ -1,4 +1,4 @@
-package com.demo.recsys
+package com.demo.task
 
 import java.io.File
 import java.nio.file.Files

@@ -1,6 +1,6 @@
-package com.demo.streaming
+package com.demo.task
 
-import com.demo.common.{Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger

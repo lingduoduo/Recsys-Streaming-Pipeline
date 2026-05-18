@@ -1,6 +1,7 @@
-package com.demo.recsys
+package com.demo.task
 
-import com.demo.common.{Env, RedisWriter, SparkSessions}
+import com.demo.sink.RedisWriter
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._

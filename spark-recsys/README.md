@@ -41,6 +41,18 @@ retrieval-service├─── Redis: embeddings, bandit counters, user history, 
                  /embedding/{item}
 ```
 
+## Spark Job Package Structure
+
+The Spark module follows a pipeline-oriented layout inspired by common recommendation feature platforms:
+
+| Package | Responsibility | Examples |
+|---|---|---|
+| `com.demo.process` | Transform, join, label, and prepare stream or batch data | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `ItemSequencePreprocessingJob` |
+| `com.demo.task` | Runnable entry points for streaming ingestion and offline training tasks | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob` |
+| `com.demo.recommend` | Candidate generation and recommendation-specific retrieval logic | `EmbeddingCandidateGenerationJob` |
+| `com.demo.sink` | External writes and persistence helpers | `RedisWriter` |
+| `com.demo.util` | Shared runtime and Spark helpers | `Env`, `SparkSessions` |
+
 ## Scoring Model Architecture
 
 Candidate items are scored from three model types, each with a different learning paradigm:
@@ -135,7 +147,7 @@ Or run it directly with `spark-submit`:
 
 ```bash
 spark-submit \
-  --class com.demo.streaming.UserEventStreamingJob \
+  --class com.demo.task.UserEventStreamingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
@@ -355,7 +367,7 @@ Consumes Kafka behavior logs and turns recommendation impressions plus later fee
 ```bash
 PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python producer.py
 
-SPARK_MAIN_CLASS=com.demo.streaming.OnlineJoinerStreamingJob \
+SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob \
 ONLINE_JOINER_INPUT_TOPIC=behavior_logs \
 ONLINE_JOINER_OUTPUT_TOPIC=training_samples \
 ONLINE_JOINER_HDFS_OUTPUT_PATH=/tmp/spark-recsys/training-samples \
@@ -386,7 +398,7 @@ Environment variables:
 Consumes item-level samples from Kafka and rebuilds each recommendation request as a list-level experience, also called an impression list or slate.
 
 ```bash
-SPARK_MAIN_CLASS=com.demo.streaming.ExperienceCollectorStreamingJob \
+SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob \
 EXPERIENCE_COLLECTOR_INPUT_TOPIC=training_samples \
 EXPERIENCE_COLLECTOR_OUTPUT_TOPIC=training_experiences \
 ./run-streaming-job.sh
@@ -544,7 +556,7 @@ Builds time-ordered item sequences from ratings with `rating >= 3.5`.
 
 ```bash
 spark-submit \
-  --class com.demo.recsys.ItemSequencePreprocessingJob \
+  --class com.demo.process.ItemSequencePreprocessingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   /tmp/spark-recsys/item-sequences
@@ -563,7 +575,7 @@ Trains Spark MLlib `Word2Vec` on item sequences and writes item embeddings to a 
 
 ```bash
 spark-submit \
-  --class com.demo.recsys.Item2VecTrainingJob \
+  --class com.demo.task.Item2VecTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/embedding.txt \
@@ -589,7 +601,7 @@ ITEM2VEC_SAVE_TO_REDIS=true \
 REDIS_HOST=localhost \
 REDIS_PORT=6379 \
 spark-submit \
-  --class com.demo.recsys.Item2VecTrainingJob \
+  --class com.demo.task.Item2VecTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/embedding.txt \
@@ -608,7 +620,7 @@ Builds a user embedding by averaging the vectors of positively rated items.
 
 ```bash
 spark-submit \
-  --class com.demo.recsys.UserEmbeddingTrainingJob \
+  --class com.demo.task.UserEmbeddingTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/item_embedding_sample.txt \
@@ -636,7 +648,7 @@ Trains Spark ML `ALS` directly on ratings and writes latent user and item factor
 
 ```bash
 spark-submit \
-  --class com.demo.recsys.AlsEmbeddingTrainingJob \
+  --class com.demo.task.AlsEmbeddingTrainingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/als
