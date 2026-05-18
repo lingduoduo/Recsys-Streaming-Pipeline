@@ -118,18 +118,6 @@ public class OnlineLearningService {
         return totalWeight == 0.0 ? clamp(fallback) : clamp(weightedReward / totalWeight);
     }
 
-    /** Update model parameters from a real-time feedback signal (online learning step). */
-    public void update(String itemId, double reward, MovieProfile profile) {
-        incrementRewardStats(GLOBAL_KEY, reward);
-        incrementRewardStats(ITEM_PREFIX + itemId, reward);
-
-        if (profile == null) {
-            return;
-        }
-        normalize(profile.getGenres()).forEach(genre -> incrementRewardStats(GENRE_PREFIX + genre, reward));
-        normalize(profile.getTags()).forEach(tag -> incrementRewardStats(TAG_PREFIX + tag, reward));
-    }
-
     /**
      * Write reward stat increments into a caller-managed Redis pipeline.
      * Avoids opening a new connection per feedback event; all writes are queued
@@ -181,12 +169,6 @@ public class OnlineLearningService {
         double rewardTotal = readDouble(raw.get("reward_total"));
         featureCache.putRewardStats(key, new FeatureCache.RewardModelStats(count, rewardTotal));
         return count == 0L ? new RewardEstimate(0L, 0.0) : new RewardEstimate(count, clamp(rewardTotal / count));
-    }
-
-    private void incrementRewardStats(@NonNull String key, double reward) {
-        redis.opsForHash().increment(key, "count", 1L);
-        redis.opsForHash().increment(key, "reward_total", reward);
-        featureCache.invalidateRewardStats(key);
     }
 
     private double confidence(long count) {
