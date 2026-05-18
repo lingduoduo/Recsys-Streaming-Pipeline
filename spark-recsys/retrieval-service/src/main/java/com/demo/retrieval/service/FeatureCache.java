@@ -49,14 +49,6 @@ public class FeatureCache {
         return itemVectors.getIfPresent(item) != null;
     }
 
-    public void invalidateItemVector(String item) {
-        itemVectors.invalidate(item);
-    }
-
-    public void invalidateAllVectors() {
-        itemVectors.invalidateAll();
-    }
-
     // --- reward model stats ---
 
     public RewardModelStats getRewardStats(String key) {

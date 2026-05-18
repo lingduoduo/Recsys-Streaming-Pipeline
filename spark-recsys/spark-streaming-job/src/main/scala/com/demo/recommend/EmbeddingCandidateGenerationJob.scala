@@ -122,26 +122,20 @@ object EmbeddingCandidateGenerationJob {
       ttlSeconds: Int,
       pipelineSize: Int = DefaultPipelineSize
   ): Unit = {
-    val host   = redisHost
-    val port   = redisPort
-    val prefix = keyPrefix
-    val ttl    = ttlSeconds
-    val batch  = pipelineSize
-
     candidates.foreachPartition { rows: Iterator[Row] =>
-      val jedis = new Jedis(host, port)
+      val jedis = new Jedis(redisHost, redisPort)
       try {
         val pipeline = jedis.pipelined()
         var count = 0
         rows.foreach { row =>
           val userId = row.getAs[String]("userId")
           val items  = row.getAs[Seq[String]]("candidateItems")
-          val key    = s"$prefix:$userId:candidates"
+          val key    = s"$keyPrefix:$userId:candidates"
           pipeline.del(key)
           if (items.nonEmpty) pipeline.rpush(key, items.toArray: _*)
-          pipeline.expire(key, ttl)
+          pipeline.expire(key, ttlSeconds)
           count += 3
-          if (count >= batch) { pipeline.sync(); count = 0 }
+          if (count >= pipelineSize) { pipeline.sync(); count = 0 }
         }
         if (count > 0) pipeline.sync()
       } finally {

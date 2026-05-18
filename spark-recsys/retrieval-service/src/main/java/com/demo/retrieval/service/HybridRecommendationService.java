@@ -720,10 +720,6 @@ public class HybridRecommendationService {
         return vector;
     }
 
-    private void incrementItemCounter(String itemId, String counter, long amount) {
-        redis.opsForValue().increment("bandit:item:" + itemId + ":" + counter, amount);
-    }
-
     private void incrementMetric(String field, long amount) {
         redis.opsForHash().increment(METRICS_HASH_KEY, field, amount);
         redis.opsForHash().increment(metricsHashKey(currentAlgorithm()), field, amount);
