@@ -20,6 +20,7 @@ producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoine
                                                     └──► Parquet: training-samples/date=YYYY-MM-DD/
 
 Kafka: training_samples ──► ExperienceCollectorStreamingJob ──► Kafka: training_experiences
+Kafka: training_experiences ──► RecommendationResponseStatsJob ──► Kafka: recommendation_metrics
 
 ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob ──► embedding.txt
                                                                      └──► Redis i2vEmb:{item}
@@ -47,7 +48,7 @@ The Spark module follows a pipeline-oriented layout inspired by common recommend
 
 | Package | Responsibility | Examples |
 |---|---|---|
-| `com.demo.process` | Transform, join, label, and prepare stream or batch data | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `ItemSequencePreprocessingJob` |
+| `com.demo.process` | Transform, join, label, and prepare stream or batch data | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `ItemSequencePreprocessingJob` |
 | `com.demo.task` | Runnable entry points for streaming ingestion and offline training tasks | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob` |
 | `com.demo.recommend` | Candidate generation and recommendation-specific retrieval logic | `EmbeddingCandidateGenerationJob` |
 | `com.demo.sink` | External writes and persistence helpers | `RedisWriter` |
@@ -414,6 +415,34 @@ Environment variables:
 | `EXPERIENCE_COLLECTOR_INPUT_TOPIC` | `training_samples` |
 | `EXPERIENCE_COLLECTOR_OUTPUT_TOPIC` | `training_experiences` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/experience-collector` |
+
+### `RecommendationResponseStatsJob`
+
+Consumes request-level slates from `training_experiences` and emits global response metric events to Kafka. The job borrows the shape of a For You feed response stats collector: one response produces a total counter, a country-bucketed total counter, selected item/ad counts, and guardrail checks for empty or sufficiently populated responses.
+
+```bash
+SPARK_MAIN_CLASS=com.demo.process.RecommendationResponseStatsJob \
+RESPONSE_STATS_INPUT_TOPIC=training_experiences \
+RESPONSE_STATS_OUTPUT_TOPIC=recommendation_metrics \
+./run-streaming-job.sh
+```
+
+Metric payloads use:
+
+- `metric_name`: `RecommendationFeed.response`
+- `tags`: `type`, `subscription`, optional `country`, optional `blender`, and optional `stage`
+- `value`: count for that response/stat
+
+Item/ad splitting reads `item_features.type` or `item_features.product_type`; values `ad`, `ads`, and `sponsored` count as ads, and every other selected candidate counts as an item. `subscription` comes from `user_features.subscription_level` or `user_features.subscription`; `country` comes from context/user country fields and is bucketed; `blender` comes from `context_features.AdsBlenderType` or `context_features.ads_blender_type`.
+
+Environment variables:
+
+| Env var | Default |
+|---|---|
+| `SPARK_APP_NAME` | `RecommendationResponseStatsJob` |
+| `RESPONSE_STATS_INPUT_TOPIC` | `training_experiences` |
+| `RESPONSE_STATS_OUTPUT_TOPIC` | `recommendation_metrics` |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/response-stats` |
 
 ## Retrieval Service Configuration
 
