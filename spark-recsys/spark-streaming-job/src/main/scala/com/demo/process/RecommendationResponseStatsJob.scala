@@ -77,21 +77,19 @@ object RecommendationResponseStatsJob {
       .filter(col("slate_id").isNotNull && col("request_id").isNotNull && col("user_id").isNotNull)
 
   def buildMetricEvents(slates: DataFrame): DataFrame = {
-    val safeItems = coalesce(col("safe_items"), array().cast(ArrayType(ItemSchema)))
-    val adItems = filter(safeItems, item =>
-      lower(coalesce(
-        item.getField("item_features").getItem("type"),
-        item.getField("item_features").getItem("product_type"),
-        lit("")
-      )).isin("ad", "ads", "sponsored")
-    )
-
     val enriched = slates
       .withColumn("safe_items", coalesce(col("items"), array().cast(ArrayType(ItemSchema))))
       .withColumn("safe_user_features", coalesce(col("user_features"), typedLit(Map.empty[String, String])))
       .withColumn("safe_context_features", coalesce(col("context_features"), typedLit(Map.empty[String, String])))
-      .withColumn("selected_ads", size(adItems).cast("long"))
-      .withColumn("selected_items", (size(safeItems) - size(adItems)).cast("long"))
+      .withColumn("ad_items", filter(col("safe_items"), item =>
+        lower(coalesce(
+          item.getField("item_features").getItem("type"),
+          item.getField("item_features").getItem("product_type"),
+          lit("")
+        )).isin("ad", "ads", "sponsored")
+      ))
+      .withColumn("selected_ads", size(col("ad_items")).cast("long"))
+      .withColumn("selected_items", (size(col("safe_items")) - size(col("ad_items"))).cast("long"))
       .withColumn(
         "country",
         bucketCountry(coalesce(

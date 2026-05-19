@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -47,6 +48,27 @@ public class HybridRecommendationService {
     private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = 2.0;
 
+    private record FilterContext(
+        Set<String> blockedUsers,
+        Set<String> mutedProductTypes,
+        Set<String> mutedGenres,
+        Set<String> mutedKeywords) {}
+
+    // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
+    // tags+keywords merged into allKeywords so intersection checks need no per-call allocation).
+    private record NormalizedProfile(
+        String productType,
+        Set<String> genres,
+        Set<String> allKeywords,
+        String title,
+        long expiresAtEpochMillis) {}
+
+    private record CatalogCache(
+        Map<String, MovieProfile> source,
+        Map<String, NormalizedProfile> normalized) {}
+
+    private volatile CatalogCache catalogCache;
+
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
     private final DeepLearningPredictionService predictionService;
@@ -69,7 +91,8 @@ public class HybridRecommendationService {
     }
 
     public RecommendationResult recommend(String user, int limit) {
-        if (isBlockedUser(user)) {
+        FilterContext filterCtx = buildFilterContext();
+        if (isBlockedUser(user, filterCtx)) {
             return new RecommendationResult(
                 user,
                 List.of(),
@@ -103,7 +126,7 @@ public class HybridRecommendationService {
                 LinkedHashMap::new
             ));
         Set<String> popular = popularityMap.keySet();
-        double maxPopularity = popularityMap.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
+        double maxPopularity = popularityMap.values().stream().findFirst().orElse(0.0);
 
         Set<String> recentSet = new HashSet<>(recent);
         List<String> seedItems = recent.isEmpty() ? List.copyOf(popular) : recent;
@@ -121,11 +144,11 @@ public class HybridRecommendationService {
         Map<String, Object> state = buildState(recent, userGenres, userTags);
         String stateKey = stateKey(state);
 
-        Set<String> contentCandidates = generateColdStartCandidates(recentSet, userGenres, userTags);
+        Set<String> contentCandidates = generateColdStartCandidates(recentSet, userGenres, userTags, filterCtx);
 
         LinkedHashSet<String> eligible = new LinkedHashSet<>();
-        popular.stream().filter(item -> isEligibleCandidate(item, recentSet)).forEach(eligible::add);
-        contentCandidates.stream().filter(item -> isEligibleCandidate(item, recentSet)).forEach(eligible::add);
+        popular.stream().filter(item -> isEligibleCandidate(item, recentSet, filterCtx)).forEach(eligible::add);
+        eligible.addAll(contentCandidates);
 
         // Warm item-vector cache for all candidates + recent history in one MGET, then the scoring
         // loop and user-vector fallback aggregation are pure cache reads with no Redis round-trips.
@@ -300,7 +323,7 @@ public class HybridRecommendationService {
         return metrics;
     }
 
-    private Set<String> generateColdStartCandidates(Set<String> excludedItems, Set<String> userGenres, Set<String> userTags) {
+    private Set<String> generateColdStartCandidates(Set<String> excludedItems, Set<String> userGenres, Set<String> userTags, FilterContext filterCtx) {
         Map<String, MovieProfile> catalog = properties.getCatalog();
         if (catalog.isEmpty()) {
             return Set.of();
@@ -308,7 +331,7 @@ public class HybridRecommendationService {
 
         // Collect non-excluded candidate IDs, then batch-fetch their impression counts
         List<String> candidateIds = catalog.keySet().stream()
-            .filter(id -> isEligibleCandidate(id, excludedItems))
+            .filter(id -> isEligibleCandidate(id, excludedItems, filterCtx))
             .toList();
 
         List<String> impressionKeys = candidateIds.stream()
@@ -334,56 +357,74 @@ public class HybridRecommendationService {
             .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    private boolean isBlockedUser(String user) {
-        Filtering filtering = properties.getFiltering();
-        if (!filtering.isEnabled()) {
-            return false;
+    private Map<String, NormalizedProfile> getNormalizedCatalog() {
+        Map<String, MovieProfile> catalog = properties.getCatalog();
+        CatalogCache cache = catalogCache;
+        if (cache != null && cache.source() == catalog) {
+            return cache.normalized();
         }
-        return normalize(filtering.getBlockedUsers()).contains(normalizeValue(user));
+        Map<String, NormalizedProfile> built = new HashMap<>(catalog.size() * 2);
+        catalog.forEach((id, p) -> {
+            Set<String> allKeywords = new HashSet<>(normalize(p.getTags()));
+            allKeywords.addAll(normalize(p.getKeywords()));
+            built.put(id, new NormalizedProfile(
+                normalizeValue(p.getProductType()),
+                normalize(p.getGenres()),
+                Collections.unmodifiableSet(allKeywords),
+                normalizeValue(p.getTitle()),
+                p.getExpiresAtEpochMillis()
+            ));
+        });
+        catalogCache = new CatalogCache(catalog, Collections.unmodifiableMap(built));
+        return catalogCache.normalized();
     }
 
-    private boolean isEligibleCandidate(String itemId, Set<String> recentItems) {
+    private FilterContext buildFilterContext() {
+        Filtering f = properties.getFiltering();
+        if (!f.isEnabled()) {
+            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of());
+        }
+        return new FilterContext(
+            normalize(f.getBlockedUsers()),
+            normalize(f.getMutedProductTypes()),
+            normalize(f.getMutedGenres()),
+            normalize(f.getMutedKeywords())
+        );
+    }
+
+    private boolean isBlockedUser(String user, FilterContext filterCtx) {
+        return !filterCtx.blockedUsers().isEmpty() && filterCtx.blockedUsers().contains(normalizeValue(user));
+    }
+
+    private boolean isEligibleCandidate(String itemId, Set<String> recentItems, FilterContext filterCtx) {
         if (recentItems.contains(itemId)) {
             return false;
         }
 
-        Filtering filtering = properties.getFiltering();
-        if (!filtering.isEnabled()) {
-            return true;
-        }
-
-        MovieProfile profile = properties.getCatalog().get(itemId);
+        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
         if (profile == null) {
             return true;
         }
 
-        long expiresAt = profile.getExpiresAtEpochMillis();
-        if (expiresAt > 0 && expiresAt <= System.currentTimeMillis()) {
+        if (profile.expiresAtEpochMillis() > 0 && profile.expiresAtEpochMillis() <= System.currentTimeMillis()) {
             return false;
         }
 
-        Set<String> mutedProductTypes = normalize(filtering.getMutedProductTypes());
-        if (!mutedProductTypes.isEmpty() && mutedProductTypes.contains(normalizeValue(profile.getProductType()))) {
+        if (!filterCtx.mutedProductTypes().isEmpty() && filterCtx.mutedProductTypes().contains(profile.productType())) {
             return false;
         }
 
-        Set<String> mutedGenres = normalize(filtering.getMutedGenres());
-        if (!mutedGenres.isEmpty() && !Collections.disjoint(mutedGenres, normalize(profile.getGenres()))) {
+        if (!filterCtx.mutedGenres().isEmpty() && !Collections.disjoint(filterCtx.mutedGenres(), profile.genres())) {
             return false;
         }
 
-        Set<String> mutedKeywords = normalize(filtering.getMutedKeywords());
-        if (mutedKeywords.isEmpty()) {
+        if (filterCtx.mutedKeywords().isEmpty()) {
             return true;
         }
-        Set<String> itemKeywords = new HashSet<>(normalize(profile.getTags()));
-        itemKeywords.addAll(normalize(profile.getKeywords()));
-        if (!Collections.disjoint(mutedKeywords, itemKeywords)) {
+        if (!Collections.disjoint(filterCtx.mutedKeywords(), profile.allKeywords())) {
             return false;
         }
-
-        String title = normalizeValue(profile.getTitle());
-        return mutedKeywords.stream().noneMatch(keyword -> !keyword.isBlank() && title.contains(keyword));
+        return filterCtx.mutedKeywords().stream().noneMatch(k -> !k.isBlank() && profile.title().contains(k));
     }
 
     private ScoredCandidate scoreCandidate(
@@ -521,8 +562,7 @@ public class HybridRecommendationService {
         }
     }
 
-    // Reads the pending replay context (GET) and serializes the feedback event to JSON.
-    // Must run before the write pipeline because reads can't be issued inside executePipelined.
+    // Must run before the write pipeline: reads cannot be issued inside executePipelined.
     private String buildReplayPayload(FeedbackRequest request, Map<String, Object> event) {
         event.putIfAbsent("type", "rl_experience");
         event.putIfAbsent("schemaVersion", 1);
