@@ -44,6 +44,7 @@ class HybridRecommendationServiceTest {
     private SetOperations<String, String> setOps;
     private HashOperations<String, Object, Object> hashOps;
     private HybridRecommendationService service;
+    private RecommendationProperties properties;
 
     @BeforeEach
     void setUp() {
@@ -109,7 +110,7 @@ class HybridRecommendationServiceTest {
             return List.of();
         });
 
-        RecommendationProperties properties = new RecommendationProperties();
+        properties = new RecommendationProperties();
         properties.getCandidateGeneration().setTopNRandomizationPool(1);
         properties.getCandidateGeneration().setColdStartPoolSize(10);
         properties.getCandidateGeneration().setPopularityFetchMultiplier(3);
@@ -187,6 +188,55 @@ class HybridRecommendationServiceTest {
                 payload.contains("\"modelPredictions\"") &&
                 payload.contains("\"policy\"")
         ));
+    }
+
+    @Test
+    void recommendFiltersDuplicatesExpiredMutedAndBlockedCandidates() {
+        MovieProfile expired = movie(List.of("sci-fi"), List.of("space"), false);
+        expired.setExpiresAtEpochMillis(System.currentTimeMillis() - 1_000L);
+        MovieProfile mutedType = movie(List.of("comedy"), List.of("family"), false);
+        mutedType.setProductType("ads");
+        MovieProfile mutedKeyword = movie(List.of("drama"), List.of("spoiler"), false);
+        MovieProfile allowed = movie(List.of("sci-fi"), List.of("fresh"), true);
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("recent", movie(List.of("action"), List.of("seen"), false));
+        catalog.put("expired", expired);
+        catalog.put("muted_type", mutedType);
+        catalog.put("muted_keyword", mutedKeyword);
+        catalog.put("allowed", allowed);
+        properties.setCatalog(catalog);
+        properties.getFiltering().setBlockedUsers(List.of("blocked_user"));
+        properties.getFiltering().setMutedProductTypes(List.of("ads"));
+        properties.getFiltering().setMutedKeywords(List.of("spoiler"));
+
+        RecommendationResult blocked = service.recommend("blocked_user", 3);
+        assertTrue(blocked.recommendations().isEmpty());
+        assertEquals("blocked_user", blocked.metrics().get("filterReason"));
+
+        when(listOps.range(eq("user:u2:recent"), eq(0L), anyLong())).thenReturn(List.of("recent"));
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                new DefaultTypedTuple<>("recent", 100.0),
+                new DefaultTypedTuple<>("expired", 90.0),
+                new DefaultTypedTuple<>("muted_type", 80.0),
+                new DefaultTypedTuple<>("muted_keyword", 70.0),
+                new DefaultTypedTuple<>("allowed", 60.0),
+                new DefaultTypedTuple<>("allowed", 50.0)
+            )));
+        when(valueOps.get("uEmb:u2")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:recent", "i2vEmb:allowed" -> "1.0 0.0";
+                case "bandit:item:allowed:impressions", "bandit:item:allowed:clicks" -> "0";
+                default -> null;
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u2", 5);
+
+        assertEquals(List.of("allowed"), result.recommendations());
+        assertEquals(1, result.metrics().get("eligibleCandidateCount"));
     }
 
     @Test

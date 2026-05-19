@@ -446,6 +446,11 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 | `recsys.candidate-generation.popularity-fetch-multiplier` | `5` |
 | `recsys.candidate-generation.cold-start-pool-size` | `25` |
 | `recsys.candidate-generation.top-n-randomization-pool` | `5` |
+| `recsys.filtering.enabled` | `true` |
+| `recsys.filtering.blocked-users` | *(empty)* |
+| `recsys.filtering.muted-product-types` | *(empty)* |
+| `recsys.filtering.muted-genres` | *(empty)* |
+| `recsys.filtering.muted-keywords` | *(empty)* |
 | `recsys.bandit.algorithm` | `ucb` |
 | `recsys.bandit.exploration-alpha` | `0.75` |
 | `recsys.bandit.max-exploration-bonus` | `0.25` |

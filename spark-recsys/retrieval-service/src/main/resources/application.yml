@@ -28,6 +28,12 @@ recsys:
     popularity-fetch-multiplier: ${RECSYS_POPULARITY_FETCH_MULTIPLIER:5}
     cold-start-pool-size: ${RECSYS_COLD_START_POOL_SIZE:25}
     top-n-randomization-pool: ${RECSYS_RANDOMIZATION_POOL:5}
+  filtering:
+    enabled: ${RECSYS_FILTERING_ENABLED:true}
+    blocked-users: ${RECSYS_BLOCKED_USERS:}
+    muted-product-types: ${RECSYS_MUTED_PRODUCT_TYPES:}
+    muted-genres: ${RECSYS_MUTED_GENRES:}
+    muted-keywords: ${RECSYS_MUTED_KEYWORDS:}
   bandit:
     algorithm: ${RECSYS_BANDIT_ALGORITHM:ucb}
     exploration-alpha: ${RECSYS_EXPLORATION_ALPHA:0.75}
