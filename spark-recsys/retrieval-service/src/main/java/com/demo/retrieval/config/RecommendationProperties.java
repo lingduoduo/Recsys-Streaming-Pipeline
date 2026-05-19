@@ -12,6 +12,7 @@ public class RecommendationProperties {
     private Cache cache = new Cache();
     private Embeddings embeddings = new Embeddings();
     private CandidateGeneration candidateGeneration = new CandidateGeneration();
+    private Filtering filtering = new Filtering();
     private Bandit bandit = new Bandit();
     private ReplayBuffer replayBuffer = new ReplayBuffer();
     private RewardModel rewardModel = new RewardModel();
@@ -31,6 +32,14 @@ public class RecommendationProperties {
 
     public void setCandidateGeneration(CandidateGeneration candidateGeneration) {
         this.candidateGeneration = candidateGeneration;
+    }
+
+    public Filtering getFiltering() {
+        return filtering;
+    }
+
+    public void setFiltering(Filtering filtering) {
+        this.filtering = filtering;
     }
 
     public Bandit getBandit() {
@@ -137,6 +146,54 @@ public class RecommendationProperties {
 
         public void setTopNRandomizationPool(int topNRandomizationPool) {
             this.topNRandomizationPool = topNRandomizationPool;
+        }
+    }
+
+    public static class Filtering {
+        private boolean enabled = true;
+        private List<String> blockedUsers = new ArrayList<>();
+        private List<String> mutedProductTypes = new ArrayList<>();
+        private List<String> mutedGenres = new ArrayList<>();
+        private List<String> mutedKeywords = new ArrayList<>();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getBlockedUsers() {
+            return blockedUsers;
+        }
+
+        public void setBlockedUsers(List<String> blockedUsers) {
+            this.blockedUsers = blockedUsers;
+        }
+
+        public List<String> getMutedProductTypes() {
+            return mutedProductTypes;
+        }
+
+        public void setMutedProductTypes(List<String> mutedProductTypes) {
+            this.mutedProductTypes = mutedProductTypes;
+        }
+
+        public List<String> getMutedGenres() {
+            return mutedGenres;
+        }
+
+        public void setMutedGenres(List<String> mutedGenres) {
+            this.mutedGenres = mutedGenres;
+        }
+
+        public List<String> getMutedKeywords() {
+            return mutedKeywords;
+        }
+
+        public void setMutedKeywords(List<String> mutedKeywords) {
+            this.mutedKeywords = mutedKeywords;
         }
     }
 
@@ -331,9 +388,12 @@ public class RecommendationProperties {
 
     public static class MovieProfile {
         private String title;
+        private String productType;
         private List<String> genres = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
+        private List<String> keywords = new ArrayList<>();
         private boolean newRelease;
+        private long expiresAtEpochMillis;
 
         public String getTitle() {
             return title;
@@ -341,6 +401,14 @@ public class RecommendationProperties {
 
         public void setTitle(String title) {
             this.title = title;
+        }
+
+        public String getProductType() {
+            return productType;
+        }
+
+        public void setProductType(String productType) {
+            this.productType = productType;
         }
 
         public List<String> getGenres() {
@@ -359,12 +427,28 @@ public class RecommendationProperties {
             this.tags = tags;
         }
 
+        public List<String> getKeywords() {
+            return keywords;
+        }
+
+        public void setKeywords(List<String> keywords) {
+            this.keywords = keywords;
+        }
+
         public boolean isNewRelease() {
             return newRelease;
         }
 
         public void setNewRelease(boolean newRelease) {
             this.newRelease = newRelease;
+        }
+
+        public long getExpiresAtEpochMillis() {
+            return expiresAtEpochMillis;
+        }
+
+        public void setExpiresAtEpochMillis(long expiresAtEpochMillis) {
+            this.expiresAtEpochMillis = expiresAtEpochMillis;
         }
     }
 }
