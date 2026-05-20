@@ -126,7 +126,7 @@ public class HybridRecommendationService {
                 LinkedHashMap::new
             ));
         Set<String> popular = popularityMap.keySet();
-        double maxPopularity = popularityMap.values().stream().findFirst().orElse(0.0);
+        double maxPopularity = popularityMap.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
 
         Set<String> recentSet = new HashSet<>(recent);
         List<String> seedItems = recent.isEmpty() ? List.copyOf(popular) : recent;
@@ -363,7 +363,7 @@ public class HybridRecommendationService {
         if (cache != null && cache.source() == catalog) {
             return cache.normalized();
         }
-        Map<String, NormalizedProfile> built = new HashMap<>(catalog.size() * 2);
+        Map<String, NormalizedProfile> built = new HashMap<>(catalog.size() * 4 / 3 + 1);
         catalog.forEach((id, p) -> {
             Set<String> allKeywords = new HashSet<>(normalize(p.getTags()));
             allKeywords.addAll(normalize(p.getKeywords()));
@@ -375,8 +375,15 @@ public class HybridRecommendationService {
                 p.getExpiresAtEpochMillis()
             ));
         });
-        catalogCache = new CatalogCache(catalog, Collections.unmodifiableMap(built));
-        return catalogCache.normalized();
+        synchronized (this) {
+            CatalogCache c2 = catalogCache;
+            if (c2 != null && c2.source() == catalog) {
+                return c2.normalized();
+            }
+            CatalogCache newCache = new CatalogCache(catalog, Collections.unmodifiableMap(built));
+            catalogCache = newCache;
+            return newCache.normalized();
+        }
     }
 
     private FilterContext buildFilterContext() {
