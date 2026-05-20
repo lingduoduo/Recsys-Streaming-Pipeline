@@ -163,11 +163,7 @@ public class HybridRecommendationService {
         Map<String, Double> qValues = isTabularRl()
             ? batchFetchQValues(stateKey, eligibleList)
             : Map.of();
-        Map<String, Double> dlScores = eligibleList.stream()
-            .collect(Collectors.toMap(
-                item -> item,
-                item -> predictionService.predict(user, item).map(p -> p.score()).orElse(0.0)
-            ));
+        Map<String, Double> dlScores = predictionService.predictBatch(user, eligibleList);
 
         // Warm reward-stats cache for all candidates in one pipeline flush so every
         // subsequent onlineLearningService.score() call is a pure in-memory read.
