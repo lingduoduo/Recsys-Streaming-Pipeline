@@ -38,4 +38,10 @@ public record KafkaConsumerConfig(
                 fetchTimeoutMs, maxPartitionFetchBytes, skipToLatest, partitions);
         }
     }
+
+    public KafkaConsumerConfig withPartitions(List<Integer> newPartitions) {
+        return new KafkaConsumerConfig(
+            baseConfig, groupId, autoOffsetReset, enableAutoCommit,
+            fetchTimeoutMs, maxPartitionFetchBytes, skipToLatest, newPartitions);
+    }
 }
