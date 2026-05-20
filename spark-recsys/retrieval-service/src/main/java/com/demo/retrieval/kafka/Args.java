@@ -13,7 +13,11 @@ public record Args(
         String autoOffsetReset,
         long fetchTimeoutMs,
         boolean skipToLatest,
-        boolean serving) {
+        boolean serving,
+        int numPartitions,
+        int kafkaNumThreads,
+        long lagMonitorIntervalSecs,
+        int kafkaBatchSize) {
 
     public String getSaslPassword()                  { return saslPassword; }
     public String getProducerSaslPassword()          { return producerSaslPassword; }
@@ -28,4 +32,8 @@ public record Args(
     public long getFetchTimeoutMs()                  { return fetchTimeoutMs; }
     public boolean isSkipToLatest()                  { return skipToLatest; }
     public boolean isServing()                       { return serving; }
+    public int getNumPartitions()                    { return numPartitions; }
+    public int getKafkaNumThreads()                  { return kafkaNumThreads; }
+    public long getLagMonitorIntervalSecs()          { return lagMonitorIntervalSecs; }
+    public int getKafkaBatchSize()                   { return kafkaBatchSize; }
 }
