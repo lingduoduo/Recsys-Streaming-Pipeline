@@ -2,7 +2,7 @@ package com.demo.retrieval.kafka;
 
 import java.util.List;
 
-public class KafkaConsumer {
+public class KafkaConsumer implements MessageSource {
 
     @SuppressWarnings("unused")
     private final KafkaConsumerConfig config;

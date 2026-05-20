@@ -2,7 +2,18 @@ package com.demo.retrieval.kafka;
 
 public class MovieLensDeserializer {
 
+    // Parses a CSV line from ratings.csv: userId,movieId,rating,timestamp
     public static MovieLensEvent deserialize(byte[] bytes) {
-        throw new UnsupportedOperationException("not implemented");
+        String line = new String(bytes).strip();
+        String[] parts = line.split(",", -1);
+        if (parts.length != 4) {
+            throw new IllegalArgumentException("Unexpected CSV format: " + line);
+        }
+        return new RatingEvent(
+            parts[0].strip(),
+            parts[1].strip(),
+            Double.parseDouble(parts[2].strip()),
+            Long.parseLong(parts[3].strip())
+        );
     }
 }

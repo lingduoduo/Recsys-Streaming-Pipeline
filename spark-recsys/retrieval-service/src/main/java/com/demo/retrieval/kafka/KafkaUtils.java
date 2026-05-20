@@ -1,5 +1,6 @@
 package com.demo.retrieval.kafka;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -60,8 +61,12 @@ public final class KafkaUtils {
             .build();
     }
 
-    public static KafkaConsumer createKafkaConsumer(KafkaConsumerConfig config) {
+    public static MessageSource createKafkaConsumer(KafkaConsumerConfig config) {
         return new KafkaConsumer(config);
+    }
+
+    public static MessageSource localMessageSource(Path path, int batchSize) {
+        return new LocalFileMessageSource(path, batchSize);
     }
 
     public static <T> List<T> deserializeKafkaMessages(

@@ -1,5 +1,6 @@
 package com.demo.retrieval.kafka;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -71,8 +72,21 @@ public class MovieLensEventProcessor {
         }
     }
 
+    public void startLocalProcessing(Path dataFile, KafkaProducerConfig producerConfig, Args args) {
+        KafkaProducer producer = new KafkaProducer(producerConfig);
+        producer.start();
+        MessageSource source = KafkaUtils.localMessageSource(dataFile, args.getKafkaBatchSize());
+        executorService.submit(() -> {
+            try {
+                processMovieLensEvents(source, producer, args.getKafkaBatchSize());
+            } catch (Exception e) {
+                throw new RuntimeException("Local file processing failed: " + dataFile, e);
+            }
+        });
+    }
+
     private void processMovieLensEvents(
-            KafkaConsumer consumer,
+            MessageSource source,
             KafkaProducer producer,
             int batchSize) throws Exception {
         List<KafkaMessage> buffer = new ArrayList<>();
@@ -80,13 +94,13 @@ public class MovieLensEventProcessor {
 
         while (true) {
             try {
-                buffer.addAll(consumer.poll(100));
+                buffer.addAll(source.poll(100));
 
                 if (buffer.size() >= batchSize) {
                     List<KafkaMessage> batch = new ArrayList<>(buffer);
                     buffer.clear();
                     processBatch(batch, ++batchNum, producer);
-                    consumer.commitOffsets();
+                    source.commitOffsets();
                 }
             } catch (Exception e) {
                 Metrics.KAFKA_POLL_ERRORS.inc();
@@ -147,12 +161,12 @@ public class MovieLensEventProcessor {
     }
 
     private void startPartitionLagMonitor(
-            KafkaConsumer consumer,
+            MessageSource source,
             String topic,
             long intervalSecs) {
         scheduler.scheduleAtFixedRate(() -> {
             try {
-                for (PartitionLag lag : consumer.getPartitionLags()) {
+                for (PartitionLag lag : source.getPartitionLags()) {
                     Metrics.KAFKA_PARTITION_LAG
                             .labels(topic, String.valueOf(lag.getPartitionId()))
                             .set(lag.getLag());
