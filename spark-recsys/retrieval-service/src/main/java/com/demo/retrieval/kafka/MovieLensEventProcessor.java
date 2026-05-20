@@ -58,7 +58,7 @@ public class MovieLensEventProcessor {
 
             executorService.submit(() -> {
                 try {
-                    KafkaConsumer consumer = KafkaUtils.createKafkaConsumer(threadConfig);
+                    MessageSource consumer = KafkaUtils.createKafkaConsumer(threadConfig);
                     startPartitionLagMonitor(
                             consumer,
                             threadConfig.baseConfig().topic(),
@@ -94,13 +94,20 @@ public class MovieLensEventProcessor {
 
         while (true) {
             try {
-                buffer.addAll(source.poll(100));
+                List<KafkaMessage> polled = source.poll(100);
+                buffer.addAll(polled);
 
-                if (buffer.size() >= batchSize) {
+                boolean flush = buffer.size() >= batchSize
+                        || (source.isFinite() && polled.isEmpty() && !buffer.isEmpty());
+                if (flush) {
                     List<KafkaMessage> batch = new ArrayList<>(buffer);
                     buffer.clear();
                     processBatch(batch, ++batchNum, producer);
                     source.commitOffsets();
+                }
+
+                if (source.isFinite() && polled.isEmpty() && buffer.isEmpty()) {
+                    break;
                 }
             } catch (Exception e) {
                 Metrics.KAFKA_POLL_ERRORS.inc();
@@ -125,7 +132,12 @@ public class MovieLensEventProcessor {
         }
 
         for (RecSysEvent outEvent : outputEvents) {
-            producer.send(outEvent.toByteArray());
+            if (outEvent instanceof RecSysEvent.InteractionCreated) {
+                producer.send(KafkaTopics.USER_EVENTS, outEvent.toByteArray());
+            } else if (outEvent instanceof RecSysEvent.RatingCreated) {
+                producer.send(KafkaTopics.BEHAVIOR_LOGS, outEvent.toByteArray());
+            }
+            // UserUpdated and MovieUpdated: no consuming Spark job currently
         }
 
         int batchCount = BATCH_LOG_COUNTER.incrementAndGet();
