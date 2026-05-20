@@ -16,7 +16,10 @@ import java.io.InputStream;
 import java.nio.LongBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -41,7 +44,10 @@ public class DeepLearningPredictionService {
     public DeepLearningPredictionService(ObjectMapper objectMapper) {
         try {
             this.environment = OrtEnvironment.getEnvironment();
-            this.session = environment.createSession(loadModelBytes());
+            try (OrtSession.SessionOptions opts = new OrtSession.SessionOptions()) {
+                opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+                this.session = environment.createSession(loadModelBytes(), opts);
+            }
             LookupTables lookups = readLookups(objectMapper);
             this.userLookup = lookups.userLookup();
             this.itemLookup = lookups.itemLookup();
@@ -85,6 +91,38 @@ public class DeepLearningPredictionService {
         session.close();
     }
 
+    public Map<String, Double> predictBatch(String user, List<String> items) {
+        Long userId = userLookup.get(user);
+        if (userId == null || items.isEmpty()) {
+            return Map.of();
+        }
+        List<String> known = items.stream().filter(itemLookup::containsKey).toList();
+        if (known.isEmpty()) {
+            return Map.of();
+        }
+        int n = known.size();
+        long[] userBatch = new long[n];
+        long[] itemBatch = new long[n];
+        Arrays.fill(userBatch, userId);
+        for (int i = 0; i < n; i++) {
+            itemBatch[i] = itemLookup.get(known.get(i));
+        }
+        try (
+            OnnxTensor userTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(userBatch), new long[]{n});
+            OnnxTensor itemTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(itemBatch), new long[]{n});
+            OrtSession.Result result = session.run(Map.of(USER_INPUT, userTensor, ITEM_INPUT, itemTensor))
+        ) {
+            double[] scores = readBatchScores(result.get(0), n);
+            Map<String, Double> out = new HashMap<>(n * 4 / 3 + 1);
+            for (int i = 0; i < n; i++) {
+                out.put(known.get(i), scores[i]);
+            }
+            return Map.copyOf(out);
+        } catch (OrtException e) {
+            throw new IllegalStateException("Failed to run batch deep learning prediction", e);
+        }
+    }
+
     private ModelPrediction predict(String user, String item, long userId, long itemId) {
         try (
             OnnxTensor userTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(new long[]{userId}), new long[]{1});
@@ -113,6 +151,29 @@ public class DeepLearningPredictionService {
             return scores[0];
         }
         throw new IllegalStateException("Unsupported prediction output shape: " + raw.getClass().getName());
+    }
+
+    private double[] readBatchScores(OnnxValue value, int n) throws OrtException {
+        Object raw = value.getValue();
+        if (raw instanceof float[][] scores) {
+            double[] out = new double[n];
+            for (int i = 0; i < n; i++) out[i] = scores[i][0];
+            return out;
+        }
+        if (raw instanceof float[] scores) {
+            double[] out = new double[n];
+            for (int i = 0; i < n; i++) out[i] = scores[i];
+            return out;
+        }
+        if (raw instanceof double[][] scores) {
+            double[] out = new double[n];
+            for (int i = 0; i < n; i++) out[i] = scores[i][0];
+            return out;
+        }
+        if (raw instanceof double[] scores) {
+            return scores;
+        }
+        throw new IllegalStateException("Unsupported batch prediction output shape: " + raw.getClass().getName());
     }
 
     private LookupTables readLookups(ObjectMapper objectMapper) throws IOException {
