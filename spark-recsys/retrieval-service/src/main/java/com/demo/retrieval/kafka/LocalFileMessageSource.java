@@ -55,6 +55,9 @@ public class LocalFileMessageSource implements MessageSource {
         return List.of();
     }
 
+    @Override
+    public boolean isFinite() { return true; }
+
     public boolean isDone() {
         return done;
     }
