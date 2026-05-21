@@ -3,7 +3,6 @@ package com.demo.retrieval.kafka;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 // Shared factory methods for Kafka config objects — eliminates repeated builder chains for
 // SSL, base KafkaConfig, consumer, and producer configs across startup paths.
@@ -73,6 +72,6 @@ public final class KafkaUtils {
             List<KafkaMessage> messages, Function<byte[], T> deserializer) {
         return messages.stream()
             .map(m -> deserializer.apply(m.payload()))
-            .collect(Collectors.toList());
+            .toList();
     }
 }

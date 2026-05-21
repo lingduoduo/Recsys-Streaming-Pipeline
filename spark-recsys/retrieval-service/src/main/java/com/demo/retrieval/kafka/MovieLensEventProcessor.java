@@ -100,8 +100,8 @@ public class MovieLensEventProcessor {
                 boolean flush = buffer.size() >= batchSize
                         || (source.isFinite() && polled.isEmpty() && !buffer.isEmpty());
                 if (flush) {
-                    List<KafkaMessage> batch = new ArrayList<>(buffer);
-                    buffer.clear();
+                    List<KafkaMessage> batch = buffer;
+                    buffer = new ArrayList<>(batchSize);
                     processBatch(batch, ++batchNum, producer);
                     source.commitOffsets();
                 }

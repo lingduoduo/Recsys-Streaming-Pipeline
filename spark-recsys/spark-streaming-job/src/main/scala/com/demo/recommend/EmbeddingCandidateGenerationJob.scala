@@ -4,6 +4,7 @@ import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import redis.clients.jedis.Jedis
 
+import scala.collection.mutable
 import scala.util.Try
 
 /**
@@ -69,8 +70,8 @@ object EmbeddingCandidateGenerationJob {
       .toMap
     val broadcast = spark.sparkContext.broadcast(itemVecMap)
 
-    // Step 1 + 3: for each user partition, score every item via cosine similarity,
-    // sort descending, take topK — all partition-local, zero additional shuffles.
+    // Step 1 + 3: for each user partition, score every item via cosine similarity and collect
+    // the top-K results using a min-heap — O(n log k) time, allocates only k tuples instead of n.
     userEmbeddings.mapPartitions { rows =>
       val items = broadcast.value
       rows.flatMap { row =>
@@ -78,10 +79,13 @@ object EmbeddingCandidateGenerationJob {
         val uVec   = row.getAs[Seq[Double]]("vector").toArray
         if (uVec.isEmpty || items.isEmpty) None
         else {
-          val topItems = items.toSeq
-            .map { case (itemId, iVec) => (itemId, cosine(uVec, iVec)) }
-            .sortBy(-_._2)
-            .take(topK)
+          val heap = mutable.PriorityQueue.empty[(String, Double)](Ordering.by(_._2).reverse)
+          items.foreach { case (itemId, iVec) =>
+            val score = cosine(uVec, iVec)
+            if (heap.size < topK) heap.enqueue((itemId, score))
+            else if (score > heap.head._2) { heap.dequeue(); heap.enqueue((itemId, score)) }
+          }
+          val topItems = heap.toSeq.sortBy(-_._2)
           Some((userId, topItems.map(_._1), topItems.map(_._2)))
         }
       }
