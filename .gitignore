@@ -16,3 +16,6 @@ derby.log
 spark-recsys/sampledata/embedding.txt
 spark-recsys/sampledata/user_embedding.txt
 spark-recsys/sampledata/als/
+spark-recsys/sampledata/movielens_*.onnx
+spark-recsys/sampledata/movielens_*.onnx.data
+spark-recsys/__pycache__/
