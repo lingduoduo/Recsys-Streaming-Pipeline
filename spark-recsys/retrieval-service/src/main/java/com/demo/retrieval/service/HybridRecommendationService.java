@@ -67,6 +67,17 @@ public class HybridRecommendationService {
         Map<String, MovieProfile> source,
         Map<String, NormalizedProfile> normalized) {}
 
+    private record MovieCandidate(
+        String movieId,
+        double popularityScore,
+        double contentScore,
+        boolean coldStartSource) {}
+
+    private record CandidateGenerationResult(
+        List<MovieCandidate> retrievedCandidates,
+        List<MovieCandidate> filteredCandidates,
+        List<MovieCandidate> selectedCandidates) {}
+
     private volatile CatalogCache catalogCache;
 
     private final StringRedisTemplate redis;
@@ -153,21 +164,26 @@ public class HybridRecommendationService {
         Map<String, Object> state = buildState(recent, userGenres, userTags);
         String stateKey = stateKey(state);
 
-        Set<String> contentCandidates = generateColdStartCandidates(historySet, userGenres, userTags, filterCtx);
-
-        LinkedHashSet<String> eligible = new LinkedHashSet<>();
-        popular.stream().filter(item -> isEligibleCandidate(item, historySet, filterCtx)).forEach(eligible::add);
-        eligible.addAll(contentCandidates);
+        CandidateGenerationResult candidateGeneration = generateCandidates(
+            popularityMap,
+            historySet,
+            userGenres,
+            userTags,
+            filterCtx,
+            limit
+        );
+        List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
+            .map(MovieCandidate::movieId)
+            .toList();
 
         // Warm item-vector cache for all candidates + recent history in one MGET, then the scoring
         // loop and user-vector fallback aggregation are pure cache reads with no Redis round-trips.
-        batchWarmItemVectors(new ArrayList<>(eligible), recent);
+        batchWarmItemVectors(eligibleList, recent);
 
         double[] userVector = resolveUserVector(user, recent);
         long totalImpressions = resolveLongMetric("recommendations_served");
 
         // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
-        List<String> eligibleList = new ArrayList<>(eligible);
         Map<String, long[]> counters = batchFetchCounters(eligibleList);
         Map<String, Double> qValues = isTabularRl()
             ? batchFetchQValues(stateKey, eligibleList)
@@ -243,7 +259,9 @@ public class HybridRecommendationService {
 
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("algorithm", currentAlgorithm());
-        metrics.put("eligibleCandidateCount", eligible.size());
+        metrics.put("retrievedCandidateCount", candidateGeneration.retrievedCandidates().size());
+        metrics.put("filteredCandidateCount", candidateGeneration.filteredCandidates().size());
+        metrics.put("eligibleCandidateCount", eligibleList.size());
         metrics.put("randomizationPool", Math.min(properties.getCandidateGeneration().getTopNRandomizationPool(), scored.size()));
         metrics.put("pseudoRegret", round(pseudoRegret));
         metrics.put("avgEstimatedReward", round(avgEstimatedReward));
@@ -337,38 +355,94 @@ public class HybridRecommendationService {
         return current;
     }
 
-    private Set<String> generateColdStartCandidates(Set<String> excludedItems, Set<String> userGenres, Set<String> userTags, FilterContext filterCtx) {
+    private CandidateGenerationResult generateCandidates(
+        Map<String, Double> popularityMap,
+        Set<String> excludedItems,
+        Set<String> userGenres,
+        Set<String> userTags,
+        FilterContext filterCtx,
+        int limit
+    ) {
+        List<MovieCandidate> retrieved = new ArrayList<>(popularityMap.size() + properties.getCandidateGeneration().getColdStartPoolSize());
+        popularityMap.forEach((item, score) ->
+            retrieved.add(new MovieCandidate(item, score, contentScoreForItem(item, userGenres, userTags), false)));
+        retrieved.addAll(generateColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit));
+
+        List<MovieCandidate> filtered = retrieved.stream()
+            .filter(candidate -> isEligibleCandidate(candidate.movieId(), excludedItems, filterCtx))
+            .toList();
+
+        LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
+        for (MovieCandidate candidate : filtered) {
+            selected.merge(candidate.movieId(), candidate, this::mergeCandidate);
+        }
+        return new CandidateGenerationResult(retrieved, filtered, List.copyOf(selected.values()));
+    }
+
+    private MovieCandidate mergeCandidate(MovieCandidate left, MovieCandidate right) {
+        return new MovieCandidate(
+            left.movieId(),
+            Math.max(left.popularityScore(), right.popularityScore()),
+            Math.max(left.contentScore(), right.contentScore()),
+            left.coldStartSource() || right.coldStartSource()
+        );
+    }
+
+    private List<MovieCandidate> generateColdStartCandidates(
+        Set<String> excludedItems,
+        Set<String> userGenres,
+        Set<String> userTags,
+        FilterContext filterCtx,
+        int limit
+    ) {
         Map<String, MovieProfile> catalog = properties.getCatalog();
         if (catalog.isEmpty()) {
-            return Set.of();
+            return List.of();
         }
 
-        // Collect non-excluded candidate IDs, then batch-fetch their impression counts
-        List<String> candidateIds = catalog.keySet().stream()
-            .filter(id -> isEligibleCandidate(id, excludedItems, filterCtx))
+        int poolSize = Math.max(1, properties.getCandidateGeneration().getColdStartPoolSize());
+        int probeSize = Math.max(poolSize, Math.max(limit, poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()));
+        List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
+            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx))
+            .map(entry -> new MovieCandidate(
+                entry.getKey(),
+                0.0,
+                contentScore(entry.getValue(), userGenres, userTags),
+                true
+            ))
+            .sorted(
+                Comparator.comparing((MovieCandidate candidate) -> isNewRelease(candidate.movieId())).reversed()
+                    .thenComparing(Comparator.comparingDouble(MovieCandidate::contentScore).reversed())
+            )
+            .limit(probeSize)
             .toList();
 
-        List<String> impressionKeys = candidateIds.stream()
-            .map(id -> "bandit:item:" + id + ":impressions")
+        List<String> impressionKeys = probeCandidates.stream()
+            .map(candidate -> "bandit:item:" + candidate.movieId() + ":impressions")
             .toList();
         List<String> impressionValues = Optional.ofNullable(redis.opsForValue().multiGet(impressionKeys))
-            .orElseGet(() -> Collections.nCopies(candidateIds.size(), null));
+            .orElseGet(() -> Collections.nCopies(probeCandidates.size(), null));
 
         Map<String, Long> impressionMap = new LinkedHashMap<>();
-        for (int i = 0; i < candidateIds.size(); i++) {
-            impressionMap.put(candidateIds.get(i), readLong(impressionValues.get(i)));
+        for (int i = 0; i < probeCandidates.size(); i++) {
+            impressionMap.put(probeCandidates.get(i).movieId(), readLong(impressionValues.get(i)));
         }
 
         int threshold = properties.getBandit().getColdStartExposureThreshold();
-        return candidateIds.stream()
-            .filter(id -> {
-                MovieProfile p = catalog.get(id);
-                return p.isNewRelease() || impressionMap.getOrDefault(id, 0L) < threshold;
-            })
-            .sorted(Comparator.comparingDouble((String id) ->
-                contentScore(catalog.get(id), userGenres, userTags)).reversed())
-            .limit(properties.getCandidateGeneration().getColdStartPoolSize())
-            .collect(Collectors.toCollection(LinkedHashSet::new));
+        return probeCandidates.stream()
+            .filter(candidate -> isNewRelease(candidate.movieId()) || impressionMap.getOrDefault(candidate.movieId(), 0L) < threshold)
+            .limit(poolSize)
+            .toList();
+    }
+
+    private boolean isNewRelease(String itemId) {
+        MovieProfile profile = properties.getCatalog().get(itemId);
+        return profile != null && profile.isNewRelease();
+    }
+
+    private double contentScoreForItem(String itemId, Set<String> userGenres, Set<String> userTags) {
+        MovieProfile profile = properties.getCatalog().get(itemId);
+        return profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
     }
 
     private Map<String, NormalizedProfile> getNormalizedCatalog() {

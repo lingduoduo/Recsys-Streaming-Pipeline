@@ -282,6 +282,46 @@ class HybridRecommendationServiceTest {
     }
 
     @Test
+    void coldStartGenerationFetchesImpressionsOnlyForBoundedProbeSet() {
+        properties.getCandidateGeneration().setColdStartPoolSize(2);
+        properties.getCandidateGeneration().setPopularityFetchMultiplier(3);
+
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        for (int i = 0; i < 20; i++) {
+            catalog.put("item_" + i, movie(List.of("sci-fi"), List.of("space"), false));
+        }
+        properties.setCatalog(catalog);
+
+        when(listOps.range(eq("user:u4:recent"), eq(0L), anyLong())).thenReturn(List.of());
+        when(listOps.range(eq("user:u4:rated"), eq(0L), anyLong())).thenReturn(List.of());
+        when(hashOps.entries("user:u4:features")).thenReturn(Map.of("favoriteGenres", "sci-fi"));
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(Set.of());
+        when(valueOps.get("uEmb:u4")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> {
+                if (key.startsWith("i2vEmb:")) {
+                    return "1.0 0.0";
+                }
+                return "0";
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u4", 2);
+
+        assertEquals(2, result.recommendations().size());
+        ArgumentCaptor<List<String>> keysCaptor = ArgumentCaptor.forClass(List.class);
+        verify(valueOps, atLeastOnce()).multiGet(keysCaptor.capture());
+        List<List<String>> coldStartImpressionFetches = keysCaptor.getAllValues().stream()
+            .filter(keys -> keys.stream().allMatch(key ->
+                key.startsWith("bandit:item:") && key.endsWith(":impressions")))
+            .toList();
+        assertEquals(1, coldStartImpressionFetches.size());
+        assertEquals(6, coldStartImpressionFetches.get(0).size());
+    }
+
+    @Test
     void feedbackAggregatesBusinessMetrics() {
         when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
             {"user":"u1","context":{"recent":["item1"]},"candidates":["item4","item2"],"action":"item4"}
