@@ -5,6 +5,10 @@ public interface QueryHydrator<T> {
 
     T update(T query, T hydrated);
 
+    default boolean enable(T query) {
+        return true;
+    }
+
     default String name() {
         return getClass().getName();
     }
