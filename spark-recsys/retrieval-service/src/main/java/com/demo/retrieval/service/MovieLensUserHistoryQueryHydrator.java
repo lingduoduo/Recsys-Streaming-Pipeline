@@ -15,8 +15,10 @@ public class MovieLensUserHistoryQueryHydrator implements QueryHydrator<ScoredMo
         String userId = query.userId();
         return new ScoredMoviesQuery(
             userId,
+            query.userFeatures(),
             client.getWatchedMovies(userId),
-            client.getRatedMovies(userId)
+            client.getRatedMovies(userId),
+            query.candidateMovieIds()
         );
     }
 
@@ -24,8 +26,10 @@ public class MovieLensUserHistoryQueryHydrator implements QueryHydrator<ScoredMo
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
+            query.userFeatures(),
             hydrated.watchedMovieIds(),
-            hydrated.ratedMovieIds()
+            hydrated.ratedMovieIds(),
+            query.candidateMovieIds()
         );
     }
 }

@@ -74,7 +74,7 @@ public class HybridRecommendationService {
     private final DeepLearningPredictionService predictionService;
     private final OnlineLearningService onlineLearningService;
     private final FeatureCache featureCache;
-    private final QueryHydrator<ScoredMoviesQuery> queryHydrator;
+    private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(
@@ -83,14 +83,14 @@ public class HybridRecommendationService {
         DeepLearningPredictionService predictionService,
         OnlineLearningService onlineLearningService,
         FeatureCache featureCache,
-        QueryHydrator<ScoredMoviesQuery> queryHydrator
+        List<QueryHydrator<ScoredMoviesQuery>> queryHydrators
     ) {
         this.redis = redis;
         this.properties = properties;
         this.predictionService = predictionService;
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
-        this.queryHydrator = queryHydrator;
+        this.queryHydrators = List.copyOf(queryHydrators);
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -109,7 +109,7 @@ public class HybridRecommendationService {
         ScoredMoviesQuery hydratedQuery;
         Set<ZSetOperations.TypedTuple<String>> popularWithScores;
         try {
-            hydratedQuery = queryHydrator.update(query, queryHydrator.hydrate(query));
+            hydratedQuery = hydrateQuery(query);
             int fetchSize = Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit);
             popularWithScores = Optional.ofNullable(
                 redis.opsForZSet().reverseRangeWithScores(GLOBAL_POPULARITY_KEY, 0, fetchSize - 1L)
@@ -120,6 +120,7 @@ public class HybridRecommendationService {
         }
         List<String> recent = hydratedQuery.watchedMovieIds();
         List<String> rated = hydratedQuery.ratedMovieIds();
+        MovieLensUserFeatures userFeatures = hydratedQuery.userFeatures();
 
         // Build popularity map from a single ZREVRANGE WITHSCORES call (eliminates per-item ZSCORE N+1)
         Map<String, Double> popularityMap = popularWithScores.stream()
@@ -135,13 +136,15 @@ public class HybridRecommendationService {
 
         Set<String> historySet = new HashSet<>(recent);
         historySet.addAll(rated);
+        historySet.addAll(userFeatures.recentlyRatedMovieIds());
         List<String> seedItems = recent.isEmpty() ? (rated.isEmpty() ? List.copyOf(popular) : rated) : recent;
 
         Set<String> userGenres = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
             .flatMap(p -> normalize(p.getGenres()).stream())
-            .collect(Collectors.toSet());
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        userGenres.addAll(normalize(userFeatures.favoriteGenres()));
         Set<String> userTags = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
@@ -323,6 +326,15 @@ public class HybridRecommendationService {
         metrics.put("allAlgorithms", allAlgorithms);
         metrics.put("global", buildAggregateMetricsFromHash(METRICS_HASH_KEY, "all"));
         return metrics;
+    }
+
+    private ScoredMoviesQuery hydrateQuery(ScoredMoviesQuery query) {
+        ScoredMoviesQuery current = query;
+        for (QueryHydrator<ScoredMoviesQuery> hydrator : queryHydrators) {
+            ScoredMoviesQuery hydrated = hydrator.hydrate(current);
+            current = hydrator.update(current, hydrated);
+        }
+        return current;
     }
 
     private Set<String> generateColdStartCandidates(Set<String> excludedItems, Set<String> userGenres, Set<String> userTags, FilterContext filterCtx) {
