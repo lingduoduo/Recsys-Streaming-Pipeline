@@ -129,7 +129,7 @@ class HybridRecommendationServiceTest {
         DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
         when(predictionService.predict(anyString(), anyString())).thenReturn(Optional.empty());
         service = new HybridRecommendationService(
-            redis, properties, predictionService, onlineLearningService, featureCache, historyHydrator());
+            redis, properties, predictionService, onlineLearningService, featureCache, hydrators());
     }
 
     @Test
@@ -243,6 +243,45 @@ class HybridRecommendationServiceTest {
     }
 
     @Test
+    void recommendUsesHydratedUserFeaturesForColdStartAndExclusion() {
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("recently_rated", movie(List.of("sci-fi"), List.of("space"), false));
+        catalog.put("sci_fi_candidate", movie(List.of("sci-fi"), List.of("future"), true));
+        catalog.put("drama_candidate", movie(List.of("drama"), List.of("slow"), true));
+        properties.setCatalog(catalog);
+
+        when(listOps.range(eq("user:u3:recent"), eq(0L), anyLong())).thenReturn(List.of());
+        when(listOps.range(eq("user:u3:rated"), eq(0L), anyLong())).thenReturn(List.of());
+        when(hashOps.entries("user:u3:features")).thenReturn(Map.of(
+            "favoriteGenres", "sci-fi, adventure",
+            "avgRating", "4.25",
+            "ratingCount", "12",
+            "recentlyRatedMovieIds", "recently_rated"
+        ));
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                new DefaultTypedTuple<>("recently_rated", 100.0),
+                new DefaultTypedTuple<>("drama_candidate", 20.0)
+            )));
+        when(valueOps.get("uEmb:u3")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:sci_fi_candidate" -> "1.0 0.0";
+                case "i2vEmb:drama_candidate" -> "0.0 1.0";
+                case "bandit:item:sci_fi_candidate:impressions", "bandit:item:sci_fi_candidate:clicks",
+                     "bandit:item:drama_candidate:impressions", "bandit:item:drama_candidate:clicks" -> "0";
+                default -> null;
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u3", 2);
+
+        assertTrue(result.recommendations().contains("sci_fi_candidate"));
+        assertFalse(result.recommendations().contains("recently_rated"));
+    }
+
+    @Test
     void feedbackAggregatesBusinessMetrics() {
         when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
             {"user":"u1","context":{"recent":["item1"]},"candidates":["item4","item2"],"action":"item4"}
@@ -286,7 +325,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
+            new OnlineLearningService(redis, properties, localCache), localCache, hydrators());
 
         when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
             {"type":"rl_experience","user":"u1","state":{"recent":["item1"],"genres":["sci-fi"],"tags":["space"]},"action":"item4"}
@@ -328,7 +367,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
+            new OnlineLearningService(redis, properties, localCache), localCache, hydrators());
 
         when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
             {"type":"rl_experience","user":"u1","state":{"recent":["item1"],"genres":["sci-fi"],"tags":["space"]},"action":"item4"}
@@ -385,7 +424,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
+            new OnlineLearningService(redis, properties, localCache), localCache, hydrators());
         Object armScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
         double posteriorMean = invokeArmScoreDouble(armScore, "posteriorMean");
         double bonus = invokeArmScoreDouble(armScore, "explorationBonus");
@@ -412,7 +451,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
+            new OnlineLearningService(redis, properties, localCache), localCache, hydrators());
         Object firstArmScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
         double first = invokeArmScoreDouble(firstArmScore, "rankingScore");
         double firstBonus = invokeArmScoreDouble(firstArmScore, "explorationBonus");
@@ -446,8 +485,11 @@ class HybridRecommendationServiceTest {
         return profile;
     }
 
-    private QueryHydrator<ScoredMoviesQuery> historyHydrator() {
-        return new MovieLensUserHistoryQueryHydrator(new RedisUserMovieHistoryClient(redis));
+    private List<QueryHydrator<ScoredMoviesQuery>> hydrators() {
+        return List.of(
+            new MovieLensUserHistoryQueryHydrator(new RedisUserMovieHistoryClient(redis)),
+            new UserMovieFeaturesQueryHydrator(new RedisMovieLensFeatureClient(redis))
+        );
     }
 
     private Object invokeBanditArmScore(
