@@ -73,10 +73,85 @@ public class HybridRecommendationService {
         double contentScore,
         boolean coldStartSource) {}
 
+    private record CandidatePipelineContext(
+        ScoredMoviesQuery query,
+        Map<String, Double> popularityMap,
+        Set<String> excludedItems,
+        Set<String> userGenres,
+        Set<String> userTags,
+        FilterContext filterCtx,
+        int resultSize) {}
+
+    private record CandidateFilterResult(
+        List<MovieCandidate> kept,
+        List<MovieCandidate> removed) {}
+
+    private record CandidateSelectResult(
+        List<MovieCandidate> selected,
+        List<MovieCandidate> nonSelected) {}
+
     private record CandidateGenerationResult(
         List<MovieCandidate> retrievedCandidates,
         List<MovieCandidate> filteredCandidates,
         List<MovieCandidate> selectedCandidates) {}
+
+    @FunctionalInterface
+    private interface CandidateSource {
+        List<MovieCandidate> fetch(CandidatePipelineContext context);
+
+        default boolean enable(CandidatePipelineContext context) {
+            return true;
+        }
+
+        default String name() {
+            return getClass().getSimpleName();
+        }
+    }
+
+    @FunctionalInterface
+    private interface CandidateHydrator {
+        List<MovieCandidate> hydrate(CandidatePipelineContext context, List<MovieCandidate> candidates);
+
+        default boolean enable(CandidatePipelineContext context) {
+            return true;
+        }
+    }
+
+    @FunctionalInterface
+    private interface CandidateFilter {
+        CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates);
+
+        default boolean enable(CandidatePipelineContext context) {
+            return true;
+        }
+    }
+
+    @FunctionalInterface
+    private interface CandidateScorer {
+        List<MovieCandidate> score(CandidatePipelineContext context, List<MovieCandidate> candidates);
+
+        default boolean enable(CandidatePipelineContext context) {
+            return true;
+        }
+    }
+
+    @FunctionalInterface
+    private interface CandidateSelector {
+        CandidateSelectResult select(CandidatePipelineContext context, List<MovieCandidate> candidates);
+
+        default boolean enable(CandidatePipelineContext context) {
+            return true;
+        }
+    }
+
+    @FunctionalInterface
+    private interface CandidateSideEffect {
+        void run(CandidatePipelineContext context, List<MovieCandidate> selected, List<MovieCandidate> nonSelected);
+
+        default boolean enable(CandidatePipelineContext context) {
+            return true;
+        }
+    }
 
     private volatile CatalogCache catalogCache;
 
@@ -165,6 +240,7 @@ public class HybridRecommendationService {
         String stateKey = stateKey(state);
 
         CandidateGenerationResult candidateGeneration = generateCandidates(
+            hydratedQuery,
             popularityMap,
             historySet,
             userGenres,
@@ -348,7 +424,7 @@ public class HybridRecommendationService {
 
     private ScoredMoviesQuery hydrateQuery(ScoredMoviesQuery query) {
         ScoredMoviesQuery current = query;
-        for (QueryHydrator<ScoredMoviesQuery> hydrator : queryHydrators) {
+        for (QueryHydrator<ScoredMoviesQuery> hydrator : queryHydrators.stream().filter(h -> h.enable(query)).toList()) {
             ScoredMoviesQuery hydrated = hydrator.hydrate(current);
             current = hydrator.update(current, hydrated);
         }
@@ -356,6 +432,7 @@ public class HybridRecommendationService {
     }
 
     private CandidateGenerationResult generateCandidates(
+        ScoredMoviesQuery query,
         Map<String, Double> popularityMap,
         Set<String> excludedItems,
         Set<String> userGenres,
@@ -363,20 +440,133 @@ public class HybridRecommendationService {
         FilterContext filterCtx,
         int limit
     ) {
-        List<MovieCandidate> retrieved = new ArrayList<>(popularityMap.size() + properties.getCandidateGeneration().getColdStartPoolSize());
-        popularityMap.forEach((item, score) ->
-            retrieved.add(new MovieCandidate(item, score, contentScoreForItem(item, userGenres, userTags), false)));
-        retrieved.addAll(generateColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit));
+        CandidatePipelineContext context = new CandidatePipelineContext(
+            query,
+            popularityMap,
+            excludedItems,
+            userGenres,
+            userTags,
+            filterCtx,
+            limit
+        );
 
-        List<MovieCandidate> filtered = retrieved.stream()
-            .filter(candidate -> isEligibleCandidate(candidate.movieId(), excludedItems, filterCtx))
+        List<MovieCandidate> retrieved = fetchCandidates(context, List.of(
+            this::fetchPopularCandidates,
+            this::fetchColdStartCandidates
+        ));
+        List<MovieCandidate> hydrated = runCandidateHydrators(context, retrieved, List.of());
+        CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
+        List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of());
+        CandidateSelectResult selectResult = selectCandidates(context, scored, this::selectDistinctCandidates);
+        runCandidateSideEffects(context, selectResult.selected(), selectResult.nonSelected(), List.of());
+        return new CandidateGenerationResult(hydrated, filterResult.removed(), selectResult.selected());
+    }
+
+    private List<MovieCandidate> fetchCandidates(CandidatePipelineContext context, List<CandidateSource> sources) {
+        return sources.stream()
+            .filter(source -> source.enable(context))
+            .flatMap(source -> source.fetch(context).stream())
             .toList();
+    }
 
-        LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
-        for (MovieCandidate candidate : filtered) {
-            selected.merge(candidate.movieId(), candidate, this::mergeCandidate);
+    private List<MovieCandidate> runCandidateHydrators(
+        CandidatePipelineContext context,
+        List<MovieCandidate> candidates,
+        List<CandidateHydrator> hydrators
+    ) {
+        List<MovieCandidate> current = candidates;
+        for (CandidateHydrator hydrator : hydrators) {
+            if (hydrator.enable(context)) {
+                current = hydrator.hydrate(context, current);
+            }
         }
-        return new CandidateGenerationResult(retrieved, filtered, List.copyOf(selected.values()));
+        return current;
+    }
+
+    private CandidateFilterResult runCandidateFilters(
+        CandidatePipelineContext context,
+        List<MovieCandidate> candidates,
+        List<CandidateFilter> filters
+    ) {
+        List<MovieCandidate> current = candidates;
+        List<MovieCandidate> removedAll = new ArrayList<>();
+        for (CandidateFilter filter : filters) {
+            if (filter.enable(context)) {
+                CandidateFilterResult result = filter.filter(context, current);
+                current = result.kept();
+                removedAll.addAll(result.removed());
+            }
+        }
+        return new CandidateFilterResult(current, List.copyOf(removedAll));
+    }
+
+    private List<MovieCandidate> runCandidateScorers(
+        CandidatePipelineContext context,
+        List<MovieCandidate> candidates,
+        List<CandidateScorer> scorers
+    ) {
+        List<MovieCandidate> current = candidates;
+        for (CandidateScorer scorer : scorers) {
+            if (scorer.enable(context)) {
+                current = scorer.score(context, current);
+            }
+        }
+        return current;
+    }
+
+    private CandidateSelectResult selectCandidates(
+        CandidatePipelineContext context,
+        List<MovieCandidate> candidates,
+        CandidateSelector selector
+    ) {
+        return selector.enable(context)
+            ? selector.select(context, candidates)
+            : new CandidateSelectResult(candidates, List.of());
+    }
+
+    private void runCandidateSideEffects(
+        CandidatePipelineContext context,
+        List<MovieCandidate> selected,
+        List<MovieCandidate> nonSelected,
+        List<CandidateSideEffect> sideEffects
+    ) {
+        sideEffects.stream()
+            .filter(sideEffect -> sideEffect.enable(context))
+            .forEach(sideEffect -> sideEffect.run(context, selected, nonSelected));
+    }
+
+    private List<MovieCandidate> fetchPopularCandidates(CandidatePipelineContext context) {
+        return context.popularityMap().entrySet().stream()
+            .map(entry -> new MovieCandidate(
+                entry.getKey(),
+                entry.getValue(),
+                contentScoreForItem(entry.getKey(), context.userGenres(), context.userTags()),
+                false
+            ))
+            .toList();
+    }
+
+    private CandidateFilterResult filterEligibleCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
+        Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
+            .collect(Collectors.partitioningBy(candidate ->
+                isEligibleCandidate(candidate.movieId(), context.excludedItems(), context.filterCtx())));
+        return new CandidateFilterResult(
+            partitioned.getOrDefault(Boolean.TRUE, List.of()),
+            partitioned.getOrDefault(Boolean.FALSE, List.of())
+        );
+    }
+
+    private CandidateSelectResult selectDistinctCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
+        LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
+        List<MovieCandidate> nonSelected = new ArrayList<>();
+        for (MovieCandidate candidate : candidates) {
+            boolean duplicate = selected.containsKey(candidate.movieId());
+            selected.merge(candidate.movieId(), candidate, this::mergeCandidate);
+            if (duplicate) {
+                nonSelected.add(candidate);
+            }
+        }
+        return new CandidateSelectResult(List.copyOf(selected.values()), List.copyOf(nonSelected));
     }
 
     private MovieCandidate mergeCandidate(MovieCandidate left, MovieCandidate right) {
@@ -388,26 +578,23 @@ public class HybridRecommendationService {
         );
     }
 
-    private List<MovieCandidate> generateColdStartCandidates(
-        Set<String> excludedItems,
-        Set<String> userGenres,
-        Set<String> userTags,
-        FilterContext filterCtx,
-        int limit
-    ) {
+    private List<MovieCandidate> fetchColdStartCandidates(CandidatePipelineContext context) {
         Map<String, MovieProfile> catalog = properties.getCatalog();
         if (catalog.isEmpty()) {
             return List.of();
         }
 
         int poolSize = Math.max(1, properties.getCandidateGeneration().getColdStartPoolSize());
-        int probeSize = Math.max(poolSize, Math.max(limit, poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()));
+        int probeSize = Math.max(poolSize, Math.max(
+            context.resultSize(),
+            poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()
+        ));
         List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
-            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx))
+            .filter(entry -> isEligibleCandidate(entry.getKey(), context.excludedItems(), context.filterCtx()))
             .map(entry -> new MovieCandidate(
                 entry.getKey(),
                 0.0,
-                contentScore(entry.getValue(), userGenres, userTags),
+                contentScore(entry.getValue(), context.userGenres(), context.userTags()),
                 true
             ))
             .sorted(
