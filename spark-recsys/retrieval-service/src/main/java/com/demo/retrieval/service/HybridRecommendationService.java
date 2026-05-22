@@ -74,6 +74,7 @@ public class HybridRecommendationService {
     private final DeepLearningPredictionService predictionService;
     private final OnlineLearningService onlineLearningService;
     private final FeatureCache featureCache;
+    private final QueryHydrator<ScoredMoviesQuery> queryHydrator;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(
@@ -81,13 +82,15 @@ public class HybridRecommendationService {
         RecommendationProperties properties,
         DeepLearningPredictionService predictionService,
         OnlineLearningService onlineLearningService,
-        FeatureCache featureCache
+        FeatureCache featureCache,
+        QueryHydrator<ScoredMoviesQuery> queryHydrator
     ) {
         this.redis = redis;
         this.properties = properties;
         this.predictionService = predictionService;
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
+        this.queryHydrator = queryHydrator;
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -102,19 +105,21 @@ public class HybridRecommendationService {
             );
         }
 
-        List<String> recent;
+        ScoredMoviesQuery query = ScoredMoviesQuery.forUser(user);
+        ScoredMoviesQuery hydratedQuery;
         Set<ZSetOperations.TypedTuple<String>> popularWithScores;
         try {
-            recent = Optional.ofNullable(redis.opsForList().range("user:" + user + ":recent", 0, RECENT_HISTORY_SIZE - 1L))
-                .orElseGet(List::of);
+            hydratedQuery = queryHydrator.update(query, queryHydrator.hydrate(query));
             int fetchSize = Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit);
             popularWithScores = Optional.ofNullable(
                 redis.opsForZSet().reverseRangeWithScores(GLOBAL_POPULARITY_KEY, 0, fetchSize - 1L)
             ).orElseGet(Set::of);
         } catch (Exception e) {
-            log.error("Redis fetch failed for user {}", user, e);
+            log.error("Recommendation fetch failed for user {}", user, e);
             return new RecommendationResult(user, List.of(), List.of(), List.of(), Map.of());
         }
+        List<String> recent = hydratedQuery.watchedMovieIds();
+        List<String> rated = hydratedQuery.ratedMovieIds();
 
         // Build popularity map from a single ZREVRANGE WITHSCORES call (eliminates per-item ZSCORE N+1)
         Map<String, Double> popularityMap = popularWithScores.stream()
@@ -128,8 +133,9 @@ public class HybridRecommendationService {
         Set<String> popular = popularityMap.keySet();
         double maxPopularity = popularityMap.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
 
-        Set<String> recentSet = new HashSet<>(recent);
-        List<String> seedItems = recent.isEmpty() ? List.copyOf(popular) : recent;
+        Set<String> historySet = new HashSet<>(recent);
+        historySet.addAll(rated);
+        List<String> seedItems = recent.isEmpty() ? (rated.isEmpty() ? List.copyOf(popular) : rated) : recent;
 
         Set<String> userGenres = seedItems.stream()
             .map(properties.getCatalog()::get)
@@ -144,10 +150,10 @@ public class HybridRecommendationService {
         Map<String, Object> state = buildState(recent, userGenres, userTags);
         String stateKey = stateKey(state);
 
-        Set<String> contentCandidates = generateColdStartCandidates(recentSet, userGenres, userTags, filterCtx);
+        Set<String> contentCandidates = generateColdStartCandidates(historySet, userGenres, userTags, filterCtx);
 
         LinkedHashSet<String> eligible = new LinkedHashSet<>();
-        popular.stream().filter(item -> isEligibleCandidate(item, recentSet, filterCtx)).forEach(eligible::add);
+        popular.stream().filter(item -> isEligibleCandidate(item, historySet, filterCtx)).forEach(eligible::add);
         eligible.addAll(contentCandidates);
 
         // Warm item-vector cache for all candidates + recent history in one MGET, then the scoring

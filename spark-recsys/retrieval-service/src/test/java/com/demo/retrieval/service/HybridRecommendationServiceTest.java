@@ -128,13 +128,15 @@ class HybridRecommendationServiceTest {
         OnlineLearningService onlineLearningService = new OnlineLearningService(redis, properties, featureCache);
         DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
         when(predictionService.predict(anyString(), anyString())).thenReturn(Optional.empty());
-        service = new HybridRecommendationService(redis, properties, predictionService, onlineLearningService, featureCache);
+        service = new HybridRecommendationService(
+            redis, properties, predictionService, onlineLearningService, featureCache, historyHydrator());
     }
 
     @Test
     void recommendInjectsColdStartCandidatesAndReturnsDiagnostics() {
         // recent items — fetched with RECENT_HISTORY_SIZE window
         when(listOps.range(eq("user:u1:recent"), eq(0L), anyLong())).thenReturn(List.of("item1"));
+        when(listOps.range(eq("user:u1:rated"), eq(0L), anyLong())).thenReturn(List.of("item2"));
 
         // popularity — single ZREVRANGE WITHSCORES call
         Set<ZSetOperations.TypedTuple<String>> popularTuples = new LinkedHashSet<>(List.of(
@@ -173,6 +175,7 @@ class HybridRecommendationServiceTest {
         assertTrue(result.recommendations().contains("item4"));
         assertTrue(result.recommendations().contains("item7"));
         assertFalse(result.recommendations().contains("item1")); // recently viewed — must be excluded
+        assertFalse(result.recommendations().contains("item2")); // already rated — must be excluded
         assertFalse(result.candidateDiagnostics().isEmpty());
         assertTrue(result.candidateDiagnostics().get(0).containsKey("rewardModelScore"));
         assertEquals("ucb", result.metrics().get("algorithm"));
@@ -283,7 +286,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache);
+            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
 
         when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
             {"type":"rl_experience","user":"u1","state":{"recent":["item1"],"genres":["sci-fi"],"tags":["space"]},"action":"item4"}
@@ -325,7 +328,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache);
+            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
 
         when(valueOps.get("replay:pending:u1:item4")).thenReturn("""
             {"type":"rl_experience","user":"u1","state":{"recent":["item1"],"genres":["sci-fi"],"tags":["space"]},"action":"item4"}
@@ -382,7 +385,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache);
+            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
         Object armScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
         double posteriorMean = invokeArmScoreDouble(armScore, "posteriorMean");
         double bonus = invokeArmScoreDouble(armScore, "explorationBonus");
@@ -409,7 +412,7 @@ class HybridRecommendationServiceTest {
         FeatureCache localCache = new FeatureCache(properties);
         HybridRecommendationService localService = new HybridRecommendationService(
             redis, properties, mock(DeepLearningPredictionService.class),
-            new OnlineLearningService(redis, properties, localCache), localCache);
+            new OnlineLearningService(redis, properties, localCache), localCache, historyHydrator());
         Object firstArmScore = invokeBanditArmScore(localService, 0.6, 4L, 1L, 100L, true);
         double first = invokeArmScoreDouble(firstArmScore, "rankingScore");
         double firstBonus = invokeArmScoreDouble(firstArmScore, "explorationBonus");
@@ -441,6 +444,10 @@ class HybridRecommendationServiceTest {
         profile.setTags(tags);
         profile.setNewRelease(newRelease);
         return profile;
+    }
+
+    private QueryHydrator<ScoredMoviesQuery> historyHydrator() {
+        return new MovieLensUserHistoryQueryHydrator(new RedisUserMovieHistoryClient(redis));
     }
 
     private Object invokeBanditArmScore(
