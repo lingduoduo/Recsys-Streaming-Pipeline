@@ -47,6 +47,13 @@ public class HybridRecommendationService {
     private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = 2.0;
+    private static final ThreadLocal<MessageDigest> SHA256_DIGEST = ThreadLocal.withInitial(() -> {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    });
 
     private record FilterContext(
         Set<String> blockedUsers,
@@ -305,14 +312,32 @@ public class HybridRecommendationService {
         double avgExplorationBonus = selected.stream().mapToDouble(ScoredCandidate::explorationBonus).average().orElse(0.0);
         long coldStartCount = selected.stream().filter(ScoredCandidate::coldStart).count();
         double coldStartShare = selected.isEmpty() ? 0.0 : (double) coldStartCount / selected.size();
-
-        incrementMetric("requests", 1);
-        incrementMetric("recommendations_served", selected.size());
-        incrementMetric("exploratory_impressions", selected.stream().filter(c -> c.explorationBonus() > 0.0).count());
-        incrementMetric("cold_start_impressions", coldStartCount);
-        incrementMetric("estimated_reward_total", avgEstimatedReward * selected.size());
-        incrementMetric("pseudo_regret_total", pseudoRegret);
-        incrementMetric("novelty_total", selected.stream().mapToDouble(ScoredCandidate::noveltyScore).sum());
+        long exploratoryCount = selected.stream().filter(c -> c.explorationBonus() > 0.0).count();
+        double noveltyTotal = selected.stream().mapToDouble(ScoredCandidate::noveltyScore).sum();
+        long servedCount = selected.size();
+        double estimatedRewardTotal = avgEstimatedReward * servedCount;
+        String algoKey = metricsHashKey(currentAlgorithm());
+        redis.executePipelined(new SessionCallback<Object>() {
+            @Override
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                operations.opsForHash().increment(METRICS_HASH_KEY, "requests", 1L);
+                operations.opsForHash().increment(algoKey, "requests", 1L);
+                operations.opsForHash().increment(METRICS_HASH_KEY, "recommendations_served", servedCount);
+                operations.opsForHash().increment(algoKey, "recommendations_served", servedCount);
+                operations.opsForHash().increment(METRICS_HASH_KEY, "exploratory_impressions", exploratoryCount);
+                operations.opsForHash().increment(algoKey, "exploratory_impressions", exploratoryCount);
+                operations.opsForHash().increment(METRICS_HASH_KEY, "cold_start_impressions", coldStartCount);
+                operations.opsForHash().increment(algoKey, "cold_start_impressions", coldStartCount);
+                operations.opsForHash().increment(METRICS_HASH_KEY, "estimated_reward_total", estimatedRewardTotal);
+                operations.opsForHash().increment(algoKey, "estimated_reward_total", estimatedRewardTotal);
+                operations.opsForHash().increment(METRICS_HASH_KEY, "pseudo_regret_total", pseudoRegret);
+                operations.opsForHash().increment(algoKey, "pseudo_regret_total", pseudoRegret);
+                operations.opsForHash().increment(METRICS_HASH_KEY, "novelty_total", noveltyTotal);
+                operations.opsForHash().increment(algoKey, "novelty_total", noveltyTotal);
+                return null;
+            }
+        });
 
         List<Map<String, Object>> diagnostics = selected.stream()
             .map(candidate -> {
@@ -424,7 +449,8 @@ public class HybridRecommendationService {
 
     private ScoredMoviesQuery hydrateQuery(ScoredMoviesQuery query) {
         ScoredMoviesQuery current = query;
-        for (QueryHydrator<ScoredMoviesQuery> hydrator : queryHydrators.stream().filter(h -> h.enable(query)).toList()) {
+        for (QueryHydrator<ScoredMoviesQuery> hydrator : queryHydrators) {
+            if (!hydrator.enable(query)) continue;
             ScoredMoviesQuery hydrated = hydrator.hydrate(current);
             current = hydrator.update(current, hydrated);
         }
@@ -1110,16 +1136,6 @@ public class HybridRecommendationService {
         return vector;
     }
 
-    private void incrementMetric(String field, long amount) {
-        redis.opsForHash().increment(METRICS_HASH_KEY, field, amount);
-        redis.opsForHash().increment(metricsHashKey(currentAlgorithm()), field, amount);
-    }
-
-    private void incrementMetric(String field, double amount) {
-        redis.opsForHash().increment(METRICS_HASH_KEY, field, amount);
-        redis.opsForHash().increment(metricsHashKey(currentAlgorithm()), field, amount);
-    }
-
     private long resolveLongMetric(String field) {
         Object value = redis.opsForHash().get(metricsHashKey(currentAlgorithm()), field);
         return readLong(value);
@@ -1199,10 +1215,9 @@ public class HybridRecommendationService {
     private String stateKey(Object state) {
         try {
             String canonical = objectMapper.writeValueAsString(state);
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = SHA256_DIGEST.get().digest(canonical.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
-        } catch (JsonProcessingException | NoSuchAlgorithmException e) {
+        } catch (JsonProcessingException e) {
             log.warn("Failed to build Q-learning state key; falling back to hashCode", e);
             return Integer.toHexString(String.valueOf(state).hashCode());
         }
