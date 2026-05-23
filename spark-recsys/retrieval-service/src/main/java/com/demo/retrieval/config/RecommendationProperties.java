@@ -123,6 +123,7 @@ public class RecommendationProperties {
         private int popularityFetchMultiplier = 5;
         private int coldStartPoolSize = 25;
         private int topNRandomizationPool = 5;
+        private int candidatePoolSize = 0; // 0 = auto: limit × popularityFetchMultiplier
 
         public int getPopularityFetchMultiplier() {
             return popularityFetchMultiplier;
@@ -146,6 +147,14 @@ public class RecommendationProperties {
 
         public void setTopNRandomizationPool(int topNRandomizationPool) {
             this.topNRandomizationPool = topNRandomizationPool;
+        }
+
+        public int getCandidatePoolSize() {
+            return candidatePoolSize;
+        }
+
+        public void setCandidatePoolSize(int candidatePoolSize) {
+            this.candidatePoolSize = candidatePoolSize;
         }
     }
 
