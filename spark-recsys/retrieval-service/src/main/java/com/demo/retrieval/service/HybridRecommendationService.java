@@ -260,11 +260,12 @@ public class HybridRecommendationService {
             .map(MovieCandidate::movieId)
             .toList();
 
-        // Warm item-vector cache for all candidates + recent history in one MGET, then the scoring
-        // loop and user-vector fallback aggregation are pure cache reads with no Redis round-trips.
-        batchWarmItemVectors(eligibleList, recent);
+        // Warm item-vector cache for candidates + full history (watched + rated) so the
+        // rating-weighted user-vector fallback and scoring loop are pure cache reads.
+        batchWarmItemVectors(eligibleList, Stream.concat(recent.stream(), rated.stream()).distinct().toList());
 
-        double[] userVector = resolveUserVector(user, recent);
+        double[] userVector = resolveUserVector(user, recent, rated);
+        Map<String, Double> relevanceScores = batchRelevanceScores(userVector, eligibleList);
         long totalImpressions = resolveLongMetric("recommendations_served");
 
         // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
@@ -281,7 +282,7 @@ public class HybridRecommendationService {
         List<ScoredCandidate> scored = eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
-                return scoreCandidate(item, userVector, userGenres, userTags,
+                return scoreCandidate(item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
                     dlScores.getOrDefault(item, 0.0), qValues.get(item));
             })
@@ -759,7 +760,7 @@ public class HybridRecommendationService {
 
     private ScoredCandidate scoreCandidate(
         String itemId,
-        double[] userVector,
+        double relevance,
         Set<String> userGenres,
         Set<String> userTags,
         double itemPopularity,
@@ -772,8 +773,6 @@ public class HybridRecommendationService {
     ) {
         MovieProfile profile = properties.getCatalog().get(itemId);
 
-        double[] itemVector = resolveItemVector(itemId);
-        double relevance = itemVector.length == 0 || userVector.length == 0 ? 0.0 : cosine(userVector, itemVector);
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
 
@@ -1089,32 +1088,75 @@ public class HybridRecommendationService {
         return result;
     }
 
-    private double[] resolveUserVector(String user, List<String> recent) {
+    // Mirrors the two-tower rating-embedding weighting: rated items carry an explicit
+    // engagement signal so they contribute 2× vs watch-only items in the fallback vector.
+    private double[] resolveUserVector(String user, List<String> recent, List<String> rated) {
         String key = properties.getEmbeddings().getUserPrefix() + ":" + user;
         double[] userVector = parseVector(redis.opsForValue().get(key));
         if (userVector.length > 0) {
             return userVector;
         }
 
-        List<double[]> vectors = recent.stream()
-            .map(this::resolveItemVector)
-            .filter(vector -> vector.length > 0)
-            .toList();
-        if (vectors.isEmpty()) {
+        Map<String, Double> weightedItems = new LinkedHashMap<>();
+        recent.forEach(id -> weightedItems.put(id, 1.0));
+        rated.forEach(id -> weightedItems.merge(id, 2.0, Math::max));
+
+        double[] aggregate = null;
+        int dimension = 0;
+        double totalWeight = 0.0;
+        for (Map.Entry<String, Double> entry : weightedItems.entrySet()) {
+            double[] vec = resolveItemVector(entry.getKey());
+            if (vec.length == 0) continue;
+            if (aggregate == null) {
+                dimension = vec.length;
+                aggregate = new double[dimension];
+            }
+            double w = entry.getValue();
+            for (int i = 0; i < Math.min(dimension, vec.length); i++) {
+                aggregate[i] += w * vec[i];
+            }
+            totalWeight += w;
+        }
+        if (aggregate == null || totalWeight == 0.0) {
             return new double[0];
         }
-
-        int dimension = vectors.get(0).length;
-        double[] aggregate = new double[dimension];
-        for (double[] vector : vectors) {
-            for (int i = 0; i < Math.min(dimension, vector.length); i++) {
-                aggregate[i] += vector[i];
-            }
-        }
         for (int i = 0; i < dimension; i++) {
-            aggregate[i] /= vectors.size();
+            aggregate[i] /= totalWeight;
         }
         return aggregate;
+    }
+
+    // Ports user_representation @ movie_corpus_embeddings.T from the two-tower retrieval model:
+    // user norm is computed once and reused for every item, avoiding N redundant sqrt() calls.
+    private Map<String, Double> batchRelevanceScores(double[] userVector, List<String> itemIds) {
+        if (userVector.length == 0 || itemIds.isEmpty()) {
+            return Map.of();
+        }
+        double userNormSq = 0.0;
+        for (double v : userVector) {
+            userNormSq += v * v;
+        }
+        if (userNormSq == 0.0) {
+            return Map.of();
+        }
+        double userNorm = Math.sqrt(userNormSq);
+        Map<String, Double> scores = new LinkedHashMap<>();
+        for (String itemId : itemIds) {
+            double[] itemVector = resolveItemVector(itemId);
+            if (itemVector.length != userVector.length) {
+                scores.put(itemId, 0.0);
+                continue;
+            }
+            double dot = 0.0;
+            double itemNormSq = 0.0;
+            for (int i = 0; i < userVector.length; i++) {
+                dot += userVector[i] * itemVector[i];
+                itemNormSq += itemVector[i] * itemVector[i];
+            }
+            double itemNorm = Math.sqrt(itemNormSq);
+            scores.put(itemId, itemNorm == 0.0 ? 0.0 : dot / (userNorm * itemNorm));
+        }
+        return scores;
     }
 
     private double[] resolveItemVector(String item) {
@@ -1325,24 +1367,6 @@ public class HybridRecommendationService {
         Set<String> union = new HashSet<>(left);
         union.addAll(right);
         return union.isEmpty() ? 0.0 : (double) intersection.size() / union.size();
-    }
-
-    private double cosine(double[] left, double[] right) {
-        if (left.length == 0 || right.length == 0 || left.length != right.length) {
-            return 0.0;
-        }
-        double dot = 0.0;
-        double leftNorm = 0.0;
-        double rightNorm = 0.0;
-        for (int i = 0; i < left.length; i++) {
-            dot += left[i] * right[i];
-            leftNorm += left[i] * left[i];
-            rightNorm += right[i] * right[i];
-        }
-        if (leftNorm == 0.0 || rightNorm == 0.0) {
-            return 0.0;
-        }
-        return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
     }
 
     private double normalizeScore(double raw) {
