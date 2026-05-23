@@ -100,6 +100,7 @@ public class HybridRecommendationService {
     private record CandidateGenerationResult(
         List<MovieCandidate> retrievedCandidates,
         List<MovieCandidate> filteredCandidates,
+        List<MovieCandidate> scoredCandidates,
         List<MovieCandidate> selectedCandidates) {}
 
     @FunctionalInterface
@@ -362,6 +363,7 @@ public class HybridRecommendationService {
         metrics.put("algorithm", currentAlgorithm());
         metrics.put("retrievedCandidateCount", candidateGeneration.retrievedCandidates().size());
         metrics.put("filteredCandidateCount", candidateGeneration.filteredCandidates().size());
+        metrics.put("scoredCandidateCount", candidateGeneration.scoredCandidates().size());
         metrics.put("eligibleCandidateCount", eligibleList.size());
         metrics.put("randomizationPool", Math.min(properties.getCandidateGeneration().getTopNRandomizationPool(), scored.size()));
         metrics.put("pseudoRegret", round(pseudoRegret));
@@ -482,10 +484,10 @@ public class HybridRecommendationService {
         ));
         List<MovieCandidate> hydrated = runCandidateHydrators(context, retrieved, List.of());
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
-        List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of());
+        List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
         CandidateSelectResult selectResult = selectCandidates(context, scored, this::selectDistinctCandidates);
         runCandidateSideEffects(context, selectResult.selected(), selectResult.nonSelected(), List.of());
-        return new CandidateGenerationResult(hydrated, filterResult.removed(), selectResult.selected());
+        return new CandidateGenerationResult(hydrated, filterResult.removed(), scored, selectResult.selected());
     }
 
     private List<MovieCandidate> fetchCandidates(CandidatePipelineContext context, List<CandidateSource> sources) {
@@ -656,6 +658,26 @@ public class HybridRecommendationService {
     private double contentScoreForItem(String itemId, Set<String> userGenres, Set<String> userTags) {
         MovieProfile profile = properties.getCatalog().get(itemId);
         return profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
+    }
+
+    // Mirrors MovieRankingScorer + TopKMovieSelector from the Scala pipeline:
+    // combines popularity and content signals into a pre-rank score, then bounds
+    // the pool so only the top-N candidates flow into the expensive full-ranking phase.
+    private List<MovieCandidate> preRankCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
+        int configured = properties.getCandidateGeneration().getCandidatePoolSize();
+        int poolSize = configured > 0 ? configured
+            : context.resultSize() * properties.getCandidateGeneration().getPopularityFetchMultiplier();
+        double popWeight = properties.getBandit().getPopularityWeight();
+        double contentWeight = properties.getBandit().getContentWeight();
+        double totalWeight = popWeight + contentWeight;
+        double normPop = totalWeight == 0.0 ? 0.5 : popWeight / totalWeight;
+        double normContent = totalWeight == 0.0 ? 0.5 : contentWeight / totalWeight;
+        return candidates.stream()
+            .sorted(Comparator.comparingDouble(
+                (MovieCandidate c) -> normPop * c.popularityScore() + normContent * c.contentScore()
+            ).reversed())
+            .limit(poolSize)
+            .toList();
     }
 
     private Map<String, NormalizedProfile> getNormalizedCatalog() {
@@ -1006,7 +1028,6 @@ public class HybridRecommendationService {
         return new NextActionValue(bestAction, bestValue);
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> nextActionSpace(Map<String, Object> nextState) {
         Object rawRecent = nextState.get("recent");
         Set<String> recent = rawRecent instanceof List<?> values
