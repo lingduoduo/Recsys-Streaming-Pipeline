@@ -231,7 +231,18 @@ public class HybridRecommendationService {
         Set<String> historySet = new HashSet<>(recent);
         historySet.addAll(rated);
         historySet.addAll(userFeatures.recentlyRatedMovieIds());
-        List<String> seedItems = recent.isEmpty() ? (rated.isEmpty() ? List.copyOf(popular) : rated) : recent;
+        historySet.addAll(userFeatures.actionSequenceMovieIds());
+        historySet.addAll(userFeatures.servedMovieIds());
+        historySet.addAll(userFeatures.impressedMovieIds());
+        List<String> seedItems = firstNonEmpty(
+            recent,
+            userFeatures.cachedMovieIds(),
+            userFeatures.actionSequenceMovieIds(),
+            userFeatures.retrievalSequenceMovieIds(),
+            userFeatures.scoringSequenceMovieIds(),
+            rated,
+            List.copyOf(popular)
+        );
 
         Set<String> userGenres = seedItems.stream()
             .map(properties.getCatalog()::get)
@@ -1352,6 +1363,16 @@ public class HybridRecommendationService {
             .map(this::normalizeValue)
             .filter(value -> !value.isBlank())
             .collect(Collectors.toSet());
+    }
+
+    @SafeVarargs
+    private final List<String> firstNonEmpty(List<String>... candidates) {
+        for (List<String> candidate : candidates) {
+            if (candidate != null && !candidate.isEmpty()) {
+                return candidate;
+            }
+        }
+        return List.of();
     }
 
     private String normalizeValue(String value) {
