@@ -1,26 +1,28 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
-public class MutualFollowQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class ServedHistoryQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public MutualFollowQueryHydrator(MovieLensFeatureClient featureClient) {
+    public ServedHistoryQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        List<Long> minhash = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::mutualFollowMinhash)
+        List<String> servedMovieIds = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::servedMovieIds)
             .orElseGet(List::of);
         return new ScoredMoviesQuery(
             userId,
-            query.userFeatures().withMutualFollowMinhash(minhash),
+            query.userFeatures().withServedMovieIds(servedMovieIds),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -31,7 +33,7 @@ public class MutualFollowQueryHydrator implements QueryHydrator<ScoredMoviesQuer
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withMutualFollowMinhash(hydrated.userFeatures().mutualFollowMinhash()),
+            query.userFeatures().withServedMovieIds(hydrated.userFeatures().servedMovieIds()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

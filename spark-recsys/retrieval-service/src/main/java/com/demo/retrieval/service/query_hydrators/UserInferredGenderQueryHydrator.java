@@ -1,24 +1,25 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
 @Component
-public class UserDemographicsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class UserInferredGenderQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public UserDemographicsQueryHydrator(MovieLensFeatureClient featureClient) {
+    public UserInferredGenderQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        UserDemographics demographics = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::demographics)
-            .orElseGet(UserDemographics::empty);
+        MovieLensUserFeatures fetched = featureClient.getUserFeatures(userId)
+            .orElseGet(() -> MovieLensUserFeatures.forUser(userId));
         return new ScoredMoviesQuery(
             userId,
-            query.userFeatures().withDemographics(demographics),
+            query.userFeatures().withInferredGender(fetched.inferredGender(), fetched.inferredGenderScore()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -29,7 +30,10 @@ public class UserDemographicsQueryHydrator implements QueryHydrator<ScoredMovies
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withDemographics(hydrated.userFeatures().demographics()),
+            query.userFeatures().withInferredGender(
+                hydrated.userFeatures().inferredGender(),
+                hydrated.userFeatures().inferredGenderScore()
+            ),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

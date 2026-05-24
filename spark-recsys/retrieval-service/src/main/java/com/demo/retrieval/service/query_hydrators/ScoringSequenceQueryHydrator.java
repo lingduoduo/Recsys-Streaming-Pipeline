@@ -1,24 +1,28 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
-public class IpQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class ScoringSequenceQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public IpQueryHydrator(MovieLensFeatureClient featureClient) {
+    public ScoringSequenceQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        String ipLocation = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::ipLocation)
-            .orElse("");
+        List<String> sequence = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::scoringSequenceMovieIds)
+            .orElseGet(List::of);
         return new ScoredMoviesQuery(
             userId,
-            query.userFeatures().withIpLocation(ipLocation),
+            query.userFeatures().withScoringSequenceMovieIds(sequence),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -29,7 +33,7 @@ public class IpQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withIpLocation(hydrated.userFeatures().ipLocation()),
+            query.userFeatures().withScoringSequenceMovieIds(hydrated.userFeatures().scoringSequenceMovieIds()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

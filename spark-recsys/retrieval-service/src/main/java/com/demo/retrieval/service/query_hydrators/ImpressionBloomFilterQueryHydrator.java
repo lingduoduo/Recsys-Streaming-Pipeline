@@ -1,23 +1,28 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
-public class UserMovieFeaturesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class ImpressionBloomFilterQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public UserMovieFeaturesQueryHydrator(MovieLensFeatureClient featureClient) {
+    public ImpressionBloomFilterQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        MovieLensUserFeatures userFeatures = featureClient.getUserFeatures(userId)
-            .orElseGet(() -> MovieLensUserFeatures.forUser(userId));
+        List<Long> bloomFilter = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::impressionBloomFilter)
+            .orElseGet(List::of);
         return new ScoredMoviesQuery(
             userId,
-            userFeatures,
+            query.userFeatures().withImpressionBloomFilter(bloomFilter),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -28,7 +33,7 @@ public class UserMovieFeaturesQueryHydrator implements QueryHydrator<ScoredMovie
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            hydrated.userFeatures(),
+            query.userFeatures().withImpressionBloomFilter(hydrated.userFeatures().impressionBloomFilter()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

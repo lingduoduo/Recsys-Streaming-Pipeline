@@ -1,23 +1,26 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
 @Component
-public class UserInferredGenderQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class IpQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public UserInferredGenderQueryHydrator(MovieLensFeatureClient featureClient) {
+    public IpQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        MovieLensUserFeatures fetched = featureClient.getUserFeatures(userId)
-            .orElseGet(() -> MovieLensUserFeatures.forUser(userId));
+        String ipLocation = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::ipLocation)
+            .orElse("");
         return new ScoredMoviesQuery(
             userId,
-            query.userFeatures().withInferredGender(fetched.inferredGender(), fetched.inferredGenderScore()),
+            query.userFeatures().withIpLocation(ipLocation),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -28,10 +31,7 @@ public class UserInferredGenderQueryHydrator implements QueryHydrator<ScoredMovi
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withInferredGender(
-                hydrated.userFeatures().inferredGender(),
-                hydrated.userFeatures().inferredGenderScore()
-            ),
+            query.userFeatures().withIpLocation(hydrated.userFeatures().ipLocation()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

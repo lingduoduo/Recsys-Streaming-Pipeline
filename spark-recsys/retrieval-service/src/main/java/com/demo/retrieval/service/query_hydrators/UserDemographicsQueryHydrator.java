@@ -1,26 +1,26 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 @Component
-public class ImpressionBloomFilterQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class UserDemographicsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public ImpressionBloomFilterQueryHydrator(MovieLensFeatureClient featureClient) {
+    public UserDemographicsQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        List<Long> bloomFilter = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::impressionBloomFilter)
-            .orElseGet(List::of);
+        UserDemographics demographics = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::demographics)
+            .orElseGet(UserDemographics::empty);
         return new ScoredMoviesQuery(
             userId,
-            query.userFeatures().withImpressionBloomFilter(bloomFilter),
+            query.userFeatures().withDemographics(demographics),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -31,7 +31,7 @@ public class ImpressionBloomFilterQueryHydrator implements QueryHydrator<ScoredM
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withImpressionBloomFilter(hydrated.userFeatures().impressionBloomFilter()),
+            query.userFeatures().withDemographics(hydrated.userFeatures().demographics()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

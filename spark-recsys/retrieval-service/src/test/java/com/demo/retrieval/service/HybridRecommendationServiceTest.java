@@ -2,6 +2,9 @@ package com.demo.retrieval.service;
 
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.service.query_hydrators.MovieLensUserHistoryQueryHydrator;
+import com.demo.retrieval.service.query_hydrators.QueryHydrator;
+import com.demo.retrieval.service.query_hydrators.UserMovieFeaturesQueryHydrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.DefaultTypedTuple;

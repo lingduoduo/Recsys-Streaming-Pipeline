@@ -1,26 +1,28 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
-public class UserActionSequenceQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class RetrievalSequenceQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public UserActionSequenceQueryHydrator(MovieLensFeatureClient featureClient) {
+    public RetrievalSequenceQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        List<String> actionSequence = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::actionSequenceMovieIds)
+        List<String> sequence = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::retrievalSequenceMovieIds)
             .orElseGet(List::of);
         return new ScoredMoviesQuery(
             userId,
-            query.userFeatures().withActionSequenceMovieIds(actionSequence),
+            query.userFeatures().withRetrievalSequenceMovieIds(sequence),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -31,7 +33,7 @@ public class UserActionSequenceQueryHydrator implements QueryHydrator<ScoredMovi
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withActionSequenceMovieIds(hydrated.userFeatures().actionSequenceMovieIds()),
+            query.userFeatures().withRetrievalSequenceMovieIds(hydrated.userFeatures().retrievalSequenceMovieIds()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

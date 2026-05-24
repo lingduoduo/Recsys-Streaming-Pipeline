@@ -1,4 +1,6 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 public interface QueryHydrator<T> {
     T hydrate(T query);
