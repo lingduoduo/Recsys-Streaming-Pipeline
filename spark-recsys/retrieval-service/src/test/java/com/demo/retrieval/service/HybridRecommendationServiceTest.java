@@ -203,17 +203,32 @@ class HybridRecommendationServiceTest {
         MovieProfile mutedType = movie(List.of("comedy"), List.of("family"), false);
         mutedType.setProductType("ads");
         MovieProfile mutedKeyword = movie(List.of("drama"), List.of("spoiler"), false);
+        MovieProfile mutedCoreDataText = movie(List.of("drama"), List.of("quiet"), false);
+        mutedCoreDataText.setCoreDataText("contains spoiler from core data");
+        MovieProfile mutedLanguage = movie(List.of("drama"), List.of("foreign"), false);
+        mutedLanguage.setLanguageCode("es");
+        MovieProfile blockedVisibility = movie(List.of("drama"), List.of("unsafe"), false);
+        blockedVisibility.setVisibilityReason("safety_drop");
+        MovieProfile ancillaryDrop = movie(List.of("drama"), List.of("reply"), false);
+        ancillaryDrop.setAncestorMovieIds(List.of("blocked_visibility"));
         MovieProfile allowed = movie(List.of("sci-fi"), List.of("fresh"), true);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
         catalog.put("recent", movie(List.of("action"), List.of("seen"), false));
         catalog.put("expired", expired);
         catalog.put("muted_type", mutedType);
         catalog.put("muted_keyword", mutedKeyword);
+        catalog.put("muted_core_text", mutedCoreDataText);
+        catalog.put("muted_language", mutedLanguage);
+        catalog.put("blocked_visibility", blockedVisibility);
+        catalog.put("ancillary_drop", ancillaryDrop);
         catalog.put("allowed", allowed);
         properties.setCatalog(catalog);
         properties.getFiltering().setBlockedUsers(List.of("blocked_user"));
         properties.getFiltering().setMutedProductTypes(List.of("ads"));
         properties.getFiltering().setMutedKeywords(List.of("spoiler"));
+        properties.getFiltering().setMutedLanguageCodes(List.of("es"));
+        properties.getFiltering().setBlockedVisibilityReasons(List.of("safety_drop"));
+        properties.getFiltering().setDropAncillaryCandidates(true);
 
         RecommendationResult blocked = service.recommend("blocked_user", 3);
         assertTrue(blocked.recommendations().isEmpty());
@@ -226,6 +241,10 @@ class HybridRecommendationServiceTest {
                 new DefaultTypedTuple<>("expired", 90.0),
                 new DefaultTypedTuple<>("muted_type", 80.0),
                 new DefaultTypedTuple<>("muted_keyword", 70.0),
+                new DefaultTypedTuple<>("muted_core_text", 65.0),
+                new DefaultTypedTuple<>("muted_language", 64.0),
+                new DefaultTypedTuple<>("blocked_visibility", 63.0),
+                new DefaultTypedTuple<>("ancillary_drop", 62.0),
                 new DefaultTypedTuple<>("allowed", 60.0),
                 new DefaultTypedTuple<>("allowed", 50.0)
             )));

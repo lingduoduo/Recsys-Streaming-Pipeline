@@ -34,6 +34,9 @@ recsys:
     muted-product-types: ${RECSYS_MUTED_PRODUCT_TYPES:}
     muted-genres: ${RECSYS_MUTED_GENRES:}
     muted-keywords: ${RECSYS_MUTED_KEYWORDS:}
+    muted-language-codes: ${RECSYS_MUTED_LANGUAGE_CODES:}
+    blocked-visibility-reasons: ${RECSYS_BLOCKED_VISIBILITY_REASONS:}
+    drop-ancillary-candidates: ${RECSYS_DROP_ANCILLARY_CANDIDATES:true}
   bandit:
     algorithm: ${RECSYS_BANDIT_ALGORITHM:ucb}
     exploration-alpha: ${RECSYS_EXPLORATION_ALPHA:0.75}
