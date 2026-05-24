@@ -164,6 +164,9 @@ public class RecommendationProperties {
         private List<String> mutedProductTypes = new ArrayList<>();
         private List<String> mutedGenres = new ArrayList<>();
         private List<String> mutedKeywords = new ArrayList<>();
+        private List<String> mutedLanguageCodes = new ArrayList<>();
+        private List<String> blockedVisibilityReasons = new ArrayList<>();
+        private boolean dropAncillaryCandidates = true;
 
         public boolean isEnabled() {
             return enabled;
@@ -203,6 +206,30 @@ public class RecommendationProperties {
 
         public void setMutedKeywords(List<String> mutedKeywords) {
             this.mutedKeywords = mutedKeywords;
+        }
+
+        public List<String> getMutedLanguageCodes() {
+            return mutedLanguageCodes;
+        }
+
+        public void setMutedLanguageCodes(List<String> mutedLanguageCodes) {
+            this.mutedLanguageCodes = mutedLanguageCodes;
+        }
+
+        public List<String> getBlockedVisibilityReasons() {
+            return blockedVisibilityReasons;
+        }
+
+        public void setBlockedVisibilityReasons(List<String> blockedVisibilityReasons) {
+            this.blockedVisibilityReasons = blockedVisibilityReasons;
+        }
+
+        public boolean isDropAncillaryCandidates() {
+            return dropAncillaryCandidates;
+        }
+
+        public void setDropAncillaryCandidates(boolean dropAncillaryCandidates) {
+            this.dropAncillaryCandidates = dropAncillaryCandidates;
         }
     }
 
@@ -398,6 +425,16 @@ public class RecommendationProperties {
     public static class MovieProfile {
         private String title;
         private String productType;
+        private String ownerId;
+        private String sourceUserId;
+        private String sourceMovieId;
+        private String inReplyToMovieId;
+        private String coreDataText;
+        private String languageCode;
+        private String visibilityReason;
+        private boolean dropAncillaryMovies;
+        private List<String> ancestorMovieIds = new ArrayList<>();
+        private String quotedMovieId;
         private List<String> genres = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
         private List<String> keywords = new ArrayList<>();
@@ -418,6 +455,86 @@ public class RecommendationProperties {
 
         public void setProductType(String productType) {
             this.productType = productType;
+        }
+
+        public String getOwnerId() {
+            return ownerId;
+        }
+
+        public void setOwnerId(String ownerId) {
+            this.ownerId = ownerId;
+        }
+
+        public String getSourceUserId() {
+            return sourceUserId;
+        }
+
+        public void setSourceUserId(String sourceUserId) {
+            this.sourceUserId = sourceUserId;
+        }
+
+        public String getSourceMovieId() {
+            return sourceMovieId;
+        }
+
+        public void setSourceMovieId(String sourceMovieId) {
+            this.sourceMovieId = sourceMovieId;
+        }
+
+        public String getInReplyToMovieId() {
+            return inReplyToMovieId;
+        }
+
+        public void setInReplyToMovieId(String inReplyToMovieId) {
+            this.inReplyToMovieId = inReplyToMovieId;
+        }
+
+        public String getCoreDataText() {
+            return coreDataText;
+        }
+
+        public void setCoreDataText(String coreDataText) {
+            this.coreDataText = coreDataText;
+        }
+
+        public String getLanguageCode() {
+            return languageCode;
+        }
+
+        public void setLanguageCode(String languageCode) {
+            this.languageCode = languageCode;
+        }
+
+        public String getVisibilityReason() {
+            return visibilityReason;
+        }
+
+        public void setVisibilityReason(String visibilityReason) {
+            this.visibilityReason = visibilityReason;
+        }
+
+        public boolean isDropAncillaryMovies() {
+            return dropAncillaryMovies;
+        }
+
+        public void setDropAncillaryMovies(boolean dropAncillaryMovies) {
+            this.dropAncillaryMovies = dropAncillaryMovies;
+        }
+
+        public List<String> getAncestorMovieIds() {
+            return ancestorMovieIds;
+        }
+
+        public void setAncestorMovieIds(List<String> ancestorMovieIds) {
+            this.ancestorMovieIds = ancestorMovieIds;
+        }
+
+        public String getQuotedMovieId() {
+            return quotedMovieId;
+        }
+
+        public void setQuotedMovieId(String quotedMovieId) {
+            this.quotedMovieId = quotedMovieId;
         }
 
         public List<String> getGenres() {

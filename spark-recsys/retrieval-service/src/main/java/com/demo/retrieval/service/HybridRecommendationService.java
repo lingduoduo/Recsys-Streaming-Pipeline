@@ -6,6 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.service.candidate_hydrators.CandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,7 +65,10 @@ public class HybridRecommendationService {
         Set<String> blockedUsers,
         Set<String> mutedProductTypes,
         Set<String> mutedGenres,
-        Set<String> mutedKeywords) {}
+        Set<String> mutedKeywords,
+        Set<String> mutedLanguageCodes,
+        Set<String> blockedVisibilityReasons,
+        boolean dropAncillaryCandidates) {}
 
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
     // tags+keywords merged into allKeywords so intersection checks need no per-call allocation).
@@ -74,12 +82,6 @@ public class HybridRecommendationService {
     private record CatalogCache(
         Map<String, MovieProfile> source,
         Map<String, NormalizedProfile> normalized) {}
-
-    private record MovieCandidate(
-        String movieId,
-        double popularityScore,
-        double contentScore,
-        boolean coldStartSource) {}
 
     private record CandidatePipelineContext(
         ScoredMoviesQuery query,
@@ -114,15 +116,6 @@ public class HybridRecommendationService {
 
         default String name() {
             return getClass().getSimpleName();
-        }
-    }
-
-    @FunctionalInterface
-    private interface CandidateHydrator {
-        List<MovieCandidate> hydrate(CandidatePipelineContext context, List<MovieCandidate> candidates);
-
-        default boolean enable(CandidatePipelineContext context) {
-            return true;
         }
     }
 
@@ -495,7 +488,11 @@ public class HybridRecommendationService {
             this::fetchPopularCandidates,
             this::fetchColdStartCandidates
         ));
-        List<MovieCandidate> hydrated = runCandidateHydrators(context, retrieved, List.of());
+        List<MovieCandidate> hydrated = runCandidateHydrators(context, retrieved, List.of(
+            new CoreDataCandidateHydrator(properties.getCatalog()),
+            new LanguageCodeCandidateHydrator(properties.getCatalog()),
+            new VisibilityFilteringCandidateHydrator(properties.getCatalog())
+        ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
         CandidateSelectResult selectResult = selectCandidates(context, scored, this::selectDistinctCandidates);
@@ -517,8 +514,8 @@ public class HybridRecommendationService {
     ) {
         List<MovieCandidate> current = candidates;
         for (CandidateHydrator hydrator : hydrators) {
-            if (hydrator.enable(context)) {
-                current = hydrator.hydrate(context, current);
+            if (hydrator.enable(context.query())) {
+                current = hydrator.hydrate(context.query(), current);
             }
         }
         return current;
@@ -590,7 +587,7 @@ public class HybridRecommendationService {
     private CandidateFilterResult filterEligibleCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
         Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
             .collect(Collectors.partitioningBy(candidate ->
-                isEligibleCandidate(candidate.movieId(), context.excludedItems(), context.filterCtx())));
+                isEligibleCandidate(candidate, context.excludedItems(), context.filterCtx())));
         return new CandidateFilterResult(
             partitioned.getOrDefault(Boolean.TRUE, List.of()),
             partitioned.getOrDefault(Boolean.FALSE, List.of())
@@ -615,7 +612,17 @@ public class HybridRecommendationService {
             left.movieId(),
             Math.max(left.popularityScore(), right.popularityScore()),
             Math.max(left.contentScore(), right.contentScore()),
-            left.coldStartSource() || right.coldStartSource()
+            left.coldStartSource() || right.coldStartSource(),
+            firstNonBlank(left.ownerId(), right.ownerId()),
+            firstNonBlank(left.sourceUserId(), right.sourceUserId()),
+            firstNonBlank(left.sourceMovieId(), right.sourceMovieId()),
+            firstNonBlank(left.inReplyToMovieId(), right.inReplyToMovieId()),
+            firstNonBlank(left.coreDataText(), right.coreDataText()),
+            firstNonBlank(left.languageCode(), right.languageCode()),
+            firstNonBlank(left.visibilityReason(), right.visibilityReason()),
+            left.dropAncillaryMovies() || right.dropAncillaryMovies(),
+            firstNonEmpty(left.ancestorMovieIds(), right.ancestorMovieIds()),
+            firstNonBlank(left.quotedMovieId(), right.quotedMovieId())
         );
     }
 
@@ -725,13 +732,16 @@ public class HybridRecommendationService {
     private FilterContext buildFilterContext() {
         Filtering f = properties.getFiltering();
         if (!f.isEnabled()) {
-            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of());
+            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), false);
         }
         return new FilterContext(
             normalize(f.getBlockedUsers()),
             normalize(f.getMutedProductTypes()),
             normalize(f.getMutedGenres()),
-            normalize(f.getMutedKeywords())
+            normalize(f.getMutedKeywords()),
+            normalize(f.getMutedLanguageCodes()),
+            normalize(f.getBlockedVisibilityReasons()),
+            f.isDropAncillaryCandidates()
         );
     }
 
@@ -768,6 +778,31 @@ public class HybridRecommendationService {
             return false;
         }
         return filterCtx.mutedKeywords().stream().noneMatch(k -> !k.isBlank() && profile.title().contains(k));
+    }
+
+    private boolean isEligibleCandidate(MovieCandidate candidate, Set<String> recentItems, FilterContext filterCtx) {
+        if (!isEligibleCandidate(candidate.movieId(), recentItems, filterCtx)) {
+            return false;
+        }
+        if (filterCtx.mutedKeywords().isEmpty()) {
+            return true;
+        }
+        String coreDataText = normalizeValue(candidate.coreDataText());
+        if (!coreDataText.isBlank()
+            && filterCtx.mutedKeywords().stream().anyMatch(k -> !k.isBlank() && coreDataText.contains(k))) {
+            return false;
+        }
+        String languageCode = normalizeValue(candidate.languageCode());
+        if (!languageCode.isBlank() && filterCtx.mutedLanguageCodes().contains(languageCode)) {
+            return false;
+        }
+        String visibilityReason = normalizeValue(candidate.visibilityReason());
+        if (!visibilityReason.isBlank()
+            && (filterCtx.blockedVisibilityReasons().contains("*")
+                || filterCtx.blockedVisibilityReasons().contains(visibilityReason))) {
+            return false;
+        }
+        return !filterCtx.dropAncillaryCandidates() || !candidate.dropAncillaryMovies();
     }
 
     private ScoredCandidate scoreCandidate(
@@ -1374,6 +1409,10 @@ public class HybridRecommendationService {
             }
         }
         return List.of();
+    }
+
+    private String firstNonBlank(String left, String right) {
+        return normalizeValue(left).isBlank() ? right : left;
     }
 
     private String normalizeValue(String value) {
