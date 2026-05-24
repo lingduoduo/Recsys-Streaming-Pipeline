@@ -1,23 +1,25 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.query_hydrators;
+
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
 @Component
-public class UserMovieFeaturesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class UserInferredGenderQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public UserMovieFeaturesQueryHydrator(MovieLensFeatureClient featureClient) {
+    public UserInferredGenderQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        MovieLensUserFeatures userFeatures = featureClient.getUserFeatures(userId)
+        MovieLensUserFeatures fetched = featureClient.getUserFeatures(userId)
             .orElseGet(() -> MovieLensUserFeatures.forUser(userId));
         return new ScoredMoviesQuery(
             userId,
-            userFeatures,
+            query.userFeatures().withInferredGender(fetched.inferredGender(), fetched.inferredGenderScore()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -28,7 +30,10 @@ public class UserMovieFeaturesQueryHydrator implements QueryHydrator<ScoredMovie
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            hydrated.userFeatures(),
+            query.userFeatures().withInferredGender(
+                hydrated.userFeatures().inferredGender(),
+                hydrated.userFeatures().inferredGenderScore()
+            ),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
