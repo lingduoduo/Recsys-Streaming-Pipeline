@@ -211,7 +211,13 @@ class HybridRecommendationServiceTest {
         blockedVisibility.setVisibilityReason("safety_drop");
         MovieProfile ancillaryDrop = movie(List.of("drama"), List.of("reply"), false);
         ancillaryDrop.setAncestorMovieIds(List.of("blocked_visibility"));
+        MovieProfile quotedBlocked = movie(List.of("drama"), List.of("quote"), false);
+        quotedBlocked.setQuotedAuthorBlocksViewer(true);
+        quotedBlocked.setHasMedia(true);
+        MovieProfile noMedia = movie(List.of("drama"), List.of("plain"), false);
+        noMedia.setHasMedia(false);
         MovieProfile allowed = movie(List.of("sci-fi"), List.of("fresh"), true);
+        allowed.setHasMedia(true);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
         catalog.put("recent", movie(List.of("action"), List.of("seen"), false));
         catalog.put("expired", expired);
@@ -221,6 +227,8 @@ class HybridRecommendationServiceTest {
         catalog.put("muted_language", mutedLanguage);
         catalog.put("blocked_visibility", blockedVisibility);
         catalog.put("ancillary_drop", ancillaryDrop);
+        catalog.put("quoted_blocked", quotedBlocked);
+        catalog.put("no_media", noMedia);
         catalog.put("allowed", allowed);
         properties.setCatalog(catalog);
         properties.getFiltering().setBlockedUsers(List.of("blocked_user"));
@@ -229,6 +237,8 @@ class HybridRecommendationServiceTest {
         properties.getFiltering().setMutedLanguageCodes(List.of("es"));
         properties.getFiltering().setBlockedVisibilityReasons(List.of("safety_drop"));
         properties.getFiltering().setDropAncillaryCandidates(true);
+        properties.getFiltering().setDropBlockedQuotes(true);
+        properties.getFiltering().setRequireMediaCandidates(true);
 
         RecommendationResult blocked = service.recommend("blocked_user", 3);
         assertTrue(blocked.recommendations().isEmpty());
@@ -245,6 +255,8 @@ class HybridRecommendationServiceTest {
                 new DefaultTypedTuple<>("muted_language", 64.0),
                 new DefaultTypedTuple<>("blocked_visibility", 63.0),
                 new DefaultTypedTuple<>("ancillary_drop", 62.0),
+                new DefaultTypedTuple<>("quoted_blocked", 61.0),
+                new DefaultTypedTuple<>("no_media", 60.5),
                 new DefaultTypedTuple<>("allowed", 60.0),
                 new DefaultTypedTuple<>("allowed", 50.0)
             )));
@@ -301,6 +313,41 @@ class HybridRecommendationServiceTest {
 
         assertTrue(result.recommendations().contains("sci_fi_candidate"));
         assertFalse(result.recommendations().contains("recently_rated"));
+    }
+
+    @Test
+    void recommendPreRanksSubscribedAuthorCandidatesFromHydrator() {
+        properties.getCandidateGeneration().setCandidatePoolSize(1);
+
+        MovieProfile popular = movie(List.of("drama"), List.of("popular"), false);
+        MovieProfile subscribed = movie(List.of("drama"), List.of("creator"), false);
+        subscribed.setSubscriptionAuthorId("creator1");
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("popular", popular);
+        catalog.put("subscribed", subscribed);
+        properties.setCatalog(catalog);
+
+        when(listOps.range(eq("user:u_sub:recent"), eq(0L), anyLong())).thenReturn(List.of());
+        when(listOps.range(eq("user:u_sub:rated"), eq(0L), anyLong())).thenReturn(List.of());
+        when(hashOps.entries("user:u_sub:features")).thenReturn(Map.of("subscribedUserIds", "creator1"));
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                new DefaultTypedTuple<>("popular", 100.0),
+                new DefaultTypedTuple<>("subscribed", 99.0)
+            )));
+        when(valueOps.get("uEmb:u_sub")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:popular", "i2vEmb:subscribed" -> "1.0 0.0";
+                case "bandit:item:subscribed:impressions", "bandit:item:subscribed:clicks" -> "0";
+                default -> null;
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u_sub", 1);
+
+        assertEquals(List.of("subscribed"), result.recommendations());
     }
 
     @Test

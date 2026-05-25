@@ -8,8 +8,11 @@ import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.CandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import org.slf4j.Logger;
@@ -68,7 +71,9 @@ public class HybridRecommendationService {
         Set<String> mutedKeywords,
         Set<String> mutedLanguageCodes,
         Set<String> blockedVisibilityReasons,
-        boolean dropAncillaryCandidates) {}
+        boolean dropAncillaryCandidates,
+        boolean dropBlockedQuotes,
+        boolean requireMediaCandidates) {}
 
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
     // tags+keywords merged into allKeywords so intersection checks need no per-call allocation).
@@ -491,7 +496,10 @@ public class HybridRecommendationService {
         List<MovieCandidate> hydrated = runCandidateHydrators(context, retrieved, List.of(
             new CoreDataCandidateHydrator(properties.getCatalog()),
             new LanguageCodeCandidateHydrator(properties.getCatalog()),
-            new VisibilityFilteringCandidateHydrator(properties.getCatalog())
+            new VisibilityFilteringCandidateHydrator(properties.getCatalog()),
+            new QuoteCandidateHydrator(properties.getCatalog()),
+            new SubscriptionCandidateHydrator(properties.getCatalog()),
+            new HasMediaCandidateHydrator(properties.getCatalog())
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
@@ -622,7 +630,12 @@ public class HybridRecommendationService {
             firstNonBlank(left.visibilityReason(), right.visibilityReason()),
             left.dropAncillaryMovies() || right.dropAncillaryMovies(),
             firstNonEmpty(left.ancestorMovieIds(), right.ancestorMovieIds()),
-            firstNonBlank(left.quotedMovieId(), right.quotedMovieId())
+            firstNonBlank(left.quotedMovieId(), right.quotedMovieId()),
+            firstNonBlank(left.quotedOwnerId(), right.quotedOwnerId()),
+            firstNonNull(left.quotedAuthorBlocksViewer(), right.quotedAuthorBlocksViewer()),
+            firstNonNull(left.quotedVideoDurationMillis(), right.quotedVideoDurationMillis()),
+            firstNonBlank(left.subscriptionAuthorId(), right.subscriptionAuthorId()),
+            firstNonNull(left.hasMedia(), right.hasMedia())
         );
     }
 
@@ -694,10 +707,20 @@ public class HybridRecommendationService {
         double normContent = totalWeight == 0.0 ? 0.5 : contentWeight / totalWeight;
         return candidates.stream()
             .sorted(Comparator.comparingDouble(
-                (MovieCandidate c) -> normPop * c.popularityScore() + normContent * c.contentScore()
+                (MovieCandidate c) -> normPop * c.popularityScore()
+                    + normContent * c.contentScore()
+                    + subscriptionBoost(context, c)
             ).reversed())
             .limit(poolSize)
             .toList();
+    }
+
+    private double subscriptionBoost(CandidatePipelineContext context, MovieCandidate candidate) {
+        String subscriptionAuthorId = candidate.subscriptionAuthorId();
+        if (subscriptionAuthorId == null || subscriptionAuthorId.isBlank()) {
+            return 0.0;
+        }
+        return context.query().userFeatures().subscribedUserIds().contains(subscriptionAuthorId) ? 0.1 : 0.0;
     }
 
     private Map<String, NormalizedProfile> getNormalizedCatalog() {
@@ -732,7 +755,7 @@ public class HybridRecommendationService {
     private FilterContext buildFilterContext() {
         Filtering f = properties.getFiltering();
         if (!f.isEnabled()) {
-            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), false);
+            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), false, false, false);
         }
         return new FilterContext(
             normalize(f.getBlockedUsers()),
@@ -741,7 +764,9 @@ public class HybridRecommendationService {
             normalize(f.getMutedKeywords()),
             normalize(f.getMutedLanguageCodes()),
             normalize(f.getBlockedVisibilityReasons()),
-            f.isDropAncillaryCandidates()
+            f.isDropAncillaryCandidates(),
+            f.isDropBlockedQuotes(),
+            f.isRequireMediaCandidates()
         );
     }
 
@@ -784,11 +809,9 @@ public class HybridRecommendationService {
         if (!isEligibleCandidate(candidate.movieId(), recentItems, filterCtx)) {
             return false;
         }
-        if (filterCtx.mutedKeywords().isEmpty()) {
-            return true;
-        }
         String coreDataText = normalizeValue(candidate.coreDataText());
-        if (!coreDataText.isBlank()
+        if (!filterCtx.mutedKeywords().isEmpty()
+            && !coreDataText.isBlank()
             && filterCtx.mutedKeywords().stream().anyMatch(k -> !k.isBlank() && coreDataText.contains(k))) {
             return false;
         }
@@ -802,7 +825,13 @@ public class HybridRecommendationService {
                 || filterCtx.blockedVisibilityReasons().contains(visibilityReason))) {
             return false;
         }
-        return !filterCtx.dropAncillaryCandidates() || !candidate.dropAncillaryMovies();
+        if (filterCtx.dropAncillaryCandidates() && candidate.dropAncillaryMovies()) {
+            return false;
+        }
+        if (filterCtx.dropBlockedQuotes() && Boolean.TRUE.equals(candidate.quotedAuthorBlocksViewer())) {
+            return false;
+        }
+        return !filterCtx.requireMediaCandidates() || Boolean.TRUE.equals(candidate.hasMedia());
     }
 
     private ScoredCandidate scoreCandidate(
@@ -1413,6 +1442,10 @@ public class HybridRecommendationService {
 
     private String firstNonBlank(String left, String right) {
         return normalizeValue(left).isBlank() ? right : left;
+    }
+
+    private <T> T firstNonNull(T left, T right) {
+        return left == null ? right : left;
     }
 
     private String normalizeValue(String value) {

@@ -167,6 +167,8 @@ public class RecommendationProperties {
         private List<String> mutedLanguageCodes = new ArrayList<>();
         private List<String> blockedVisibilityReasons = new ArrayList<>();
         private boolean dropAncillaryCandidates = true;
+        private boolean dropBlockedQuotes = true;
+        private boolean requireMediaCandidates;
 
         public boolean isEnabled() {
             return enabled;
@@ -230,6 +232,22 @@ public class RecommendationProperties {
 
         public void setDropAncillaryCandidates(boolean dropAncillaryCandidates) {
             this.dropAncillaryCandidates = dropAncillaryCandidates;
+        }
+
+        public boolean isDropBlockedQuotes() {
+            return dropBlockedQuotes;
+        }
+
+        public void setDropBlockedQuotes(boolean dropBlockedQuotes) {
+            this.dropBlockedQuotes = dropBlockedQuotes;
+        }
+
+        public boolean isRequireMediaCandidates() {
+            return requireMediaCandidates;
+        }
+
+        public void setRequireMediaCandidates(boolean requireMediaCandidates) {
+            this.requireMediaCandidates = requireMediaCandidates;
         }
     }
 
@@ -435,6 +453,11 @@ public class RecommendationProperties {
         private boolean dropAncillaryMovies;
         private List<String> ancestorMovieIds = new ArrayList<>();
         private String quotedMovieId;
+        private String quotedOwnerId;
+        private Boolean quotedAuthorBlocksViewer;
+        private Integer quotedVideoDurationMillis;
+        private String subscriptionAuthorId;
+        private Boolean hasMedia;
         private List<String> genres = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
         private List<String> keywords = new ArrayList<>();
@@ -535,6 +558,46 @@ public class RecommendationProperties {
 
         public void setQuotedMovieId(String quotedMovieId) {
             this.quotedMovieId = quotedMovieId;
+        }
+
+        public String getQuotedOwnerId() {
+            return quotedOwnerId;
+        }
+
+        public void setQuotedOwnerId(String quotedOwnerId) {
+            this.quotedOwnerId = quotedOwnerId;
+        }
+
+        public Boolean getQuotedAuthorBlocksViewer() {
+            return quotedAuthorBlocksViewer;
+        }
+
+        public void setQuotedAuthorBlocksViewer(Boolean quotedAuthorBlocksViewer) {
+            this.quotedAuthorBlocksViewer = quotedAuthorBlocksViewer;
+        }
+
+        public Integer getQuotedVideoDurationMillis() {
+            return quotedVideoDurationMillis;
+        }
+
+        public void setQuotedVideoDurationMillis(Integer quotedVideoDurationMillis) {
+            this.quotedVideoDurationMillis = quotedVideoDurationMillis;
+        }
+
+        public String getSubscriptionAuthorId() {
+            return subscriptionAuthorId;
+        }
+
+        public void setSubscriptionAuthorId(String subscriptionAuthorId) {
+            this.subscriptionAuthorId = subscriptionAuthorId;
+        }
+
+        public Boolean getHasMedia() {
+            return hasMedia;
+        }
+
+        public void setHasMedia(Boolean hasMedia) {
+            this.hasMedia = hasMedia;
         }
 
         public List<String> getGenres() {
