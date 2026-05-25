@@ -3,8 +3,12 @@ package com.demo.retrieval.service;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.FilteredTopicsCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.InNetworkCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandidateHydrator;
@@ -151,6 +155,75 @@ class CandidateHydratorsTest {
             .get(0);
 
         assertEquals(0.75, hydrated.mutualFollowJaccard());
+    }
+
+    @Test
+    void engagementCountsHydratorCopiesCountsOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setFavoriteCount(10L);
+        profile.setReplyCount(2L);
+        profile.setRepostCount(3L);
+        profile.setQuoteCount(4L);
+
+        MovieCandidate hydrated = new EngagementCountsCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals(10L, hydrated.favoriteCount());
+        assertEquals(2L, hydrated.replyCount());
+        assertEquals(3L, hydrated.repostCount());
+        assertEquals(4L, hydrated.quoteCount());
+    }
+
+    @Test
+    void filteredTopicsHydratorCopiesTopicIdsOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setFilteredTopicIds(List.of(101, 202));
+        profile.setUnfilteredTopicIds(List.of(303));
+
+        MovieCandidate hydrated = new FilteredTopicsCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals(List.of(101, 202), hydrated.filteredTopicIds());
+        assertEquals(List.of(303), hydrated.unfilteredTopicIds());
+    }
+
+    @Test
+    void inNetworkHydratorUsesExplicitFlagOrFollowedOwner() {
+        MovieProfile explicit = new MovieProfile();
+        explicit.setInNetwork(true);
+        MovieProfile inferred = new MovieProfile();
+        inferred.setOwnerId("friend-1");
+        ScoredMoviesQuery query = new ScoredMoviesQuery(
+            "u1",
+            MovieLensUserFeatures.forUser("u1").withFollowedUserIds(List.of("friend-1")),
+            List.of(),
+            List.of(),
+            List.of()
+        );
+
+        List<MovieCandidate> hydrated = new InNetworkCandidateHydrator(Map.of("explicit", explicit, "inferred", inferred))
+            .hydrate(query, List.of(candidate("explicit"), candidate("inferred")));
+
+        assertTrue(hydrated.get(0).inNetwork());
+        assertTrue(hydrated.get(1).inNetwork());
+    }
+
+    @Test
+    void gizmoduckHydratorCopiesAuthorMetadataOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setAuthorFollowersCount(1234);
+        profile.setAuthorScreenName("author");
+        profile.setRetweetedScreenName("retweet_author");
+
+        MovieCandidate hydrated = new GizmoduckCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals(1234, hydrated.authorFollowersCount());
+        assertEquals("author", hydrated.authorScreenName());
+        assertEquals("retweet_author", hydrated.retweetedScreenName());
     }
 
     private MovieCandidate candidate(String id) {

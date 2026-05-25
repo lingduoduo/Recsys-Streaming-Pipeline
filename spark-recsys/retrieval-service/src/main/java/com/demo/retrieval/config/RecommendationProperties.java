@@ -470,6 +470,16 @@ public class RecommendationProperties {
         private Boolean authorBlocksViewer;
         private List<String> followingRepliedUserIds = new ArrayList<>();
         private Double mutualFollowJaccard;
+        private Long favoriteCount;
+        private Long replyCount;
+        private Long repostCount;
+        private Long quoteCount;
+        private List<Integer> filteredTopicIds = new ArrayList<>();
+        private List<Integer> unfilteredTopicIds = new ArrayList<>();
+        private Boolean inNetwork;
+        private Integer authorFollowersCount;
+        private String authorScreenName;
+        private String retweetedScreenName;
         private List<String> genres = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
         private List<String> keywords = new ArrayList<>();
@@ -634,6 +644,86 @@ public class RecommendationProperties {
 
         public void setMutualFollowJaccard(Double mutualFollowJaccard) {
             this.mutualFollowJaccard = mutualFollowJaccard;
+        }
+
+        public Long getFavoriteCount() {
+            return favoriteCount;
+        }
+
+        public void setFavoriteCount(Long favoriteCount) {
+            this.favoriteCount = favoriteCount;
+        }
+
+        public Long getReplyCount() {
+            return replyCount;
+        }
+
+        public void setReplyCount(Long replyCount) {
+            this.replyCount = replyCount;
+        }
+
+        public Long getRepostCount() {
+            return repostCount;
+        }
+
+        public void setRepostCount(Long repostCount) {
+            this.repostCount = repostCount;
+        }
+
+        public Long getQuoteCount() {
+            return quoteCount;
+        }
+
+        public void setQuoteCount(Long quoteCount) {
+            this.quoteCount = quoteCount;
+        }
+
+        public List<Integer> getFilteredTopicIds() {
+            return filteredTopicIds;
+        }
+
+        public void setFilteredTopicIds(List<Integer> filteredTopicIds) {
+            this.filteredTopicIds = filteredTopicIds;
+        }
+
+        public List<Integer> getUnfilteredTopicIds() {
+            return unfilteredTopicIds;
+        }
+
+        public void setUnfilteredTopicIds(List<Integer> unfilteredTopicIds) {
+            this.unfilteredTopicIds = unfilteredTopicIds;
+        }
+
+        public Boolean getInNetwork() {
+            return inNetwork;
+        }
+
+        public void setInNetwork(Boolean inNetwork) {
+            this.inNetwork = inNetwork;
+        }
+
+        public Integer getAuthorFollowersCount() {
+            return authorFollowersCount;
+        }
+
+        public void setAuthorFollowersCount(Integer authorFollowersCount) {
+            this.authorFollowersCount = authorFollowersCount;
+        }
+
+        public String getAuthorScreenName() {
+            return authorScreenName;
+        }
+
+        public void setAuthorScreenName(String authorScreenName) {
+            this.authorScreenName = authorScreenName;
+        }
+
+        public String getRetweetedScreenName() {
+            return retweetedScreenName;
+        }
+
+        public void setRetweetedScreenName(String retweetedScreenName) {
+            this.retweetedScreenName = retweetedScreenName;
         }
 
         public List<String> getGenres() {

@@ -392,6 +392,45 @@ class HybridRecommendationServiceTest {
     }
 
     @Test
+    void recommendPreRanksContextHydratedCandidates() {
+        properties.getCandidateGeneration().setCandidatePoolSize(1);
+
+        MovieProfile popular = movie(List.of("drama"), List.of("popular"), false);
+        MovieProfile contextual = movie(List.of("drama"), List.of("contextual"), false);
+        contextual.setFavoriteCount(1_000L);
+        contextual.setReplyCount(100L);
+        contextual.setFilteredTopicIds(List.of(42));
+        contextual.setInNetwork(true);
+        contextual.setAuthorFollowersCount(100_000);
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("popular", popular);
+        catalog.put("contextual", contextual);
+        properties.setCatalog(catalog);
+
+        when(listOps.range(eq("user:u_context:recent"), eq(0L), anyLong())).thenReturn(List.of());
+        when(listOps.range(eq("user:u_context:rated"), eq(0L), anyLong())).thenReturn(List.of());
+        when(hashOps.entries("user:u_context:features")).thenReturn(Map.of("followedGrokTopics", "42"));
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                new DefaultTypedTuple<>("popular", 100.0),
+                new DefaultTypedTuple<>("contextual", 99.0)
+            )));
+        when(valueOps.get("uEmb:u_context")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:popular", "i2vEmb:contextual" -> "1.0 0.0";
+                case "bandit:item:contextual:impressions", "bandit:item:contextual:clicks" -> "0";
+                default -> null;
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u_context", 1);
+
+        assertEquals(List.of("contextual"), result.recommendations());
+    }
+
+    @Test
     void coldStartGenerationFetchesImpressionsOnlyForBoundedProbeSet() {
         properties.getCandidateGeneration().setColdStartPoolSize(2);
         properties.getCandidateGeneration().setPopularityFetchMultiplier(3);
