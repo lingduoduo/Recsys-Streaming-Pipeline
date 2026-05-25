@@ -222,6 +222,12 @@ class HybridRecommendationServiceTest {
         MovieProfile relatedSeen = movie(List.of("drama"), List.of("related-seen"), false);
         relatedSeen.setSourceMovieId("recent");
         relatedSeen.setHasMedia(true);
+        MovieProfile mutedOwner = movie(List.of("drama"), List.of("muted-owner"), false);
+        mutedOwner.setOwnerId("muted_owner");
+        mutedOwner.setHasMedia(true);
+        MovieProfile blockedQuoteOwner = movie(List.of("drama"), List.of("blocked-quote"), false);
+        blockedQuoteOwner.setQuotedOwnerId("blocked_quote_owner");
+        blockedQuoteOwner.setHasMedia(true);
         MovieProfile allowed = movie(List.of("sci-fi"), List.of("fresh"), true);
         allowed.setHasMedia(true);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
@@ -237,6 +243,8 @@ class HybridRecommendationServiceTest {
         catalog.put("no_media", noMedia);
         catalog.put("blocked_author", blockedAuthor);
         catalog.put("related_seen", relatedSeen);
+        catalog.put("muted_owner", mutedOwner);
+        catalog.put("blocked_quote_owner", blockedQuoteOwner);
         catalog.put("allowed", allowed);
         properties.setCatalog(catalog);
         properties.getFiltering().setBlockedUsers(List.of("blocked_user"));
@@ -254,6 +262,10 @@ class HybridRecommendationServiceTest {
         assertEquals("blocked_user", blocked.metrics().get("filterReason"));
 
         when(listOps.range(eq("user:u2:recent"), eq(0L), anyLong())).thenReturn(List.of("recent"));
+        when(hashOps.entries("user:u2:features")).thenReturn(Map.of(
+            "mutedUserIds", "muted_owner",
+            "blockedUserIds", "blocked_quote_owner"
+        ));
         when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
             .thenReturn(new LinkedHashSet<>(List.of(
                 new DefaultTypedTuple<>("recent", 100.0),
@@ -268,6 +280,8 @@ class HybridRecommendationServiceTest {
                 new DefaultTypedTuple<>("no_media", 60.5),
                 new DefaultTypedTuple<>("blocked_author", 60.25),
                 new DefaultTypedTuple<>("related_seen", 60.1),
+                new DefaultTypedTuple<>("muted_owner", 60.09),
+                new DefaultTypedTuple<>("blocked_quote_owner", 60.08),
                 new DefaultTypedTuple<>("allowed", 60.0),
                 new DefaultTypedTuple<>("allowed", 50.0)
             )));

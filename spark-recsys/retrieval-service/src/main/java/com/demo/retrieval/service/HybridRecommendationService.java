@@ -21,6 +21,8 @@ import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandida
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
+import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
+import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
 import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
@@ -523,6 +525,8 @@ public class HybridRecommendationService {
             historyFilter(new PreviouslySeenMoviesFilter()),
             historyFilter(new PreviouslySeenMoviesBackupFilter()),
             historyFilter(new PreviouslyServedMoviesFilter()),
+            historyFilter(new AuthorSocialgraphFilter()),
+            historyFilter(new NewUserTopicIdsFilter()),
             this::filterEligibleCandidates
         ));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
@@ -626,9 +630,17 @@ public class HybridRecommendationService {
     }
 
     private CandidateFilter historyFilter(com.demo.retrieval.service.filters.CandidateFilter filter) {
-        return (context, candidates) -> {
-            com.demo.retrieval.service.filters.CandidateFilterResult result = filter.filter(context.query(), candidates);
-            return new CandidateFilterResult(result.kept(), result.removed());
+        return new CandidateFilter() {
+            @Override
+            public CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates) {
+                com.demo.retrieval.service.filters.CandidateFilterResult result = filter.filter(context.query(), candidates);
+                return new CandidateFilterResult(result.kept(), result.removed());
+            }
+
+            @Override
+            public boolean enable(CandidatePipelineContext context) {
+                return filter.enable(context.query());
+            }
         };
     }
 
