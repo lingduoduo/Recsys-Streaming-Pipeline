@@ -228,6 +228,9 @@ class HybridRecommendationServiceTest {
         MovieProfile blockedQuoteOwner = movie(List.of("drama"), List.of("blocked-quote"), false);
         blockedQuoteOwner.setQuotedOwnerId("blocked_quote_owner");
         blockedQuoteOwner.setHasMedia(true);
+        MovieProfile selfAuthored = movie(List.of("drama"), List.of("self-authored"), false);
+        selfAuthored.setOwnerId("u2");
+        selfAuthored.setHasMedia(true);
         MovieProfile allowed = movie(List.of("sci-fi"), List.of("fresh"), true);
         allowed.setHasMedia(true);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
@@ -245,6 +248,7 @@ class HybridRecommendationServiceTest {
         catalog.put("related_seen", relatedSeen);
         catalog.put("muted_owner", mutedOwner);
         catalog.put("blocked_quote_owner", blockedQuoteOwner);
+        catalog.put("self_authored", selfAuthored);
         catalog.put("allowed", allowed);
         properties.setCatalog(catalog);
         properties.getFiltering().setBlockedUsers(List.of("blocked_user"));
@@ -282,6 +286,7 @@ class HybridRecommendationServiceTest {
                 new DefaultTypedTuple<>("related_seen", 60.1),
                 new DefaultTypedTuple<>("muted_owner", 60.09),
                 new DefaultTypedTuple<>("blocked_quote_owner", 60.08),
+                new DefaultTypedTuple<>("self_authored", 60.07),
                 new DefaultTypedTuple<>("allowed", 60.0),
                 new DefaultTypedTuple<>("allowed", 50.0)
             )));

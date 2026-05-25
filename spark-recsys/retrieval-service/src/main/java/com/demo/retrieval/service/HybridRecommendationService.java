@@ -22,10 +22,15 @@ import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
 import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
+import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
 import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
+import com.demo.retrieval.service.filters.SelfMovieFilter;
+import com.demo.retrieval.service.filters.TopicIdsFilter;
+import com.demo.retrieval.service.filters.VFFilter;
+import com.demo.retrieval.service.filters.VideoFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -522,11 +527,16 @@ public class HybridRecommendationService {
             new GizmoduckCandidateHydrator(properties.getCatalog())
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(
+            historyFilter(new TopicIdsFilter()),
+            historyFilter(new VideoFilter()),
             historyFilter(new PreviouslySeenMoviesFilter()),
             historyFilter(new PreviouslySeenMoviesBackupFilter()),
             historyFilter(new PreviouslyServedMoviesFilter()),
+            historyFilter(new SelfMovieFilter()),
             historyFilter(new AuthorSocialgraphFilter()),
             historyFilter(new NewUserTopicIdsFilter()),
+            mutedKeywordFilter(),
+            historyFilter(new VFFilter()),
             this::filterEligibleCandidates
         ));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
@@ -640,6 +650,22 @@ public class HybridRecommendationService {
             @Override
             public boolean enable(CandidatePipelineContext context) {
                 return filter.enable(context.query());
+            }
+        };
+    }
+
+    private CandidateFilter mutedKeywordFilter() {
+        return new CandidateFilter() {
+            @Override
+            public CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates) {
+                com.demo.retrieval.service.filters.CandidateFilterResult result =
+                    new MutedKeywordFilter(context.filterCtx().mutedKeywords()).filter(context.query(), candidates);
+                return new CandidateFilterResult(result.kept(), result.removed());
+            }
+
+            @Override
+            public boolean enable(CandidatePipelineContext context) {
+                return !context.filterCtx().mutedKeywords().isEmpty();
             }
         };
     }
