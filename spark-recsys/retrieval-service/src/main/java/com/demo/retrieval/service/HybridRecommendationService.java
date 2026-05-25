@@ -21,6 +21,9 @@ import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandida
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
+import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
+import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
+import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -516,7 +519,12 @@ public class HybridRecommendationService {
             new InNetworkCandidateHydrator(properties.getCatalog()),
             new GizmoduckCandidateHydrator(properties.getCatalog())
         ));
-        CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
+        CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(
+            historyFilter(new PreviouslySeenMoviesFilter()),
+            historyFilter(new PreviouslySeenMoviesBackupFilter()),
+            historyFilter(new PreviouslyServedMoviesFilter()),
+            this::filterEligibleCandidates
+        ));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
         CandidateSelectResult selectResult = selectCandidates(context, scored, this::selectDistinctCandidates);
         runCandidateSideEffects(context, selectResult.selected(), selectResult.nonSelected(), List.of());
@@ -615,6 +623,13 @@ public class HybridRecommendationService {
             partitioned.getOrDefault(Boolean.TRUE, List.of()),
             partitioned.getOrDefault(Boolean.FALSE, List.of())
         );
+    }
+
+    private CandidateFilter historyFilter(com.demo.retrieval.service.filters.CandidateFilter filter) {
+        return (context, candidates) -> {
+            com.demo.retrieval.service.filters.CandidateFilterResult result = filter.filter(context.query(), candidates);
+            return new CandidateFilterResult(result.kept(), result.removed());
+        };
     }
 
     private CandidateSelectResult selectDistinctCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
