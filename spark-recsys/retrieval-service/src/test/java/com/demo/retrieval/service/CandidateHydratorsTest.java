@@ -2,8 +2,11 @@ package com.demo.retrieval.service;
 
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
 import org.junit.jupiter.api.Test;
 
@@ -67,6 +70,48 @@ class CandidateHydratorsTest {
         assertEquals("primary_drop", hydrated.visibilityReason());
         assertEquals(List.of("ancestor-1"), hydrated.ancestorMovieIds());
         assertTrue(hydrated.dropAncillaryMovies());
+    }
+
+    @Test
+    void quoteHydratorCopiesQuoteMetadataOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setQuotedMovieId("quote-1");
+        profile.setQuotedOwnerId("author-1");
+        profile.setQuotedAuthorBlocksViewer(true);
+        profile.setQuotedVideoDurationMillis(1200);
+
+        MovieCandidate hydrated = new QuoteCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals("quote-1", hydrated.quotedMovieId());
+        assertEquals("author-1", hydrated.quotedOwnerId());
+        assertTrue(hydrated.quotedAuthorBlocksViewer());
+        assertEquals(1200, hydrated.quotedVideoDurationMillis());
+    }
+
+    @Test
+    void subscriptionHydratorCopiesSubscriptionAuthorOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setSubscriptionAuthorId("creator-1");
+
+        MovieCandidate hydrated = new SubscriptionCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals("creator-1", hydrated.subscriptionAuthorId());
+    }
+
+    @Test
+    void hasMediaHydratorCopiesMediaFlagOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setHasMedia(true);
+
+        MovieCandidate hydrated = new HasMediaCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertTrue(hydrated.hasMedia());
     }
 
     private MovieCandidate candidate(String id) {

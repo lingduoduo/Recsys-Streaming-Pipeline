@@ -16,7 +16,12 @@ public record MovieCandidate(
     String visibilityReason,
     boolean dropAncillaryMovies,
     List<String> ancestorMovieIds,
-    String quotedMovieId
+    String quotedMovieId,
+    String quotedOwnerId,
+    Boolean quotedAuthorBlocksViewer,
+    Integer quotedVideoDurationMillis,
+    String subscriptionAuthorId,
+    Boolean hasMedia
 ) {
     public MovieCandidate {
         ancestorMovieIds = ancestorMovieIds == null ? List.of() : List.copyOf(ancestorMovieIds);
@@ -28,7 +33,7 @@ public record MovieCandidate(
         double contentScore,
         boolean coldStartSource
     ) {
-        this(movieId, popularityScore, contentScore, coldStartSource, null, null, null, null, null, null, null, false, List.of(), null);
+        this(movieId, popularityScore, contentScore, coldStartSource, null, null, null, null, null, null, null, false, List.of(), null, null, null, null, null, null);
     }
 
     public MovieCandidate withCoreData(
@@ -52,7 +57,12 @@ public record MovieCandidate(
             visibilityReason,
             dropAncillaryMovies,
             ancestorMovieIds,
-            quotedMovieId
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia
         );
     }
 
@@ -71,7 +81,12 @@ public record MovieCandidate(
             visibilityReason,
             dropAncillaryMovies,
             ancestorMovieIds,
-            quotedMovieId
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia
         );
     }
 
@@ -95,7 +110,89 @@ public record MovieCandidate(
             visibilityReason,
             dropAncillaryMovies,
             ancestorMovieIds,
-            quotedMovieId
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia
+        );
+    }
+
+    public MovieCandidate withQuote(
+        String quotedMovieId,
+        String quotedOwnerId,
+        Boolean quotedAuthorBlocksViewer,
+        Integer quotedVideoDurationMillis
+    ) {
+        return new MovieCandidate(
+            movieId,
+            popularityScore,
+            contentScore,
+            coldStartSource,
+            ownerId,
+            sourceUserId,
+            sourceMovieId,
+            inReplyToMovieId,
+            coreDataText,
+            languageCode,
+            visibilityReason,
+            dropAncillaryMovies,
+            ancestorMovieIds,
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia
+        );
+    }
+
+    public MovieCandidate withSubscriptionAuthorId(String subscriptionAuthorId) {
+        return new MovieCandidate(
+            movieId,
+            popularityScore,
+            contentScore,
+            coldStartSource,
+            ownerId,
+            sourceUserId,
+            sourceMovieId,
+            inReplyToMovieId,
+            coreDataText,
+            languageCode,
+            visibilityReason,
+            dropAncillaryMovies,
+            ancestorMovieIds,
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia
+        );
+    }
+
+    public MovieCandidate withHasMedia(Boolean hasMedia) {
+        return new MovieCandidate(
+            movieId,
+            popularityScore,
+            contentScore,
+            coldStartSource,
+            ownerId,
+            sourceUserId,
+            sourceMovieId,
+            inReplyToMovieId,
+            coreDataText,
+            languageCode,
+            visibilityReason,
+            dropAncillaryMovies,
+            ancestorMovieIds,
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia
         );
     }
 }
