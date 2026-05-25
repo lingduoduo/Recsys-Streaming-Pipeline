@@ -39,6 +39,7 @@ recsys:
     drop-ancillary-candidates: ${RECSYS_DROP_ANCILLARY_CANDIDATES:true}
     drop-blocked-quotes: ${RECSYS_DROP_BLOCKED_QUOTES:true}
     require-media-candidates: ${RECSYS_REQUIRE_MEDIA_CANDIDATES:false}
+    drop-authors-blocking-viewer: ${RECSYS_DROP_AUTHORS_BLOCKING_VIEWER:true}
   bandit:
     algorithm: ${RECSYS_BANDIT_ALGORITHM:ucb}
     exploration-alpha: ${RECSYS_EXPLORATION_ALPHA:0.75}

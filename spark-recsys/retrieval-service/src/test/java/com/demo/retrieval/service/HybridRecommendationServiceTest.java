@@ -216,6 +216,9 @@ class HybridRecommendationServiceTest {
         quotedBlocked.setHasMedia(true);
         MovieProfile noMedia = movie(List.of("drama"), List.of("plain"), false);
         noMedia.setHasMedia(false);
+        MovieProfile blockedAuthor = movie(List.of("drama"), List.of("blocked-author"), false);
+        blockedAuthor.setAuthorBlocksViewer(true);
+        blockedAuthor.setHasMedia(true);
         MovieProfile allowed = movie(List.of("sci-fi"), List.of("fresh"), true);
         allowed.setHasMedia(true);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
@@ -229,6 +232,7 @@ class HybridRecommendationServiceTest {
         catalog.put("ancillary_drop", ancillaryDrop);
         catalog.put("quoted_blocked", quotedBlocked);
         catalog.put("no_media", noMedia);
+        catalog.put("blocked_author", blockedAuthor);
         catalog.put("allowed", allowed);
         properties.setCatalog(catalog);
         properties.getFiltering().setBlockedUsers(List.of("blocked_user"));
@@ -239,6 +243,7 @@ class HybridRecommendationServiceTest {
         properties.getFiltering().setDropAncillaryCandidates(true);
         properties.getFiltering().setDropBlockedQuotes(true);
         properties.getFiltering().setRequireMediaCandidates(true);
+        properties.getFiltering().setDropAuthorsBlockingViewer(true);
 
         RecommendationResult blocked = service.recommend("blocked_user", 3);
         assertTrue(blocked.recommendations().isEmpty());
@@ -257,6 +262,7 @@ class HybridRecommendationServiceTest {
                 new DefaultTypedTuple<>("ancillary_drop", 62.0),
                 new DefaultTypedTuple<>("quoted_blocked", 61.0),
                 new DefaultTypedTuple<>("no_media", 60.5),
+                new DefaultTypedTuple<>("blocked_author", 60.25),
                 new DefaultTypedTuple<>("allowed", 60.0),
                 new DefaultTypedTuple<>("allowed", 50.0)
             )));
@@ -348,6 +354,41 @@ class HybridRecommendationServiceTest {
         RecommendationResult result = service.recommend("u_sub", 1);
 
         assertEquals(List.of("subscribed"), result.recommendations());
+    }
+
+    @Test
+    void recommendPreRanksMutualFollowJaccardCandidatesFromHydrator() {
+        properties.getCandidateGeneration().setCandidatePoolSize(1);
+
+        MovieProfile popular = movie(List.of("drama"), List.of("popular"), false);
+        MovieProfile mutual = movie(List.of("drama"), List.of("mutual"), false);
+        mutual.setMutualFollowJaccard(1.0);
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("popular", popular);
+        catalog.put("mutual", mutual);
+        properties.setCatalog(catalog);
+
+        when(listOps.range(eq("user:u_mutual:recent"), eq(0L), anyLong())).thenReturn(List.of());
+        when(listOps.range(eq("user:u_mutual:rated"), eq(0L), anyLong())).thenReturn(List.of());
+        when(hashOps.entries("user:u_mutual:features")).thenReturn(Map.of());
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                new DefaultTypedTuple<>("popular", 100.0),
+                new DefaultTypedTuple<>("mutual", 99.0)
+            )));
+        when(valueOps.get("uEmb:u_mutual")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:popular", "i2vEmb:mutual" -> "1.0 0.0";
+                case "bandit:item:mutual:impressions", "bandit:item:mutual:clicks" -> "0";
+                default -> null;
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u_mutual", 1);
+
+        assertEquals(List.of("mutual"), result.recommendations());
     }
 
     @Test

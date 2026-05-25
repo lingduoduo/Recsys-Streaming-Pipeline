@@ -21,10 +21,14 @@ public record MovieCandidate(
     Boolean quotedAuthorBlocksViewer,
     Integer quotedVideoDurationMillis,
     String subscriptionAuthorId,
-    Boolean hasMedia
+    Boolean hasMedia,
+    Boolean authorBlocksViewer,
+    List<String> followingRepliedUserIds,
+    Double mutualFollowJaccard
 ) {
     public MovieCandidate {
         ancestorMovieIds = ancestorMovieIds == null ? List.of() : List.copyOf(ancestorMovieIds);
+        followingRepliedUserIds = followingRepliedUserIds == null ? List.of() : List.copyOf(followingRepliedUserIds);
     }
 
     public MovieCandidate(
@@ -33,7 +37,8 @@ public record MovieCandidate(
         double contentScore,
         boolean coldStartSource
     ) {
-        this(movieId, popularityScore, contentScore, coldStartSource, null, null, null, null, null, null, null, false, List.of(), null, null, null, null, null, null);
+        this(movieId, popularityScore, contentScore, coldStartSource, null, null, null, null, null, null, null,
+            false, List.of(), null, null, null, null, null, null, null, List.of(), null);
     }
 
     public MovieCandidate withCoreData(
@@ -62,7 +67,10 @@ public record MovieCandidate(
             quotedAuthorBlocksViewer,
             quotedVideoDurationMillis,
             subscriptionAuthorId,
-            hasMedia
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
         );
     }
 
@@ -86,7 +94,10 @@ public record MovieCandidate(
             quotedAuthorBlocksViewer,
             quotedVideoDurationMillis,
             subscriptionAuthorId,
-            hasMedia
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
         );
     }
 
@@ -115,7 +126,10 @@ public record MovieCandidate(
             quotedAuthorBlocksViewer,
             quotedVideoDurationMillis,
             subscriptionAuthorId,
-            hasMedia
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
         );
     }
 
@@ -144,7 +158,10 @@ public record MovieCandidate(
             quotedAuthorBlocksViewer,
             quotedVideoDurationMillis,
             subscriptionAuthorId,
-            hasMedia
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
         );
     }
 
@@ -168,7 +185,10 @@ public record MovieCandidate(
             quotedAuthorBlocksViewer,
             quotedVideoDurationMillis,
             subscriptionAuthorId,
-            hasMedia
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
         );
     }
 
@@ -192,7 +212,91 @@ public record MovieCandidate(
             quotedAuthorBlocksViewer,
             quotedVideoDurationMillis,
             subscriptionAuthorId,
-            hasMedia
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
+        );
+    }
+
+    public MovieCandidate withAuthorBlocksViewer(Boolean authorBlocksViewer) {
+        return new MovieCandidate(
+            movieId,
+            popularityScore,
+            contentScore,
+            coldStartSource,
+            ownerId,
+            sourceUserId,
+            sourceMovieId,
+            inReplyToMovieId,
+            coreDataText,
+            languageCode,
+            visibilityReason,
+            dropAncillaryMovies,
+            ancestorMovieIds,
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
+        );
+    }
+
+    public MovieCandidate withFollowingRepliedUserIds(List<String> followingRepliedUserIds) {
+        return new MovieCandidate(
+            movieId,
+            popularityScore,
+            contentScore,
+            coldStartSource,
+            ownerId,
+            sourceUserId,
+            sourceMovieId,
+            inReplyToMovieId,
+            coreDataText,
+            languageCode,
+            visibilityReason,
+            dropAncillaryMovies,
+            ancestorMovieIds,
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
+        );
+    }
+
+    public MovieCandidate withMutualFollowJaccard(Double mutualFollowJaccard) {
+        return new MovieCandidate(
+            movieId,
+            popularityScore,
+            contentScore,
+            coldStartSource,
+            ownerId,
+            sourceUserId,
+            sourceMovieId,
+            inReplyToMovieId,
+            coreDataText,
+            languageCode,
+            visibilityReason,
+            dropAncillaryMovies,
+            ancestorMovieIds,
+            quotedMovieId,
+            quotedOwnerId,
+            quotedAuthorBlocksViewer,
+            quotedVideoDurationMillis,
+            subscriptionAuthorId,
+            hasMedia,
+            authorBlocksViewer,
+            followingRepliedUserIds,
+            mutualFollowJaccard
         );
     }
 }
