@@ -169,6 +169,7 @@ public class RecommendationProperties {
         private boolean dropAncillaryCandidates = true;
         private boolean dropBlockedQuotes = true;
         private boolean requireMediaCandidates;
+        private boolean dropAuthorsBlockingViewer = true;
 
         public boolean isEnabled() {
             return enabled;
@@ -248,6 +249,14 @@ public class RecommendationProperties {
 
         public void setRequireMediaCandidates(boolean requireMediaCandidates) {
             this.requireMediaCandidates = requireMediaCandidates;
+        }
+
+        public boolean isDropAuthorsBlockingViewer() {
+            return dropAuthorsBlockingViewer;
+        }
+
+        public void setDropAuthorsBlockingViewer(boolean dropAuthorsBlockingViewer) {
+            this.dropAuthorsBlockingViewer = dropAuthorsBlockingViewer;
         }
     }
 
@@ -458,6 +467,9 @@ public class RecommendationProperties {
         private Integer quotedVideoDurationMillis;
         private String subscriptionAuthorId;
         private Boolean hasMedia;
+        private Boolean authorBlocksViewer;
+        private List<String> followingRepliedUserIds = new ArrayList<>();
+        private Double mutualFollowJaccard;
         private List<String> genres = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
         private List<String> keywords = new ArrayList<>();
@@ -598,6 +610,30 @@ public class RecommendationProperties {
 
         public void setHasMedia(Boolean hasMedia) {
             this.hasMedia = hasMedia;
+        }
+
+        public Boolean getAuthorBlocksViewer() {
+            return authorBlocksViewer;
+        }
+
+        public void setAuthorBlocksViewer(Boolean authorBlocksViewer) {
+            this.authorBlocksViewer = authorBlocksViewer;
+        }
+
+        public List<String> getFollowingRepliedUserIds() {
+            return followingRepliedUserIds;
+        }
+
+        public void setFollowingRepliedUserIds(List<String> followingRepliedUserIds) {
+            this.followingRepliedUserIds = followingRepliedUserIds;
+        }
+
+        public Double getMutualFollowJaccard() {
+            return mutualFollowJaccard;
+        }
+
+        public void setMutualFollowJaccard(Double mutualFollowJaccard) {
+            this.mutualFollowJaccard = mutualFollowJaccard;
         }
 
         public List<String> getGenres() {

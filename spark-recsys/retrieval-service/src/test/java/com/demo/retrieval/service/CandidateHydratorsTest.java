@@ -1,10 +1,13 @@
 package com.demo.retrieval.service;
 
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
@@ -112,6 +115,42 @@ class CandidateHydratorsTest {
             .get(0);
 
         assertTrue(hydrated.hasMedia());
+    }
+
+    @Test
+    void blockedByHydratorCopiesAuthorBlocksViewerOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setAuthorBlocksViewer(true);
+
+        MovieCandidate hydrated = new BlockedByCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertTrue(hydrated.authorBlocksViewer());
+    }
+
+    @Test
+    void followingRepliedUsersHydratorCopiesFacepileUserIdsOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setFollowingRepliedUserIds(List.of("friend-1", "friend-2"));
+
+        MovieCandidate hydrated = new FollowingRepliedUsersCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals(List.of("friend-1", "friend-2"), hydrated.followingRepliedUserIds());
+    }
+
+    @Test
+    void mutualFollowJaccardHydratorCopiesSimilarityOntoCandidates() {
+        MovieProfile profile = new MovieProfile();
+        profile.setMutualFollowJaccard(0.75);
+
+        MovieCandidate hydrated = new MutualFollowJaccardCandidateHydrator(Map.of("movie-1", profile))
+            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
+            .get(0);
+
+        assertEquals(0.75, hydrated.mutualFollowJaccard());
     }
 
     private MovieCandidate candidate(String id) {
