@@ -19,3 +19,7 @@ spark-recsys/sampledata/als/
 spark-recsys/sampledata/movielens_*.onnx
 spark-recsys/sampledata/movielens_*.onnx.data
 spark-recsys/__pycache__/
+spark-recsys/**/__pycache__/
+spark-recsys/**/*.pyc
+.DS_Store
+**/.DS_Store
