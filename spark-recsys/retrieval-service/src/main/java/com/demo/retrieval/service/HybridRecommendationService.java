@@ -6,11 +6,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
@@ -73,7 +76,8 @@ public class HybridRecommendationService {
         Set<String> blockedVisibilityReasons,
         boolean dropAncillaryCandidates,
         boolean dropBlockedQuotes,
-        boolean requireMediaCandidates) {}
+        boolean requireMediaCandidates,
+        boolean dropAuthorsBlockingViewer) {}
 
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
     // tags+keywords merged into allKeywords so intersection checks need no per-call allocation).
@@ -499,7 +503,10 @@ public class HybridRecommendationService {
             new VisibilityFilteringCandidateHydrator(properties.getCatalog()),
             new QuoteCandidateHydrator(properties.getCatalog()),
             new SubscriptionCandidateHydrator(properties.getCatalog()),
-            new HasMediaCandidateHydrator(properties.getCatalog())
+            new HasMediaCandidateHydrator(properties.getCatalog()),
+            new BlockedByCandidateHydrator(properties.getCatalog()),
+            new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
+            new MutualFollowJaccardCandidateHydrator(properties.getCatalog())
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
@@ -635,7 +642,10 @@ public class HybridRecommendationService {
             firstNonNull(left.quotedAuthorBlocksViewer(), right.quotedAuthorBlocksViewer()),
             firstNonNull(left.quotedVideoDurationMillis(), right.quotedVideoDurationMillis()),
             firstNonBlank(left.subscriptionAuthorId(), right.subscriptionAuthorId()),
-            firstNonNull(left.hasMedia(), right.hasMedia())
+            firstNonNull(left.hasMedia(), right.hasMedia()),
+            firstNonNull(left.authorBlocksViewer(), right.authorBlocksViewer()),
+            firstNonEmpty(left.followingRepliedUserIds(), right.followingRepliedUserIds()),
+            firstNonNull(left.mutualFollowJaccard(), right.mutualFollowJaccard())
         );
     }
 
@@ -710,6 +720,7 @@ public class HybridRecommendationService {
                 (MovieCandidate c) -> normPop * c.popularityScore()
                     + normContent * c.contentScore()
                     + subscriptionBoost(context, c)
+                    + mutualFollowBoost(c)
             ).reversed())
             .limit(poolSize)
             .toList();
@@ -721,6 +732,10 @@ public class HybridRecommendationService {
             return 0.0;
         }
         return context.query().userFeatures().subscribedUserIds().contains(subscriptionAuthorId) ? 0.1 : 0.0;
+    }
+
+    private double mutualFollowBoost(MovieCandidate candidate) {
+        return candidate.mutualFollowJaccard() == null ? 0.0 : 0.05 * clamp(candidate.mutualFollowJaccard());
     }
 
     private Map<String, NormalizedProfile> getNormalizedCatalog() {
@@ -755,7 +770,7 @@ public class HybridRecommendationService {
     private FilterContext buildFilterContext() {
         Filtering f = properties.getFiltering();
         if (!f.isEnabled()) {
-            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), false, false, false);
+            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), false, false, false, false);
         }
         return new FilterContext(
             normalize(f.getBlockedUsers()),
@@ -766,7 +781,8 @@ public class HybridRecommendationService {
             normalize(f.getBlockedVisibilityReasons()),
             f.isDropAncillaryCandidates(),
             f.isDropBlockedQuotes(),
-            f.isRequireMediaCandidates()
+            f.isRequireMediaCandidates(),
+            f.isDropAuthorsBlockingViewer()
         );
     }
 
@@ -829,6 +845,9 @@ public class HybridRecommendationService {
             return false;
         }
         if (filterCtx.dropBlockedQuotes() && Boolean.TRUE.equals(candidate.quotedAuthorBlocksViewer())) {
+            return false;
+        }
+        if (filterCtx.dropAuthorsBlockingViewer() && Boolean.TRUE.equals(candidate.authorBlocksViewer())) {
             return false;
         }
         return !filterCtx.requireMediaCandidates() || Boolean.TRUE.equals(candidate.hasMedia());
