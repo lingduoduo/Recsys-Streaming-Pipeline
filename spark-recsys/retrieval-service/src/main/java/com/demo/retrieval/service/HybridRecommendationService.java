@@ -9,8 +9,12 @@ import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.FilteredTopicsCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.InNetworkCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandidateHydrator;
@@ -506,7 +510,11 @@ public class HybridRecommendationService {
             new HasMediaCandidateHydrator(properties.getCatalog()),
             new BlockedByCandidateHydrator(properties.getCatalog()),
             new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
-            new MutualFollowJaccardCandidateHydrator(properties.getCatalog())
+            new MutualFollowJaccardCandidateHydrator(properties.getCatalog()),
+            new EngagementCountsCandidateHydrator(properties.getCatalog()),
+            new FilteredTopicsCandidateHydrator(properties.getCatalog()),
+            new InNetworkCandidateHydrator(properties.getCatalog()),
+            new GizmoduckCandidateHydrator(properties.getCatalog())
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(this::filterEligibleCandidates));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
@@ -645,7 +653,17 @@ public class HybridRecommendationService {
             firstNonNull(left.hasMedia(), right.hasMedia()),
             firstNonNull(left.authorBlocksViewer(), right.authorBlocksViewer()),
             firstNonEmpty(left.followingRepliedUserIds(), right.followingRepliedUserIds()),
-            firstNonNull(left.mutualFollowJaccard(), right.mutualFollowJaccard())
+            firstNonNull(left.mutualFollowJaccard(), right.mutualFollowJaccard()),
+            firstNonNull(left.favoriteCount(), right.favoriteCount()),
+            firstNonNull(left.replyCount(), right.replyCount()),
+            firstNonNull(left.repostCount(), right.repostCount()),
+            firstNonNull(left.quoteCount(), right.quoteCount()),
+            firstNonEmpty(left.filteredTopicIds(), right.filteredTopicIds()),
+            firstNonEmpty(left.unfilteredTopicIds(), right.unfilteredTopicIds()),
+            firstNonNull(left.inNetwork(), right.inNetwork()),
+            firstNonNull(left.authorFollowersCount(), right.authorFollowersCount()),
+            firstNonBlank(left.authorScreenName(), right.authorScreenName()),
+            firstNonBlank(left.retweetedScreenName(), right.retweetedScreenName())
         );
     }
 
@@ -721,6 +739,10 @@ public class HybridRecommendationService {
                     + normContent * c.contentScore()
                     + subscriptionBoost(context, c)
                     + mutualFollowBoost(c)
+                    + inNetworkBoost(c)
+                    + topicBoost(context, c)
+                    + engagementBoost(c)
+                    + authorFollowersBoost(c)
             ).reversed())
             .limit(poolSize)
             .toList();
@@ -736,6 +758,35 @@ public class HybridRecommendationService {
 
     private double mutualFollowBoost(MovieCandidate candidate) {
         return candidate.mutualFollowJaccard() == null ? 0.0 : 0.05 * clamp(candidate.mutualFollowJaccard());
+    }
+
+    private double inNetworkBoost(MovieCandidate candidate) {
+        return Boolean.TRUE.equals(candidate.inNetwork()) ? 0.05 : 0.0;
+    }
+
+    private double topicBoost(CandidatePipelineContext context, MovieCandidate candidate) {
+        if (candidate.filteredTopicIds().isEmpty()) {
+            return 0.0;
+        }
+        Set<Integer> userTopics = new HashSet<>(context.query().userFeatures().followedGrokTopics());
+        userTopics.addAll(context.query().userFeatures().inferredGrokTopics());
+        if (userTopics.isEmpty()) {
+            return 0.0;
+        }
+        return candidate.filteredTopicIds().stream().anyMatch(userTopics::contains) ? 0.05 : 0.0;
+    }
+
+    private double engagementBoost(MovieCandidate candidate) {
+        long engagement = readCount(candidate.favoriteCount())
+            + readCount(candidate.replyCount())
+            + readCount(candidate.repostCount())
+            + readCount(candidate.quoteCount());
+        return Math.min(Math.log1p(engagement) / 100.0, 0.05);
+    }
+
+    private double authorFollowersBoost(MovieCandidate candidate) {
+        Integer followers = candidate.authorFollowersCount();
+        return followers == null || followers <= 0 ? 0.0 : Math.min(Math.log1p(followers) / 200.0, 0.05);
     }
 
     private Map<String, NormalizedProfile> getNormalizedCatalog() {
@@ -1450,8 +1501,8 @@ public class HybridRecommendationService {
     }
 
     @SafeVarargs
-    private final List<String> firstNonEmpty(List<String>... candidates) {
-        for (List<String> candidate : candidates) {
+    private final <T> List<T> firstNonEmpty(List<T>... candidates) {
+        for (List<T> candidate : candidates) {
             if (candidate != null && !candidate.isEmpty()) {
                 return candidate;
             }
@@ -1499,6 +1550,10 @@ public class HybridRecommendationService {
         } catch (NumberFormatException e) {
             return 0L;
         }
+    }
+
+    private long readCount(Long value) {
+        return value == null ? 0L : Math.max(0L, value);
     }
 
     private double readDouble(Object raw) {
