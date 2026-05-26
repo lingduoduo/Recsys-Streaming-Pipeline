@@ -59,6 +59,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -80,6 +81,7 @@ public class HybridRecommendationService {
             throw new IllegalStateException("SHA-256 not available", e);
         }
     });
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private record FilterContext(
         Set<String> blockedUsers,
@@ -94,12 +96,15 @@ public class HybridRecommendationService {
         boolean dropAuthorsBlockingViewer) {}
 
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
-    // tags+keywords merged into allKeywords so intersection checks need no per-call allocation).
+    // tags stored separately for content scoring; tags+keywords merged into allKeywords for
+    // keyword-mute checks so no per-call set allocation is needed in the hot path).
     private record NormalizedProfile(
         String productType,
         Set<String> genres,
+        Set<String> tags,
         Set<String> allKeywords,
         String title,
+        boolean newRelease,
         long expiresAtEpochMillis) {}
 
     private record CatalogCache(
@@ -205,6 +210,8 @@ public class HybridRecommendationService {
     }
 
     public RecommendationResult recommend(String user, int limit) {
+        String algorithm = currentAlgorithm();
+        boolean tabularRl = "q-learning".equals(algorithm) || "sarsa".equals(algorithm);
         FilterContext filterCtx = buildFilterContext();
         if (isBlockedUser(user, filterCtx)) {
             return new RecommendationResult(
@@ -212,7 +219,7 @@ public class HybridRecommendationService {
                 List.of(),
                 List.of(),
                 List.of(),
-                Map.of("eligibleCandidateCount", 0, "algorithm", currentAlgorithm(), "filterReason", "blocked_user")
+                Map.of("eligibleCandidateCount", 0, "algorithm", algorithm, "filterReason", "blocked_user")
             );
         }
 
@@ -243,7 +250,8 @@ public class HybridRecommendationService {
                 LinkedHashMap::new
             ));
         Set<String> popular = popularityMap.keySet();
-        double maxPopularity = popularityMap.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
+        // popularityMap is ZREVRANGE-ordered (descending score) so the first entry is the max.
+        double maxPopularity = popularityMap.isEmpty() ? 0.0 : popularityMap.values().iterator().next();
 
         Set<String> historySet = new HashSet<>(recent);
         historySet.addAll(rated);
@@ -298,7 +306,7 @@ public class HybridRecommendationService {
 
         // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
         Map<String, long[]> counters = batchFetchCounters(eligibleList);
-        Map<String, Double> qValues = isTabularRl()
+        Map<String, Double> qValues = tabularRl
             ? batchFetchQValues(stateKey, eligibleList)
             : Map.of();
         Map<String, Double> dlScores = predictionService.predictBatch(user, eligibleList);
@@ -312,7 +320,7 @@ public class HybridRecommendationService {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
-                    dlScores.getOrDefault(item, 0.0), qValues.get(item));
+                    dlScores.getOrDefault(item, 0.0), qValues.get(item), algorithm, tabularRl);
             })
             .sorted(Comparator.comparingDouble(ScoredCandidate::banditScore).reversed())
             .collect(Collectors.toCollection(ArrayList::new));
@@ -323,7 +331,7 @@ public class HybridRecommendationService {
                 recent,
                 List.of(),
                 List.of(),
-                Map.of("eligibleCandidateCount", 0, "algorithm", currentAlgorithm())
+                Map.of("eligibleCandidateCount", 0, "algorithm", algorithm)
             );
         }
 
@@ -346,7 +354,7 @@ public class HybridRecommendationService {
         double noveltyTotal = selected.stream().mapToDouble(ScoredCandidate::noveltyScore).sum();
         long servedCount = selected.size();
         double estimatedRewardTotal = avgEstimatedReward * servedCount;
-        String algoKey = metricsHashKey(currentAlgorithm());
+        String algoKey = metricsHashKey(algorithm);
         redis.executePipelined(new SessionCallback<Object>() {
             @Override
             @SuppressWarnings({"unchecked", "rawtypes"})
@@ -389,7 +397,7 @@ public class HybridRecommendationService {
             .toList();
 
         Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("algorithm", currentAlgorithm());
+        metrics.put("algorithm", algorithm);
         metrics.put("retrievedCandidateCount", candidateGeneration.retrievedCandidates().size());
         metrics.put("filteredCandidateCount", candidateGeneration.filteredCandidates().size());
         metrics.put("scoredCandidateCount", candidateGeneration.scoredCandidates().size());
@@ -463,18 +471,19 @@ public class HybridRecommendationService {
 
     public Map<String, Object> getAggregateMetrics() {
         String algorithm = currentAlgorithm();
-        Map<String, Object> metrics = buildAggregateMetricsForAlgorithm(algorithm);
+        double catalogCoverage = resolveCatalogCoverage();
+        Map<String, Object> metrics = buildAggregateMetricsForAlgorithm(algorithm, catalogCoverage);
 
         Map<String, Object> allAlgorithms = new LinkedHashMap<>();
         for (String candidate : supportedAlgorithms()) {
-            Map<String, Object> candidateMetrics = buildAggregateMetricsForAlgorithm(candidate);
+            Map<String, Object> candidateMetrics = buildAggregateMetricsForAlgorithm(candidate, catalogCoverage);
             if (hasRecordedActivity(candidateMetrics) || candidate.equals(algorithm)) {
                 allAlgorithms.put(candidate, candidateMetrics);
             }
         }
 
         metrics.put("allAlgorithms", allAlgorithms);
-        metrics.put("global", buildAggregateMetricsFromHash(METRICS_HASH_KEY, "all"));
+        metrics.put("global", buildAggregateMetricsFromHash(METRICS_HASH_KEY, "all", catalogCoverage));
         return metrics;
     }
 
@@ -726,6 +735,7 @@ public class HybridRecommendationService {
             return List.of();
         }
 
+        Map<String, NormalizedProfile> normalizedCatalog = getNormalizedCatalog();
         int poolSize = Math.max(1, properties.getCandidateGeneration().getColdStartPoolSize());
         int probeSize = Math.max(poolSize, Math.max(
             context.resultSize(),
@@ -733,12 +743,13 @@ public class HybridRecommendationService {
         ));
         List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
             .filter(entry -> isEligibleCandidate(entry.getKey(), context.excludedItems(), context.filterCtx()))
-            .map(entry -> new MovieCandidate(
-                entry.getKey(),
-                0.0,
-                contentScore(entry.getValue(), context.userGenres(), context.userTags()),
-                true
-            ))
+            .map(entry -> {
+                NormalizedProfile np = normalizedCatalog.get(entry.getKey());
+                double cs = np != null
+                    ? contentScore(np, context.userGenres(), context.userTags())
+                    : contentScore(entry.getValue(), context.userGenres(), context.userTags());
+                return new MovieCandidate(entry.getKey(), 0.0, cs, true);
+            })
             .sorted(
                 Comparator.comparing((MovieCandidate candidate) -> isNewRelease(candidate.movieId())).reversed()
                     .thenComparing(Comparator.comparingDouble(MovieCandidate::contentScore).reversed())
@@ -765,12 +776,12 @@ public class HybridRecommendationService {
     }
 
     private boolean isNewRelease(String itemId) {
-        MovieProfile profile = properties.getCatalog().get(itemId);
-        return profile != null && profile.isNewRelease();
+        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
+        return profile != null && profile.newRelease();
     }
 
     private double contentScoreForItem(String itemId, Set<String> userGenres, Set<String> userTags) {
-        MovieProfile profile = properties.getCatalog().get(itemId);
+        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
         return profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
     }
 
@@ -850,13 +861,16 @@ public class HybridRecommendationService {
         }
         Map<String, NormalizedProfile> built = new HashMap<>(catalog.size() * 4 / 3 + 1);
         catalog.forEach((id, p) -> {
-            Set<String> allKeywords = new HashSet<>(normalize(p.getTags()));
+            Set<String> normalizedTags = normalize(p.getTags());
+            Set<String> allKeywords = new HashSet<>(normalizedTags);
             allKeywords.addAll(normalize(p.getKeywords()));
             built.put(id, new NormalizedProfile(
                 normalizeValue(p.getProductType()),
                 normalize(p.getGenres()),
+                Collections.unmodifiableSet(normalizedTags),
                 Collections.unmodifiableSet(allKeywords),
                 normalizeValue(p.getTitle()),
+                p.isNewRelease(),
                 p.getExpiresAtEpochMillis()
             ));
         });
@@ -968,9 +982,12 @@ public class HybridRecommendationService {
         long impressions,
         long clicks,
         double dlScore,
-        Double qValue
+        Double qValue,
+        String algorithm,
+        boolean tabularRl
     ) {
-        MovieProfile profile = properties.getCatalog().get(itemId);
+        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
+        MovieProfile movieProfile = properties.getCatalog().get(itemId);
 
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
@@ -979,11 +996,11 @@ public class HybridRecommendationService {
             + (properties.getBandit().getContentWeight() * content)
             + (properties.getBandit().getPopularityWeight() * popularity)
             + (properties.getBandit().getDeepLearningWeight() * dlScore);
-        double onlineScore = onlineLearningService.score(itemId, profile, offlineScore);
+        double onlineScore = onlineLearningService.score(itemId, movieProfile, offlineScore);
         double onlineWeight = clamp(properties.getRewardModel().getWeight());
         double learnedPrior = (offlineScore * (1.0 - onlineWeight)) + (onlineScore * onlineWeight);
-        boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.isNewRelease());
-        BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart);
+        boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.newRelease());
+        BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart, algorithm);
         double qLearningScore = computeTabularRlRankingScore(learnedPrior, qValue);
         double estimatedReward = armScore.posteriorMean();
         double novelty = 1.0 / (impressions + 1.0);
@@ -996,7 +1013,7 @@ public class HybridRecommendationService {
             popularity,
             onlineScore,
             armScore.explorationBonus(),
-            isTabularRl() ? qLearningScore : armScore.rankingScore(),
+            tabularRl ? qLearningScore : armScore.rankingScore(),
             coldStart,
             novelty,
             impressions,
@@ -1386,7 +1403,7 @@ public class HybridRecommendationService {
             return new double[0];
         }
 
-        String[] parts = raw.trim().split("\\s+");
+        String[] parts = WHITESPACE.split(raw.trim());
         double[] vector = new double[parts.length];
         for (int i = 0; i < parts.length; i++) {
             try {
@@ -1403,11 +1420,11 @@ public class HybridRecommendationService {
         return readLong(value);
     }
 
-    private Map<String, Object> buildAggregateMetricsForAlgorithm(String algorithm) {
-        return buildAggregateMetricsFromHash(metricsHashKey(algorithm), algorithm);
+    private Map<String, Object> buildAggregateMetricsForAlgorithm(String algorithm, double catalogCoverage) {
+        return buildAggregateMetricsFromHash(metricsHashKey(algorithm), algorithm, catalogCoverage);
     }
 
-    private Map<String, Object> buildAggregateMetricsFromHash(String hashKey, String algorithm) {
+    private Map<String, Object> buildAggregateMetricsFromHash(String hashKey, String algorithm, double catalogCoverage) {
         Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(hashKey)).orElseGet(Map::of);
         Map<String, Object> metrics = new LinkedHashMap<>();
         long requests = readLong(raw.get("requests"));
@@ -1430,7 +1447,7 @@ public class HybridRecommendationService {
         metrics.put("avgNoveltyScore", served == 0 ? 0.0 : round(noveltyTotal / served));
         metrics.put("coldStartImpressions", readLong(raw.get("cold_start_impressions")));
         metrics.put("exploratoryImpressions", readLong(raw.get("exploratory_impressions")));
-        metrics.put("catalogCoverage", round(resolveCatalogCoverage()));
+        metrics.put("catalogCoverage", round(catalogCoverage));
         return metrics;
     }
 
@@ -1499,9 +1516,9 @@ public class HybridRecommendationService {
         long itemImpressions,
         long clicks,
         long totalImpressions,
-        boolean coldStart
+        boolean coldStart,
+        String algorithm
     ) {
-        String algorithm = currentAlgorithm();
         long failures = Math.max(itemImpressions - clicks, 0L);
         double priorStrength = coldStart
             ? Math.max(WARM_PRIOR_STRENGTH, properties.getBandit().getColdStartBoost() * 4.0)
@@ -1536,6 +1553,11 @@ public class HybridRecommendationService {
             return ThreadLocalRandom.current().nextDouble();
         }
         return qValue == null ? learnedPrior : qValue;
+    }
+
+    private double contentScore(NormalizedProfile profile, Set<String> userGenres, Set<String> userTags) {
+        return clamp((overlapRatio(userGenres, profile.genres()) * 0.7)
+            + (overlapRatio(userTags, profile.tags()) * 0.3));
     }
 
     private double contentScore(MovieProfile profile, Set<String> userGenres, Set<String> userTags) {
@@ -1576,14 +1598,15 @@ public class HybridRecommendationService {
     }
 
     private double overlapRatio(Set<String> left, Set<String> right) {
-        if (left.isEmpty() || right.isEmpty()) {
-            return 0.0;
+        if (left.isEmpty() || right.isEmpty()) return 0.0;
+        Set<String> smaller = left.size() <= right.size() ? left : right;
+        Set<String> larger  = left.size() <= right.size() ? right : left;
+        int intersectionSize = 0;
+        for (String s : smaller) {
+            if (larger.contains(s)) intersectionSize++;
         }
-        Set<String> intersection = new HashSet<>(left);
-        intersection.retainAll(right);
-        Set<String> union = new HashSet<>(left);
-        union.addAll(right);
-        return union.isEmpty() ? 0.0 : (double) intersection.size() / union.size();
+        int unionSize = left.size() + right.size() - intersectionSize;
+        return unionSize == 0 ? 0.0 : (double) intersectionSize / unionSize;
     }
 
     private double normalizeScore(double raw) {

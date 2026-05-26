@@ -12,16 +12,11 @@ public class KafkaProducer {
 
     private static final Logger LOG = Logger.getLogger(KafkaProducer.class.getName());
 
-    private final KafkaProducerConfig config;
     private final String defaultTopic;
-    private org.apache.kafka.clients.producer.KafkaProducer<String, byte[]> delegate;
+    private final org.apache.kafka.clients.producer.KafkaProducer<String, byte[]> delegate;
 
     public KafkaProducer(KafkaProducerConfig config) {
-        this.config = config;
         this.defaultTopic = config.baseConfig().topic();
-    }
-
-    public void start() {
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.baseConfig().dest());
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -34,6 +29,8 @@ public class KafkaProducer {
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy");
         this.delegate = new org.apache.kafka.clients.producer.KafkaProducer<>(props);
     }
+
+    public void start() {}
 
     public void send(byte[] payload) {
         send(defaultTopic, payload);
