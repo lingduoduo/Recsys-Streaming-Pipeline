@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class RetweetDeduplicationFilter implements CandidateFilter {
+public class ReshareDeduplicationFilter implements CandidateFilter {
     @Override
     public CandidateFilterResult filter(ScoredMoviesQuery query, List<MovieCandidate> candidates) {
         Set<String> seenMovieIds = new HashSet<>();

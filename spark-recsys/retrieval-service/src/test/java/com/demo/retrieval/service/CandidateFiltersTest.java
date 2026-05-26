@@ -7,9 +7,9 @@ import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubsc
 import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
-import com.demo.retrieval.service.filters.RetweetDeduplicationFilter;
-import com.demo.retrieval.service.filters.RetweetDeduplicationFilter.DedupConversationFilter;
-import com.demo.retrieval.service.filters.RetweetDeduplicationFilter.DropDuplicatesFilter;
+import com.demo.retrieval.service.filters.ReshareDeduplicationFilter;
+import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DedupConversationFilter;
+import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplicatesFilter;
 import com.demo.retrieval.service.filters.SelfMovieFilter;
 import com.demo.retrieval.service.filters.TopicIdsFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
@@ -123,7 +123,7 @@ class CandidateFiltersTest {
     }
 
     @Test
-    void retweetDeduplicationFilterKeepsFirstSourceOccurrence() {
+    void reshareDeduplicationFilterKeepsFirstSourceOccurrence() {
         List<MovieCandidate> candidates = List.of(
             candidate("original"),
             candidate("reshare_a").withCoreData(null, null, "original", null, null),
@@ -131,7 +131,7 @@ class CandidateFiltersTest {
             candidate("fresh")
         );
 
-        CandidateFilterResult result = new RetweetDeduplicationFilter()
+        CandidateFilterResult result = new ReshareDeduplicationFilter()
             .filter(ScoredMoviesQuery.forUser("u1"), candidates);
 
         assertEquals(List.of("original", "fresh"), result.kept().stream().map(MovieCandidate::movieId).toList());
