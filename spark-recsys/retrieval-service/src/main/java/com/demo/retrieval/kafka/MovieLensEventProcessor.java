@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -18,7 +19,7 @@ public class MovieLensEventProcessor {
 
     public MovieLensEventProcessor(int numThreads) {
         this.executorService = Executors.newFixedThreadPool(numThreads);
-        this.scheduler = Executors.newScheduledThreadPool(numThreads);
+        this.scheduler = Executors.newScheduledThreadPool(1);
     }
 
     public void startProcessing(
@@ -91,10 +92,12 @@ public class MovieLensEventProcessor {
             int batchSize) throws Exception {
         List<KafkaMessage> buffer = new ArrayList<>();
         int batchNum = 0;
+        int consecutiveErrors = 0;
 
         while (true) {
             try {
                 List<KafkaMessage> polled = source.poll(100);
+                consecutiveErrors = 0;
                 buffer.addAll(polled);
 
                 boolean flush = buffer.size() >= batchSize
@@ -111,7 +114,9 @@ public class MovieLensEventProcessor {
                 }
             } catch (Exception e) {
                 Metrics.KAFKA_POLL_ERRORS.inc();
-                Thread.sleep(100);
+                consecutiveErrors++;
+                long ceiling = Math.min(30_000L, 100L * (1L << Math.min(consecutiveErrors, 8)));
+                Thread.sleep(ThreadLocalRandom.current().nextLong(ceiling + 1));
             }
         }
     }
@@ -123,20 +128,16 @@ public class MovieLensEventProcessor {
         List<MovieLensEvent> events =
                 KafkaUtils.deserializeKafkaMessages(messages, MovieLensDeserializer::deserialize);
 
-        List<RecSysEvent> outputEvents = new ArrayList<>();
         for (MovieLensEvent event : events) {
-            if (event instanceof UserEvent e)             outputEvents.add(handleUserEvent(e));
-            else if (event instanceof MovieEvent e)       outputEvents.add(handleMovieEvent(e));
-            else if (event instanceof RatingEvent e)      outputEvents.add(handleRatingEvent(e));
-            else if (event instanceof MovieInteractionEvent e) outputEvents.add(handleInteractionEvent(e));
-        }
+            RecSysEvent out;
+            if (event instanceof UserEvent e)                  out = handleUserEvent(e);
+            else if (event instanceof MovieEvent e)            out = handleMovieEvent(e);
+            else if (event instanceof RatingEvent e)           out = handleRatingEvent(e);
+            else if (event instanceof MovieInteractionEvent e) out = handleInteractionEvent(e);
+            else continue;
 
-        for (RecSysEvent outEvent : outputEvents) {
-            if (outEvent instanceof RecSysEvent.InteractionCreated) {
-                producer.send(KafkaTopics.USER_EVENTS, outEvent.toByteArray());
-            } else if (outEvent instanceof RecSysEvent.RatingCreated) {
-                producer.send(KafkaTopics.BEHAVIOR_LOGS, outEvent.toByteArray());
-            }
+            if (out instanceof RecSysEvent.InteractionCreated)     producer.send(KafkaTopics.USER_EVENTS, out.toByteArray());
+            else if (out instanceof RecSysEvent.RatingCreated)     producer.send(KafkaTopics.BEHAVIOR_LOGS, out.toByteArray());
             // UserUpdated and MovieUpdated: no consuming Spark job currently
         }
 
