@@ -2,14 +2,18 @@ package com.demo.retrieval.service;
 
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.filters.AgeFilter;
-import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
+import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
+import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
-import com.demo.retrieval.service.filters.RetweetDeduplicationFilter;
+import com.demo.retrieval.service.filters.ReshareDeduplicationFilter;
+import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DedupConversationFilter;
+import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplicatesFilter;
 import com.demo.retrieval.service.filters.SelfMovieFilter;
 import com.demo.retrieval.service.filters.TopicIdsFilter;
-import com.demo.retrieval.service.filters.VFFilter;
+import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
+import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.VideoFilter;
 import org.junit.jupiter.api.Test;
 
@@ -43,32 +47,28 @@ class CandidateFiltersTest {
     }
 
     @Test
-    void authorSocialgraphFilterRemovesMutedBlockedAndBlockingAuthors() {
+    void creatorBlocklistFilterRemovesMutedAndBlockedCreators() {
         ScoredMoviesQuery query = new ScoredMoviesQuery(
             "u1",
             MovieLensUserFeatures.forUser("u1")
-                .withMutedUserIds(List.of("muted-author"))
-                .withBlockedUserIds(List.of("blocked-author", "blocked-quote")),
+                .withMutedUserIds(List.of("muted-creator"))
+                .withBlockedUserIds(List.of("blocked-creator", "blocked-quote")),
             List.of(),
             List.of(),
             List.of()
         );
         List<MovieCandidate> candidates = List.of(
-            candidate("muted").withCoreData("muted-author", null, null, null, null),
-            candidate("blocked").withCoreData("blocked-author", null, null, null, null),
+            candidate("muted").withCoreData("muted-creator", null, null, null, null),
+            candidate("blocked").withCoreData("blocked-creator", null, null, null, null),
             candidate("quote_blocked").withQuote(null, "blocked-quote", null, null),
-            candidate("author_blocks_viewer").withAuthorBlocksViewer(true),
-            candidate("quoted_author_blocks_viewer").withQuote(null, null, true, null),
-            candidate("kept").withCoreData("fresh-author", null, null, null, null)
+            candidate("kept").withCoreData("fresh-creator", null, null, null, null)
         );
 
-        CandidateFilterResult result = new AuthorSocialgraphFilter().filter(query, candidates);
+        CandidateFilterResult result = new CreatorBlocklistFilter().filter(query, candidates);
 
         assertEquals(List.of("kept"), result.kept().stream().map(MovieCandidate::movieId).toList());
-        assertEquals(
-            List.of("muted", "blocked", "quote_blocked", "author_blocks_viewer", "quoted_author_blocks_viewer"),
-            result.removed().stream().map(MovieCandidate::movieId).toList()
-        );
+        assertEquals(List.of("muted", "blocked", "quote_blocked"),
+            result.removed().stream().map(MovieCandidate::movieId).toList());
     }
 
     @Test
@@ -123,7 +123,7 @@ class CandidateFiltersTest {
     }
 
     @Test
-    void retweetDeduplicationFilterKeepsFirstSourceOccurrence() {
+    void reshareDeduplicationFilterKeepsFirstSourceOccurrence() {
         List<MovieCandidate> candidates = List.of(
             candidate("original"),
             candidate("reshare_a").withCoreData(null, null, "original", null, null),
@@ -131,7 +131,7 @@ class CandidateFiltersTest {
             candidate("fresh")
         );
 
-        CandidateFilterResult result = new RetweetDeduplicationFilter()
+        CandidateFilterResult result = new ReshareDeduplicationFilter()
             .filter(ScoredMoviesQuery.forUser("u1"), candidates);
 
         assertEquals(List.of("original", "fresh"), result.kept().stream().map(MovieCandidate::movieId).toList());
@@ -220,6 +220,117 @@ class CandidateFiltersTest {
 
         assertEquals(List.of("requested"), result.kept().stream().map(MovieCandidate::movieId).toList());
         assertEquals(List.of("other", "untopiced", "excluded"), result.removed().stream().map(MovieCandidate::movieId).toList());
+    }
+
+    @Test
+    void dropDuplicatesFilterKeepsFirstOccurrence() {
+        List<MovieCandidate> candidates = List.of(
+            candidate("m1"),
+            candidate("m2"),
+            candidate("m1"),
+            candidate("m3"),
+            candidate("m2")
+        );
+
+        CandidateFilterResult result = new DropDuplicatesFilter()
+            .filter(ScoredMoviesQuery.forUser("u1"), candidates);
+
+        assertEquals(List.of("m1", "m2", "m3"), result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertEquals(List.of("m1", "m2"), result.removed().stream().map(MovieCandidate::movieId).toList());
+    }
+
+    @Test
+    void dropDuplicatesFilterAllUniquePassesThrough() {
+        List<MovieCandidate> candidates = List.of(candidate("a"), candidate("b"), candidate("c"));
+
+        CandidateFilterResult result = new DropDuplicatesFilter()
+            .filter(ScoredMoviesQuery.forUser("u1"), candidates);
+
+        assertEquals(List.of("a", "b", "c"), result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertTrue(result.removed().isEmpty());
+    }
+
+    @Test
+    void ancillaryVFFilterDropsFlaggedCandidates() {
+        List<MovieCandidate> candidates = List.of(
+            candidate("normal"),
+            candidate("ancillary").withVisibility(null, true, List.of(), null),
+            candidate("also_normal").withVisibility(null, false, List.of(), null)
+        );
+
+        CandidateFilterResult result = new AncillaryVFFilter()
+            .filter(ScoredMoviesQuery.forUser("u1"), candidates);
+
+        assertEquals(List.of("normal", "also_normal"), result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertEquals(List.of("ancillary"), result.removed().stream().map(MovieCandidate::movieId).toList());
+    }
+
+    @Test
+    void dedupConversationFilterKeepsHighestScoredPerThread() {
+        // "reply-a" and "reply-b" share ancestor "root" → only highest popularity kept
+        MovieCandidate root     = new MovieCandidate("root",    5.0, 0.0, false);
+        MovieCandidate replyA   = new MovieCandidate("reply-a", 3.0, 0.0, false)
+            .withVisibility(null, false, List.of("root"), null);
+        MovieCandidate replyB   = new MovieCandidate("reply-b", 7.0, 0.0, false)
+            .withVisibility(null, false, List.of("root"), null);
+        MovieCandidate standalone = new MovieCandidate("standalone", 2.0, 0.0, false);
+
+        CandidateFilterResult result = new DedupConversationFilter()
+            .filter(ScoredMoviesQuery.forUser("u1"), List.of(root, replyA, replyB, standalone));
+
+        // "root" wins its own slot (no ancestors → key="root"); "reply-b" wins the thread (7.0 > 3.0)
+        assertEquals(List.of("root", "reply-b", "standalone"),
+            result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertEquals(List.of("reply-a"),
+            result.removed().stream().map(MovieCandidate::movieId).toList());
+    }
+
+    @Test
+    void dedupConversationFilterStandaloneMoviesPassThrough() {
+        List<MovieCandidate> candidates = List.of(
+            new MovieCandidate("m1", 4.0, 0.0, false),
+            new MovieCandidate("m2", 2.0, 0.0, false)
+        );
+
+        CandidateFilterResult result = new DedupConversationFilter()
+            .filter(ScoredMoviesQuery.forUser("u1"), candidates);
+
+        assertEquals(List.of("m1", "m2"), result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertTrue(result.removed().isEmpty());
+    }
+
+    @Test
+    void ineligibleSubscriptionFilterDropsUnsubscribedGatedContent() {
+        ScoredMoviesQuery query = new ScoredMoviesQuery(
+            "u1",
+            MovieLensUserFeatures.forUser("u1").withSubscribedUserIds(List.of("creator-99")),
+            List.of(), List.of(), List.of()
+        );
+        List<MovieCandidate> candidates = List.of(
+            candidate("public"),
+            candidate("subscribed").withSubscriptionAuthorId("creator-99"),
+            candidate("not_subscribed").withSubscriptionAuthorId("creator-77")
+        );
+
+        CandidateFilterResult result = new IneligibleSubscriptionFilter().filter(query, candidates);
+
+        assertEquals(List.of("public", "subscribed"), result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertEquals(List.of("not_subscribed"), result.removed().stream().map(MovieCandidate::movieId).toList());
+    }
+
+    @Test
+    void ineligibleSubscriptionFilterKeepsAllPublicWhenNoSubscriptions() {
+        List<MovieCandidate> candidates = List.of(
+            candidate("public-a"),
+            candidate("public-b"),
+            candidate("subscription-gated").withSubscriptionAuthorId("any-creator")
+        );
+
+        CandidateFilterResult result = new IneligibleSubscriptionFilter()
+            .filter(ScoredMoviesQuery.forUser("u1"), candidates);
+
+        assertEquals(List.of("public-a", "public-b"), result.kept().stream().map(MovieCandidate::movieId).toList());
+        assertEquals(List.of("subscription-gated"), result.removed().stream().map(MovieCandidate::movieId).toList());
     }
 
     private MovieCandidate candidate(String id) {
