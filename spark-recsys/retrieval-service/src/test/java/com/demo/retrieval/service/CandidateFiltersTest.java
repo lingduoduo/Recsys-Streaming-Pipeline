@@ -2,8 +2,8 @@ package com.demo.retrieval.service;
 
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.filters.AgeFilter;
-import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
-import com.demo.retrieval.service.filters.AuthorSocialgraphFilter.IneligibleSubscriptionFilter;
+import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
+import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
@@ -47,32 +47,28 @@ class CandidateFiltersTest {
     }
 
     @Test
-    void authorSocialgraphFilterRemovesMutedBlockedAndBlockingAuthors() {
+    void creatorBlocklistFilterRemovesMutedAndBlockedCreators() {
         ScoredMoviesQuery query = new ScoredMoviesQuery(
             "u1",
             MovieLensUserFeatures.forUser("u1")
-                .withMutedUserIds(List.of("muted-author"))
-                .withBlockedUserIds(List.of("blocked-author", "blocked-quote")),
+                .withMutedUserIds(List.of("muted-creator"))
+                .withBlockedUserIds(List.of("blocked-creator", "blocked-quote")),
             List.of(),
             List.of(),
             List.of()
         );
         List<MovieCandidate> candidates = List.of(
-            candidate("muted").withCoreData("muted-author", null, null, null, null),
-            candidate("blocked").withCoreData("blocked-author", null, null, null, null),
+            candidate("muted").withCoreData("muted-creator", null, null, null, null),
+            candidate("blocked").withCoreData("blocked-creator", null, null, null, null),
             candidate("quote_blocked").withQuote(null, "blocked-quote", null, null),
-            candidate("author_blocks_viewer").withAuthorBlocksViewer(true),
-            candidate("quoted_author_blocks_viewer").withQuote(null, null, true, null),
-            candidate("kept").withCoreData("fresh-author", null, null, null, null)
+            candidate("kept").withCoreData("fresh-creator", null, null, null, null)
         );
 
-        CandidateFilterResult result = new AuthorSocialgraphFilter().filter(query, candidates);
+        CandidateFilterResult result = new CreatorBlocklistFilter().filter(query, candidates);
 
         assertEquals(List.of("kept"), result.kept().stream().map(MovieCandidate::movieId).toList());
-        assertEquals(
-            List.of("muted", "blocked", "quote_blocked", "author_blocks_viewer", "quoted_author_blocks_viewer"),
-            result.removed().stream().map(MovieCandidate::movieId).toList()
-        );
+        assertEquals(List.of("muted", "blocked", "quote_blocked"),
+            result.removed().stream().map(MovieCandidate::movieId).toList());
     }
 
     @Test

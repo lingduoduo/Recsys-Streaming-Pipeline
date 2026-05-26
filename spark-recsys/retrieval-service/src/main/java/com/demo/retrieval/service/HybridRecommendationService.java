@@ -21,8 +21,8 @@ import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandida
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
-import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
-import com.demo.retrieval.service.filters.AuthorSocialgraphFilter.IneligibleSubscriptionFilter;
+import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
+import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
@@ -547,7 +547,7 @@ public class HybridRecommendationService {
             historyFilter(new PreviouslySeenMoviesBackupFilter()),
             historyFilter(new PreviouslyServedMoviesFilter()),
             historyFilter(new SelfMovieFilter()),
-            historyFilter(new AuthorSocialgraphFilter()),
+            historyFilter(new CreatorBlocklistFilter()),
             historyFilter(new NewUserTopicIdsFilter()),
             historyFilter(new IneligibleSubscriptionFilter()),
             mutedKeywordFilter(),
