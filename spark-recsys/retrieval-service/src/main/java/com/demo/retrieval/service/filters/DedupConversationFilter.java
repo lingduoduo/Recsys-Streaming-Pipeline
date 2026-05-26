@@ -5,47 +5,46 @@ import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Deduplicates candidates that belong to the same reply/ancestor conversation.
- * For each conversation (identified by the lexicographically smallest ancestor
- * movie ID, or the movie's own ID when it has no ancestors), only the candidate
- * with the highest popularity score is kept. All others are moved to removed.
- *
- * This prevents the same discussion thread from occupying multiple slots in the
- * recommendation slate, analogous to conversation deduplication in a tweet feed.
+ * Candidates with no ancestors (root movies) are always kept.
+ * For candidates with ancestors, only the one with the highest popularity score
+ * per thread (identified by the lexicographically smallest ancestor ID) is kept.
  */
 public class DedupConversationFilter implements CandidateFilter {
 
     @Override
     public CandidateFilterResult filter(ScoredMoviesQuery query, List<MovieCandidate> candidates) {
-        Map<String, MovieCandidate> bestPerConversation = new LinkedHashMap<>();
-        List<MovieCandidate> removed = new ArrayList<>();
-
+        Map<String, MovieCandidate> bestPerThread = new HashMap<>();
         for (MovieCandidate candidate : candidates) {
-            String conversationId = conversationId(candidate);
-            MovieCandidate current = bestPerConversation.get(conversationId);
-            if (current == null) {
-                bestPerConversation.put(conversationId, candidate);
-            } else if (candidate.popularityScore() > current.popularityScore()) {
-                removed.add(current);
-                bestPerConversation.put(conversationId, candidate);
-            } else {
-                removed.add(candidate);
+            List<String> ancestors = candidate.ancestorMovieIds();
+            if (ancestors.isEmpty()) continue;
+            String threadKey = ancestors.stream().min(Comparator.naturalOrder()).orElse(candidate.movieId());
+            MovieCandidate current = bestPerThread.get(threadKey);
+            if (current == null || candidate.popularityScore() > current.popularityScore()) {
+                bestPerThread.put(threadKey, candidate);
             }
         }
 
-        return new CandidateFilterResult(List.copyOf(bestPerConversation.values()), removed);
-    }
-
-    private static String conversationId(MovieCandidate candidate) {
-        List<String> ancestors = candidate.ancestorMovieIds();
-        if (ancestors.isEmpty()) {
-            return candidate.movieId();
+        List<MovieCandidate> kept = new ArrayList<>();
+        List<MovieCandidate> removed = new ArrayList<>();
+        for (MovieCandidate candidate : candidates) {
+            if (candidate.ancestorMovieIds().isEmpty()) {
+                kept.add(candidate);
+            } else {
+                String threadKey = candidate.ancestorMovieIds().stream()
+                    .min(Comparator.naturalOrder()).orElse(candidate.movieId());
+                if (candidate == bestPerThread.get(threadKey)) {
+                    kept.add(candidate);
+                } else {
+                    removed.add(candidate);
+                }
+            }
         }
-        return ancestors.stream().min(Comparator.naturalOrder()).orElse(candidate.movieId());
+        return new CandidateFilterResult(kept, removed);
     }
 }

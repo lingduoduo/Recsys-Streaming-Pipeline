@@ -23,7 +23,6 @@ import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydra
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
 import com.demo.retrieval.service.filters.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
-import com.demo.retrieval.service.filters.CoreDataHydrationFilter;
 import com.demo.retrieval.service.filters.DedupConversationFilter;
 import com.demo.retrieval.service.filters.DropDuplicatesFilter;
 import com.demo.retrieval.service.filters.IneligibleSubscriptionFilter;
@@ -325,7 +324,7 @@ public class HybridRecommendationService {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
-                    dlScores.getOrDefault(item, 0.0), qValues.get(item), algorithm, tabularRl);
+                    dlScores.getOrDefault(item, 0.0), qValues.get(item), tabularRl);
             })
             .sorted(Comparator.comparingDouble(ScoredCandidate::banditScore).reversed())
             .collect(Collectors.toCollection(ArrayList::new));
@@ -542,7 +541,6 @@ public class HybridRecommendationService {
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(
             historyFilter(new DropDuplicatesFilter()),
-            historyFilter(new CoreDataHydrationFilter()),
             historyFilter(new TopicIdsFilter()),
             historyFilter(new VideoFilter()),
             historyFilter(new PreviouslySeenMoviesFilter()),
@@ -993,7 +991,6 @@ public class HybridRecommendationService {
         long clicks,
         double dlScore,
         Double qValue,
-        String algorithm,
         boolean tabularRl
     ) {
         NormalizedProfile profile = getNormalizedCatalog().get(itemId);
@@ -1010,7 +1007,7 @@ public class HybridRecommendationService {
         double onlineWeight = clamp(properties.getRewardModel().getWeight());
         double learnedPrior = (offlineScore * (1.0 - onlineWeight)) + (onlineScore * onlineWeight);
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.newRelease());
-        BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart, algorithm);
+        BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart);
         double qLearningScore = computeTabularRlRankingScore(learnedPrior, qValue);
         double estimatedReward = armScore.posteriorMean();
         double novelty = 1.0 / (impressions + 1.0);
@@ -1526,9 +1523,9 @@ public class HybridRecommendationService {
         long itemImpressions,
         long clicks,
         long totalImpressions,
-        boolean coldStart,
-        String algorithm
+        boolean coldStart
     ) {
+        String algorithm = currentAlgorithm();
         long failures = Math.max(itemImpressions - clicks, 0L);
         double priorStrength = coldStart
             ? Math.max(WARM_PRIOR_STRENGTH, properties.getBandit().getColdStartBoost() * 4.0)
