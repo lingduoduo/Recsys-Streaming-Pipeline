@@ -30,7 +30,6 @@ import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
 import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DedupConversationFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplicatesFilter;
-import com.demo.retrieval.service.filters.SelfMovieFilter;
 import com.demo.retrieval.service.filters.TopicIdsFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
@@ -546,7 +545,6 @@ public class HybridRecommendationService {
             historyFilter(new PreviouslySeenMoviesFilter()),
             historyFilter(new PreviouslySeenMoviesBackupFilter()),
             historyFilter(new PreviouslyServedMoviesFilter()),
-            historyFilter(new SelfMovieFilter()),
             historyFilter(new CreatorBlocklistFilter()),
             historyFilter(new NewUserTopicIdsFilter()),
             historyFilter(new IneligibleSubscriptionFilter()),
