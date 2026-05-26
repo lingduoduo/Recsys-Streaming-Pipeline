@@ -34,4 +34,20 @@ public class AuthorSocialgraphFilter implements CandidateFilter {
     private boolean contains(Set<String> userIds, String userId) {
         return userId != null && userIds.contains(userId);
     }
+
+    public static class IneligibleSubscriptionFilter implements CandidateFilter {
+        @Override
+        public CandidateFilterResult filter(ScoredMoviesQuery query, List<MovieCandidate> candidates) {
+            Set<String> subscribedUserIds = new HashSet<>(query.userFeatures().subscribedUserIds());
+            Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
+                .collect(Collectors.partitioningBy(candidate -> {
+                    String authorId = candidate.subscriptionAuthorId();
+                    return authorId == null || authorId.isBlank() || subscribedUserIds.contains(authorId);
+                }));
+            return new CandidateFilterResult(
+                partitioned.getOrDefault(Boolean.TRUE, List.of()),
+                partitioned.getOrDefault(Boolean.FALSE, List.of())
+            );
+        }
+    }
 }

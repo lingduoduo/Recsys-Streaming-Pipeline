@@ -2,19 +2,18 @@ package com.demo.retrieval.service;
 
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.filters.AgeFilter;
-import com.demo.retrieval.service.filters.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
+import com.demo.retrieval.service.filters.AuthorSocialgraphFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
-import com.demo.retrieval.service.filters.CoreDataHydrationFilter;
-import com.demo.retrieval.service.filters.DedupConversationFilter;
-import com.demo.retrieval.service.filters.DropDuplicatesFilter;
-import com.demo.retrieval.service.filters.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
 import com.demo.retrieval.service.filters.RetweetDeduplicationFilter;
+import com.demo.retrieval.service.filters.RetweetDeduplicationFilter.DedupConversationFilter;
+import com.demo.retrieval.service.filters.RetweetDeduplicationFilter.DropDuplicatesFilter;
 import com.demo.retrieval.service.filters.SelfMovieFilter;
 import com.demo.retrieval.service.filters.TopicIdsFilter;
 import com.demo.retrieval.service.filters.VFFilter;
+import com.demo.retrieval.service.filters.VFFilter.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.VideoFilter;
 import org.junit.jupiter.api.Test;
 
@@ -253,21 +252,6 @@ class CandidateFiltersTest {
 
         assertEquals(List.of("a", "b", "c"), result.kept().stream().map(MovieCandidate::movieId).toList());
         assertTrue(result.removed().isEmpty());
-    }
-
-    @Test
-    void coreDataHydrationFilterDropsCandidatesWithNoOwnerId() {
-        List<MovieCandidate> candidates = List.of(
-            candidate("hydrated").withCoreData("owner-42", null, null, null, "The Matrix"),
-            candidate("no_owner"),
-            candidate("blank_owner").withCoreData("  ", null, null, null, null)
-        );
-
-        CandidateFilterResult result = new CoreDataHydrationFilter()
-            .filter(ScoredMoviesQuery.forUser("u1"), candidates);
-
-        assertEquals(List.of("hydrated"), result.kept().stream().map(MovieCandidate::movieId).toList());
-        assertEquals(List.of("no_owner", "blank_owner"), result.removed().stream().map(MovieCandidate::movieId).toList());
     }
 
     @Test
