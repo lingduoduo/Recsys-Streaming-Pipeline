@@ -27,7 +27,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestController
 @Validated
@@ -71,7 +70,7 @@ public class RecommendationController {
         try {
             List<Double> vector = Arrays.stream(raw.split(" "))
                 .map(Double::parseDouble)
-                .collect(Collectors.toList());
+                .toList();
             return Map.of("item", item, "embedding", vector);
         } catch (NumberFormatException e) {
             log.warn("Corrupt embedding data for key {}", key);
