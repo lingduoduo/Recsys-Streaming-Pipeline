@@ -21,7 +21,12 @@ import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandida
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
+import com.demo.retrieval.service.filters.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.AuthorSocialgraphFilter;
+import com.demo.retrieval.service.filters.CoreDataHydrationFilter;
+import com.demo.retrieval.service.filters.DedupConversationFilter;
+import com.demo.retrieval.service.filters.DropDuplicatesFilter;
+import com.demo.retrieval.service.filters.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
 import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
@@ -536,6 +541,8 @@ public class HybridRecommendationService {
             new GizmoduckCandidateHydrator(properties.getCatalog())
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(
+            historyFilter(new DropDuplicatesFilter()),
+            historyFilter(new CoreDataHydrationFilter()),
             historyFilter(new TopicIdsFilter()),
             historyFilter(new VideoFilter()),
             historyFilter(new PreviouslySeenMoviesFilter()),
@@ -544,9 +551,12 @@ public class HybridRecommendationService {
             historyFilter(new SelfMovieFilter()),
             historyFilter(new AuthorSocialgraphFilter()),
             historyFilter(new NewUserTopicIdsFilter()),
+            historyFilter(new IneligibleSubscriptionFilter()),
             mutedKeywordFilter(),
             historyFilter(new VFFilter()),
-            this::filterEligibleCandidates
+            historyFilter(new AncillaryVFFilter()),
+            this::filterEligibleCandidates,
+            historyFilter(new DedupConversationFilter())
         ));
         List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
         CandidateSelectResult selectResult = selectCandidates(context, scored, this::selectDistinctCandidates);
