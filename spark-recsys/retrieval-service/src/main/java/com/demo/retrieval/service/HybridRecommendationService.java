@@ -32,8 +32,8 @@ import com.demo.retrieval.service.filters.RetweetDeduplicationFilter.DedupConver
 import com.demo.retrieval.service.filters.RetweetDeduplicationFilter.DropDuplicatesFilter;
 import com.demo.retrieval.service.filters.SelfMovieFilter;
 import com.demo.retrieval.service.filters.TopicIdsFilter;
-import com.demo.retrieval.service.filters.VFFilter;
-import com.demo.retrieval.service.filters.VFFilter.AncillaryVFFilter;
+import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
+import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.VideoFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import org.slf4j.Logger;
