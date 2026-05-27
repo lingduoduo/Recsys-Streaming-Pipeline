@@ -31,7 +31,7 @@ public sealed interface RecSysEvent
         return new InteractionCreated(userId, movieId, eventType, timestamp);
     }
 
-    // Not consumed by any current Spark job; serializes for future use.
+    // Consumed by MovieLensContextCollectorStreamingJob.
     record UserUpdated(String userId, int age, String gender,
                        String occupation, String zipCode, long timestamp)
             implements RecSysEvent {
@@ -42,7 +42,7 @@ public sealed interface RecSysEvent
         }
     }
 
-    // Not consumed by any current Spark job; serializes for future use.
+    // Consumed by MovieLensContextCollectorStreamingJob.
     record MovieUpdated(String movieId, String title, List<String> genres,
                         int releaseYear, long timestamp)
             implements RecSysEvent {

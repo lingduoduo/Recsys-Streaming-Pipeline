@@ -136,9 +136,14 @@ public class MovieLensEventProcessor {
             else if (event instanceof MovieInteractionEvent e) out = handleInteractionEvent(e);
             else continue;
 
-            if (out instanceof RecSysEvent.InteractionCreated)     producer.send(KafkaTopics.USER_EVENTS, out.toByteArray());
-            else if (out instanceof RecSysEvent.RatingCreated)     producer.send(KafkaTopics.BEHAVIOR_LOGS, out.toByteArray());
-            // UserUpdated and MovieUpdated: no consuming Spark job currently
+            if (out instanceof RecSysEvent.InteractionCreated) {
+                producer.send(KafkaTopics.USER_EVENTS, out.toByteArray());
+            } else if (out instanceof RecSysEvent.RatingCreated) {
+                producer.send(KafkaTopics.BEHAVIOR_LOGS, out.toByteArray());
+                producer.send(KafkaTopics.MOVIELENS_CONTEXT, out.toByteArray());
+            } else if (out instanceof RecSysEvent.UserUpdated || out instanceof RecSysEvent.MovieUpdated) {
+                producer.send(KafkaTopics.MOVIELENS_CONTEXT, out.toByteArray());
+            }
         }
 
         int batchCount = BATCH_LOG_COUNTER.incrementAndGet();

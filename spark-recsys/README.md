@@ -21,6 +21,7 @@ producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoine
 
 Kafka: training_samples ──► ExperienceCollectorStreamingJob ──► Kafka: training_experiences
 Kafka: training_experiences ──► RecommendationResponseStatsJob ──► Kafka: recommendation_metrics
+Kafka: movielens_context ──► MovieLensContextCollectorStreamingJob ──► Redis user/movie context
 
 ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob ──► embedding.txt
                                                                      └──► Redis i2vEmb:{item}
@@ -443,6 +444,46 @@ Environment variables:
 | `RESPONSE_STATS_INPUT_TOPIC` | `training_experiences` |
 | `RESPONSE_STATS_OUTPUT_TOPIC` | `recommendation_metrics` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/response-stats` |
+
+### `MovieLensContextCollectorStreamingJob`
+
+Consumes MovieLens user, movie, and rating context updates from Kafka and writes the Redis hashes used by the retrieval service query hydrators. This is the MovieLens analogue of the source/context collection ideas in the added Rust source references: context events are normalized once in the streaming layer, then the online service reads compact per-user and per-movie feature state at request time.
+
+```bash
+SPARK_MAIN_CLASS=com.demo.process.MovieLensContextCollectorStreamingJob \
+MOVIELENS_CONTEXT_INPUT_TOPIC=movielens_context \
+./run-streaming-job.sh
+```
+
+For each micro-batch it:
+
+1. Classifies mixed JSON records as `user_update`, `movie_update`, or `rating`.
+2. Merges user demographic fields and rating aggregates into `user:{id}:features`.
+3. Maintains `avgRating`, `ratingCount`, `recentlyRatedMovieIds`, and `actionSequenceMovieIds` for query hydration.
+4. Stores movie title, genres, and release year under `movie:{id}:features`.
+
+Redis keys written:
+
+| Key | Type | Contents | TTL |
+|---|---|---|---|
+| `user:{id}:features` | hash | MovieLens user demographics and rating context | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+| `movie:{id}:features` | hash | Movie title, genres, release year | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+
+Environment variables:
+
+| Env var | Default |
+|---|---|
+| `SPARK_APP_NAME` | `MovieLensContextCollectorStreamingJob` |
+| `MOVIELENS_CONTEXT_INPUT_TOPIC` | `movielens_context` |
+| `REDIS_HOST` | `localhost` |
+| `REDIS_PORT` | `6379` |
+| `MOVIELENS_CONTEXT_TTL_SECONDS` | `2592000` (30 days) |
+| `MOVIELENS_RECENT_RATINGS_LIMIT` | `50` |
+| `REDIS_PIPELINE_SIZE` | `500` |
+| `REDIS_POOL_MAX_TOTAL` | `8` |
+| `MAX_OFFSETS_PER_TRIGGER` | `5000` |
+| `TRIGGER_INTERVAL` | `10 seconds` |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/movielens-context-collector` |
 
 ## Retrieval Service Configuration
 
