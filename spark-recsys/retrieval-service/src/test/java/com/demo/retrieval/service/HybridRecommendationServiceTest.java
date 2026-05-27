@@ -421,7 +421,7 @@ class HybridRecommendationServiceTest {
         MovieProfile contextual = movie(List.of("drama"), List.of("contextual"), false);
         contextual.setFavoriteCount(1_000L);
         contextual.setReplyCount(100L);
-        contextual.setFilteredTopicIds(List.of(42));
+        contextual.setMatchedGenreIds(List.of(42));
         contextual.setInNetwork(true);
         contextual.setAuthorFollowersCount(100_000);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
@@ -431,7 +431,7 @@ class HybridRecommendationServiceTest {
 
         when(listOps.range(eq("user:u_context:recent"), eq(0L), anyLong())).thenReturn(List.of());
         when(listOps.range(eq("user:u_context:rated"), eq(0L), anyLong())).thenReturn(List.of());
-        when(hashOps.entries("user:u_context:features")).thenReturn(Map.of("followedGrokTopics", "42"));
+        when(hashOps.entries("user:u_context:features")).thenReturn(Map.of("followedGenres", "42"));
         when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
             .thenReturn(new LinkedHashSet<>(List.of(
                 new DefaultTypedTuple<>("popular", 100.0),

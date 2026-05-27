@@ -8,8 +8,8 @@ public record ScoredMoviesQuery(
     List<String> watchedMovieIds,
     List<String> ratedMovieIds,
     List<String> candidateMovieIds,
-    List<Integer> topicIds,
-    List<Integer> excludedTopicIds,
+    List<Integer> genreIds,
+    List<Integer> excludedGenreIds,
     boolean bulkTopicRequest,
     boolean excludeVideos
 ) {
@@ -28,19 +28,19 @@ public record ScoredMoviesQuery(
         watchedMovieIds = watchedMovieIds == null ? List.of() : List.copyOf(watchedMovieIds);
         ratedMovieIds = ratedMovieIds == null ? List.of() : List.copyOf(ratedMovieIds);
         candidateMovieIds = candidateMovieIds == null ? List.of() : List.copyOf(candidateMovieIds);
-        topicIds = topicIds == null ? List.of() : List.copyOf(topicIds);
-        excludedTopicIds = excludedTopicIds == null ? List.of() : List.copyOf(excludedTopicIds);
+        genreIds = genreIds == null ? List.of() : List.copyOf(genreIds);
+        excludedGenreIds = excludedGenreIds == null ? List.of() : List.copyOf(excludedGenreIds);
     }
 
     public static ScoredMoviesQuery forUser(String userId) {
         return new ScoredMoviesQuery(userId, MovieLensUserFeatures.forUser(userId), List.of(), List.of(), List.of());
     }
 
-    public boolean isTopicRequest() {
-        return !topicIds.isEmpty();
+    public boolean isGenreRequest() {
+        return !genreIds.isEmpty();
     }
 
-    public boolean hasExcludedTopics() {
-        return !excludedTopicIds.isEmpty();
+    public boolean hasExcludedGenres() {
+        return !excludedGenreIds.isEmpty();
     }
 }

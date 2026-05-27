@@ -10,23 +10,23 @@ import java.util.List;
 /**
  * Hydrates related content-category IDs for the user.
  *
- * Reads the content-category identifiers stored under followedGrokTopics in
+ * Reads the content-category identifiers stored under followedGenres in
  * the feature store. These are written by the content-category tagging pipeline
  * and represent genre/topic clusters the user engages with.
  */
 @Component
-public class RelatedContentsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class FollowedGenresQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
 
     private final MovieLensFeatureClient featureClient;
 
-    public RelatedContentsQueryHydrator(MovieLensFeatureClient featureClient) {
+    public FollowedGenresQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         List<Integer> relatedContents = featureClient.getUserFeatures(query.userId())
-            .map(MovieLensUserFeatures::followedGrokTopics)
+            .map(MovieLensUserFeatures::followedGenres)
             .orElseGet(List::of);
         return new ScoredMoviesQuery(query.userId(),
             query.userFeatures().withFollowedGrokTopics(relatedContents),
@@ -37,7 +37,7 @@ public class RelatedContentsQueryHydrator implements QueryHydrator<ScoredMoviesQ
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(query.userId(),
             query.userFeatures().withFollowedGrokTopics(
-                hydrated.userFeatures().followedGrokTopics()),
+                hydrated.userFeatures().followedGenres()),
             query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 }

@@ -10,7 +10,7 @@ import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator
 import com.demo.retrieval.service.candidate_hydrators.CandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.FilteredTopicsCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.GenreMatchCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
@@ -24,13 +24,13 @@ import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandida
 import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
 import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
-import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
+import com.demo.retrieval.service.filters.NewUserGenreFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
 import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DedupConversationFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplicatesFilter;
-import com.demo.retrieval.service.filters.TopicIdsFilter;
+import com.demo.retrieval.service.filters.GenreIdsFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.VideoFilter;
@@ -534,19 +534,19 @@ public class HybridRecommendationService {
             new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
             new MutualFollowJaccardCandidateHydrator(properties.getCatalog()),
             new EngagementCountsCandidateHydrator(properties.getCatalog()),
-            new FilteredTopicsCandidateHydrator(properties.getCatalog()),
+            new GenreMatchCandidateHydrator(properties.getCatalog()),
             new InNetworkCandidateHydrator(properties.getCatalog()),
             new GizmoduckCandidateHydrator(properties.getCatalog())
         ));
         CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(
             historyFilter(new DropDuplicatesFilter()),
-            historyFilter(new TopicIdsFilter()),
+            historyFilter(new GenreIdsFilter()),
             historyFilter(new VideoFilter()),
             historyFilter(new PreviouslySeenMoviesFilter()),
             historyFilter(new PreviouslySeenMoviesBackupFilter()),
             historyFilter(new PreviouslyServedMoviesFilter()),
             historyFilter(new CreatorBlocklistFilter()),
-            historyFilter(new NewUserTopicIdsFilter()),
+            historyFilter(new NewUserGenreFilter()),
             historyFilter(new IneligibleSubscriptionFilter()),
             mutedKeywordFilter(),
             historyFilter(new VFFilter()),
@@ -726,8 +726,8 @@ public class HybridRecommendationService {
             firstNonNull(left.replyCount(), right.replyCount()),
             firstNonNull(left.repostCount(), right.repostCount()),
             firstNonNull(left.quoteCount(), right.quoteCount()),
-            firstNonEmpty(left.filteredTopicIds(), right.filteredTopicIds()),
-            firstNonEmpty(left.unfilteredTopicIds(), right.unfilteredTopicIds()),
+            firstNonEmpty(left.matchedGenreIds(), right.matchedGenreIds()),
+            firstNonEmpty(left.unmatchedGenreIds(), right.unmatchedGenreIds()),
             firstNonNull(left.inNetwork(), right.inNetwork()),
             firstNonNull(left.authorFollowersCount(), right.authorFollowersCount()),
             firstNonBlank(left.authorScreenName(), right.authorScreenName()),
@@ -835,15 +835,15 @@ public class HybridRecommendationService {
     }
 
     private double topicBoost(CandidatePipelineContext context, MovieCandidate candidate) {
-        if (candidate.filteredTopicIds().isEmpty()) {
+        if (candidate.matchedGenreIds().isEmpty()) {
             return 0.0;
         }
-        Set<Integer> userTopics = new HashSet<>(context.query().userFeatures().followedGrokTopics());
-        userTopics.addAll(context.query().userFeatures().inferredGrokTopics());
+        Set<Integer> userTopics = new HashSet<>(context.query().userFeatures().followedGenres());
+        userTopics.addAll(context.query().userFeatures().inferredGenres());
         if (userTopics.isEmpty()) {
             return 0.0;
         }
-        return candidate.filteredTopicIds().stream().anyMatch(userTopics::contains) ? 0.05 : 0.0;
+        return candidate.matchedGenreIds().stream().anyMatch(userTopics::contains) ? 0.05 : 0.0;
     }
 
     private double engagementBoost(MovieCandidate candidate) {

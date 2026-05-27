@@ -1,23 +1,23 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.clients.FollowedStarterPacksClient;
+import com.demo.retrieval.service.clients.FollowedCollectionsClient;
 import com.demo.retrieval.service.ScoredMoviesQuery;
 import org.springframework.stereotype.Component;
 
 /**
- * Hydrates followedStarterPacks from the starter pack follow store.
+ * Hydrates followedCollections from the starter pack follow store.
  *
- * Mirrors the Rust FollowedStarterPacksQueryHydrator: fetch followed pack IDs
+ * Mirrors the Rust FollowedCollectionsQueryHydrator: fetch followed pack IDs
  * from a dedicated store client, then call ids_to_bool_array(&ids, &PACK_IDS).
  * MovieLens has no starter pack concept, so the client returns an empty list
- * and followedStarterPacks remains empty for all users.
+ * and followedCollections remains empty for all users.
  */
 @Component
-public class FollowedStarterPacksQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class FollowedCollectionsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
 
-    private final FollowedStarterPacksClient starterPacksClient;
+    private final FollowedCollectionsClient starterPacksClient;
 
-    public FollowedStarterPacksQueryHydrator(FollowedStarterPacksClient starterPacksClient) {
+    public FollowedCollectionsQueryHydrator(FollowedCollectionsClient starterPacksClient) {
         this.starterPacksClient = starterPacksClient;
     }
 
@@ -33,7 +33,7 @@ public class FollowedStarterPacksQueryHydrator implements QueryHydrator<ScoredMo
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(query.userId(),
             query.userFeatures().withFollowedStarterPacks(
-                hydrated.userFeatures().followedStarterPacks()),
+                hydrated.userFeatures().followedCollections()),
             query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 }

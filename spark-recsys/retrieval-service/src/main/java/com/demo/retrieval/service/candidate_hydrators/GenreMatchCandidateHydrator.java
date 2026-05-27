@@ -6,10 +6,10 @@ import com.demo.retrieval.service.ScoredMoviesQuery;
 import java.util.List;
 import java.util.Map;
 
-public class FilteredTopicsCandidateHydrator implements CandidateHydrator {
+public class GenreMatchCandidateHydrator implements CandidateHydrator {
     private final Map<String, MovieProfile> catalog;
 
-    public FilteredTopicsCandidateHydrator(Map<String, MovieProfile> catalog) {
+    public GenreMatchCandidateHydrator(Map<String, MovieProfile> catalog) {
         this.catalog = catalog;
     }
 
@@ -20,7 +20,7 @@ public class FilteredTopicsCandidateHydrator implements CandidateHydrator {
                 MovieProfile profile = catalog.get(candidate.movieId());
                 return profile == null
                     ? candidate
-                    : candidate.withFilteredTopics(profile.getFilteredTopicIds(), profile.getUnfilteredTopicIds());
+                    : candidate.withMatchedGenres(profile.getMatchedGenreIds(), profile.getUnmatchedGenreIds());
             })
             .toList();
     }
