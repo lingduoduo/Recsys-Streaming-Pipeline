@@ -9,21 +9,21 @@ import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
- * Derives the scoring sequence from the user's behavior event list.
+ * Hydrates scoringSequenceMovieIds from the user's behavior event list.
  *
- * Mirrors the Rust ScoringSequenceQueryHydrator / DenseAggregatedActionFilter pattern:
- * take the most recent (densest-signal) interactions and truncate to a shorter window
- * suitable for the ranking model. Because recentlyRatedMovieIds is already ordered
- * newest-first, the head of the list is the highest-signal subset.
+ * Mirrors the Rust ScoringSequenceQueryHydrator + DenseAggregatedActionFilter pattern:
+ * read the engagement stream, deduplicate (keeping only the first/most-recent occurrence
+ * of each movie), then truncate to a short, high-signal window for the ranking model.
+ * The head of the recency-ordered list represents the densest engagement signal.
  */
 @Component
-public class BehaviorEventListQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class ScoringSequenceQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
 
     public static final int MAX_SCORING_SEQ_LENGTH = 20;
 
     private final MovieLensFeatureClient featureClient;
 
-    public BehaviorEventListQueryHydrator(MovieLensFeatureClient featureClient) {
+    public ScoringSequenceQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
@@ -34,9 +34,7 @@ public class BehaviorEventListQueryHydrator implements QueryHydrator<ScoredMovie
             .map(MovieLensUserFeatures::recentlyRatedMovieIds)
             .orElseGet(List::of);
 
-        List<String> dense = deduplicate(raw);
-        List<String> scoringSeq = dense.size() > MAX_SCORING_SEQ_LENGTH
-            ? dense.subList(0, MAX_SCORING_SEQ_LENGTH) : dense;
+        List<String> scoringSeq = truncate(deduplicate(raw), MAX_SCORING_SEQ_LENGTH);
 
         return new ScoredMoviesQuery(userId,
             query.userFeatures().withScoringSequenceMovieIds(scoringSeq),
@@ -46,11 +44,16 @@ public class BehaviorEventListQueryHydrator implements QueryHydrator<ScoredMovie
     @Override
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(query.userId(),
-            query.userFeatures().withScoringSequenceMovieIds(hydrated.userFeatures().scoringSequenceMovieIds()),
+            query.userFeatures().withScoringSequenceMovieIds(
+                hydrated.userFeatures().scoringSequenceMovieIds()),
             query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 
     private static List<String> deduplicate(List<String> items) {
         return List.copyOf(new LinkedHashSet<>(items));
+    }
+
+    private static List<String> truncate(List<String> items, int maxLen) {
+        return items.size() > maxLen ? items.subList(0, maxLen) : items;
     }
 }
