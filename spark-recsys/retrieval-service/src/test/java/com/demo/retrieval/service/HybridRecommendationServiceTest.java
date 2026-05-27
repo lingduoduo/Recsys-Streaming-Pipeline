@@ -13,7 +13,7 @@ import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.SetOperations;
 import com.demo.retrieval.service.clients.RedisMovieLensFeatureClient;
-import com.demo.retrieval.service.clients.RedisUserMovieHistoryClient;
+import com.demo.retrieval.service.clients.UserMovieHistoryClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
@@ -697,8 +697,18 @@ class HybridRecommendationServiceTest {
     }
 
     private List<QueryHydrator<ScoredMoviesQuery>> hydrators() {
+        UserMovieHistoryClient historyClient = mock(UserMovieHistoryClient.class);
+        when(historyClient.getMovieHistory(anyString())).thenAnswer(invocation -> {
+            String userId = invocation.getArgument(0);
+            List<String> watched = listOps.range("user:" + userId + ":recent", 0L, 49L);
+            List<String> rated   = listOps.range("user:" + userId + ":rated",  0L, 49L);
+            return new UserMovieHistoryClient.UserMovieHistory(
+                watched != null ? watched : List.of(),
+                rated   != null ? rated   : List.of()
+            );
+        });
         return List.of(
-            new MovieLensUserHistoryQueryHydrator(new RedisUserMovieHistoryClient(redis)),
+            new MovieLensUserHistoryQueryHydrator(historyClient),
             new UserMovieFeaturesQueryHydrator(new RedisMovieLensFeatureClient(redis))
         );
     }

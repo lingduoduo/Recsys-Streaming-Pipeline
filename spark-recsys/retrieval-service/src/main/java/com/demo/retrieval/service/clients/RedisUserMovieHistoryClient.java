@@ -1,10 +1,11 @@
 package com.demo.retrieval.service.clients;
 
+import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Optional;
 
 @Component
 public class RedisUserMovieHistoryClient implements UserMovieHistoryClient {
@@ -16,18 +17,26 @@ public class RedisUserMovieHistoryClient implements UserMovieHistoryClient {
         this.redis = redis;
     }
 
+    /**
+     * Pipelines both list reads in a single Redis round-trip.
+     */
     @Override
-    public List<String> getWatchedMovies(String userId) {
-        return readHistory("user:" + userId + ":recent");
-    }
-
-    @Override
-    public List<String> getRatedMovies(String userId) {
-        return readHistory("user:" + userId + ":rated");
-    }
-
-    private List<String> readHistory(String key) {
-        return Optional.ofNullable(redis.opsForList().range(key, 0, HISTORY_SIZE - 1L))
-            .orElseGet(List::of);
+    @SuppressWarnings("unchecked")
+    public UserMovieHistory getMovieHistory(String userId) {
+        String recentKey = "user:" + userId + ":recent";
+        String ratedKey  = "user:" + userId + ":rated";
+        List<Object> results = redis.executePipelined(new SessionCallback<Object>() {
+            @Override
+            @SuppressWarnings("unchecked")
+            public <K, V> Object execute(RedisOperations<K, V> ops) {
+                RedisOperations<String, String> s = (RedisOperations<String, String>) ops;
+                s.opsForList().range(recentKey, 0L, HISTORY_SIZE - 1L);
+                s.opsForList().range(ratedKey,  0L, HISTORY_SIZE - 1L);
+                return null;
+            }
+        });
+        List<String> watched = results.get(0) != null ? (List<String>) results.get(0) : List.of();
+        List<String> rated   = results.get(1) != null ? (List<String>) results.get(1) : List.of();
+        return new UserMovieHistory(watched, rated);
     }
 }
