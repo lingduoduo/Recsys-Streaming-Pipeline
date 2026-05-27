@@ -366,32 +366,47 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void followedGrokTopicsHydratorCopiesOnlyFollowedTopics() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withFollowedGrokTopics(List.of(0, 1));
-        FollowedGrokTopicsQueryHydrator hydrator = new FollowedGrokTopicsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void followedGrokTopicsHydratorConvertsToBoolArray() {
+        FollowedGenreTopicsClient client = mock(FollowedGenreTopicsClient.class);
+        // Action=index 0, Drama=index 7 in MOVIELENS_GENRES
+        when(client.getFollowedGenres("u1")).thenReturn(List.of("Action", "Drama"));
+        FollowedGrokTopicsQueryHydrator hydrator = new FollowedGrokTopicsQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(0, 1), updated.userFeatures().followedGrokTopics());
+        List<Integer> boolArray = updated.userFeatures().followedGrokTopics();
+        assertEquals(FollowedGrokTopicsQueryHydrator.MOVIELENS_GENRES.size(), boolArray.size());
+        assertEquals(1, boolArray.get(0));  // Action
+        assertEquals(1, boolArray.get(7));  // Drama
+        assertEquals(0, boolArray.get(1));  // Adventure (not followed)
         assertEquals(List.of(), updated.userFeatures().followedStarterPacks());
     }
 
     @Test
-    void followedStarterPacksHydratorCopiesOnlyFollowedPacks() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withFollowedStarterPacks(List.of(1, 1));
-        FollowedStarterPacksQueryHydrator hydrator = new FollowedStarterPacksQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void followedGrokTopicsHydratorReturnsAllZerosForUnknownUser() {
+        FollowedGenreTopicsClient client = mock(FollowedGenreTopicsClient.class);
+        when(client.getFollowedGenres("u1")).thenReturn(List.of());
+        FollowedGrokTopicsQueryHydrator hydrator = new FollowedGrokTopicsQueryHydrator(client);
+
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        List<Integer> boolArray = updated.userFeatures().followedGrokTopics();
+        assertEquals(FollowedGrokTopicsQueryHydrator.MOVIELENS_GENRES.size(), boolArray.size());
+        assertTrue(boolArray.stream().allMatch(v -> v == 0));
+    }
+
+    @Test
+    void followedStarterPacksHydratorFetchesFromDedicatedClient() {
+        FollowedStarterPacksClient client = mock(FollowedStarterPacksClient.class);
+        when(client.getFollowedPackIds("u1")).thenReturn(List.of(1, 0, 1));
+        FollowedStarterPacksQueryHydrator hydrator = new FollowedStarterPacksQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(1, 1), updated.userFeatures().followedStarterPacks());
+        assertEquals(List.of(1, 0, 1), updated.userFeatures().followedStarterPacks());
         assertEquals(List.of(), updated.userFeatures().followedGrokTopics());
     }
 }
