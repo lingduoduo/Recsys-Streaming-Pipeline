@@ -1,6 +1,6 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.GeoLocationClient;
+import com.demo.retrieval.service.clients.GeoLocationClient;
 import com.demo.retrieval.service.ScoredMoviesQuery;
 import org.springframework.stereotype.Component;
 

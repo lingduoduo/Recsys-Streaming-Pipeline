@@ -12,6 +12,8 @@ import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.SetOperations;
+import com.demo.retrieval.service.clients.RedisMovieLensFeatureClient;
+import com.demo.retrieval.service.clients.RedisUserMovieHistoryClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;

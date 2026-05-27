@@ -1,7 +1,7 @@
 package com.demo.retrieval.service.query_hydrators;
 
 import com.demo.retrieval.service.ScoredMoviesQuery;
-import com.demo.retrieval.service.UserActionAggregationClient;
+import com.demo.retrieval.service.clients.UserActionAggregationClient;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
