@@ -1,28 +1,31 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.*;
-
+import com.demo.retrieval.service.ImpressedMoviesClient;
+import com.demo.retrieval.service.ScoredMoviesQuery;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
+/**
+ * Hydrates impressedMovieIds from the impression tracking store.
+ *
+ * Mirrors the Rust ImpressedPostsQueryHydrator which calls a dedicated
+ * ImpressedPostsClient rather than the general feature store, because
+ * impression data has its own write path separate from user ratings.
+ */
 @Component
 public class ImpressedMoviesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
-    private final MovieLensFeatureClient featureClient;
 
-    public ImpressedMoviesQueryHydrator(MovieLensFeatureClient featureClient) {
-        this.featureClient = featureClient;
+    private final ImpressedMoviesClient impressedMoviesClient;
+
+    public ImpressedMoviesQueryHydrator(ImpressedMoviesClient impressedMoviesClient) {
+        this.impressedMoviesClient = impressedMoviesClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
-        String userId = query.userId();
-        List<String> impressedMovieIds = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::impressedMovieIds)
-            .orElseGet(List::of);
         return new ScoredMoviesQuery(
-            userId,
-            query.userFeatures().withImpressedMovieIds(impressedMovieIds),
+            query.userId(),
+            query.userFeatures().withImpressedMovieIds(
+                impressedMoviesClient.getImpressedMovieIds(query.userId())),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -33,7 +36,8 @@ public class ImpressedMoviesQueryHydrator implements QueryHydrator<ScoredMoviesQ
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withImpressedMovieIds(hydrated.userFeatures().impressedMovieIds()),
+            query.userFeatures().withImpressedMovieIds(
+                hydrated.userFeatures().impressedMovieIds()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

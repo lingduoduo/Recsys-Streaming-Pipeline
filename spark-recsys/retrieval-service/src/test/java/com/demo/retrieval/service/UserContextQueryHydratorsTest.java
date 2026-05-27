@@ -284,12 +284,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void impressionBloomFilterHydratorCopiesOnlyBloomFilter() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withImpressionBloomFilter(List.of(44L, 55L));
-        ImpressionBloomFilterQueryHydrator hydrator = new ImpressionBloomFilterQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void impressionBloomFilterHydratorFetchesFromDedicatedClient() {
+        ImpressionBloomFilterClient client = mock(ImpressionBloomFilterClient.class);
+        when(client.getBloomFilterBits("u1")).thenReturn(List.of(44L, 55L));
+        ImpressionBloomFilterQueryHydrator hydrator = new ImpressionBloomFilterQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
@@ -299,12 +297,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void impressedMoviesHydratorCopiesOnlyImpressedMovieIds() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withImpressedMovieIds(List.of("m11", "m12"));
-        ImpressedMoviesQueryHydrator hydrator = new ImpressedMoviesQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void impressedMoviesHydratorFetchesFromDedicatedClient() {
+        ImpressedMoviesClient client = mock(ImpressedMoviesClient.class);
+        when(client.getImpressedMovieIds("u1")).thenReturn(List.of("m11", "m12"));
+        ImpressedMoviesQueryHydrator hydrator = new ImpressedMoviesQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));

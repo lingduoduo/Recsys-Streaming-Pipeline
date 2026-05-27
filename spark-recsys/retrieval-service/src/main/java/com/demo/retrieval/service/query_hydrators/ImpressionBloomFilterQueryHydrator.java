@@ -1,28 +1,33 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.*;
-
+import com.demo.retrieval.service.ImpressionBloomFilterClient;
+import com.demo.retrieval.service.ScoredMoviesQuery;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
+/**
+ * Hydrates impressionBloomFilter from the bloom filter store.
+ *
+ * Mirrors the Rust ImpressionBloomFilterQueryHydrator which calls a dedicated
+ * ImpressionBloomFilterClient (SurfaceArea.HOME_TIMELINE) rather than the general
+ * feature store. The thrift entry structure (bloom_filter, size_cap,
+ * false_positive_rate) is simplified to a flat list of longs since MovieLens
+ * does not need multi-surface bloom filter entries.
+ */
 @Component
 public class ImpressionBloomFilterQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
-    private final MovieLensFeatureClient featureClient;
 
-    public ImpressionBloomFilterQueryHydrator(MovieLensFeatureClient featureClient) {
-        this.featureClient = featureClient;
+    private final ImpressionBloomFilterClient bloomFilterClient;
+
+    public ImpressionBloomFilterQueryHydrator(ImpressionBloomFilterClient bloomFilterClient) {
+        this.bloomFilterClient = bloomFilterClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
-        String userId = query.userId();
-        List<Long> bloomFilter = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::impressionBloomFilter)
-            .orElseGet(List::of);
         return new ScoredMoviesQuery(
-            userId,
-            query.userFeatures().withImpressionBloomFilter(bloomFilter),
+            query.userId(),
+            query.userFeatures().withImpressionBloomFilter(
+                bloomFilterClient.getBloomFilterBits(query.userId())),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
@@ -33,7 +38,8 @@ public class ImpressionBloomFilterQueryHydrator implements QueryHydrator<ScoredM
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withImpressionBloomFilter(hydrated.userFeatures().impressionBloomFilter()),
+            query.userFeatures().withImpressionBloomFilter(
+                hydrated.userFeatures().impressionBloomFilter()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
