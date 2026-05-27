@@ -160,6 +160,42 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
+    void inferredGenderHydratorFallsBackToDemographicsForNewUser() {
+        // ratingCount == 0 → new user; inferredGender absent → derive from demographics
+        UserDemographics demographics = new UserDemographics(25, "F", "student", "10001");
+        MovieLensUserFeatures fetched = new MovieLensUserFeatures(
+            "u1", List.of(), 0.0, 0, List.of()
+        ).withDemographics(demographics);
+        UserInferredGenderQueryHydrator hydrator = new UserInferredGenderQueryHydrator(
+            userId -> Optional.of(fetched)
+        );
+        ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
+
+        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
+
+        assertEquals("F", updated.userFeatures().inferredGender());
+        assertEquals(1.0, updated.userFeatures().inferredGenderScore());
+    }
+
+    @Test
+    void inferredGenderHydratorSkipsFallbackForEstablishedUser() {
+        // ratingCount > 0 → established user; inferredGender absent → null, no fallback
+        UserDemographics demographics = new UserDemographics(35, "M", "engineer", "94102");
+        MovieLensUserFeatures fetched = new MovieLensUserFeatures(
+            "u1", List.of(), 4.0, 50, List.of()
+        ).withDemographics(demographics);
+        UserInferredGenderQueryHydrator hydrator = new UserInferredGenderQueryHydrator(
+            userId -> Optional.of(fetched)
+        );
+        ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
+
+        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
+
+        assertEquals(null, updated.userFeatures().inferredGender());
+        assertEquals(null, updated.userFeatures().inferredGenderScore());
+    }
+
+    @Test
     void servedHistoryHydratorCopiesOnlyServedMovieIds() {
         MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
             .withServedMovieIds(List.of("served1", "served2"));
