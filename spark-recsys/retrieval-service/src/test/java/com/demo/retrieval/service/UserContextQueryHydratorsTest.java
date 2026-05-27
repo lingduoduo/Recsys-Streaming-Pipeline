@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -187,12 +190,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void mutedUserIdsHydratorCopiesOnlyMutedUserIds() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withMutedUserIds(List.of("muted1", "muted2"));
-        MutedUserIdsQueryHydrator hydrator = new MutedUserIdsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void mutedUserIdsHydratorFetchesFromSocialGraph() {
+        SocialGraphClient client = mock(SocialGraphClient.class);
+        when(client.getMutedUserIds("u1")).thenReturn(List.of("muted1", "muted2"));
+        MutedUserIdsQueryHydrator hydrator = new MutedUserIdsQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
@@ -292,12 +293,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void blockedUserIdsHydratorCopiesOnlyBlockedUserIds() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withBlockedUserIds(List.of("blocked1", "blocked2"));
-        BlockedUserIdsQueryHydrator hydrator = new BlockedUserIdsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void blockedUserIdsHydratorFetchesFromSocialGraph() {
+        SocialGraphClient client = mock(SocialGraphClient.class);
+        when(client.getBlockedUserIds("u1")).thenReturn(List.of("blocked1", "blocked2"));
+        BlockedUserIdsQueryHydrator hydrator = new BlockedUserIdsQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
@@ -307,12 +306,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void followedUserIdsHydratorCopiesOnlyFollowedUserIds() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withFollowedUserIds(List.of("followed1", "followed2"));
-        FollowedUserIdsQueryHydrator hydrator = new FollowedUserIdsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void followedUserIdsHydratorFetchesFromSocialGraph() {
+        SocialGraphClient client = mock(SocialGraphClient.class);
+        when(client.getFollowedUserIds("u1")).thenReturn(List.of("followed1", "followed2"));
+        FollowedUserIdsQueryHydrator hydrator = new FollowedUserIdsQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
