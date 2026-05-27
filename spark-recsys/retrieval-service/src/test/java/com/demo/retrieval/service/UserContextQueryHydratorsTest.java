@@ -239,12 +239,9 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void pastRequestTimestampsHydratorCopiesOnlyPastRequestTimestamps() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withPastRequestTimestamps(List.of(1000L, 2000L));
+    void pastRequestTimestampsHydratorFetchesFromDedicatedClient() {
         PastRequestTimestampsQueryHydrator hydrator = new PastRequestTimestampsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+            userId -> List.of(1000L, 2000L));
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
@@ -310,17 +307,13 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void ipHydratorCopiesOnlyIpLocation() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withIpLocation("US-NY");
-        IpQueryHydrator hydrator = new IpQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void ipHydratorFetchesLocationFromDedicatedClient() {
+        IpQueryHydrator hydrator = new IpQueryHydrator(userId -> "10001");
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals("US-NY", updated.userFeatures().ipLocation());
+        assertEquals("10001", updated.userFeatures().ipLocation());
         assertEquals(List.of(), updated.userFeatures().impressedMovieIds());
     }
 
