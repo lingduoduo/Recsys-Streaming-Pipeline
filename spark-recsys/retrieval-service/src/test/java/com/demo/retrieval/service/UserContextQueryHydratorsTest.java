@@ -5,33 +5,124 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UserContextQueryHydratorsTest {
 
+    // helper: build a feature object whose recentlyRatedMovieIds is set
+    private static MovieLensFeatureClient clientWithRecent(List<String> recent) {
+        return userId -> Optional.of(new MovieLensUserFeatures(userId, List.of(), 0.0, recent.size(), recent));
+    }
+
     @Test
-    void actionSequenceHydratorCopiesOnlyActionSequence() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withActionSequenceMovieIds(List.of("m1", "m2"));
-        UserActionSequenceQueryHydrator hydrator = new UserActionSequenceQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void actionSequenceHydratorDerivesFromRecentRatings() {
+        List<String> recent = List.of("m1", "m2", "m3");
+        UserActionSequenceQueryHydrator hydrator = new UserActionSequenceQueryHydrator(clientWithRecent(recent));
         ScoredMoviesQuery query = new ScoredMoviesQuery(
-            "u1",
-            MovieLensUserFeatures.forUser("u1"),
-            List.of("watched"),
-            List.of("rated"),
-            List.of("candidate")
+            "u1", MovieLensUserFeatures.forUser("u1"),
+            List.of("watched"), List.of("rated"), List.of("candidate")
         );
 
-        ScoredMoviesQuery hydrated = hydrator.hydrate(query);
-        ScoredMoviesQuery updated = hydrator.update(query, hydrated);
+        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of("m1", "m2"), updated.userFeatures().actionSequenceMovieIds());
+        assertEquals(recent, updated.userFeatures().actionSequenceMovieIds());
+        // other fields untouched
         assertEquals(query.watchedMovieIds(), updated.watchedMovieIds());
         assertEquals(query.ratedMovieIds(), updated.ratedMovieIds());
-        assertEquals(query.candidateMovieIds(), updated.candidateMovieIds());
+        assertEquals(List.of(), updated.userFeatures().retrievalSequenceMovieIds());
+        assertEquals(List.of(), updated.userFeatures().scoringSequenceMovieIds());
+    }
+
+    @Test
+    void actionSequenceHydratorDeduplicatesPreservingOrder() {
+        UserActionSequenceQueryHydrator hydrator = new UserActionSequenceQueryHydrator(
+            clientWithRecent(List.of("a", "b", "a", "c", "b")));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(List.of("a", "b", "c"), updated.userFeatures().actionSequenceMovieIds());
+    }
+
+    @Test
+    void actionSequenceHydratorTruncatesToMax() {
+        List<String> longList = IntStream.range(0, 80).mapToObj(i -> "m" + i).toList();
+        UserActionSequenceQueryHydrator hydrator = new UserActionSequenceQueryHydrator(clientWithRecent(longList));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(UserActionSequenceQueryHydrator.MAX_ACTION_SEQ_LENGTH,
+            updated.userFeatures().actionSequenceMovieIds().size());
+    }
+
+    @Test
+    void actionSequenceHydratorReturnsEmptyForUnknownUser() {
+        UserActionSequenceQueryHydrator hydrator = new UserActionSequenceQueryHydrator(
+            userId -> Optional.empty());
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertTrue(updated.userFeatures().actionSequenceMovieIds().isEmpty());
+    }
+
+    @Test
+    void retrievalSequenceHydratorDerivesFromRecentRatings() {
+        List<String> recent = List.of("r1", "r2", "r3");
+        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(clientWithRecent(recent));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(recent, updated.userFeatures().retrievalSequenceMovieIds());
+        assertEquals(List.of(), updated.userFeatures().scoringSequenceMovieIds());
+        assertEquals(List.of(), updated.userFeatures().actionSequenceMovieIds());
+    }
+
+    @Test
+    void retrievalSequenceHydratorDeduplicatesAndTruncatesToMax() {
+        List<String> longList = IntStream.range(0, 150).mapToObj(i -> "m" + i).toList();
+        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(clientWithRecent(longList));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(RetrievalSequenceQueryHydrator.MAX_RETRIEVAL_SEQ_LENGTH,
+            updated.userFeatures().retrievalSequenceMovieIds().size());
+        assertEquals("m0", updated.userFeatures().retrievalSequenceMovieIds().get(0));
+    }
+
+    @Test
+    void scoringSequenceHydratorDerivesShortDenseWindow() {
+        List<String> recent = List.of("s1", "s2", "s3");
+        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(clientWithRecent(recent));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(recent, updated.userFeatures().scoringSequenceMovieIds());
+        assertEquals(List.of(), updated.userFeatures().retrievalSequenceMovieIds());
+        assertEquals(List.of(), updated.userFeatures().actionSequenceMovieIds());
+    }
+
+    @Test
+    void scoringSequenceHydratorTruncatesToMax() {
+        List<String> longList = IntStream.range(0, 60).mapToObj(i -> "m" + i).toList();
+        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(clientWithRecent(longList));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(ScoringSequenceQueryHydrator.MAX_SCORING_SEQ_LENGTH,
+            updated.userFeatures().scoringSequenceMovieIds().size());
+        assertEquals("m0", updated.userFeatures().scoringSequenceMovieIds().get(0));
+    }
+
+    @Test
+    void scoringSequenceHydratorDeduplicates() {
+        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(
+            clientWithRecent(List.of("x", "y", "x", "z", "y")));
+        ScoredMoviesQuery updated = hydrator.update(
+            ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
+
+        assertEquals(List.of("x", "y", "z"), updated.userFeatures().scoringSequenceMovieIds());
     }
 
     @Test
@@ -44,8 +135,7 @@ class UserContextQueryHydratorsTest {
         );
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
-        ScoredMoviesQuery hydrated = hydrator.hydrate(query);
-        ScoredMoviesQuery updated = hydrator.update(query, hydrated);
+        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
         assertEquals(demographics, updated.userFeatures().demographics());
         assertEquals(List.of(), updated.userFeatures().actionSequenceMovieIds());
@@ -60,41 +150,10 @@ class UserContextQueryHydratorsTest {
         );
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
-        ScoredMoviesQuery hydrated = hydrator.hydrate(query);
-        ScoredMoviesQuery updated = hydrator.update(query, hydrated);
+        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
         assertEquals("female", updated.userFeatures().inferredGender());
         assertEquals(0.91, updated.userFeatures().inferredGenderScore());
-    }
-
-    @Test
-    void retrievalSequenceHydratorCopiesOnlyRetrievalSequence() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withRetrievalSequenceMovieIds(List.of("r1", "r2"));
-        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
-        ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
-
-        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
-
-        assertEquals(List.of("r1", "r2"), updated.userFeatures().retrievalSequenceMovieIds());
-        assertEquals(List.of(), updated.userFeatures().scoringSequenceMovieIds());
-    }
-
-    @Test
-    void scoringSequenceHydratorCopiesOnlyScoringSequence() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withScoringSequenceMovieIds(List.of("s1", "s2"));
-        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
-        ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
-
-        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
-
-        assertEquals(List.of("s1", "s2"), updated.userFeatures().scoringSequenceMovieIds());
-        assertEquals(List.of(), updated.userFeatures().retrievalSequenceMovieIds());
     }
 
     @Test
