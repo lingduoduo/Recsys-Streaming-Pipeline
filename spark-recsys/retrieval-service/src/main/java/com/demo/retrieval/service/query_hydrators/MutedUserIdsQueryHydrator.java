@@ -1,42 +1,37 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.*;
-
+import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.service.SocialGraphClient;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
+/**
+ * Hydrates mutedUserIds from the social graph service.
+ *
+ * Mirrors the Rust MutedUserIdsQueryHydrator which calls
+ * socialgraph_client.get_muted_user_ids().
+ */
 @Component
 public class MutedUserIdsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
-    private final MovieLensFeatureClient featureClient;
 
-    public MutedUserIdsQueryHydrator(MovieLensFeatureClient featureClient) {
-        this.featureClient = featureClient;
+    private final SocialGraphClient socialGraphClient;
+
+    public MutedUserIdsQueryHydrator(SocialGraphClient socialGraphClient) {
+        this.socialGraphClient = socialGraphClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
-        String userId = query.userId();
-        List<String> mutedUserIds = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::mutedUserIds)
-            .orElseGet(List::of);
-        return new ScoredMoviesQuery(
-            userId,
-            query.userFeatures().withMutedUserIds(mutedUserIds),
-            query.watchedMovieIds(),
-            query.ratedMovieIds(),
-            query.candidateMovieIds()
-        );
+        return new ScoredMoviesQuery(query.userId(),
+            query.userFeatures().withMutedUserIds(
+                socialGraphClient.getMutedUserIds(query.userId())),
+            query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 
     @Override
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
-        return new ScoredMoviesQuery(
-            query.userId(),
-            query.userFeatures().withMutedUserIds(hydrated.userFeatures().mutedUserIds()),
-            query.watchedMovieIds(),
-            query.ratedMovieIds(),
-            query.candidateMovieIds()
-        );
+        return new ScoredMoviesQuery(query.userId(),
+            query.userFeatures().withMutedUserIds(
+                hydrated.userFeatures().mutedUserIds()),
+            query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 }
