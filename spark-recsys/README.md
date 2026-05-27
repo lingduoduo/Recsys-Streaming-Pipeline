@@ -485,6 +485,76 @@ Environment variables:
 | `TRIGGER_INTERVAL` | `10 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/movielens-context-collector` |
 
+## Retrieval Pipeline
+
+Before scoring, each request is enriched through two sequential pipelines.
+
+### Query Hydration
+
+`QueryHydrator<ScoredMoviesQuery>` implementations populate per-user context fields on the incoming request. Each hydrator reads one concern and writes one field group; hydrators run independently and can be parallelised.
+
+| Hydrator | Field(s) hydrated | Source |
+|---|---|---|
+| `UserDemographicsQueryHydrator` | `demographics` | `MovieLensFeatureClient` (`user:{id}:features`) |
+| `UserInferredGenderQueryHydrator` | `inferredGender`, `inferredGenderScore` | `MovieLensFeatureClient`; falls back to `demographics.gender` for new users (ratingCount == 0) |
+| `UserMovieFeaturesQueryHydrator` | rating-based features | `MovieLensFeatureClient` |
+| `UserActionSequenceQueryHydrator` | `actionSequenceMovieIds` (dedup + truncate to 50) | `MovieLensFeatureClient` — `recentlyRatedMovieIds` |
+| `RetrievalSequenceQueryHydrator` | `retrievalSequenceMovieIds` (dedup + truncate to 100) | `MovieLensFeatureClient` — `recentlyRatedMovieIds` |
+| `ScoringSequenceQueryHydrator` | `scoringSequenceMovieIds` (dedup + truncate to 20) | `MovieLensFeatureClient` — `recentlyRatedMovieIds` |
+| `ServedHistoryQueryHydrator` | `servedMovieIds` | `MovieLensFeatureClient` |
+| `IpQueryHydrator` | `ipLocation` (ZIP code proxy) | `MovieLensFeatureClient` |
+| `PastRequestTimestampsQueryHydrator` | `pastRequestTimestamps` | `MovieLensFeatureClient` |
+| `MutualFollowQueryHydrator` | `mutualFollowMinhash` | `MovieLensFeatureClient` |
+| `CachedMoviesQueryHydrator` | `cachedMovieIds`, `hasCachedMovies` | `MovieLensFeatureClient` |
+| `InferredGrokTopicsQueryHydrator` | `inferredGrokTopics` (genre multihot) | `MovieLensFeatureClient` |
+| `RelatedContentsQueryHydrator` | `followedGrokTopics` (content category IDs) | `MovieLensFeatureClient` |
+| `SubscribedUserIdsQueryHydrator` | `subscribedUserIds` | `MovieLensFeatureClient` |
+| `BlockedUserIdsQueryHydrator` | `blockedUserIds` | `SocialGraphClient` (`user:{id}:social`) |
+| `MutedUserIdsQueryHydrator` | `mutedUserIds` | `SocialGraphClient` |
+| `FollowedUserIdsQueryHydrator` | `followedUserIds` | `SocialGraphClient` |
+| `ImpressedMoviesQueryHydrator` | `impressedMovieIds` | `ImpressedMoviesClient` (`user:{id}:impressions`) |
+| `ImpressionBloomFilterQueryHydrator` | `impressionBloomFilter` | `ImpressionBloomFilterClient` (`user:{id}:bloom_filter`) |
+| `FollowedStarterPacksQueryHydrator` | `followedStarterPacks` | `FollowedStarterPacksClient` (`user:{id}:starter_packs`) |
+| `MovieLensUserHistoryQueryHydrator` | `watchedMovieIds`, `ratedMovieIds` | `UserMovieHistoryClient` (`user:{id}:history`) |
+
+**Client split**: `MovieLensFeatureClient` covers the general rating-and-demographics feature store (`user:{id}:features`). `SocialGraphClient` covers block/mute/follow relationships, which have a different write path and freshness requirement. Impression, bloom-filter, starter-packs, and user-history clients each own a separate Redis key namespace.
+
+### Candidate Filters and Hydrators
+
+After initial candidate generation, candidates pass through two more pipelines.
+
+**Filters** (`CandidateFilter`) drop ineligible candidates:
+
+| Filter | Removes |
+|---|---|
+| `PreviouslySeenMoviesFilter` | Movies the user has already watched |
+| `PreviouslyServedMoviesFilter` | Movies served in recent requests (`servedMovieIds`) |
+| `CreatorBlocklistFilter` | Movies from blocked creators |
+| `MutedKeywordFilter` | Movies whose title/tags match muted keywords |
+| `AgeFilter` | Movies outside the user's age-appropriate range |
+| `VideoFilter` | Non-video content (configurable) |
+| `ReshareDeduplicationFilter` | Duplicate reshares of the same source movie |
+| `TopicIdsFilter` | Candidates not matching requested topic IDs |
+| `NewUserTopicIdsFilter` | Topic-restricted candidates for new users |
+
+**Candidate hydrators** (`CandidateHydrator`) enrich surviving candidates with additional signals:
+
+| Hydrator | Adds |
+|---|---|
+| `CoreDataCandidateHydrator` | Title, genres, release year from movie feature store |
+| `InNetworkCandidateHydrator` | Whether the candidate is from a followed creator |
+| `MutualFollowJaccardCandidateHydrator` | Jaccard similarity score via MinHash |
+| `EngagementCountsCandidateHydrator` | Global rating count and average rating |
+| `FilteredTopicsCandidateHydrator` | Topic relevance signal |
+| `SubscriptionCandidateHydrator` | Subscription-gated content flag |
+| `LanguageCodeCandidateHydrator` | Language metadata |
+| `HasMediaCandidateHydrator` | Media type flags |
+| `BlockedByCandidateHydrator` | Whether the viewer is blocked by the candidate creator |
+| `VisibilityFilteringCandidateHydrator` | Visibility policy check |
+| `FollowingRepliedUsersCandidateHydrator` | Social proximity signal |
+| `QuoteCandidateHydrator` | Quote/reference metadata |
+| `GizmoduckCandidateHydrator` | External content safety signal |
+
 ## Retrieval Service Configuration
 
 `retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.

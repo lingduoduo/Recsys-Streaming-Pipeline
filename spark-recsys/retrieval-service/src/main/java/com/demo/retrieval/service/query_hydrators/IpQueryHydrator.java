@@ -1,31 +1,26 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.GeoLocationClient;
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.service.*;
+
 import org.springframework.stereotype.Component;
 
-/**
- * Hydrates ipLocation from the geo-location client.
- *
- * Mirrors the Rust IpQueryHydrator which calls GeoIpLocationClient.fetch(ip_address)
- * to resolve the request-time IP to a geographic location. For MovieLens there is
- * no per-request IP; GeoLocationClient returns the user's ZIP code from their
- * profile as the pre-computed location equivalent.
- */
 @Component
 public class IpQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+    private final MovieLensFeatureClient featureClient;
 
-    private final GeoLocationClient geoLocationClient;
-
-    public IpQueryHydrator(GeoLocationClient geoLocationClient) {
-        this.geoLocationClient = geoLocationClient;
+    public IpQueryHydrator(MovieLensFeatureClient featureClient) {
+        this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
+        String userId = query.userId();
+        String ipLocation = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::ipLocation)
+            .orElse("");
         return new ScoredMoviesQuery(
-            query.userId(),
-            query.userFeatures().withIpLocation(geoLocationClient.getLocation(query.userId())),
+            userId,
+            query.userFeatures().withIpLocation(ipLocation),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()

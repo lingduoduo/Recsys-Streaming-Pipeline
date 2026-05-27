@@ -1,38 +1,24 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.CachedMoviesClient;
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.service.*;
 
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
-/**
- * Hydrates cachedMovieIds and sets hasCachedMovies when the cached candidate set
- * is large enough to be worth using.
- *
- * Mirrors the Rust CachedPostsQueryHydrator: reads from a dedicated Redis key
- * (separate write path from the general feature store) and computes hasCachedMovies
- * from the list size against a threshold, rather than storing the flag separately.
- */
 @Component
 public class CachedMoviesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+    private final MovieLensFeatureClient featureClient;
 
-    public static final int MIN_CACHED_MOVIES_THRESHOLD = 100;
-
-    private final CachedMoviesClient cachedMoviesClient;
-
-    public CachedMoviesQueryHydrator(CachedMoviesClient cachedMoviesClient) {
-        this.cachedMoviesClient = cachedMoviesClient;
+    public CachedMoviesQueryHydrator(MovieLensFeatureClient featureClient) {
+        this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        List<String> cachedMovieIds = cachedMoviesClient.getCachedMovieIds(userId);
-        boolean hasCachedMovies = cachedMovieIds.size() >= MIN_CACHED_MOVIES_THRESHOLD;
+        MovieLensUserFeatures fetched = featureClient.getUserFeatures(userId)
+            .orElseGet(() -> MovieLensUserFeatures.forUser(userId));
         return new ScoredMoviesQuery(userId,
-            query.userFeatures().withCachedMovieIds(cachedMovieIds, hasCachedMovies),
+            query.userFeatures().withCachedMovieIds(fetched.cachedMovieIds(), fetched.hasCachedMovies()),
             query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 

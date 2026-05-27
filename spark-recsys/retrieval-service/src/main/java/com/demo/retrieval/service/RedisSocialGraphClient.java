@@ -37,11 +37,6 @@ public class RedisSocialGraphClient implements SocialGraphClient {
         return parseList(redis.opsForHash().get("user:" + userId + ":social", "followedUserIds"));
     }
 
-    @Override
-    public List<String> getSubscribedUserIds(String userId) {
-        return parseList(redis.opsForHash().get("user:" + userId + ":social", "subscribedUserIds"));
-    }
-
     private static List<String> parseList(Object raw) {
         if (raw == null) {
             return List.of();

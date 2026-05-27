@@ -1,33 +1,28 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.ServedHistoryClient;
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.service.*;
+
 import org.springframework.stereotype.Component;
 
-/**
- * Hydrates servedMovieIds from the served-history store.
- *
- * Mirrors the Rust ServedHistoryQueryHydrator: fetch recent served entries from
- * a dedicated client (HOME_TIMELINE), extract item IDs, and apply the recency
- * window (recently_served_ids). MovieLens stores served IDs as a capped
- * newest-first list rather than timestamped entries, so the time-window filter
- * is enforced at write time instead of here.
- */
+import java.util.List;
+
 @Component
 public class ServedHistoryQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+    private final MovieLensFeatureClient featureClient;
 
-    private final ServedHistoryClient servedHistoryClient;
-
-    public ServedHistoryQueryHydrator(ServedHistoryClient servedHistoryClient) {
-        this.servedHistoryClient = servedHistoryClient;
+    public ServedHistoryQueryHydrator(MovieLensFeatureClient featureClient) {
+        this.featureClient = featureClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
+        String userId = query.userId();
+        List<String> servedMovieIds = featureClient.getUserFeatures(userId)
+            .map(MovieLensUserFeatures::servedMovieIds)
+            .orElseGet(List::of);
         return new ScoredMoviesQuery(
-            query.userId(),
-            query.userFeatures().withServedMovieIds(
-                servedHistoryClient.getRecentlyServedMovieIds(query.userId())),
+            userId,
+            query.userFeatures().withServedMovieIds(servedMovieIds),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
