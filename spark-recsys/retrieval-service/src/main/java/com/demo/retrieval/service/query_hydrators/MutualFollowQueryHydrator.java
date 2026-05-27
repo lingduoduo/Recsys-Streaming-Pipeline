@@ -1,7 +1,7 @@
 package com.demo.retrieval.service.query_hydrators;
 
 import com.demo.retrieval.service.ScoredMoviesQuery;
-import com.demo.retrieval.service.SimilarityMinHashClient;
+import com.demo.retrieval.service.clients.SimilarityMinHashClient;
 
 import org.springframework.stereotype.Component;
 

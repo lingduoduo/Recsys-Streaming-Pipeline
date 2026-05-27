@@ -1,7 +1,7 @@
 package com.demo.retrieval.service.query_hydrators;
 
 import com.demo.retrieval.service.ScoredMoviesQuery;
-import com.demo.retrieval.service.SocialGraphClient;
+import com.demo.retrieval.service.clients.SocialGraphClient;
 
 import org.springframework.stereotype.Component;
 

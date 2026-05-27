@@ -1,4 +1,6 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.clients;
+
+import com.demo.retrieval.service.MovieLensUserFeatures;
 
 import org.springframework.stereotype.Component;
 

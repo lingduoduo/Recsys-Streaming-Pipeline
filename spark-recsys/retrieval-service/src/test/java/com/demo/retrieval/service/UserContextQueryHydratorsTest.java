@@ -1,5 +1,6 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.service.clients.*;
 import com.demo.retrieval.service.query_hydrators.*;
 import org.junit.jupiter.api.Test;
 

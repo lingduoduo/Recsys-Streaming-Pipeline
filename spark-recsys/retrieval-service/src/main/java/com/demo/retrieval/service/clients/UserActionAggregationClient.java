@@ -1,4 +1,4 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.clients;
 
 import java.util.List;
 

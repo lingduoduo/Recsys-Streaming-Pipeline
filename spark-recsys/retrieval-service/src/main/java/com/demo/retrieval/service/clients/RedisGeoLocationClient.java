@@ -1,4 +1,4 @@
-package com.demo.retrieval.service;
+package com.demo.retrieval.service.clients;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
