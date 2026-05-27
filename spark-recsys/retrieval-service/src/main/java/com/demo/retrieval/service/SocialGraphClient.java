@@ -14,4 +14,5 @@ public interface SocialGraphClient {
     List<String> getBlockedUserIds(String userId);
     List<String> getMutedUserIds(String userId);
     List<String> getFollowedUserIds(String userId);
+    List<String> getSubscribedUserIds(String userId);
 }
