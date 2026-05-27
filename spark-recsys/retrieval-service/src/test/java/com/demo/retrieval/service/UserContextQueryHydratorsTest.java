@@ -366,32 +366,29 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void followedGrokTopicsHydratorCopiesOnlyFollowedTopics() {
+    void relatedContentsHydratorCopiesContentCategoryIds() {
         MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withFollowedGrokTopics(List.of(0, 1));
-        FollowedGrokTopicsQueryHydrator hydrator = new FollowedGrokTopicsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+            .withFollowedGrokTopics(List.of(3, 7, 12));
+        RelatedContentsQueryHydrator hydrator = new RelatedContentsQueryHydrator(
+            userId -> Optional.of(fetched));
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(0, 1), updated.userFeatures().followedGrokTopics());
+        assertEquals(List.of(3, 7, 12), updated.userFeatures().followedGrokTopics());
         assertEquals(List.of(), updated.userFeatures().followedStarterPacks());
     }
 
     @Test
-    void followedStarterPacksHydratorCopiesOnlyFollowedPacks() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withFollowedStarterPacks(List.of(1, 1));
-        FollowedStarterPacksQueryHydrator hydrator = new FollowedStarterPacksQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void followedStarterPacksHydratorFetchesFromDedicatedClient() {
+        FollowedStarterPacksClient client = mock(FollowedStarterPacksClient.class);
+        when(client.getFollowedPackIds("u1")).thenReturn(List.of(1, 0, 1));
+        FollowedStarterPacksQueryHydrator hydrator = new FollowedStarterPacksQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(1, 1), updated.userFeatures().followedStarterPacks());
+        assertEquals(List.of(1, 0, 1), updated.userFeatures().followedStarterPacks());
         assertEquals(List.of(), updated.userFeatures().followedGrokTopics());
     }
 }
