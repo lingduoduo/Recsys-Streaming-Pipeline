@@ -366,10 +366,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void followedGrokTopicsHydratorCopiesOnlyFollowedTopics() {
+    void relatedContentsHydratorCopiesContentCategoryIds() {
         MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
             .withFollowedGrokTopics(List.of(3, 7, 12));
-        FollowedGrokTopicsQueryHydrator hydrator = new FollowedGrokTopicsQueryHydrator(
+        RelatedContentsQueryHydrator hydrator = new RelatedContentsQueryHydrator(
             userId -> Optional.of(fetched));
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
