@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory
 import redis.clients.jedis.{JedisPool, JedisPoolConfig}
 
 // One JedisPool per executor JVM — avoids a new TCP connection per partition per micro-batch.
-private object RedisPool {
+private[demo] object RedisPool {
   @volatile private var pool: JedisPool = _
 
   def get(host: String, port: Int, maxTotal: Int): JedisPool = {

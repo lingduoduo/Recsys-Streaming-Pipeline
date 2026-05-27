@@ -8,4 +8,7 @@ public final class KafkaTopics {
 
     // Consumed by OnlineJoinerStreamingJob — schema: {request_id, user_id, item_id, event_type, timestamp, position, ...features}
     public static final String BEHAVIOR_LOGS = "behavior_logs";
+
+    // Consumed by MovieLensContextCollectorStreamingJob — user, movie, and rating context updates
+    public static final String MOVIELENS_CONTEXT = "movielens_context";
 }

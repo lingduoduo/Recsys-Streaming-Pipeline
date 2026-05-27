@@ -79,7 +79,7 @@ object EmbeddingCandidateGenerationJob {
         val uVec   = row.getAs[Seq[Double]]("vector").toArray
         if (uVec.isEmpty || items.isEmpty) None
         else {
-          val heap = mutable.PriorityQueue.empty[(String, Double)](Ordering.by(_._2).reverse)
+          val heap = mutable.PriorityQueue.empty[(String, Double)](Ordering.by[(String, Double), Double](_._2).reverse)
           items.foreach { case (itemId, iVec) =>
             val score = cosine(uVec, iVec)
             if (heap.size < topK) heap.enqueue((itemId, score))
