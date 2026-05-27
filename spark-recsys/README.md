@@ -527,15 +527,15 @@ Before scoring, each request is enriched through two sequential pipelines.
 | `PastRequestTimestampsQueryHydrator` | `pastRequestTimestamps` | `PastRequestTimestampsClient` (`user:{id}:request_history`) |
 | `MutualFollowQueryHydrator` | `mutualFollowMinhash` | `SimilarityMinHashClient` (`user:{id}:minhash`) |
 | `CachedMoviesQueryHydrator` | `cachedMovieIds`, `hasCachedMovies` | `CachedMoviesClient` (`user:{id}:cached_movies`) |
-| `InferredGrokTopicsQueryHydrator` | `inferredGrokTopics` (genre multihot) | `MovieLensFeatureClient` |
-| `RelatedContentsQueryHydrator` | `followedGrokTopics` (content category IDs) | `MovieLensFeatureClient` |
+| `InferredGenresQueryHydrator` | `inferredGenres` (genre preference signal) | `MovieLensFeatureClient` |
+| `FollowedGenresQueryHydrator` | `followedGenres` (followed genre IDs) | `MovieLensFeatureClient` |
 | `SubscribedUserIdsQueryHydrator` | `subscribedUserIds` | `SocialGraphClient` (`user:{id}:social`) |
 | `BlockedUserIdsQueryHydrator` | `blockedUserIds` | `SocialGraphClient` |
 | `MutedUserIdsQueryHydrator` | `mutedUserIds` | `SocialGraphClient` |
 | `FollowedUserIdsQueryHydrator` | `followedUserIds` | `SocialGraphClient` |
 | `ImpressedMoviesQueryHydrator` | `impressedMovieIds` | `ImpressedMoviesClient` (`user:{id}:impressions`) |
 | `ImpressionBloomFilterQueryHydrator` | `impressionBloomFilter` | `ImpressionBloomFilterClient` (`user:{id}:bloom_filter`) |
-| `FollowedStarterPacksQueryHydrator` | `followedStarterPacks` | `FollowedStarterPacksClient` (`user:{id}:starter_packs`) |
+| `FollowedCollectionsQueryHydrator` | `followedCollections` | `FollowedStarterPacksClient` (`user:{id}:starter_packs`) |
 | `MovieLensUserHistoryQueryHydrator` | `watchedMovieIds`, `ratedMovieIds` | `UserMovieHistoryClient` (`user:{id}:history`) |
 
 All client classes live under `com.demo.retrieval.service.clients`. `MovieLensFeatureClient` covers the general rating-and-demographics feature store. `SocialGraphClient` covers block/mute/follow/subscribe relationships (different write path). All other clients each own a dedicated Redis key namespace.
@@ -557,8 +557,8 @@ After initial candidate generation, candidates pass through two more pipelines.
 | `AgeFilter` | Movies outside the user's age-appropriate range |
 | `VideoFilter` | Non-video content (configurable) |
 | `ReshareDeduplicationFilter` | Duplicate reshares of the same source movie |
-| `TopicIdsFilter` | Candidates not matching requested topic IDs |
-| `NewUserTopicIdsFilter` | Topic-restricted candidates for new users |
+| `GenreIdsFilter` | Candidates not matching requested genre IDs |
+| `NewUserGenreFilter` | Topic-restricted candidates for new users |
 
 **Candidate hydrators** (`CandidateHydrator`) enrich surviving candidates with additional signals:
 
@@ -568,7 +568,7 @@ After initial candidate generation, candidates pass through two more pipelines.
 | `InNetworkCandidateHydrator` | Whether the candidate is from a followed creator |
 | `MutualFollowJaccardCandidateHydrator` | Jaccard similarity score via MinHash |
 | `EngagementCountsCandidateHydrator` | Global rating count and average rating |
-| `FilteredTopicsCandidateHydrator` | Topic relevance signal |
+| `GenreMatchCandidateHydrator` | Genre match signal |
 | `SubscriptionCandidateHydrator` | Subscription-gated content flag |
 | `LanguageCodeCandidateHydrator` | Language metadata |
 | `HasMediaCandidateHydrator` | Media type flags |

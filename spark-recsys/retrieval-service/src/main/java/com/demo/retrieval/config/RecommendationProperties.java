@@ -474,8 +474,8 @@ public class RecommendationProperties {
         private Long replyCount;
         private Long repostCount;
         private Long quoteCount;
-        private List<Integer> filteredTopicIds = new ArrayList<>();
-        private List<Integer> unfilteredTopicIds = new ArrayList<>();
+        private List<Integer> matchedGenreIds = new ArrayList<>();
+        private List<Integer> unmatchedGenreIds = new ArrayList<>();
         private Boolean inNetwork;
         private Integer authorFollowersCount;
         private String authorScreenName;
@@ -678,20 +678,20 @@ public class RecommendationProperties {
             this.quoteCount = quoteCount;
         }
 
-        public List<Integer> getFilteredTopicIds() {
-            return filteredTopicIds;
+        public List<Integer> getMatchedGenreIds() {
+            return matchedGenreIds;
         }
 
-        public void setFilteredTopicIds(List<Integer> filteredTopicIds) {
-            this.filteredTopicIds = filteredTopicIds;
+        public void setMatchedGenreIds(List<Integer> matchedGenreIds) {
+            this.matchedGenreIds = matchedGenreIds;
         }
 
-        public List<Integer> getUnfilteredTopicIds() {
-            return unfilteredTopicIds;
+        public List<Integer> getUnmatchedGenreIds() {
+            return unmatchedGenreIds;
         }
 
-        public void setUnfilteredTopicIds(List<Integer> unfilteredTopicIds) {
-            this.unfilteredTopicIds = unfilteredTopicIds;
+        public void setUnmatchedGenreIds(List<Integer> unmatchedGenreIds) {
+            this.unmatchedGenreIds = unmatchedGenreIds;
         }
 
         public Boolean getInNetwork() {

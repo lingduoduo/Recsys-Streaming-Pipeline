@@ -11,19 +11,19 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class NewUserTopicIdsFilter implements CandidateFilter {
+public class NewUserGenreFilter implements CandidateFilter {
     @Override
     public boolean enable(ScoredMoviesQuery query) {
-        return isNewUser(query) && !topicIds(query).isEmpty();
+        return isNewUser(query) && !genreIds(query).isEmpty();
     }
 
     @Override
     public CandidateFilterResult filter(ScoredMoviesQuery query, List<MovieCandidate> candidates) {
-        Set<Integer> expandedTopicIds = TopicIdExpansion.expand(topicIds(query));
+        Set<Integer> expandedTopicIds = GenreExpansion.expand(genreIds(query));
         Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
             .collect(Collectors.partitioningBy(candidate ->
                 Boolean.TRUE.equals(candidate.inNetwork())
-                    || candidate.filteredTopicIds().stream().anyMatch(expandedTopicIds::contains)));
+                    || candidate.matchedGenreIds().stream().anyMatch(expandedTopicIds::contains)));
         return new CandidateFilterResult(
             partitioned.getOrDefault(Boolean.TRUE, List.of()),
             partitioned.getOrDefault(Boolean.FALSE, List.of())
@@ -40,9 +40,9 @@ public class NewUserTopicIdsFilter implements CandidateFilter {
             && features.scoringSequenceMovieIds().isEmpty();
     }
 
-    private Set<Integer> topicIds(ScoredMoviesQuery query) {
+    private Set<Integer> genreIds(ScoredMoviesQuery query) {
         MovieLensUserFeatures features = query.userFeatures();
-        return Stream.of(features.inferredGrokTopics(), features.followedGrokTopics(), features.followedStarterPacks())
+        return Stream.of(features.inferredGenres(), features.followedGenres(), features.followedCollections())
             .flatMap(List::stream)
             .collect(Collectors.toCollection(LinkedHashSet::new));
     }

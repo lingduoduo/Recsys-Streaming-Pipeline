@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Redis-backed FollowedStarterPacksClient.
+ * Redis-backed FollowedCollectionsClient.
  *
  * Reads from user:{userId}:starter_packs, maintained by the starter pack
  * follow pipeline. Returns an empty list for MovieLens users since starter
@@ -17,17 +17,17 @@ import java.util.List;
  * dedicated Manhattan store separate from the general feature store.
  */
 @Component
-public class RedisFollowedStarterPacksClient implements FollowedStarterPacksClient {
+public class RedisFollowedCollectionsClient implements FollowedCollectionsClient {
 
     private final StringRedisTemplate redis;
 
-    public RedisFollowedStarterPacksClient(StringRedisTemplate redis) {
+    public RedisFollowedCollectionsClient(StringRedisTemplate redis) {
         this.redis = redis;
     }
 
     @Override
     public List<Integer> getFollowedPackIds(String userId) {
-        return parseList(redis.opsForHash().get("user:" + userId + ":starter_packs", "packIds"));
+        return parseList(redis.opsForHash().get("user:" + userId + ":collections", "packIds"));
     }
 
     private static List<Integer> parseList(Object raw) {

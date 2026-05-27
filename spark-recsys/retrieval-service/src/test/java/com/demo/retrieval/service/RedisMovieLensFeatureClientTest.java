@@ -39,9 +39,9 @@ class RedisMovieLensFeatureClientTest {
             entry("followedUserIds", "followed1, followed2"),
             entry("pastRequestTimestamps", "1000, 2000, bad"),
             entry("mutualFollowMinhash", "11, 22, nope"),
-            entry("inferredGrokTopics", "1, 0, 1, nope"),
-            entry("followedGrokTopics", "0, 1, nope"),
-            entry("followedStarterPacks", "1, 1, bad"),
+            entry("inferredGenres", "1, 0, 1, nope"),
+            entry("followedGenres", "0, 1, nope"),
+            entry("followedCollections", "1, 1, bad"),
             entry("impressionBloomFilter", "44, 55, bad"),
             entry("impressedMovieIds", "m11, m12"),
             entry("cachedMovieIds", "m13, m14"),
@@ -73,9 +73,9 @@ class RedisMovieLensFeatureClientTest {
         assertEquals(java.util.List.of("followed1", "followed2"), result.get().followedUserIds());
         assertEquals(java.util.List.of(1000L, 2000L), result.get().pastRequestTimestamps());
         assertEquals(java.util.List.of(11L, 22L), result.get().mutualFollowMinhash());
-        assertEquals(java.util.List.of(1, 0, 1), result.get().inferredGrokTopics());
-        assertEquals(java.util.List.of(0, 1), result.get().followedGrokTopics());
-        assertEquals(java.util.List.of(1, 1), result.get().followedStarterPacks());
+        assertEquals(java.util.List.of(1, 0, 1), result.get().inferredGenres());
+        assertEquals(java.util.List.of(0, 1), result.get().followedGenres());
+        assertEquals(java.util.List.of(1, 1), result.get().followedCollections());
         assertEquals(java.util.List.of(44L, 55L), result.get().impressionBloomFilter());
         assertEquals(java.util.List.of("m11", "m12"), result.get().impressedMovieIds());
         assertEquals(java.util.List.of("m13", "m14"), result.get().cachedMovieIds());

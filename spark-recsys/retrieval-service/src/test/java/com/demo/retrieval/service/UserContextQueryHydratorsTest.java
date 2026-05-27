@@ -261,17 +261,17 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void inferredGrokTopicsHydratorCopiesOnlyTopics() {
+    void inferredGenresHydratorCopiesOnlyTopics() {
         MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
             .withInferredGrokTopics(List.of(1, 0, 1));
-        InferredGrokTopicsQueryHydrator hydrator = new InferredGrokTopicsQueryHydrator(
+        InferredGenresQueryHydrator hydrator = new InferredGenresQueryHydrator(
             userId -> Optional.of(fetched)
         );
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(1, 0, 1), updated.userFeatures().inferredGrokTopics());
+        assertEquals(List.of(1, 0, 1), updated.userFeatures().inferredGenres());
         assertEquals(List.of(), updated.userFeatures().impressionBloomFilter());
     }
 
@@ -285,7 +285,7 @@ class UserContextQueryHydratorsTest {
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
         assertEquals(List.of(44L, 55L), updated.userFeatures().impressionBloomFilter());
-        assertEquals(List.of(), updated.userFeatures().inferredGrokTopics());
+        assertEquals(List.of(), updated.userFeatures().inferredGenres());
     }
 
     @Test
@@ -370,26 +370,26 @@ class UserContextQueryHydratorsTest {
     void relatedContentsHydratorCopiesContentCategoryIds() {
         MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
             .withFollowedGrokTopics(List.of(3, 7, 12));
-        RelatedContentsQueryHydrator hydrator = new RelatedContentsQueryHydrator(
+        FollowedGenresQueryHydrator hydrator = new FollowedGenresQueryHydrator(
             userId -> Optional.of(fetched));
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(3, 7, 12), updated.userFeatures().followedGrokTopics());
-        assertEquals(List.of(), updated.userFeatures().followedStarterPacks());
+        assertEquals(List.of(3, 7, 12), updated.userFeatures().followedGenres());
+        assertEquals(List.of(), updated.userFeatures().followedCollections());
     }
 
     @Test
-    void followedStarterPacksHydratorFetchesFromDedicatedClient() {
-        FollowedStarterPacksClient client = mock(FollowedStarterPacksClient.class);
+    void followedCollectionsHydratorFetchesFromDedicatedClient() {
+        FollowedCollectionsClient client = mock(FollowedCollectionsClient.class);
         when(client.getFollowedPackIds("u1")).thenReturn(List.of(1, 0, 1));
-        FollowedStarterPacksQueryHydrator hydrator = new FollowedStarterPacksQueryHydrator(client);
+        FollowedCollectionsQueryHydrator hydrator = new FollowedCollectionsQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
-        assertEquals(List.of(1, 0, 1), updated.userFeatures().followedStarterPacks());
-        assertEquals(List.of(), updated.userFeatures().followedGrokTopics());
+        assertEquals(List.of(1, 0, 1), updated.userFeatures().followedCollections());
+        assertEquals(List.of(), updated.userFeatures().followedGenres());
     }
 }

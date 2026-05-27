@@ -8,10 +8,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class TopicIdsFilter implements CandidateFilter {
+public class GenreIdsFilter implements CandidateFilter {
     @Override
     public boolean enable(ScoredMoviesQuery query) {
-        return query.isTopicRequest() || query.hasExcludedTopics();
+        return query.isGenreRequest() || query.hasExcludedGenres();
     }
 
     @Override
@@ -19,18 +19,18 @@ public class TopicIdsFilter implements CandidateFilter {
         List<MovieCandidate> kept = candidates;
         List<MovieCandidate> removed = List.of();
 
-        if (query.isTopicRequest()) {
-            Set<Integer> expandedTopicIds = TopicIdExpansion.expand(Set.copyOf(query.topicIds()));
+        if (query.isGenreRequest()) {
+            Set<Integer> expandedTopicIds = GenreExpansion.expand(Set.copyOf(query.genreIds()));
             Map<Boolean, List<MovieCandidate>> partitioned = kept.stream()
                 .collect(Collectors.partitioningBy(candidate -> matchesRequestedTopics(candidate, expandedTopicIds)));
             kept = partitioned.getOrDefault(Boolean.TRUE, List.of());
             removed = partitioned.getOrDefault(Boolean.FALSE, List.of());
         }
 
-        if (query.hasExcludedTopics()) {
-            Set<Integer> excludedTopicIds = TopicIdExpansion.expand(Set.copyOf(query.excludedTopicIds()));
+        if (query.hasExcludedGenres()) {
+            Set<Integer> excludedGenreIds = GenreExpansion.expand(Set.copyOf(query.excludedGenreIds()));
             Map<Boolean, List<MovieCandidate>> partitioned = kept.stream()
-                .collect(Collectors.partitioningBy(candidate -> !matchesExcludedTopics(candidate, excludedTopicIds)));
+                .collect(Collectors.partitioningBy(candidate -> !matchesExcludedTopics(candidate, excludedGenreIds)));
             kept = partitioned.getOrDefault(Boolean.TRUE, List.of());
             removed = java.util.stream.Stream.concat(
                 removed.stream(),
@@ -42,16 +42,16 @@ public class TopicIdsFilter implements CandidateFilter {
     }
 
     private boolean matchesRequestedTopics(MovieCandidate candidate, Set<Integer> expandedTopicIds) {
-        if (candidate.filteredTopicIds().isEmpty()) {
+        if (candidate.matchedGenreIds().isEmpty()) {
             return queryAllowsUntopicedCandidate();
         }
-        return candidate.filteredTopicIds().stream().anyMatch(expandedTopicIds::contains)
-            || candidate.unfilteredTopicIds().stream().anyMatch(expandedTopicIds::contains);
+        return candidate.matchedGenreIds().stream().anyMatch(expandedTopicIds::contains)
+            || candidate.unmatchedGenreIds().stream().anyMatch(expandedTopicIds::contains);
     }
 
-    private boolean matchesExcludedTopics(MovieCandidate candidate, Set<Integer> excludedTopicIds) {
-        return !candidate.filteredTopicIds().isEmpty()
-            && candidate.filteredTopicIds().stream().anyMatch(excludedTopicIds::contains);
+    private boolean matchesExcludedTopics(MovieCandidate candidate, Set<Integer> excludedGenreIds) {
+        return !candidate.matchedGenreIds().isEmpty()
+            && candidate.matchedGenreIds().stream().anyMatch(excludedGenreIds::contains);
     }
 
     private boolean queryAllowsUntopicedCandidate() {

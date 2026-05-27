@@ -4,7 +4,7 @@ import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.FilteredTopicsCandidateHydrator;
+import com.demo.retrieval.service.candidate_hydrators.GenreMatchCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
@@ -178,15 +178,15 @@ class CandidateHydratorsTest {
     @Test
     void filteredTopicsHydratorCopiesTopicIdsOntoCandidates() {
         MovieProfile profile = new MovieProfile();
-        profile.setFilteredTopicIds(List.of(101, 202));
-        profile.setUnfilteredTopicIds(List.of(303));
+        profile.setMatchedGenreIds(List.of(101, 202));
+        profile.setUnmatchedGenreIds(List.of(303));
 
-        MovieCandidate hydrated = new FilteredTopicsCandidateHydrator(Map.of("movie-1", profile))
+        MovieCandidate hydrated = new GenreMatchCandidateHydrator(Map.of("movie-1", profile))
             .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
             .get(0);
 
-        assertEquals(List.of(101, 202), hydrated.filteredTopicIds());
-        assertEquals(List.of(303), hydrated.unfilteredTopicIds());
+        assertEquals(List.of(101, 202), hydrated.matchedGenreIds());
+        assertEquals(List.of(303), hydrated.unmatchedGenreIds());
     }
 
     @Test

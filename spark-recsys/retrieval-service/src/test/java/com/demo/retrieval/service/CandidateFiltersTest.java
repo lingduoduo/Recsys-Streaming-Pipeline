@@ -6,12 +6,12 @@ import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
 import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
-import com.demo.retrieval.service.filters.NewUserTopicIdsFilter;
+import com.demo.retrieval.service.filters.NewUserGenreFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DedupConversationFilter;
 import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplicatesFilter;
 import com.demo.retrieval.service.filters.SelfMovieFilter;
-import com.demo.retrieval.service.filters.TopicIdsFilter;
+import com.demo.retrieval.service.filters.GenreIdsFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.VideoFilter;
@@ -81,12 +81,12 @@ class CandidateFiltersTest {
             List.of()
         );
         List<MovieCandidate> candidates = List.of(
-            candidate("topic_match").withFilteredTopics(List.of(12), List.of()),
+            candidate("topic_match").withMatchedGenres(List.of(12), List.of()),
             candidate("in_network").withInNetwork(true),
-            candidate("removed").withFilteredTopics(List.of(99), List.of())
+            candidate("removed").withMatchedGenres(List.of(99), List.of())
         );
 
-        NewUserTopicIdsFilter filter = new NewUserTopicIdsFilter();
+        NewUserGenreFilter filter = new NewUserGenreFilter();
         CandidateFilterResult result = filter.filter(query, candidates);
 
         assertTrue(filter.enable(query));
@@ -96,7 +96,7 @@ class CandidateFiltersTest {
 
     @Test
     void newUserTopicFilterDisabledWhenUserHasHistoryOrNoTopics() {
-        NewUserTopicIdsFilter filter = new NewUserTopicIdsFilter();
+        NewUserGenreFilter filter = new NewUserGenreFilter();
 
         assertFalse(filter.enable(ScoredMoviesQuery.forUser("u1")));
         assertFalse(filter.enable(new ScoredMoviesQuery(
@@ -195,7 +195,7 @@ class CandidateFiltersTest {
     }
 
     @Test
-    void topicIdsFilterKeepsRequestedTopicsAndRemovesExcludedTopics() {
+    void genreIdsFilterKeepsRequestedTopicsAndRemovesExcludedTopics() {
         ScoredMoviesQuery query = new ScoredMoviesQuery(
             "u1",
             MovieLensUserFeatures.forUser("u1"),
@@ -208,12 +208,12 @@ class CandidateFiltersTest {
             false
         );
 
-        CandidateFilterResult result = new TopicIdsFilter().filter(
+        CandidateFilterResult result = new GenreIdsFilter().filter(
             query,
             List.of(
-                candidate("requested").withFilteredTopics(List.of(10), List.of()),
-                candidate("excluded").withFilteredTopics(List.of(10, 99), List.of()),
-                candidate("other").withFilteredTopics(List.of(42), List.of()),
+                candidate("requested").withMatchedGenres(List.of(10), List.of()),
+                candidate("excluded").withMatchedGenres(List.of(10, 99), List.of()),
+                candidate("other").withMatchedGenres(List.of(42), List.of()),
                 candidate("untopiced")
             )
         );

@@ -8,10 +8,10 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
-public class InferredGrokTopicsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class InferredGenresQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 
-    public InferredGrokTopicsQueryHydrator(MovieLensFeatureClient featureClient) {
+    public InferredGenresQueryHydrator(MovieLensFeatureClient featureClient) {
         this.featureClient = featureClient;
     }
 
@@ -19,7 +19,7 @@ public class InferredGrokTopicsQueryHydrator implements QueryHydrator<ScoredMovi
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
         List<Integer> topics = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::inferredGrokTopics)
+            .map(MovieLensUserFeatures::inferredGenres)
             .orElseGet(List::of);
         return new ScoredMoviesQuery(
             userId,
@@ -34,7 +34,7 @@ public class InferredGrokTopicsQueryHydrator implements QueryHydrator<ScoredMovi
     public ScoredMoviesQuery update(ScoredMoviesQuery query, ScoredMoviesQuery hydrated) {
         return new ScoredMoviesQuery(
             query.userId(),
-            query.userFeatures().withInferredGrokTopics(hydrated.userFeatures().inferredGrokTopics()),
+            query.userFeatures().withInferredGrokTopics(hydrated.userFeatures().inferredGenres()),
             query.watchedMovieIds(),
             query.ratedMovieIds(),
             query.candidateMovieIds()
