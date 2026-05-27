@@ -1,7 +1,8 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.*;
+import com.demo.retrieval.service.ScoredMoviesQuery;
 import com.demo.retrieval.service.clients.UserMovieHistoryClient;
+import com.demo.retrieval.service.clients.UserMovieHistoryClient.UserMovieHistory;
 
 import org.springframework.stereotype.Component;
 
@@ -15,12 +16,12 @@ public class MovieLensUserHistoryQueryHydrator implements QueryHydrator<ScoredMo
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
-        String userId = query.userId();
+        UserMovieHistory history = client.getMovieHistory(query.userId());
         return new ScoredMoviesQuery(
-            userId,
+            query.userId(),
             query.userFeatures(),
-            client.getWatchedMovies(userId),
-            client.getRatedMovies(userId),
+            history.watched(),
+            history.rated(),
             query.candidateMovieIds()
         );
     }
