@@ -209,12 +209,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void subscribedUserIdsHydratorCopiesOnlySubscribedUserIds() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withSubscribedUserIds(List.of("friend1", "friend2"));
-        SubscribedUserIdsQueryHydrator hydrator = new SubscribedUserIdsQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void subscribedUserIdsHydratorFetchesFromSocialGraph() {
+        SocialGraphClient client = mock(SocialGraphClient.class);
+        when(client.getSubscribedUserIds("u1")).thenReturn(List.of("friend1", "friend2"));
+        SubscribedUserIdsQueryHydrator hydrator = new SubscribedUserIdsQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
@@ -249,12 +247,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void mutualFollowHydratorCopiesOnlyMinhash() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withMutualFollowMinhash(List.of(7L, 9L));
-        MutualFollowQueryHydrator hydrator = new MutualFollowQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void mutualFollowHydratorFetchesFromMinHashClient() {
+        SimilarityMinHashClient client = mock(SimilarityMinHashClient.class);
+        when(client.getMinHash("u1")).thenReturn(List.of(7L, 9L));
+        MutualFollowQueryHydrator hydrator = new MutualFollowQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
@@ -342,18 +338,31 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void cachedMoviesHydratorCopiesCachedMoviesAndFlag() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withCachedMovieIds(List.of("cached1", "cached2"), true);
-        CachedMoviesQueryHydrator hydrator = new CachedMoviesQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+    void cachedMoviesHydratorSetsHasCachedMoviesWhenAboveThreshold() {
+        List<String> largeCache = IntStream.range(0, CachedMoviesQueryHydrator.MIN_CACHED_MOVIES_THRESHOLD)
+            .mapToObj(i -> "m" + i).toList();
+        CachedMoviesClient client = mock(CachedMoviesClient.class);
+        when(client.getCachedMovieIds("u1")).thenReturn(largeCache);
+        CachedMoviesQueryHydrator hydrator = new CachedMoviesQueryHydrator(client);
+        ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
+
+        ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
+
+        assertEquals(largeCache, updated.userFeatures().cachedMovieIds());
+        assertEquals(true, updated.userFeatures().hasCachedMovies());
+    }
+
+    @Test
+    void cachedMoviesHydratorClearsFlagWhenBelowThreshold() {
+        CachedMoviesClient client = mock(CachedMoviesClient.class);
+        when(client.getCachedMovieIds("u1")).thenReturn(List.of("cached1", "cached2"));
+        CachedMoviesQueryHydrator hydrator = new CachedMoviesQueryHydrator(client);
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
 
         assertEquals(List.of("cached1", "cached2"), updated.userFeatures().cachedMovieIds());
-        assertEquals(true, updated.userFeatures().hasCachedMovies());
+        assertEquals(false, updated.userFeatures().hasCachedMovies());
     }
 
     @Test

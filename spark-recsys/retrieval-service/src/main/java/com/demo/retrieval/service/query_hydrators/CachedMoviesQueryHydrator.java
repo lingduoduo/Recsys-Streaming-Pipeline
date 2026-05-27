@@ -1,26 +1,38 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.*;
+import com.demo.retrieval.service.CachedMoviesClient;
+import com.demo.retrieval.service.ScoredMoviesQuery;
 
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * Hydrates cachedMovieIds and sets hasCachedMovies when the cached candidate set
+ * is large enough to be worth using.
+ *
+ * Mirrors the Rust CachedPostsQueryHydrator: reads from a dedicated Redis key
+ * (separate write path from the general feature store) and computes hasCachedMovies
+ * from the list size against a threshold, rather than storing the flag separately.
+ */
 @Component
 public class CachedMoviesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
-    private final MovieLensFeatureClient featureClient;
 
-    public CachedMoviesQueryHydrator(MovieLensFeatureClient featureClient) {
-        this.featureClient = featureClient;
+    public static final int MIN_CACHED_MOVIES_THRESHOLD = 100;
+
+    private final CachedMoviesClient cachedMoviesClient;
+
+    public CachedMoviesQueryHydrator(CachedMoviesClient cachedMoviesClient) {
+        this.cachedMoviesClient = cachedMoviesClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        MovieLensUserFeatures fetched = featureClient.getUserFeatures(userId)
-            .orElseGet(() -> MovieLensUserFeatures.forUser(userId));
+        List<String> cachedMovieIds = cachedMoviesClient.getCachedMovieIds(userId);
+        boolean hasCachedMovies = cachedMovieIds.size() >= MIN_CACHED_MOVIES_THRESHOLD;
         return new ScoredMoviesQuery(userId,
-            query.userFeatures().withCachedMovieIds(fetched.cachedMovieIds(), fetched.hasCachedMovies()),
+            query.userFeatures().withCachedMovieIds(cachedMovieIds, hasCachedMovies),
             query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 
@@ -29,8 +41,7 @@ public class CachedMoviesQueryHydrator implements QueryHydrator<ScoredMoviesQuer
         return new ScoredMoviesQuery(query.userId(),
             query.userFeatures().withCachedMovieIds(
                 hydrated.userFeatures().cachedMovieIds(),
-                hydrated.userFeatures().hasCachedMovies()
-            ),
+                hydrated.userFeatures().hasCachedMovies()),
             query.watchedMovieIds(), query.ratedMovieIds(), query.candidateMovieIds());
     }
 }

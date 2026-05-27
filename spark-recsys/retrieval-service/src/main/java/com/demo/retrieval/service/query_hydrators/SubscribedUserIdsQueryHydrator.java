@@ -1,25 +1,33 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.*;
+import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.service.SocialGraphClient;
 
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * Hydrates subscribedUserIds from the social graph store.
+ *
+ * Mirrors the Rust SubscribedUserIdsQueryHydrator which uses SocialGraphClientOps
+ * .get_subscribed_user_ids(). Subscriptions (curated user lists, mutual-interest
+ * follows) live in the same social graph store as blocked/muted/followed so that
+ * all relationship data shares a single write path.
+ */
 @Component
 public class SubscribedUserIdsQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
-    private final MovieLensFeatureClient featureClient;
 
-    public SubscribedUserIdsQueryHydrator(MovieLensFeatureClient featureClient) {
-        this.featureClient = featureClient;
+    private final SocialGraphClient socialGraphClient;
+
+    public SubscribedUserIdsQueryHydrator(SocialGraphClient socialGraphClient) {
+        this.socialGraphClient = socialGraphClient;
     }
 
     @Override
     public ScoredMoviesQuery hydrate(ScoredMoviesQuery query) {
         String userId = query.userId();
-        List<String> subscribedUserIds = featureClient.getUserFeatures(userId)
-            .map(MovieLensUserFeatures::subscribedUserIds)
-            .orElseGet(List::of);
+        List<String> subscribedUserIds = socialGraphClient.getSubscribedUserIds(userId);
         return new ScoredMoviesQuery(
             userId,
             query.userFeatures().withSubscribedUserIds(subscribedUserIds),
