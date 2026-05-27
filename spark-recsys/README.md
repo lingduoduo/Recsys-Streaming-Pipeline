@@ -29,6 +29,12 @@ ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob
 ratings.csv + embedding.txt ──► UserEmbeddingTrainingJob ──► user_embedding.txt
 ratings.csv ──► AlsEmbeddingTrainingJob ──► als/userFactors + als/itemFactors
 
+user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJob
+                                                    |──► Redis user:{id}:candidates (top-K by cosine similarity)
+                                                    └──► Parquet candidate-generation/
+
+movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
+
                  ┌─── Offline: ONNX model file (ONNX_MODEL_PATH)
                  │    lookup tables (ONNX_LOOKUPS_PATH)
 retrieval-service├─── Redis: embeddings, bandit counters, user history, reward stats
@@ -97,13 +103,15 @@ The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-tri
 
 For each recommendation request, the service:
 
-1. Loads the user's recent click history from Redis.
+1. Runs the query hydration pipeline — 21 `QueryHydrator` implementations populate the `ScoredMoviesQuery` with per-user context (watch history, rating sequences, social graph, served history, minhash, cached candidates, bloom filter, geo, demographics, inferred signals).
 2. Pulls popular items from `global:item_popularity`.
 3. Generates extra cold-start candidates from the configured catalog.
-4. Scores candidates by combining all three model types: offline ONNX scores, online reward-model estimates, and the bandit arm score (see above).
-5. Randomizes the top scoring pool slightly to avoid deterministic repetition.
-6. Stores pending recommendation context for replay-buffer training.
-7. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
+4. Runs candidate filters (`CandidateFilter`) to drop seen, blocked, muted, or ineligible candidates.
+5. Runs candidate hydrators (`CandidateHydrator`) to enrich surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags.
+6. Scores candidates by combining all three model types: offline ONNX scores, online reward-model estimates, and the bandit arm score (see above).
+7. Randomizes the top scoring pool slightly to avoid deterministic repetition.
+8. Stores pending recommendation context for replay-buffer training.
+9. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
 
 The default catalog and ranking weights live in `retrieval-service/src/main/resources/application.yml`.
 
@@ -151,6 +159,19 @@ Or run it directly with `spark-submit`:
 spark-submit \
   --class com.demo.task.UserEventStreamingJob \
   spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
+```
+
+Run the offline embedding pipeline (Item2Vec → user embeddings → candidate pre-computation):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
+```
+
+Or run the Python two-stage pipeline (two-tower retrieval + transformer ranking, no Spark required):
+
+```bash
+pip install torch onnxruntime numpy
+python movielens_pipeline.py
 ```
 
 Start the retrieval service:
@@ -528,7 +549,9 @@ After initial candidate generation, candidates pass through two more pipelines.
 | Filter | Removes |
 |---|---|
 | `PreviouslySeenMoviesFilter` | Movies the user has already watched |
+| `PreviouslySeenMoviesBackupFilter` | Same as above using `impressedMovieIds`; fallback when bloom filter is unavailable |
 | `PreviouslyServedMoviesFilter` | Movies served in recent requests (`servedMovieIds`) |
+| `SelfMovieFilter` | Movies where the requesting user is the creator (`userId == ownerId`) |
 | `CreatorBlocklistFilter` | Movies from blocked creators |
 | `MutedKeywordFilter` | Movies whose title/tags match muted keywords |
 | `AgeFilter` | Movies outside the user's age-appropriate range |
@@ -815,6 +838,31 @@ Output paths:
 sampledata/als/userFactors/part-...
 sampledata/als/itemFactors/part-...
 ```
+
+### `EmbeddingCandidateGenerationJob`
+
+Batch embedding-based candidate pre-computation. Loads pre-trained user and item embeddings (output of `UserEmbeddingTrainingJob` or `AlsEmbeddingTrainingJob`), broadcasts the full item catalog to every executor, and computes cosine similarity locally per user partition with no cross-join or shuffle. Writes top-K candidates per user to Parquet and optionally to Redis.
+
+```bash
+spark-submit \
+  --class com.demo.recommend.EmbeddingCandidateGenerationJob \
+  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  sampledata/user_embedding.txt \
+  sampledata/embedding.txt \
+  sampledata/candidates
+```
+
+Key environment variables:
+
+| Env var | Default |
+|---|---|
+| `USER_EMBEDDING_PATH` | required if arg omitted |
+| `ITEM_EMBEDDING_PATH` | required if arg omitted |
+| `CANDIDATE_OUTPUT_PATH` | optional Parquet output path |
+| `CANDIDATE_TOP_K` | `100` |
+| `CANDIDATE_SAVE_TO_REDIS` | `false` |
+| `CANDIDATE_REDIS_KEY_PREFIX` | `user` (writes `user:{id}:candidates`) |
+| `CANDIDATE_REDIS_TTL_SECONDS` | `86400` |
 
 ## Cold-Start RL Extension Plan
 
