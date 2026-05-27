@@ -71,21 +71,21 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void retrievalSequenceHydratorDerivesFromRecentRatings() {
-        List<String> recent = List.of("r1", "r2", "r3");
-        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(clientWithRecent(recent));
+    void retrievalSequenceHydratorDerivesFromAggregationClient() {
+        List<String> deduped = List.of("r1", "r2", "r3");
+        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(userId -> deduped);
         ScoredMoviesQuery updated = hydrator.update(
             ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
 
-        assertEquals(recent, updated.userFeatures().retrievalSequenceMovieIds());
+        assertEquals(deduped, updated.userFeatures().retrievalSequenceMovieIds());
         assertEquals(List.of(), updated.userFeatures().scoringSequenceMovieIds());
         assertEquals(List.of(), updated.userFeatures().actionSequenceMovieIds());
     }
 
     @Test
-    void retrievalSequenceHydratorDeduplicatesAndTruncatesToMax() {
+    void retrievalSequenceHydratorTruncatesToMax() {
         List<String> longList = IntStream.range(0, 150).mapToObj(i -> "m" + i).toList();
-        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(clientWithRecent(longList));
+        RetrievalSequenceQueryHydrator hydrator = new RetrievalSequenceQueryHydrator(userId -> longList);
         ScoredMoviesQuery updated = hydrator.update(
             ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
 
@@ -96,12 +96,12 @@ class UserContextQueryHydratorsTest {
 
     @Test
     void scoringSequenceHydratorDerivesShortDenseWindow() {
-        List<String> recent = List.of("s1", "s2", "s3");
-        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(clientWithRecent(recent));
+        List<String> deduped = List.of("s1", "s2", "s3");
+        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(userId -> deduped);
         ScoredMoviesQuery updated = hydrator.update(
             ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
 
-        assertEquals(recent, updated.userFeatures().scoringSequenceMovieIds());
+        assertEquals(deduped, updated.userFeatures().scoringSequenceMovieIds());
         assertEquals(List.of(), updated.userFeatures().retrievalSequenceMovieIds());
         assertEquals(List.of(), updated.userFeatures().actionSequenceMovieIds());
     }
@@ -109,7 +109,7 @@ class UserContextQueryHydratorsTest {
     @Test
     void scoringSequenceHydratorTruncatesToMax() {
         List<String> longList = IntStream.range(0, 60).mapToObj(i -> "m" + i).toList();
-        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(clientWithRecent(longList));
+        ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(userId -> longList);
         ScoredMoviesQuery updated = hydrator.update(
             ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
 
@@ -119,9 +119,10 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void scoringSequenceHydratorDeduplicates() {
+    void scoringSequenceHydratorAppliesDenseDedup() {
+        // Dedup is done in UserActionAggregationClient; hydrator receives already-deduped list
         ScoringSequenceQueryHydrator hydrator = new ScoringSequenceQueryHydrator(
-            clientWithRecent(List.of("x", "y", "x", "z", "y")));
+            userId -> List.of("x", "y", "z"));
         ScoredMoviesQuery updated = hydrator.update(
             ScoredMoviesQuery.forUser("u1"), hydrator.hydrate(ScoredMoviesQuery.forUser("u1")));
 
@@ -196,12 +197,9 @@ class UserContextQueryHydratorsTest {
     }
 
     @Test
-    void servedHistoryHydratorCopiesOnlyServedMovieIds() {
-        MovieLensUserFeatures fetched = MovieLensUserFeatures.forUser("u1")
-            .withServedMovieIds(List.of("served1", "served2"));
+    void servedHistoryHydratorFetchesFromDedicatedClient() {
         ServedHistoryQueryHydrator hydrator = new ServedHistoryQueryHydrator(
-            userId -> Optional.of(fetched)
-        );
+            userId -> List.of("served1", "served2"));
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser("u1");
 
         ScoredMoviesQuery updated = hydrator.update(query, hydrator.hydrate(query));
