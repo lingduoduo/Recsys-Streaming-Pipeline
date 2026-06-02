@@ -46,6 +46,8 @@ import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringInput
 import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringResult;
 import com.demo.retrieval.service.selectors.TopKScoreSelector;
 import com.demo.retrieval.service.selectors.TopKScoreSelector.SelectionResult;
+import com.demo.retrieval.service.models.MovieCandidateContext;
+import com.demo.retrieval.service.models.MovieInteractionSignals;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -227,6 +229,8 @@ public class HybridRecommendationService {
             filterCtx,
             limit
         );
+        Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
+            .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, this::mergeCandidate, LinkedHashMap::new));
         List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
             .map(MovieCandidate::movieId)
             .toList();
@@ -253,7 +257,7 @@ public class HybridRecommendationService {
         List<ScoredCandidate> scored = candidateEngagementScorer.applyDiversity(eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
-                return scoreCandidate(item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
+                return scoreCandidate(candidateById.get(item), item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
                     dlScores.getOrDefault(item, 0.0), qValues.get(item), tabularRl);
             })
@@ -858,6 +862,7 @@ public class HybridRecommendationService {
     }
 
     private ScoredCandidate scoreCandidate(
+        MovieCandidate candidate,
         String itemId,
         double relevance,
         Set<String> userGenres,
@@ -873,6 +878,8 @@ public class HybridRecommendationService {
     ) {
         NormalizedProfile profile = getNormalizedCatalog().get(itemId);
         MovieProfile movieProfile = properties.getCatalog().get(itemId);
+        MovieCandidateContext context = MovieCandidateContext.from(candidate, movieProfile);
+        MovieInteractionSignals interactionSignals = MovieInteractionSignals.from(candidate, movieProfile);
 
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
@@ -891,7 +898,8 @@ public class HybridRecommendationService {
         double novelty = 1.0 / (impressions + 1.0);
         ScoringResult scoring = candidateEngagementScorer.score(new ScoringInput(
             itemId,
-            movieProfile,
+            context,
+            interactionSignals,
             normalizeScore(relevance),
             content,
             popularity,
@@ -904,7 +912,7 @@ public class HybridRecommendationService {
             impressions,
             clicks
         ));
-        String authorId = movieProfile == null ? null : movieProfile.getOwnerId();
+        String diversityGroupId = context.diversityGroupId();
         String primaryGenre = profile == null || profile.genres().isEmpty() ? null : profile.genres().iterator().next();
 
         return new ScoredCandidate(
@@ -926,7 +934,7 @@ public class HybridRecommendationService {
             scoring.engagementProbability(),
             scoring.predictionScore(),
             scoring.diversityScore(),
-            authorId,
+            diversityGroupId,
             primaryGenre
         );
     }
@@ -1610,7 +1618,7 @@ public class HybridRecommendationService {
         double engagementProbability,
         double predictionScore,
         double diversityScore,
-        String authorId,
+        String diversityGroupId,
         String primaryGenre
     ) implements CandidateEngagementScorer.DiversityCandidate, TopKScoreSelector.Scored {
         @Override
@@ -1644,7 +1652,7 @@ public class HybridRecommendationService {
                 engagementProbability,
                 predictionScore,
                 diversityScore,
-                authorId,
+                diversityGroupId,
                 primaryGenre
             );
         }
