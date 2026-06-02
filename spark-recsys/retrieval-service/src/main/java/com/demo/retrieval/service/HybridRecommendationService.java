@@ -7,7 +7,6 @@ import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.CandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GenreMatchCandidateHydrator;
@@ -21,6 +20,12 @@ import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandida
 import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
+import com.demo.retrieval.service.candidate_pipeline.CandidatePipelineContext;
+import com.demo.retrieval.service.candidate_pipeline.CandidatePipelineResult;
+import com.demo.retrieval.service.candidate_pipeline.CandidateSelection;
+import com.demo.retrieval.service.candidate_pipeline.FilterContext;
+import com.demo.retrieval.service.candidate_pipeline.HunkkerCandidatePipeline;
+import com.demo.retrieval.service.candidate_pipeline.PipelineCandidateFilter;
 import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
 import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
 import com.demo.retrieval.service.filters.MutedKeywordFilter;
@@ -33,6 +38,7 @@ import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplica
 import com.demo.retrieval.service.filters.GenreIdsFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
 import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
+import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.VideoFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import org.slf4j.Logger;
@@ -86,18 +92,6 @@ public class HybridRecommendationService {
     });
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
-    private record FilterContext(
-        Set<String> blockedUsers,
-        Set<String> mutedProductTypes,
-        Set<String> mutedGenres,
-        Set<String> mutedKeywords,
-        Set<String> mutedLanguageCodes,
-        Set<String> blockedVisibilityReasons,
-        boolean dropAncillaryCandidates,
-        boolean dropBlockedQuotes,
-        boolean requireMediaCandidates,
-        boolean dropAuthorsBlockingViewer) {}
-
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
     // tags stored separately for content scoring; tags+keywords merged into allKeywords for
     // keyword-mute checks so no per-call set allocation is needed in the hot path).
@@ -114,78 +108,6 @@ public class HybridRecommendationService {
         Map<String, MovieProfile> source,
         Map<String, NormalizedProfile> normalized) {}
 
-    private record CandidatePipelineContext(
-        ScoredMoviesQuery query,
-        Map<String, Double> popularityMap,
-        Set<String> excludedItems,
-        Set<String> userGenres,
-        Set<String> userTags,
-        FilterContext filterCtx,
-        int resultSize) {}
-
-    private record CandidateFilterResult(
-        List<MovieCandidate> kept,
-        List<MovieCandidate> removed) {}
-
-    private record CandidateSelectResult(
-        List<MovieCandidate> selected,
-        List<MovieCandidate> nonSelected) {}
-
-    private record CandidateGenerationResult(
-        List<MovieCandidate> retrievedCandidates,
-        List<MovieCandidate> filteredCandidates,
-        List<MovieCandidate> scoredCandidates,
-        List<MovieCandidate> selectedCandidates) {}
-
-    @FunctionalInterface
-    private interface CandidateSource {
-        List<MovieCandidate> fetch(CandidatePipelineContext context);
-
-        default boolean enable(CandidatePipelineContext context) {
-            return true;
-        }
-
-        default String name() {
-            return getClass().getSimpleName();
-        }
-    }
-
-    @FunctionalInterface
-    private interface CandidateFilter {
-        CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates);
-
-        default boolean enable(CandidatePipelineContext context) {
-            return true;
-        }
-    }
-
-    @FunctionalInterface
-    private interface CandidateScorer {
-        List<MovieCandidate> score(CandidatePipelineContext context, List<MovieCandidate> candidates);
-
-        default boolean enable(CandidatePipelineContext context) {
-            return true;
-        }
-    }
-
-    @FunctionalInterface
-    private interface CandidateSelector {
-        CandidateSelectResult select(CandidatePipelineContext context, List<MovieCandidate> candidates);
-
-        default boolean enable(CandidatePipelineContext context) {
-            return true;
-        }
-    }
-
-    @FunctionalInterface
-    private interface CandidateSideEffect {
-        void run(CandidatePipelineContext context, List<MovieCandidate> selected, List<MovieCandidate> nonSelected);
-
-        default boolean enable(CandidatePipelineContext context) {
-            return true;
-        }
-    }
-
     private volatile CatalogCache catalogCache;
 
     private final StringRedisTemplate redis;
@@ -194,6 +116,8 @@ public class HybridRecommendationService {
     private final OnlineLearningService onlineLearningService;
     private final FeatureCache featureCache;
     private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
+    private volatile Map<String, MovieProfile> candidatePipelineCatalog;
+    private volatile HunkkerCandidatePipeline candidatePipeline;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(
@@ -210,6 +134,7 @@ public class HybridRecommendationService {
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
+        this.candidatePipeline = buildCandidatePipeline();
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -286,7 +211,7 @@ public class HybridRecommendationService {
         Map<String, Object> state = buildState(recent, userGenres, userTags);
         String stateKey = stateKey(state);
 
-        CandidateGenerationResult candidateGeneration = generateCandidates(
+        CandidatePipelineResult candidateGeneration = generateCandidates(
             hydratedQuery,
             popularityMap,
             historySet,
@@ -500,7 +425,7 @@ public class HybridRecommendationService {
         return current;
     }
 
-    private CandidateGenerationResult generateCandidates(
+    private CandidatePipelineResult generateCandidates(
         ScoredMoviesQuery query,
         Map<String, Double> popularityMap,
         Set<String> excludedItems,
@@ -518,119 +443,65 @@ public class HybridRecommendationService {
             filterCtx,
             limit
         );
-
-        List<MovieCandidate> retrieved = fetchCandidates(context, List.of(
-            this::fetchPopularCandidates,
-            this::fetchColdStartCandidates
-        ));
-        List<MovieCandidate> hydrated = runCandidateHydrators(context, retrieved, List.of(
-            new CoreDataCandidateHydrator(properties.getCatalog()),
-            new LanguageCodeCandidateHydrator(properties.getCatalog()),
-            new VisibilityFilteringCandidateHydrator(properties.getCatalog()),
-            new QuoteCandidateHydrator(properties.getCatalog()),
-            new SubscriptionCandidateHydrator(properties.getCatalog()),
-            new HasMediaCandidateHydrator(properties.getCatalog()),
-            new BlockedByCandidateHydrator(properties.getCatalog()),
-            new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
-            new MutualFollowJaccardCandidateHydrator(properties.getCatalog()),
-            new EngagementCountsCandidateHydrator(properties.getCatalog()),
-            new GenreMatchCandidateHydrator(properties.getCatalog()),
-            new InNetworkCandidateHydrator(properties.getCatalog()),
-            new GizmoduckCandidateHydrator(properties.getCatalog())
-        ));
-        CandidateFilterResult filterResult = runCandidateFilters(context, hydrated, List.of(
-            historyFilter(new DropDuplicatesFilter()),
-            historyFilter(new GenreIdsFilter()),
-            historyFilter(new VideoFilter()),
-            historyFilter(new PreviouslySeenMoviesFilter()),
-            historyFilter(new PreviouslySeenMoviesBackupFilter()),
-            historyFilter(new PreviouslyServedMoviesFilter()),
-            historyFilter(new CreatorBlocklistFilter()),
-            historyFilter(new NewUserGenreFilter()),
-            historyFilter(new IneligibleSubscriptionFilter()),
-            mutedKeywordFilter(),
-            historyFilter(new VFFilter()),
-            historyFilter(new AncillaryVFFilter()),
-            this::filterEligibleCandidates,
-            historyFilter(new DedupConversationFilter())
-        ));
-        List<MovieCandidate> scored = runCandidateScorers(context, filterResult.kept(), List.of(this::preRankCandidates));
-        CandidateSelectResult selectResult = selectCandidates(context, scored, this::selectDistinctCandidates);
-        runCandidateSideEffects(context, selectResult.selected(), selectResult.nonSelected(), List.of());
-        return new CandidateGenerationResult(hydrated, filterResult.removed(), scored, selectResult.selected());
+        return currentCandidatePipeline().execute(context);
     }
 
-    private List<MovieCandidate> fetchCandidates(CandidatePipelineContext context, List<CandidateSource> sources) {
-        return sources.stream()
-            .filter(source -> source.enable(context))
-            .flatMap(source -> source.fetch(context).stream())
-            .toList();
-    }
-
-    private List<MovieCandidate> runCandidateHydrators(
-        CandidatePipelineContext context,
-        List<MovieCandidate> candidates,
-        List<CandidateHydrator> hydrators
-    ) {
-        List<MovieCandidate> current = candidates;
-        for (CandidateHydrator hydrator : hydrators) {
-            if (hydrator.enable(context.query())) {
-                current = hydrator.hydrate(context.query(), current);
-            }
+    private HunkkerCandidatePipeline currentCandidatePipeline() {
+        Map<String, MovieProfile> catalog = properties.getCatalog();
+        HunkkerCandidatePipeline current = candidatePipeline;
+        if (current != null && candidatePipelineCatalog == catalog) {
+            return current;
         }
-        return current;
-    }
-
-    private CandidateFilterResult runCandidateFilters(
-        CandidatePipelineContext context,
-        List<MovieCandidate> candidates,
-        List<CandidateFilter> filters
-    ) {
-        List<MovieCandidate> current = candidates;
-        List<MovieCandidate> removedAll = new ArrayList<>();
-        for (CandidateFilter filter : filters) {
-            if (filter.enable(context)) {
-                CandidateFilterResult result = filter.filter(context, current);
-                current = result.kept();
-                removedAll.addAll(result.removed());
+        synchronized (this) {
+            if (candidatePipeline == null || candidatePipelineCatalog != catalog) {
+                candidatePipeline = buildCandidatePipeline();
             }
+            return candidatePipeline;
         }
-        return new CandidateFilterResult(current, List.copyOf(removedAll));
     }
 
-    private List<MovieCandidate> runCandidateScorers(
-        CandidatePipelineContext context,
-        List<MovieCandidate> candidates,
-        List<CandidateScorer> scorers
-    ) {
-        List<MovieCandidate> current = candidates;
-        for (CandidateScorer scorer : scorers) {
-            if (scorer.enable(context)) {
-                current = scorer.score(context, current);
-            }
-        }
-        return current;
-    }
-
-    private CandidateSelectResult selectCandidates(
-        CandidatePipelineContext context,
-        List<MovieCandidate> candidates,
-        CandidateSelector selector
-    ) {
-        return selector.enable(context)
-            ? selector.select(context, candidates)
-            : new CandidateSelectResult(candidates, List.of());
-    }
-
-    private void runCandidateSideEffects(
-        CandidatePipelineContext context,
-        List<MovieCandidate> selected,
-        List<MovieCandidate> nonSelected,
-        List<CandidateSideEffect> sideEffects
-    ) {
-        sideEffects.stream()
-            .filter(sideEffect -> sideEffect.enable(context))
-            .forEach(sideEffect -> sideEffect.run(context, selected, nonSelected));
+    private HunkkerCandidatePipeline buildCandidatePipeline() {
+        candidatePipelineCatalog = properties.getCatalog();
+        return new HunkkerCandidatePipeline(
+            List.of(
+                this::fetchPopularCandidates,
+                this::fetchColdStartCandidates
+            ),
+            List.of(
+                new CoreDataCandidateHydrator(properties.getCatalog()),
+                new LanguageCodeCandidateHydrator(properties.getCatalog()),
+                new VisibilityFilteringCandidateHydrator(properties.getCatalog()),
+                new QuoteCandidateHydrator(properties.getCatalog()),
+                new SubscriptionCandidateHydrator(properties.getCatalog()),
+                new HasMediaCandidateHydrator(properties.getCatalog()),
+                new BlockedByCandidateHydrator(properties.getCatalog()),
+                new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
+                new MutualFollowJaccardCandidateHydrator(properties.getCatalog()),
+                new EngagementCountsCandidateHydrator(properties.getCatalog()),
+                new GenreMatchCandidateHydrator(properties.getCatalog()),
+                new InNetworkCandidateHydrator(properties.getCatalog()),
+                new GizmoduckCandidateHydrator(properties.getCatalog())
+            ),
+            List.of(
+                historyFilter(new DropDuplicatesFilter()),
+                historyFilter(new GenreIdsFilter()),
+                historyFilter(new VideoFilter()),
+                historyFilter(new PreviouslySeenMoviesFilter()),
+                historyFilter(new PreviouslySeenMoviesBackupFilter()),
+                historyFilter(new PreviouslyServedMoviesFilter()),
+                historyFilter(new CreatorBlocklistFilter()),
+                historyFilter(new NewUserGenreFilter()),
+                historyFilter(new IneligibleSubscriptionFilter()),
+                mutedKeywordFilter(),
+                historyFilter(new VFFilter()),
+                historyFilter(new AncillaryVFFilter()),
+                this::filterEligibleCandidates,
+                historyFilter(new DedupConversationFilter())
+            ),
+            List.of(this::preRankCandidates),
+            this::selectDistinctCandidates,
+            List.of()
+        );
     }
 
     private List<MovieCandidate> fetchPopularCandidates(CandidatePipelineContext context) {
@@ -647,18 +518,18 @@ public class HybridRecommendationService {
     private CandidateFilterResult filterEligibleCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
         Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
             .collect(Collectors.partitioningBy(candidate ->
-                isEligibleCandidate(candidate, context.excludedItems(), context.filterCtx())));
+                isEligibleCandidate(candidate, context.excludedItems(), context.filterContext())));
         return new CandidateFilterResult(
             partitioned.getOrDefault(Boolean.TRUE, List.of()),
             partitioned.getOrDefault(Boolean.FALSE, List.of())
         );
     }
 
-    private CandidateFilter historyFilter(com.demo.retrieval.service.filters.CandidateFilter filter) {
-        return new CandidateFilter() {
+    private PipelineCandidateFilter historyFilter(com.demo.retrieval.service.filters.CandidateFilter filter) {
+        return new PipelineCandidateFilter() {
             @Override
             public CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates) {
-                com.demo.retrieval.service.filters.CandidateFilterResult result = filter.filter(context.query(), candidates);
+                CandidateFilterResult result = filter.filter(context.query(), candidates);
                 return new CandidateFilterResult(result.kept(), result.removed());
             }
 
@@ -669,23 +540,23 @@ public class HybridRecommendationService {
         };
     }
 
-    private CandidateFilter mutedKeywordFilter() {
-        return new CandidateFilter() {
+    private PipelineCandidateFilter mutedKeywordFilter() {
+        return new PipelineCandidateFilter() {
             @Override
             public CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates) {
-                com.demo.retrieval.service.filters.CandidateFilterResult result =
-                    new MutedKeywordFilter(context.filterCtx().mutedKeywords()).filter(context.query(), candidates);
+                CandidateFilterResult result =
+                    new MutedKeywordFilter(context.filterContext().mutedKeywords()).filter(context.query(), candidates);
                 return new CandidateFilterResult(result.kept(), result.removed());
             }
 
             @Override
             public boolean enable(CandidatePipelineContext context) {
-                return !context.filterCtx().mutedKeywords().isEmpty();
+                return !context.filterContext().mutedKeywords().isEmpty();
             }
         };
     }
 
-    private CandidateSelectResult selectDistinctCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
+    private CandidateSelection selectDistinctCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
         LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
         List<MovieCandidate> nonSelected = new ArrayList<>();
         for (MovieCandidate candidate : candidates) {
@@ -695,7 +566,7 @@ public class HybridRecommendationService {
                 nonSelected.add(candidate);
             }
         }
-        return new CandidateSelectResult(List.copyOf(selected.values()), List.copyOf(nonSelected));
+        return new CandidateSelection(List.copyOf(selected.values()), List.copyOf(nonSelected));
     }
 
     private MovieCandidate mergeCandidate(MovieCandidate left, MovieCandidate right) {
@@ -748,7 +619,7 @@ public class HybridRecommendationService {
             poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()
         ));
         List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
-            .filter(entry -> isEligibleCandidate(entry.getKey(), context.excludedItems(), context.filterCtx()))
+            .filter(entry -> isEligibleCandidate(entry.getKey(), context.excludedItems(), context.filterContext()))
             .map(entry -> {
                 NormalizedProfile np = normalizedCatalog.get(entry.getKey());
                 double cs = np != null
