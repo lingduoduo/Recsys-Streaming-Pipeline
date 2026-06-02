@@ -41,6 +41,9 @@ import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.VideoFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
+import com.demo.retrieval.service.scorers.CandidateEngagementScorer;
+import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringInput;
+import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -118,6 +121,7 @@ public class HybridRecommendationService {
     private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
     private volatile Map<String, MovieProfile> candidatePipelineCatalog;
     private volatile HunkkerCandidatePipeline candidatePipeline;
+    private final CandidateEngagementScorer candidateEngagementScorer = new CandidateEngagementScorer();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(
@@ -243,13 +247,14 @@ public class HybridRecommendationService {
         // subsequent onlineLearningService.score() call is a pure in-memory read.
         onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
 
-        List<ScoredCandidate> scored = eligibleList.stream()
+        List<ScoredCandidate> scored = candidateEngagementScorer.applyDiversity(eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
                     dlScores.getOrDefault(item, 0.0), qValues.get(item), tabularRl);
             })
+            .toList()).stream()
             .sorted(Comparator.comparingDouble(ScoredCandidate::banditScore).reversed())
             .collect(Collectors.toCollection(ArrayList::new));
 
@@ -315,6 +320,10 @@ public class HybridRecommendationService {
                 row.put("dlScore", round(candidate.dlScore()));
                 row.put("qValue", round(candidate.qValue()));
                 row.put("rewardModelScore", round(candidate.onlineScore()));
+                row.put("engagementProbability", round(candidate.engagementProbability()));
+                row.put("weightedEngagementScore", round(candidate.weightedEngagementScore()));
+                row.put("predictionScore", round(candidate.predictionScore()));
+                row.put("diversityScore", round(candidate.diversityScore()));
                 row.put("explorationBonus", round(candidate.explorationBonus()));
                 row.put("banditScore", round(candidate.banditScore()));
                 row.put("coldStart", candidate.coldStart());
@@ -878,24 +887,47 @@ public class HybridRecommendationService {
         boolean coldStart = impressions < properties.getBandit().getColdStartExposureThreshold() || (profile != null && profile.newRelease());
         BanditArmScore armScore = computeBanditArmScore(learnedPrior, impressions, clicks, totalImpressions, coldStart);
         double qLearningScore = computeTabularRlRankingScore(learnedPrior, qValue);
-        double estimatedReward = armScore.posteriorMean();
+        double baseRankingScore = tabularRl ? qLearningScore : armScore.rankingScore();
         double novelty = 1.0 / (impressions + 1.0);
+        ScoringResult scoring = candidateEngagementScorer.score(new ScoringInput(
+            itemId,
+            movieProfile,
+            normalizeScore(relevance),
+            content,
+            popularity,
+            armScore.posteriorMean(),
+            baseRankingScore,
+            armScore.explorationBonus(),
+            novelty,
+            dlScore,
+            qValue == null ? 0.0 : qValue,
+            impressions,
+            clicks
+        ));
+        String authorId = movieProfile == null ? null : movieProfile.getOwnerId();
+        String primaryGenre = profile == null || profile.genres().isEmpty() ? null : profile.genres().iterator().next();
 
         return new ScoredCandidate(
             itemId,
-            estimatedReward,
+            scoring.estimatedReward(),
             relevance,
             content,
             popularity,
             onlineScore,
             armScore.explorationBonus(),
-            tabularRl ? qLearningScore : armScore.rankingScore(),
+            scoring.finalScore(),
             coldStart,
             novelty,
             impressions,
             clicks,
             dlScore,
-            qValue == null ? 0.0 : qValue
+            qValue == null ? 0.0 : qValue,
+            scoring.weightedEngagementScore(),
+            scoring.engagementProbability(),
+            scoring.predictionScore(),
+            scoring.diversityScore(),
+            authorId,
+            primaryGenre
         );
     }
 
@@ -1041,6 +1073,10 @@ public class HybridRecommendationService {
         predictions.put("qValue", round(candidate.qValue()));
         predictions.put("rewardModelScore", round(candidate.onlineScore()));
         predictions.put("estimatedReward", round(candidate.estimatedReward()));
+        predictions.put("engagementProbability", round(candidate.engagementProbability()));
+        predictions.put("weightedEngagementScore", round(candidate.weightedEngagementScore()));
+        predictions.put("predictionScore", round(candidate.predictionScore()));
+        predictions.put("diversityScore", round(candidate.diversityScore()));
         predictions.put("relevanceScore", round(candidate.relevanceScore()));
         predictions.put("contentScore", round(candidate.contentScore()));
         predictions.put("popularityScore", round(candidate.popularityScore()));
@@ -1582,8 +1618,49 @@ public class HybridRecommendationService {
         long impressions,
         long clicks,
         double dlScore,
-        double qValue
-    ) {
+        double qValue,
+        double weightedEngagementScore,
+        double engagementProbability,
+        double predictionScore,
+        double diversityScore,
+        String authorId,
+        String primaryGenre
+    ) implements CandidateEngagementScorer.DiversityCandidate {
+        @Override
+        public double preDiversityScore() {
+            return predictionScore;
+        }
+
+        @Override
+        public double finalScore() {
+            return banditScore;
+        }
+
+        @Override
+        public ScoredCandidate withDiversity(double diversityScore, double finalScore) {
+            return new ScoredCandidate(
+                itemId,
+                estimatedReward,
+                relevanceScore,
+                contentScore,
+                popularityScore,
+                onlineScore,
+                explorationBonus,
+                finalScore,
+                coldStart,
+                noveltyScore,
+                impressions,
+                clicks,
+                dlScore,
+                qValue,
+                weightedEngagementScore,
+                engagementProbability,
+                predictionScore,
+                diversityScore,
+                authorId,
+                primaryGenre
+            );
+        }
     }
 
     private record TabularRlUpdate(
