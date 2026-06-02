@@ -44,6 +44,8 @@ import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import com.demo.retrieval.service.scorers.CandidateEngagementScorer;
 import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringInput;
 import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringResult;
+import com.demo.retrieval.service.selectors.TopKScoreSelector;
+import com.demo.retrieval.service.selectors.TopKScoreSelector.SelectionResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -122,6 +124,7 @@ public class HybridRecommendationService {
     private volatile Map<String, MovieProfile> candidatePipelineCatalog;
     private volatile HunkkerCandidatePipeline candidatePipeline;
     private final CandidateEngagementScorer candidateEngagementScorer = new CandidateEngagementScorer();
+    private final TopKScoreSelector<ScoredCandidate> topKScoreSelector = new TopKScoreSelector<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public HybridRecommendationService(
@@ -254,9 +257,7 @@ public class HybridRecommendationService {
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
                     dlScores.getOrDefault(item, 0.0), qValues.get(item), tabularRl);
             })
-            .toList()).stream()
-            .sorted(Comparator.comparingDouble(ScoredCandidate::banditScore).reversed())
-            .collect(Collectors.toCollection(ArrayList::new));
+            .toList());
 
         if (scored.isEmpty()) {
             return new RecommendationResult(
@@ -268,13 +269,12 @@ public class HybridRecommendationService {
             );
         }
 
-        randomizeTopN(scored, properties.getCandidateGeneration().getTopNRandomizationPool());
-
         String requestId = UUID.randomUUID().toString();
-        List<ScoredCandidate> selected = scored.stream().limit(limit).toList();
-        List<ScoredCandidate> candidateSnapshot = scored.stream()
-            .limit(Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
-            .toList();
+        SelectionResult<ScoredCandidate> selection = topKScoreSelector.select(scored, limit);
+        List<ScoredCandidate> selected = selection.selected();
+        List<ScoredCandidate> candidateSnapshot = topKScoreSelector
+            .select(scored, Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
+            .selected();
         trackServedRecommendations(requestId, user, recent, userGenres, userTags, candidateSnapshot, selected);
 
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
@@ -339,7 +339,7 @@ public class HybridRecommendationService {
         metrics.put("filteredCandidateCount", candidateGeneration.filteredCandidates().size());
         metrics.put("scoredCandidateCount", candidateGeneration.scoredCandidates().size());
         metrics.put("eligibleCandidateCount", eligibleList.size());
-        metrics.put("randomizationPool", Math.min(properties.getCandidateGeneration().getTopNRandomizationPool(), scored.size()));
+        metrics.put("selectionStrategy", "top_k_final_score");
         metrics.put("pseudoRegret", round(pseudoRegret));
         metrics.put("avgEstimatedReward", round(avgEstimatedReward));
         metrics.put("avgExplorationBonus", round(avgExplorationBonus));
@@ -929,19 +929,6 @@ public class HybridRecommendationService {
             authorId,
             primaryGenre
         );
-    }
-
-    private void randomizeTopN(List<ScoredCandidate> scored, int topN) {
-        if (scored.size() < 2 || topN <= 1) {
-            return;
-        }
-
-        int boundary = Math.min(topN, scored.size());
-        List<ScoredCandidate> randomized = new ArrayList<>(scored.subList(0, boundary));
-        Collections.shuffle(randomized, ThreadLocalRandom.current());
-        for (int i = 0; i < boundary; i++) {
-            scored.set(i, randomized.get(i));
-        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1625,7 +1612,7 @@ public class HybridRecommendationService {
         double diversityScore,
         String authorId,
         String primaryGenre
-    ) implements CandidateEngagementScorer.DiversityCandidate {
+    ) implements CandidateEngagementScorer.DiversityCandidate, TopKScoreSelector.Scored {
         @Override
         public double preDiversityScore() {
             return predictionScore;
