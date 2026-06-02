@@ -453,6 +453,48 @@ class HybridRecommendationServiceTest {
     }
 
     @Test
+    void recommendAppliesAuthorDiversityToFinalScoring() {
+        MovieProfile sameAuthorTop = movie(List.of("drama"), List.of("ranked"), false);
+        sameAuthorTop.setOwnerId("author-1");
+        MovieProfile sameAuthorSecond = movie(List.of("drama"), List.of("ranked"), false);
+        sameAuthorSecond.setOwnerId("author-1");
+        MovieProfile diverseAuthor = movie(List.of("drama"), List.of("ranked"), false);
+        diverseAuthor.setOwnerId("author-2");
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("same_author_top", sameAuthorTop);
+        catalog.put("same_author_second", sameAuthorSecond);
+        catalog.put("diverse_author", diverseAuthor);
+        properties.setCatalog(catalog);
+
+        when(listOps.range(eq("user:u_diverse:recent"), eq(0L), anyLong())).thenReturn(List.of());
+        when(listOps.range(eq("user:u_diverse:rated"), eq(0L), anyLong())).thenReturn(List.of());
+        when(hashOps.entries("user:u_diverse:features")).thenReturn(Map.of());
+        when(zSetOps.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                new DefaultTypedTuple<>("same_author_top", 100.0),
+                new DefaultTypedTuple<>("same_author_second", 99.0),
+                new DefaultTypedTuple<>("diverse_author", 98.0)
+            )));
+        when(valueOps.get("uEmb:u_diverse")).thenReturn(null);
+        when(valueOps.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> switch (key) {
+                case "i2vEmb:same_author_top", "i2vEmb:same_author_second", "i2vEmb:diverse_author" -> "1.0 0.0";
+                case "bandit:item:same_author_top:impressions", "bandit:item:same_author_top:clicks",
+                     "bandit:item:same_author_second:impressions", "bandit:item:same_author_second:clicks",
+                     "bandit:item:diverse_author:impressions", "bandit:item:diverse_author:clicks" -> "10";
+                default -> null;
+            }).toList();
+        });
+
+        RecommendationResult result = service.recommend("u_diverse", 3);
+
+        assertEquals(List.of("same_author_top", "diverse_author", "same_author_second"), result.recommendations());
+        assertTrue((Double) result.candidateDiagnostics().get(2).get("diversityScore")
+            < (Double) result.candidateDiagnostics().get(1).get("diversityScore"));
+    }
+
+    @Test
     void coldStartGenerationFetchesImpressionsOnlyForBoundedProbeSet() {
         properties.getCandidateGeneration().setColdStartPoolSize(2);
         properties.getCandidateGeneration().setPopularityFetchMultiplier(3);
