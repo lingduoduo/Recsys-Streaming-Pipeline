@@ -48,9 +48,11 @@ import com.demo.retrieval.service.selectors.TopKScoreSelector;
 import com.demo.retrieval.service.selectors.TopKScoreSelector.SelectionResult;
 import com.demo.retrieval.service.models.MovieCandidateContext;
 import com.demo.retrieval.service.models.MovieInteractionSignals;
+import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects;
+import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
+import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -85,9 +87,7 @@ public class HybridRecommendationService {
     private static final String GLOBAL_POPULARITY_KEY = "global:item_popularity";
     private static final String METRICS_HASH_KEY = "bandit:metrics";
     private static final String REPLAY_BUFFER_KEY = "replay:recommendations";
-    private static final String REPLAY_PENDING_PREFIX = "replay:pending:";
     private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning", "sarsa");
-    private static final String EXPOSED_ITEMS_KEY = "bandit:exposed_items";
     private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = 2.0;
     private static final ThreadLocal<MessageDigest> SHA256_DIGEST = ThreadLocal.withInitial(() -> {
@@ -128,6 +128,7 @@ public class HybridRecommendationService {
     private final CandidateEngagementScorer candidateEngagementScorer = new CandidateEngagementScorer();
     private final TopKScoreSelector<ScoredCandidate> topKScoreSelector = new TopKScoreSelector<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MovieLensServingSideEffects servingSideEffects;
 
     public HybridRecommendationService(
         StringRedisTemplate redis,
@@ -143,6 +144,7 @@ public class HybridRecommendationService {
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
+        this.servingSideEffects = new MovieLensServingSideEffects(redis, objectMapper);
         this.candidatePipeline = buildCandidatePipeline();
     }
 
@@ -279,8 +281,6 @@ public class HybridRecommendationService {
         List<ScoredCandidate> candidateSnapshot = topKScoreSelector
             .select(scored, Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
             .selected();
-        trackServedRecommendations(requestId, user, recent, userGenres, userTags, candidateSnapshot, selected);
-
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
         double pseudoRegret = computePseudoRegret(scored, selected, limit);
         double avgEstimatedReward = selected.stream().mapToDouble(ScoredCandidate::estimatedReward).average().orElse(0.0);
@@ -291,28 +291,22 @@ public class HybridRecommendationService {
         double noveltyTotal = selected.stream().mapToDouble(ScoredCandidate::noveltyScore).sum();
         long servedCount = selected.size();
         double estimatedRewardTotal = avgEstimatedReward * servedCount;
-        String algoKey = metricsHashKey(algorithm);
-        redis.executePipelined(new SessionCallback<Object>() {
-            @Override
-            @SuppressWarnings({"unchecked", "rawtypes"})
-            public Object execute(RedisOperations operations) throws DataAccessException {
-                operations.opsForHash().increment(METRICS_HASH_KEY, "requests", 1L);
-                operations.opsForHash().increment(algoKey, "requests", 1L);
-                operations.opsForHash().increment(METRICS_HASH_KEY, "recommendations_served", servedCount);
-                operations.opsForHash().increment(algoKey, "recommendations_served", servedCount);
-                operations.opsForHash().increment(METRICS_HASH_KEY, "exploratory_impressions", exploratoryCount);
-                operations.opsForHash().increment(algoKey, "exploratory_impressions", exploratoryCount);
-                operations.opsForHash().increment(METRICS_HASH_KEY, "cold_start_impressions", coldStartCount);
-                operations.opsForHash().increment(algoKey, "cold_start_impressions", coldStartCount);
-                operations.opsForHash().increment(METRICS_HASH_KEY, "estimated_reward_total", estimatedRewardTotal);
-                operations.opsForHash().increment(algoKey, "estimated_reward_total", estimatedRewardTotal);
-                operations.opsForHash().increment(METRICS_HASH_KEY, "pseudo_regret_total", pseudoRegret);
-                operations.opsForHash().increment(algoKey, "pseudo_regret_total", pseudoRegret);
-                operations.opsForHash().increment(METRICS_HASH_KEY, "novelty_total", noveltyTotal);
-                operations.opsForHash().increment(algoKey, "novelty_total", noveltyTotal);
-                return null;
-            }
-        });
+        servingSideEffects.recordServed(new ServingSideEffectRequest(
+            requestId,
+            user,
+            algorithm,
+            state,
+            candidateSnapshot.stream().map(this::toServedMovie).toList(),
+            selected.stream().map(this::toServedMovie).toList(),
+            userFeatures.servedMovieIds(),
+            userFeatures.impressedMovieIds(),
+            coldStartCount,
+            exploratoryCount,
+            servedCount,
+            estimatedRewardTotal,
+            pseudoRegret,
+            noveltyTotal
+        ));
 
         List<Map<String, Object>> diagnostics = selected.stream()
             .map(candidate -> {
@@ -939,77 +933,6 @@ public class HybridRecommendationService {
         );
     }
 
-    @SuppressWarnings("unchecked")
-    private void trackServedRecommendations(
-        String requestId,
-        String user,
-        List<String> recent,
-        Set<String> userGenres,
-        Set<String> userTags,
-        List<ScoredCandidate> candidateSnapshot,
-        List<ScoredCandidate> selected
-    ) {
-        long now = System.currentTimeMillis();
-        redis.executePipelined(new SessionCallback<>() {
-            @Override
-            public Object execute(RedisOperations operations) throws DataAccessException {
-                for (int i = 0; i < selected.size(); i++) {
-                    ScoredCandidate c = selected.get(i);
-                    operations.opsForValue().increment("bandit:item:" + c.itemId() + ":impressions", 1);
-                    operations.opsForSet().add(EXPOSED_ITEMS_KEY, c.itemId());
-                    operations.opsForValue().set("bandit:last_served:" + c.itemId(), String.valueOf(now));
-                    serializeReplayContext(requestId, user, recent, userGenres, userTags, candidateSnapshot, c, i, selected.size(), now)
-                        .ifPresent(payload -> operations.opsForValue().set(pendingReplayKey(user, c.itemId()), payload));
-                }
-                return null;
-            }
-        });
-    }
-
-    private Optional<String> serializeReplayContext(
-        String requestId,
-        String user,
-        List<String> recent,
-        Set<String> userGenres,
-        Set<String> userTags,
-        List<ScoredCandidate> candidateSnapshot,
-        ScoredCandidate selected,
-        int actionPosition,
-        int slateSize,
-        long timestamp
-    ) {
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("type", "rl_experience");
-        event.put("schemaVersion", 1);
-        event.put("requestId", requestId);
-        event.put("user", user);
-        event.put("state", buildState(recent, userGenres, userTags));
-        event.put("context", event.get("state"));
-        event.put("actionSpace", candidateSnapshot.stream().map(this::candidateFeatures).toList());
-        event.put("candidates", candidateSnapshot.stream().map(ScoredCandidate::itemId).toList());
-        event.put("action", selected.itemId());
-        event.put("actionPosition", actionPosition);
-        event.put("slateSize", slateSize);
-        event.put("policy", Map.of(
-            "name", currentAlgorithm(),
-            "rankingScore", round(selected.banditScore()),
-            "explorationBonus", round(selected.explorationBonus()),
-            "propensity", round(slateSize <= 0 ? 0.0 : 1.0 / slateSize)
-        ));
-        event.put("modelPredictions", modelPredictions(selected));
-        event.put("estimatedReward", round(selected.estimatedReward()));
-        event.put("onlineScore", round(selected.onlineScore()));
-        event.put("banditScore", round(selected.banditScore()));
-        event.put("coldStart", selected.coldStart());
-        event.put("timestamp", timestamp);
-        try {
-            return Optional.of(objectMapper.writeValueAsString(event));
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize replay context for user {} item {}", user, selected.itemId(), e);
-            return Optional.empty();
-        }
-    }
-
     // Must run before the write pipeline: reads cannot be issued inside executePipelined.
     private String buildReplayPayload(FeedbackRequest request, Map<String, Object> event) {
         event.putIfAbsent("type", "rl_experience");
@@ -1052,16 +975,6 @@ public class HybridRecommendationService {
         return state;
     }
 
-    private Map<String, Object> candidateFeatures(ScoredCandidate candidate) {
-        Map<String, Object> features = new LinkedHashMap<>();
-        features.put("item", candidate.itemId());
-        features.put("modelPredictions", modelPredictions(candidate));
-        features.put("coldStart", candidate.coldStart());
-        features.put("impressions", candidate.impressions());
-        features.put("clicks", candidate.clicks());
-        return features;
-    }
-
     private Map<String, Object> modelPredictions(ScoredCandidate candidate) {
         Map<String, Object> predictions = new LinkedHashMap<>();
         predictions.put("deepLearningScore", round(candidate.dlScore()));
@@ -1077,6 +990,20 @@ public class HybridRecommendationService {
         predictions.put("popularityScore", round(candidate.popularityScore()));
         predictions.put("banditScore", round(candidate.banditScore()));
         return predictions;
+    }
+
+    private ServedMovie toServedMovie(ScoredCandidate candidate) {
+        return new ServedMovie(
+            candidate.itemId(),
+            round(candidate.estimatedReward()),
+            round(candidate.onlineScore()),
+            round(candidate.explorationBonus()),
+            round(candidate.banditScore()),
+            candidate.coldStart(),
+            candidate.impressions(),
+            candidate.clicks(),
+            modelPredictions(candidate)
+        );
     }
 
     private TabularRlUpdate buildTabularRlUpdate(FeedbackRequest request, Map<String, Object> replayEvent) {
@@ -1184,7 +1111,7 @@ public class HybridRecommendationService {
     }
 
     private String pendingReplayKey(String user, String item) {
-        return REPLAY_PENDING_PREFIX + user + ":" + item;
+        return MovieLensServingSideEffects.pendingReplayKey(user, item);
     }
 
     // Batch-fetch impression + click counters for a list of item IDs in two mget calls
@@ -1387,7 +1314,7 @@ public class HybridRecommendationService {
     }
 
     private String metricsHashKey(String algorithm) {
-        return METRICS_HASH_KEY + ":" + algorithm;
+        return MovieLensServingSideEffects.metricsHashKey(algorithm);
     }
 
     private String qKeyForStateMap(Map<?, ?> state) {
@@ -1414,7 +1341,7 @@ public class HybridRecommendationService {
         if (catalogSize == 0) {
             return 0.0;
         }
-        Long exposed = redis.opsForSet().size(EXPOSED_ITEMS_KEY);
+        Long exposed = redis.opsForSet().size(MovieLensServingSideEffects.EXPOSED_ITEMS_KEY);
         return exposed == null ? 0.0 : (double) exposed / catalogSize;
     }
 
