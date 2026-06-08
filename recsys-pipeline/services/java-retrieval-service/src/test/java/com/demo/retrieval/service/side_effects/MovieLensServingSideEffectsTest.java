@@ -101,7 +101,7 @@ class MovieLensServingSideEffectsTest {
 
     private ServedMovie servedMovie(String movieId, boolean coldStart) {
         Map<String, Object> predictions = Map.of(
-            "engagementProbability", 0.7,
+            "outcomeProbability", 0.7,
             "predictionScore", 0.8,
             "diversityScore", 1.0
         );

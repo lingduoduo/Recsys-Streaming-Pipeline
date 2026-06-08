@@ -6,48 +6,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
-import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.GenreMatchCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.HasMediaCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.InNetworkCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.LanguageCodeCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
-import com.demo.retrieval.service.candidate_hydrators.MutualFollowJaccardCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.QuoteCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.SubscriptionCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.VisibilityFilteringCandidateHydrator;
 import com.demo.retrieval.service.candidate_pipeline.CandidatePipelineContext;
 import com.demo.retrieval.service.candidate_pipeline.CandidatePipelineResult;
 import com.demo.retrieval.service.candidate_pipeline.CandidateSelection;
 import com.demo.retrieval.service.candidate_pipeline.FilterContext;
 import com.demo.retrieval.service.candidate_pipeline.HunkkerCandidatePipeline;
 import com.demo.retrieval.service.candidate_pipeline.PipelineCandidateFilter;
-import com.demo.retrieval.service.filters.CreatorBlocklistFilter;
-import com.demo.retrieval.service.filters.CreatorBlocklistFilter.IneligibleSubscriptionFilter;
-import com.demo.retrieval.service.filters.MutedKeywordFilter;
-import com.demo.retrieval.service.filters.NewUserGenreFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
 import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
-import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DedupConversationFilter;
-import com.demo.retrieval.service.filters.ReshareDeduplicationFilter.DropDuplicatesFilter;
-import com.demo.retrieval.service.filters.GenreIdsFilter;
-import com.demo.retrieval.service.filters.CandidateFilter.AncillaryVFFilter;
-import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
-import com.demo.retrieval.service.filters.VideoFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
-import com.demo.retrieval.service.scorers.CandidateEngagementScorer;
-import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringInput;
-import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringResult;
+import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer;
+import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringInput;
+import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringResult;
 import com.demo.retrieval.service.selectors.TopKScoreSelector;
 import com.demo.retrieval.service.selectors.TopKScoreSelector.SelectionResult;
-import com.demo.retrieval.service.models.MovieCandidateContext;
-import com.demo.retrieval.service.models.MovieInteractionSignals;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
@@ -125,7 +100,7 @@ public class HybridRecommendationService {
     private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
     private volatile Map<String, MovieProfile> candidatePipelineCatalog;
     private volatile HunkkerCandidatePipeline candidatePipeline;
-    private final CandidateEngagementScorer candidateEngagementScorer = new CandidateEngagementScorer();
+    private final MovieLensOutcomeScorer movieLensOutcomeScorer = new MovieLensOutcomeScorer();
     private final TopKScoreSelector<ScoredCandidate> topKScoreSelector = new TopKScoreSelector<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
@@ -152,16 +127,6 @@ public class HybridRecommendationService {
         String algorithm = currentAlgorithm();
         boolean tabularRl = "q-learning".equals(algorithm) || "sarsa".equals(algorithm);
         FilterContext filterCtx = buildFilterContext();
-        if (isBlockedUser(user, filterCtx)) {
-            return new RecommendationResult(
-                user,
-                List.of(),
-                List.of(),
-                List.of(),
-                Map.of("eligibleCandidateCount", 0, "algorithm", algorithm, "filterReason", "blocked_user")
-            );
-        }
-
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser(user);
         ScoredMoviesQuery hydratedQuery;
         Set<ZSetOperations.TypedTuple<String>> popularWithScores;
@@ -256,7 +221,7 @@ public class HybridRecommendationService {
         // subsequent onlineLearningService.score() call is a pure in-memory read.
         onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
 
-        List<ScoredCandidate> scored = candidateEngagementScorer.applyDiversity(eligibleList.stream()
+        List<ScoredCandidate> scored = movieLensOutcomeScorer.applyDiversity(eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(candidateById.get(item), item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
@@ -318,8 +283,8 @@ public class HybridRecommendationService {
                 row.put("dlScore", round(candidate.dlScore()));
                 row.put("qValue", round(candidate.qValue()));
                 row.put("rewardModelScore", round(candidate.onlineScore()));
-                row.put("engagementProbability", round(candidate.engagementProbability()));
-                row.put("weightedEngagementScore", round(candidate.weightedEngagementScore()));
+                row.put("outcomeProbability", round(candidate.outcomeProbability()));
+                row.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
                 row.put("predictionScore", round(candidate.predictionScore()));
                 row.put("diversityScore", round(candidate.diversityScore()));
                 row.put("explorationBonus", round(candidate.explorationBonus()));
@@ -474,36 +439,12 @@ public class HybridRecommendationService {
                 this::fetchPopularCandidates,
                 this::fetchColdStartCandidates
             ),
+            List.of(),
             List.of(
-                new CoreDataCandidateHydrator(properties.getCatalog()),
-                new LanguageCodeCandidateHydrator(properties.getCatalog()),
-                new VisibilityFilteringCandidateHydrator(properties.getCatalog()),
-                new QuoteCandidateHydrator(properties.getCatalog()),
-                new SubscriptionCandidateHydrator(properties.getCatalog()),
-                new HasMediaCandidateHydrator(properties.getCatalog()),
-                new BlockedByCandidateHydrator(properties.getCatalog()),
-                new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
-                new MutualFollowJaccardCandidateHydrator(properties.getCatalog()),
-                new EngagementCountsCandidateHydrator(properties.getCatalog()),
-                new GenreMatchCandidateHydrator(properties.getCatalog()),
-                new InNetworkCandidateHydrator(properties.getCatalog()),
-                new GizmoduckCandidateHydrator(properties.getCatalog())
-            ),
-            List.of(
-                historyFilter(new DropDuplicatesFilter()),
-                historyFilter(new GenreIdsFilter()),
-                historyFilter(new VideoFilter()),
                 historyFilter(new PreviouslySeenMoviesFilter()),
                 historyFilter(new PreviouslySeenMoviesBackupFilter()),
                 historyFilter(new PreviouslyServedMoviesFilter()),
-                historyFilter(new CreatorBlocklistFilter()),
-                historyFilter(new NewUserGenreFilter()),
-                historyFilter(new IneligibleSubscriptionFilter()),
-                mutedKeywordFilter(),
-                historyFilter(new VFFilter()),
-                historyFilter(new AncillaryVFFilter()),
-                this::filterEligibleCandidates,
-                historyFilter(new DedupConversationFilter())
+                this::filterEligibleCandidates
             ),
             List.of(this::preRankCandidates),
             this::selectDistinctCandidates,
@@ -547,22 +488,6 @@ public class HybridRecommendationService {
         };
     }
 
-    private PipelineCandidateFilter mutedKeywordFilter() {
-        return new PipelineCandidateFilter() {
-            @Override
-            public CandidateFilterResult filter(CandidatePipelineContext context, List<MovieCandidate> candidates) {
-                CandidateFilterResult result =
-                    new MutedKeywordFilter(context.filterContext().mutedKeywords()).filter(context.query(), candidates);
-                return new CandidateFilterResult(result.kept(), result.removed());
-            }
-
-            @Override
-            public boolean enable(CandidatePipelineContext context) {
-                return !context.filterContext().mutedKeywords().isEmpty();
-            }
-        };
-    }
-
     private CandidateSelection selectDistinctCandidates(CandidatePipelineContext context, List<MovieCandidate> candidates) {
         LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
         List<MovieCandidate> nonSelected = new ArrayList<>();
@@ -581,35 +506,7 @@ public class HybridRecommendationService {
             left.movieId(),
             Math.max(left.popularityScore(), right.popularityScore()),
             Math.max(left.contentScore(), right.contentScore()),
-            left.coldStartSource() || right.coldStartSource(),
-            firstNonBlank(left.ownerId(), right.ownerId()),
-            firstNonBlank(left.sourceUserId(), right.sourceUserId()),
-            firstNonBlank(left.sourceMovieId(), right.sourceMovieId()),
-            firstNonBlank(left.inReplyToMovieId(), right.inReplyToMovieId()),
-            firstNonBlank(left.coreDataText(), right.coreDataText()),
-            firstNonBlank(left.languageCode(), right.languageCode()),
-            firstNonBlank(left.visibilityReason(), right.visibilityReason()),
-            left.dropAncillaryMovies() || right.dropAncillaryMovies(),
-            firstNonEmpty(left.ancestorMovieIds(), right.ancestorMovieIds()),
-            firstNonBlank(left.quotedMovieId(), right.quotedMovieId()),
-            firstNonBlank(left.quotedOwnerId(), right.quotedOwnerId()),
-            firstNonNull(left.quotedAuthorBlocksViewer(), right.quotedAuthorBlocksViewer()),
-            firstNonNull(left.quotedVideoDurationMillis(), right.quotedVideoDurationMillis()),
-            firstNonBlank(left.subscriptionAuthorId(), right.subscriptionAuthorId()),
-            firstNonNull(left.hasMedia(), right.hasMedia()),
-            firstNonNull(left.authorBlocksViewer(), right.authorBlocksViewer()),
-            firstNonEmpty(left.followingRepliedUserIds(), right.followingRepliedUserIds()),
-            firstNonNull(left.mutualFollowJaccard(), right.mutualFollowJaccard()),
-            firstNonNull(left.favoriteCount(), right.favoriteCount()),
-            firstNonNull(left.replyCount(), right.replyCount()),
-            firstNonNull(left.repostCount(), right.repostCount()),
-            firstNonNull(left.quoteCount(), right.quoteCount()),
-            firstNonEmpty(left.matchedGenreIds(), right.matchedGenreIds()),
-            firstNonEmpty(left.unmatchedGenreIds(), right.unmatchedGenreIds()),
-            firstNonNull(left.inNetwork(), right.inNetwork()),
-            firstNonNull(left.authorFollowersCount(), right.authorFollowersCount()),
-            firstNonBlank(left.authorScreenName(), right.authorScreenName()),
-            firstNonBlank(left.retweetedScreenName(), right.retweetedScreenName())
+            left.coldStartSource() || right.coldStartSource()
         );
     }
 
@@ -685,56 +582,9 @@ public class HybridRecommendationService {
             .sorted(Comparator.comparingDouble(
                 (MovieCandidate c) -> normPop * c.popularityScore()
                     + normContent * c.contentScore()
-                    + subscriptionBoost(context, c)
-                    + mutualFollowBoost(c)
-                    + inNetworkBoost(c)
-                    + topicBoost(context, c)
-                    + engagementBoost(c)
-                    + authorFollowersBoost(c)
             ).reversed())
             .limit(poolSize)
             .toList();
-    }
-
-    private double subscriptionBoost(CandidatePipelineContext context, MovieCandidate candidate) {
-        String subscriptionAuthorId = candidate.subscriptionAuthorId();
-        if (subscriptionAuthorId == null || subscriptionAuthorId.isBlank()) {
-            return 0.0;
-        }
-        return context.query().userFeatures().subscribedUserIds().contains(subscriptionAuthorId) ? 0.1 : 0.0;
-    }
-
-    private double mutualFollowBoost(MovieCandidate candidate) {
-        return candidate.mutualFollowJaccard() == null ? 0.0 : 0.05 * clamp(candidate.mutualFollowJaccard());
-    }
-
-    private double inNetworkBoost(MovieCandidate candidate) {
-        return Boolean.TRUE.equals(candidate.inNetwork()) ? 0.05 : 0.0;
-    }
-
-    private double topicBoost(CandidatePipelineContext context, MovieCandidate candidate) {
-        if (candidate.matchedGenreIds().isEmpty()) {
-            return 0.0;
-        }
-        Set<Integer> userTopics = new HashSet<>(context.query().userFeatures().followedGenres());
-        userTopics.addAll(context.query().userFeatures().inferredGenres());
-        if (userTopics.isEmpty()) {
-            return 0.0;
-        }
-        return candidate.matchedGenreIds().stream().anyMatch(userTopics::contains) ? 0.05 : 0.0;
-    }
-
-    private double engagementBoost(MovieCandidate candidate) {
-        long engagement = readCount(candidate.favoriteCount())
-            + readCount(candidate.replyCount())
-            + readCount(candidate.repostCount())
-            + readCount(candidate.quoteCount());
-        return Math.min(Math.log1p(engagement) / 100.0, 0.05);
-    }
-
-    private double authorFollowersBoost(MovieCandidate candidate) {
-        Integer followers = candidate.authorFollowersCount();
-        return followers == null || followers <= 0 ? 0.0 : Math.min(Math.log1p(followers) / 200.0, 0.05);
     }
 
     private Map<String, NormalizedProfile> getNormalizedCatalog() {
@@ -772,24 +622,13 @@ public class HybridRecommendationService {
     private FilterContext buildFilterContext() {
         Filtering f = properties.getFiltering();
         if (!f.isEnabled()) {
-            return new FilterContext(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), false, false, false, false);
+            return FilterContext.empty();
         }
         return new FilterContext(
-            normalize(f.getBlockedUsers()),
             normalize(f.getMutedProductTypes()),
             normalize(f.getMutedGenres()),
-            normalize(f.getMutedKeywords()),
-            normalize(f.getMutedLanguageCodes()),
-            normalize(f.getBlockedVisibilityReasons()),
-            f.isDropAncillaryCandidates(),
-            f.isDropBlockedQuotes(),
-            f.isRequireMediaCandidates(),
-            f.isDropAuthorsBlockingViewer()
+            normalize(f.getMutedKeywords())
         );
-    }
-
-    private boolean isBlockedUser(String user, FilterContext filterCtx) {
-        return !filterCtx.blockedUsers().isEmpty() && filterCtx.blockedUsers().contains(normalizeValue(user));
     }
 
     private boolean isEligibleCandidate(String itemId, Set<String> recentItems, FilterContext filterCtx) {
@@ -824,35 +663,7 @@ public class HybridRecommendationService {
     }
 
     private boolean isEligibleCandidate(MovieCandidate candidate, Set<String> recentItems, FilterContext filterCtx) {
-        if (!isEligibleCandidate(candidate.movieId(), recentItems, filterCtx)) {
-            return false;
-        }
-        String coreDataText = normalizeValue(candidate.coreDataText());
-        if (!filterCtx.mutedKeywords().isEmpty()
-            && !coreDataText.isBlank()
-            && filterCtx.mutedKeywords().stream().anyMatch(k -> !k.isBlank() && coreDataText.contains(k))) {
-            return false;
-        }
-        String languageCode = normalizeValue(candidate.languageCode());
-        if (!languageCode.isBlank() && filterCtx.mutedLanguageCodes().contains(languageCode)) {
-            return false;
-        }
-        String visibilityReason = normalizeValue(candidate.visibilityReason());
-        if (!visibilityReason.isBlank()
-            && (filterCtx.blockedVisibilityReasons().contains("*")
-                || filterCtx.blockedVisibilityReasons().contains(visibilityReason))) {
-            return false;
-        }
-        if (filterCtx.dropAncillaryCandidates() && candidate.dropAncillaryMovies()) {
-            return false;
-        }
-        if (filterCtx.dropBlockedQuotes() && Boolean.TRUE.equals(candidate.quotedAuthorBlocksViewer())) {
-            return false;
-        }
-        if (filterCtx.dropAuthorsBlockingViewer() && Boolean.TRUE.equals(candidate.authorBlocksViewer())) {
-            return false;
-        }
-        return !filterCtx.requireMediaCandidates() || Boolean.TRUE.equals(candidate.hasMedia());
+        return isEligibleCandidate(candidate.movieId(), recentItems, filterCtx);
     }
 
     private ScoredCandidate scoreCandidate(
@@ -872,8 +683,6 @@ public class HybridRecommendationService {
     ) {
         NormalizedProfile profile = getNormalizedCatalog().get(itemId);
         MovieProfile movieProfile = properties.getCatalog().get(itemId);
-        MovieCandidateContext context = MovieCandidateContext.from(candidate, movieProfile);
-        MovieInteractionSignals interactionSignals = MovieInteractionSignals.from(candidate, movieProfile);
 
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
@@ -890,10 +699,8 @@ public class HybridRecommendationService {
         double qLearningScore = computeTabularRlRankingScore(learnedPrior, qValue);
         double baseRankingScore = tabularRl ? qLearningScore : armScore.rankingScore();
         double novelty = 1.0 / (impressions + 1.0);
-        ScoringResult scoring = candidateEngagementScorer.score(new ScoringInput(
+        ScoringResult scoring = movieLensOutcomeScorer.score(new ScoringInput(
             itemId,
-            context,
-            interactionSignals,
             normalizeScore(relevance),
             content,
             popularity,
@@ -906,7 +713,9 @@ public class HybridRecommendationService {
             impressions,
             clicks
         ));
-        String diversityGroupId = context.diversityGroupId();
+        String diversityGroupId = profile == null || profile.genres().isEmpty()
+            ? null
+            : profile.genres().iterator().next();
         String primaryGenre = profile == null || profile.genres().isEmpty() ? null : profile.genres().iterator().next();
 
         return new ScoredCandidate(
@@ -924,8 +733,8 @@ public class HybridRecommendationService {
             clicks,
             dlScore,
             qValue == null ? 0.0 : qValue,
-            scoring.weightedEngagementScore(),
-            scoring.engagementProbability(),
+            scoring.weightedOutcomeScore(),
+            scoring.outcomeProbability(),
             scoring.predictionScore(),
             scoring.diversityScore(),
             diversityGroupId,
@@ -981,8 +790,8 @@ public class HybridRecommendationService {
         predictions.put("qValue", round(candidate.qValue()));
         predictions.put("rewardModelScore", round(candidate.onlineScore()));
         predictions.put("estimatedReward", round(candidate.estimatedReward()));
-        predictions.put("engagementProbability", round(candidate.engagementProbability()));
-        predictions.put("weightedEngagementScore", round(candidate.weightedEngagementScore()));
+        predictions.put("outcomeProbability", round(candidate.outcomeProbability()));
+        predictions.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
         predictions.put("predictionScore", round(candidate.predictionScore()));
         predictions.put("diversityScore", round(candidate.diversityScore()));
         predictions.put("relevanceScore", round(candidate.relevanceScore()));
@@ -1419,14 +1228,6 @@ public class HybridRecommendationService {
         return List.of();
     }
 
-    private String firstNonBlank(String left, String right) {
-        return normalizeValue(left).isBlank() ? right : left;
-    }
-
-    private <T> T firstNonNull(T left, T right) {
-        return left == null ? right : left;
-    }
-
     private String normalizeValue(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
@@ -1541,13 +1342,13 @@ public class HybridRecommendationService {
         long clicks,
         double dlScore,
         double qValue,
-        double weightedEngagementScore,
-        double engagementProbability,
+        double weightedOutcomeScore,
+        double outcomeProbability,
         double predictionScore,
         double diversityScore,
         String diversityGroupId,
         String primaryGenre
-    ) implements CandidateEngagementScorer.DiversityCandidate, TopKScoreSelector.Scored {
+    ) implements MovieLensOutcomeScorer.DiversityCandidate, TopKScoreSelector.Scored {
         @Override
         public double preDiversityScore() {
             return predictionScore;
@@ -1575,8 +1376,8 @@ public class HybridRecommendationService {
                 clicks,
                 dlScore,
                 qValue,
-                weightedEngagementScore,
-                engagementProbability,
+                weightedOutcomeScore,
+                outcomeProbability,
                 predictionScore,
                 diversityScore,
                 diversityGroupId,

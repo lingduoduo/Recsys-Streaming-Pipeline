@@ -160,16 +160,9 @@ public class RecommendationProperties {
 
     public static class Filtering {
         private boolean enabled = true;
-        private List<String> blockedUsers = new ArrayList<>();
         private List<String> mutedProductTypes = new ArrayList<>();
         private List<String> mutedGenres = new ArrayList<>();
         private List<String> mutedKeywords = new ArrayList<>();
-        private List<String> mutedLanguageCodes = new ArrayList<>();
-        private List<String> blockedVisibilityReasons = new ArrayList<>();
-        private boolean dropAncillaryCandidates = true;
-        private boolean dropBlockedQuotes = true;
-        private boolean requireMediaCandidates;
-        private boolean dropAuthorsBlockingViewer = true;
 
         public boolean isEnabled() {
             return enabled;
@@ -177,14 +170,6 @@ public class RecommendationProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
-        }
-
-        public List<String> getBlockedUsers() {
-            return blockedUsers;
-        }
-
-        public void setBlockedUsers(List<String> blockedUsers) {
-            this.blockedUsers = blockedUsers;
         }
 
         public List<String> getMutedProductTypes() {
@@ -211,53 +196,6 @@ public class RecommendationProperties {
             this.mutedKeywords = mutedKeywords;
         }
 
-        public List<String> getMutedLanguageCodes() {
-            return mutedLanguageCodes;
-        }
-
-        public void setMutedLanguageCodes(List<String> mutedLanguageCodes) {
-            this.mutedLanguageCodes = mutedLanguageCodes;
-        }
-
-        public List<String> getBlockedVisibilityReasons() {
-            return blockedVisibilityReasons;
-        }
-
-        public void setBlockedVisibilityReasons(List<String> blockedVisibilityReasons) {
-            this.blockedVisibilityReasons = blockedVisibilityReasons;
-        }
-
-        public boolean isDropAncillaryCandidates() {
-            return dropAncillaryCandidates;
-        }
-
-        public void setDropAncillaryCandidates(boolean dropAncillaryCandidates) {
-            this.dropAncillaryCandidates = dropAncillaryCandidates;
-        }
-
-        public boolean isDropBlockedQuotes() {
-            return dropBlockedQuotes;
-        }
-
-        public void setDropBlockedQuotes(boolean dropBlockedQuotes) {
-            this.dropBlockedQuotes = dropBlockedQuotes;
-        }
-
-        public boolean isRequireMediaCandidates() {
-            return requireMediaCandidates;
-        }
-
-        public void setRequireMediaCandidates(boolean requireMediaCandidates) {
-            this.requireMediaCandidates = requireMediaCandidates;
-        }
-
-        public boolean isDropAuthorsBlockingViewer() {
-            return dropAuthorsBlockingViewer;
-        }
-
-        public void setDropAuthorsBlockingViewer(boolean dropAuthorsBlockingViewer) {
-            this.dropAuthorsBlockingViewer = dropAuthorsBlockingViewer;
-        }
     }
 
     public static class Bandit {
@@ -452,34 +390,6 @@ public class RecommendationProperties {
     public static class MovieProfile {
         private String title;
         private String productType;
-        private String ownerId;
-        private String sourceUserId;
-        private String sourceMovieId;
-        private String inReplyToMovieId;
-        private String coreDataText;
-        private String languageCode;
-        private String visibilityReason;
-        private boolean dropAncillaryMovies;
-        private List<String> ancestorMovieIds = new ArrayList<>();
-        private String quotedMovieId;
-        private String quotedOwnerId;
-        private Boolean quotedAuthorBlocksViewer;
-        private Integer quotedVideoDurationMillis;
-        private String subscriptionAuthorId;
-        private Boolean hasMedia;
-        private Boolean authorBlocksViewer;
-        private List<String> followingRepliedUserIds = new ArrayList<>();
-        private Double mutualFollowJaccard;
-        private Long favoriteCount;
-        private Long replyCount;
-        private Long repostCount;
-        private Long quoteCount;
-        private List<Integer> matchedGenreIds = new ArrayList<>();
-        private List<Integer> unmatchedGenreIds = new ArrayList<>();
-        private Boolean inNetwork;
-        private Integer authorFollowersCount;
-        private String authorScreenName;
-        private String retweetedScreenName;
         private List<String> genres = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
         private List<String> keywords = new ArrayList<>();
@@ -500,230 +410,6 @@ public class RecommendationProperties {
 
         public void setProductType(String productType) {
             this.productType = productType;
-        }
-
-        public String getOwnerId() {
-            return ownerId;
-        }
-
-        public void setOwnerId(String ownerId) {
-            this.ownerId = ownerId;
-        }
-
-        public String getSourceUserId() {
-            return sourceUserId;
-        }
-
-        public void setSourceUserId(String sourceUserId) {
-            this.sourceUserId = sourceUserId;
-        }
-
-        public String getSourceMovieId() {
-            return sourceMovieId;
-        }
-
-        public void setSourceMovieId(String sourceMovieId) {
-            this.sourceMovieId = sourceMovieId;
-        }
-
-        public String getInReplyToMovieId() {
-            return inReplyToMovieId;
-        }
-
-        public void setInReplyToMovieId(String inReplyToMovieId) {
-            this.inReplyToMovieId = inReplyToMovieId;
-        }
-
-        public String getCoreDataText() {
-            return coreDataText;
-        }
-
-        public void setCoreDataText(String coreDataText) {
-            this.coreDataText = coreDataText;
-        }
-
-        public String getLanguageCode() {
-            return languageCode;
-        }
-
-        public void setLanguageCode(String languageCode) {
-            this.languageCode = languageCode;
-        }
-
-        public String getVisibilityReason() {
-            return visibilityReason;
-        }
-
-        public void setVisibilityReason(String visibilityReason) {
-            this.visibilityReason = visibilityReason;
-        }
-
-        public boolean isDropAncillaryMovies() {
-            return dropAncillaryMovies;
-        }
-
-        public void setDropAncillaryMovies(boolean dropAncillaryMovies) {
-            this.dropAncillaryMovies = dropAncillaryMovies;
-        }
-
-        public List<String> getAncestorMovieIds() {
-            return ancestorMovieIds;
-        }
-
-        public void setAncestorMovieIds(List<String> ancestorMovieIds) {
-            this.ancestorMovieIds = ancestorMovieIds;
-        }
-
-        public String getQuotedMovieId() {
-            return quotedMovieId;
-        }
-
-        public void setQuotedMovieId(String quotedMovieId) {
-            this.quotedMovieId = quotedMovieId;
-        }
-
-        public String getQuotedOwnerId() {
-            return quotedOwnerId;
-        }
-
-        public void setQuotedOwnerId(String quotedOwnerId) {
-            this.quotedOwnerId = quotedOwnerId;
-        }
-
-        public Boolean getQuotedAuthorBlocksViewer() {
-            return quotedAuthorBlocksViewer;
-        }
-
-        public void setQuotedAuthorBlocksViewer(Boolean quotedAuthorBlocksViewer) {
-            this.quotedAuthorBlocksViewer = quotedAuthorBlocksViewer;
-        }
-
-        public Integer getQuotedVideoDurationMillis() {
-            return quotedVideoDurationMillis;
-        }
-
-        public void setQuotedVideoDurationMillis(Integer quotedVideoDurationMillis) {
-            this.quotedVideoDurationMillis = quotedVideoDurationMillis;
-        }
-
-        public String getSubscriptionAuthorId() {
-            return subscriptionAuthorId;
-        }
-
-        public void setSubscriptionAuthorId(String subscriptionAuthorId) {
-            this.subscriptionAuthorId = subscriptionAuthorId;
-        }
-
-        public Boolean getHasMedia() {
-            return hasMedia;
-        }
-
-        public void setHasMedia(Boolean hasMedia) {
-            this.hasMedia = hasMedia;
-        }
-
-        public Boolean getAuthorBlocksViewer() {
-            return authorBlocksViewer;
-        }
-
-        public void setAuthorBlocksViewer(Boolean authorBlocksViewer) {
-            this.authorBlocksViewer = authorBlocksViewer;
-        }
-
-        public List<String> getFollowingRepliedUserIds() {
-            return followingRepliedUserIds;
-        }
-
-        public void setFollowingRepliedUserIds(List<String> followingRepliedUserIds) {
-            this.followingRepliedUserIds = followingRepliedUserIds;
-        }
-
-        public Double getMutualFollowJaccard() {
-            return mutualFollowJaccard;
-        }
-
-        public void setMutualFollowJaccard(Double mutualFollowJaccard) {
-            this.mutualFollowJaccard = mutualFollowJaccard;
-        }
-
-        public Long getFavoriteCount() {
-            return favoriteCount;
-        }
-
-        public void setFavoriteCount(Long favoriteCount) {
-            this.favoriteCount = favoriteCount;
-        }
-
-        public Long getReplyCount() {
-            return replyCount;
-        }
-
-        public void setReplyCount(Long replyCount) {
-            this.replyCount = replyCount;
-        }
-
-        public Long getRepostCount() {
-            return repostCount;
-        }
-
-        public void setRepostCount(Long repostCount) {
-            this.repostCount = repostCount;
-        }
-
-        public Long getQuoteCount() {
-            return quoteCount;
-        }
-
-        public void setQuoteCount(Long quoteCount) {
-            this.quoteCount = quoteCount;
-        }
-
-        public List<Integer> getMatchedGenreIds() {
-            return matchedGenreIds;
-        }
-
-        public void setMatchedGenreIds(List<Integer> matchedGenreIds) {
-            this.matchedGenreIds = matchedGenreIds;
-        }
-
-        public List<Integer> getUnmatchedGenreIds() {
-            return unmatchedGenreIds;
-        }
-
-        public void setUnmatchedGenreIds(List<Integer> unmatchedGenreIds) {
-            this.unmatchedGenreIds = unmatchedGenreIds;
-        }
-
-        public Boolean getInNetwork() {
-            return inNetwork;
-        }
-
-        public void setInNetwork(Boolean inNetwork) {
-            this.inNetwork = inNetwork;
-        }
-
-        public Integer getAuthorFollowersCount() {
-            return authorFollowersCount;
-        }
-
-        public void setAuthorFollowersCount(Integer authorFollowersCount) {
-            this.authorFollowersCount = authorFollowersCount;
-        }
-
-        public String getAuthorScreenName() {
-            return authorScreenName;
-        }
-
-        public void setAuthorScreenName(String authorScreenName) {
-            this.authorScreenName = authorScreenName;
-        }
-
-        public String getRetweetedScreenName() {
-            return retweetedScreenName;
-        }
-
-        public void setRetweetedScreenName(String retweetedScreenName) {
-            this.retweetedScreenName = retweetedScreenName;
         }
 
         public List<String> getGenres() {
