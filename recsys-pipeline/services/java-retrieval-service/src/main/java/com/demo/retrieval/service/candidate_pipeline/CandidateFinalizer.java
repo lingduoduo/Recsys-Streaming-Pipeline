@@ -5,8 +5,8 @@ import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import java.util.List;
 
 @FunctionalInterface
-public interface CandidateSource {
-    List<MovieCandidate> fetch(CandidatePipelineContext context);
+public interface CandidateFinalizer {
+    List<MovieCandidate> finalize(CandidatePipelineContext context, List<MovieCandidate> candidates);
 
     default boolean enable(CandidatePipelineContext context) {
         return true;

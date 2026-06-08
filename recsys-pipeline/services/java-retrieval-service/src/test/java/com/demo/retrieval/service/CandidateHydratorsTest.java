@@ -3,7 +3,6 @@ package com.demo.retrieval.service;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GenreMatchCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
@@ -155,24 +154,6 @@ class CandidateHydratorsTest {
             .get(0);
 
         assertEquals(0.75, hydrated.mutualFollowJaccard());
-    }
-
-    @Test
-    void engagementCountsHydratorCopiesCountsOntoCandidates() {
-        MovieProfile profile = new MovieProfile();
-        profile.setFavoriteCount(10L);
-        profile.setReplyCount(2L);
-        profile.setRepostCount(3L);
-        profile.setQuoteCount(4L);
-
-        MovieCandidate hydrated = new EngagementCountsCandidateHydrator(Map.of("movie-1", profile))
-            .hydrate(ScoredMoviesQuery.forUser("u1"), List.of(candidate("movie-1")))
-            .get(0);
-
-        assertEquals(10L, hydrated.favoriteCount());
-        assertEquals(2L, hydrated.replyCount());
-        assertEquals(3L, hydrated.repostCount());
-        assertEquals(4L, hydrated.quoteCount());
     }
 
     @Test

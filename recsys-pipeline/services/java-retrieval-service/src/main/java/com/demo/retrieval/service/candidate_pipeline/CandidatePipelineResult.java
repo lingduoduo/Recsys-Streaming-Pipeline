@@ -1,5 +1,6 @@
 package com.demo.retrieval.service.candidate_pipeline;
 
+import com.demo.retrieval.service.ScoredMoviesQuery;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 
 import java.util.List;
@@ -9,8 +10,26 @@ public record CandidatePipelineResult(
     List<MovieCandidate> filteredCandidates,
     List<MovieCandidate> scoredCandidates,
     List<MovieCandidate> selectedCandidates,
-    List<MovieCandidate> nonSelectedCandidates
+    List<MovieCandidate> nonSelectedCandidates,
+    ScoredMoviesQuery query
 ) {
+    public CandidatePipelineResult(
+        List<MovieCandidate> retrievedCandidates,
+        List<MovieCandidate> filteredCandidates,
+        List<MovieCandidate> scoredCandidates,
+        List<MovieCandidate> selectedCandidates,
+        List<MovieCandidate> nonSelectedCandidates
+    ) {
+        this(
+            retrievedCandidates,
+            filteredCandidates,
+            scoredCandidates,
+            selectedCandidates,
+            nonSelectedCandidates,
+            null
+        );
+    }
+
     public CandidatePipelineResult {
         retrievedCandidates = retrievedCandidates == null ? List.of() : List.copyOf(retrievedCandidates);
         filteredCandidates = filteredCandidates == null ? List.of() : List.copyOf(filteredCandidates);

@@ -24,4 +24,16 @@ public record CandidatePipelineContext(
         userTags = userTags == null ? Set.of() : Collections.unmodifiableSet(new LinkedHashSet<>(userTags));
         filterContext = filterContext == null ? FilterContext.empty() : filterContext;
     }
+
+    public CandidatePipelineContext withQuery(ScoredMoviesQuery hydratedQuery) {
+        return new CandidatePipelineContext(
+            hydratedQuery,
+            popularityMap,
+            excludedItems,
+            userGenres,
+            userTags,
+            filterContext,
+            resultSize
+        );
+    }
 }

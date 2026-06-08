@@ -8,7 +8,6 @@ import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.BlockedByCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.CoreDataCandidateHydrator;
-import com.demo.retrieval.service.candidate_hydrators.EngagementCountsCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GenreMatchCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.FollowingRepliedUsersCandidateHydrator;
 import com.demo.retrieval.service.candidate_hydrators.GizmoduckCandidateHydrator;
@@ -47,7 +46,6 @@ import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringResul
 import com.demo.retrieval.service.selectors.TopKScoreSelector;
 import com.demo.retrieval.service.selectors.TopKScoreSelector.SelectionResult;
 import com.demo.retrieval.service.models.MovieCandidateContext;
-import com.demo.retrieval.service.models.MovieInteractionSignals;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
@@ -484,7 +482,6 @@ public class HybridRecommendationService {
                 new BlockedByCandidateHydrator(properties.getCatalog()),
                 new FollowingRepliedUsersCandidateHydrator(properties.getCatalog()),
                 new MutualFollowJaccardCandidateHydrator(properties.getCatalog()),
-                new EngagementCountsCandidateHydrator(properties.getCatalog()),
                 new GenreMatchCandidateHydrator(properties.getCatalog()),
                 new InNetworkCandidateHydrator(properties.getCatalog()),
                 new GizmoduckCandidateHydrator(properties.getCatalog())
@@ -600,10 +597,6 @@ public class HybridRecommendationService {
             firstNonNull(left.authorBlocksViewer(), right.authorBlocksViewer()),
             firstNonEmpty(left.followingRepliedUserIds(), right.followingRepliedUserIds()),
             firstNonNull(left.mutualFollowJaccard(), right.mutualFollowJaccard()),
-            firstNonNull(left.favoriteCount(), right.favoriteCount()),
-            firstNonNull(left.replyCount(), right.replyCount()),
-            firstNonNull(left.repostCount(), right.repostCount()),
-            firstNonNull(left.quoteCount(), right.quoteCount()),
             firstNonEmpty(left.matchedGenreIds(), right.matchedGenreIds()),
             firstNonEmpty(left.unmatchedGenreIds(), right.unmatchedGenreIds()),
             firstNonNull(left.inNetwork(), right.inNetwork()),
@@ -689,7 +682,6 @@ public class HybridRecommendationService {
                     + mutualFollowBoost(c)
                     + inNetworkBoost(c)
                     + topicBoost(context, c)
-                    + engagementBoost(c)
                     + authorFollowersBoost(c)
             ).reversed())
             .limit(poolSize)
@@ -722,14 +714,6 @@ public class HybridRecommendationService {
             return 0.0;
         }
         return candidate.matchedGenreIds().stream().anyMatch(userTopics::contains) ? 0.05 : 0.0;
-    }
-
-    private double engagementBoost(MovieCandidate candidate) {
-        long engagement = readCount(candidate.favoriteCount())
-            + readCount(candidate.replyCount())
-            + readCount(candidate.repostCount())
-            + readCount(candidate.quoteCount());
-        return Math.min(Math.log1p(engagement) / 100.0, 0.05);
     }
 
     private double authorFollowersBoost(MovieCandidate candidate) {
@@ -873,7 +857,6 @@ public class HybridRecommendationService {
         NormalizedProfile profile = getNormalizedCatalog().get(itemId);
         MovieProfile movieProfile = properties.getCatalog().get(itemId);
         MovieCandidateContext context = MovieCandidateContext.from(candidate, movieProfile);
-        MovieInteractionSignals interactionSignals = MovieInteractionSignals.from(candidate, movieProfile);
 
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
@@ -893,7 +876,6 @@ public class HybridRecommendationService {
         ScoringResult scoring = candidateEngagementScorer.score(new ScoringInput(
             itemId,
             context,
-            interactionSignals,
             normalizeScore(relevance),
             content,
             popularity,

@@ -11,4 +11,8 @@ public interface CandidateSelector {
     default boolean enable(CandidatePipelineContext context) {
         return true;
     }
+
+    default String name() {
+        return getClass().getSimpleName();
+    }
 }

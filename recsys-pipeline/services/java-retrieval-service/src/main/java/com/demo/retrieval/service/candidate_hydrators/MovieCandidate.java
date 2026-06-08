@@ -25,10 +25,6 @@ public record MovieCandidate(
     Boolean authorBlocksViewer,
     List<String> followingRepliedUserIds,
     Double mutualFollowJaccard,
-    Long favoriteCount,
-    Long replyCount,
-    Long repostCount,
-    Long quoteCount,
     List<Integer> matchedGenreIds,
     List<Integer> unmatchedGenreIds,
     Boolean inNetwork,
@@ -51,7 +47,7 @@ public record MovieCandidate(
     ) {
         this(movieId, popularityScore, contentScore, coldStartSource, null, null, null, null, null, null, null,
             false, List.of(), null, null, null, null, null, null, null, List.of(), null,
-            null, null, null, null, List.of(), List.of(), null, null, null, null);
+            List.of(), List.of(), null, null, null, null);
     }
 
     public MovieCandidate withCoreData(
@@ -84,10 +80,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -121,10 +113,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -163,10 +151,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -205,10 +189,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -242,10 +222,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -279,10 +255,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -316,10 +288,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -353,10 +321,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -390,10 +354,6 @@ public record MovieCandidate(
             authorBlocksViewer,
             followingRepliedUserIds,
             mutualFollowJaccard,
-            favoriteCount,
-            replyCount,
-            repostCount,
-            quoteCount,
             matchedGenreIds,
             unmatchedGenreIds,
             inNetwork,
@@ -403,25 +363,13 @@ public record MovieCandidate(
         );
     }
 
-    public MovieCandidate withEngagementCounts(Long favoriteCount, Long replyCount, Long repostCount, Long quoteCount) {
-        return new MovieCandidate(
-            movieId, popularityScore, contentScore, coldStartSource, ownerId, sourceUserId, sourceMovieId,
-            inReplyToMovieId, coreDataText, languageCode, visibilityReason, dropAncillaryMovies, ancestorMovieIds,
-            quotedMovieId, quotedOwnerId, quotedAuthorBlocksViewer, quotedVideoDurationMillis, subscriptionAuthorId,
-            hasMedia, authorBlocksViewer, followingRepliedUserIds, mutualFollowJaccard,
-            favoriteCount, replyCount, repostCount, quoteCount, matchedGenreIds, unmatchedGenreIds, inNetwork,
-            authorFollowersCount, authorScreenName, retweetedScreenName
-        );
-    }
-
     public MovieCandidate withMatchedGenres(List<Integer> matchedGenreIds, List<Integer> unmatchedGenreIds) {
         return new MovieCandidate(
             movieId, popularityScore, contentScore, coldStartSource, ownerId, sourceUserId, sourceMovieId,
             inReplyToMovieId, coreDataText, languageCode, visibilityReason, dropAncillaryMovies, ancestorMovieIds,
             quotedMovieId, quotedOwnerId, quotedAuthorBlocksViewer, quotedVideoDurationMillis, subscriptionAuthorId,
             hasMedia, authorBlocksViewer, followingRepliedUserIds, mutualFollowJaccard,
-            favoriteCount, replyCount, repostCount, quoteCount, matchedGenreIds, unmatchedGenreIds, inNetwork,
-            authorFollowersCount, authorScreenName, retweetedScreenName
+            matchedGenreIds, unmatchedGenreIds, inNetwork, authorFollowersCount, authorScreenName, retweetedScreenName
         );
     }
 
@@ -431,8 +379,7 @@ public record MovieCandidate(
             inReplyToMovieId, coreDataText, languageCode, visibilityReason, dropAncillaryMovies, ancestorMovieIds,
             quotedMovieId, quotedOwnerId, quotedAuthorBlocksViewer, quotedVideoDurationMillis, subscriptionAuthorId,
             hasMedia, authorBlocksViewer, followingRepliedUserIds, mutualFollowJaccard,
-            favoriteCount, replyCount, repostCount, quoteCount, matchedGenreIds, unmatchedGenreIds, inNetwork,
-            authorFollowersCount, authorScreenName, retweetedScreenName
+            matchedGenreIds, unmatchedGenreIds, inNetwork, authorFollowersCount, authorScreenName, retweetedScreenName
         );
     }
 
@@ -442,8 +389,7 @@ public record MovieCandidate(
             inReplyToMovieId, coreDataText, languageCode, visibilityReason, dropAncillaryMovies, ancestorMovieIds,
             quotedMovieId, quotedOwnerId, quotedAuthorBlocksViewer, quotedVideoDurationMillis, subscriptionAuthorId,
             hasMedia, authorBlocksViewer, followingRepliedUserIds, mutualFollowJaccard,
-            favoriteCount, replyCount, repostCount, quoteCount, matchedGenreIds, unmatchedGenreIds, inNetwork,
-            authorFollowersCount, authorScreenName, retweetedScreenName
+            matchedGenreIds, unmatchedGenreIds, inNetwork, authorFollowersCount, authorScreenName, retweetedScreenName
         );
     }
 }

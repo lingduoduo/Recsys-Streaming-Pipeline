@@ -1,7 +1,6 @@
 package com.demo.retrieval.service.scorers;
 
 import com.demo.retrieval.service.models.MovieCandidateContext;
-import com.demo.retrieval.service.models.MovieInteractionSignals;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -58,12 +57,9 @@ public class CandidateEngagementScorer {
     }
 
     private EngagementProbabilities engagementProbabilities(ScoringInput input) {
-        MovieInteractionSignals signals = input.interactionSignals();
         MovieCandidateContext context = input.context();
         double ctr = input.impressions() <= 0 ? 0.0 : (double) input.clicks() / input.impressions();
         double smoothedCtr = (input.clicks() + 1.0) / (input.impressions() + 4.0);
-        double historicalInteractions = signals == null ? 0.0 : clamp(Math.log1p(signals.totalInteractionCount()) / 100.0);
-        double audience = signals == null ? 0.0 : clamp(Math.log1p(signals.audienceSize()) / 200.0);
         double curatedSource = context != null && context.inNetwork() ? 1.0 : 0.0;
         double novelty = input.noveltyScore();
 
@@ -73,14 +69,13 @@ public class CandidateEngagementScorer {
             + 0.65 * clamp(input.popularity())
             + 0.75 * clamp(input.dlScore())
             + 0.55 * smoothedCtr
-            + 0.45 * historicalInteractions
             + 0.20 * novelty;
 
         double click = sigmoid(base + 0.35 * ctr);
-        double rating = sigmoid(base - 0.05 + 0.45 * historicalInteractions + 0.15 * curatedSource);
-        double like = sigmoid(base - 0.15 + 0.35 * historicalInteractions + 0.10 * curatedSource);
+        double rating = sigmoid(base - 0.05 + 0.15 * curatedSource);
+        double like = sigmoid(base - 0.15 + 0.10 * curatedSource);
         double watch = sigmoid(base + 0.10 + 0.25 * input.content());
-        double review = sigmoid(base - 0.70 + 0.20 * historicalInteractions + 0.15 * audience);
+        double review = sigmoid(base - 0.70);
         double negative = sigmoid(-base - 0.40 + 0.25 * Math.max(0.0, 0.08 - smoothedCtr));
 
         return new EngagementProbabilities(rating, like, click, watch, review, negative);
@@ -125,7 +120,6 @@ public class CandidateEngagementScorer {
     public record ScoringInput(
         String itemId,
         MovieCandidateContext context,
-        MovieInteractionSignals interactionSignals,
         double relevance,
         double content,
         double popularity,

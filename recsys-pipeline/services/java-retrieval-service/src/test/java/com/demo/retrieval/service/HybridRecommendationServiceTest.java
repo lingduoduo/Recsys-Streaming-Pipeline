@@ -419,8 +419,6 @@ class HybridRecommendationServiceTest {
 
         MovieProfile popular = movie(List.of("drama"), List.of("popular"), false);
         MovieProfile contextual = movie(List.of("drama"), List.of("contextual"), false);
-        contextual.setFavoriteCount(1_000L);
-        contextual.setReplyCount(100L);
         contextual.setMatchedGenreIds(List.of(42));
         contextual.setInNetwork(true);
         contextual.setAuthorFollowersCount(100_000);

@@ -12,4 +12,8 @@ public interface PipelineCandidateFilter {
     default boolean enable(CandidatePipelineContext context) {
         return true;
     }
+
+    default String name() {
+        return getClass().getSimpleName();
+    }
 }

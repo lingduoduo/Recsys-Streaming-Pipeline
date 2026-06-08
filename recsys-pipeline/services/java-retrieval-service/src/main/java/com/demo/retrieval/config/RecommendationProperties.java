@@ -470,10 +470,6 @@ public class RecommendationProperties {
         private Boolean authorBlocksViewer;
         private List<String> followingRepliedUserIds = new ArrayList<>();
         private Double mutualFollowJaccard;
-        private Long favoriteCount;
-        private Long replyCount;
-        private Long repostCount;
-        private Long quoteCount;
         private List<Integer> matchedGenreIds = new ArrayList<>();
         private List<Integer> unmatchedGenreIds = new ArrayList<>();
         private Boolean inNetwork;
@@ -644,38 +640,6 @@ public class RecommendationProperties {
 
         public void setMutualFollowJaccard(Double mutualFollowJaccard) {
             this.mutualFollowJaccard = mutualFollowJaccard;
-        }
-
-        public Long getFavoriteCount() {
-            return favoriteCount;
-        }
-
-        public void setFavoriteCount(Long favoriteCount) {
-            this.favoriteCount = favoriteCount;
-        }
-
-        public Long getReplyCount() {
-            return replyCount;
-        }
-
-        public void setReplyCount(Long replyCount) {
-            this.replyCount = replyCount;
-        }
-
-        public Long getRepostCount() {
-            return repostCount;
-        }
-
-        public void setRepostCount(Long repostCount) {
-            this.repostCount = repostCount;
-        }
-
-        public Long getQuoteCount() {
-            return quoteCount;
-        }
-
-        public void setQuoteCount(Long quoteCount) {
-            this.quoteCount = quoteCount;
         }
 
         public List<Integer> getMatchedGenreIds() {

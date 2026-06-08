@@ -10,4 +10,8 @@ public interface CandidateHydrator {
     default boolean enable(ScoredMoviesQuery query) {
         return true;
     }
+
+    default String name() {
+        return getClass().getSimpleName();
+    }
 }
