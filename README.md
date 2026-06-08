@@ -7,7 +7,7 @@ A recommendation-system playground that combines streaming data pipelines, offli
 ```
 Recsys-Streaming-Pipeline/
 ├── spark-analysis/          # Spark/Flink concepts, user analysis, and ML pipelines
-└── spark-recsys/            # Streaming recommendation platform and retrieval service
+└── recsys-pipeline/         # Streaming recommendation platform and retrieval service
 ```
 
 ---
@@ -53,7 +53,7 @@ spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
 
 ---
 
-## spark-recsys
+## recsys-pipeline
 
 A streaming recommendation platform: a real-time Kafka→Spark Streaming→Redis path for live user history, a Kafka→Spark online joiner and slate collector for training data, offline embedding trainers, and a Spring Boot retrieval service that combines an offline ONNX model, a real-time online learning reward model, and a UCB/Thompson bandit RL policy. Feature storage uses a three-tier design: offline files (ONNX model + Parquet training samples), Redis (real-time embeddings, counters, user history), and a Caffeine in-memory cache that collapses per-request Redis round-trips from O(N×features) to O(1).
 
@@ -62,7 +62,7 @@ A streaming recommendation platform: a real-time Kafka→Spark Streaming→Redis
 ```
 Real-time path
 ──────────────
-producer.py  ──Kafka──►  UserEventStreamingJob  ──Redis──►  retrieval-service
+python-modeling/producer.py  ──Kafka──►  UserEventStreamingJob  ──Redis──►  java-retrieval-service
 (user events)            (Structured Streaming)              (Spring Boot)
 
 Training-data path
@@ -83,18 +83,18 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | `spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
 | `spark-streaming-job` | Scala / Spark | Joins behavior logs into feature+label samples and reconstructs request-level slates |
 | `spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
-| `retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
-| `producer.py` | Python | Kafka producer that generates synthetic user–item events |
+| `java-retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
+| `python-modeling/producer.py` | Python | Kafka producer that generates synthetic user–item events |
 
 ### Quick Start
 
 ```bash
 # 1. Start infrastructure
-cd spark-recsys
+cd recsys-pipeline
 docker compose up -d          # Kafka + Redis
 
 # 2. Run producer
-python producer.py
+python python-modeling/producer.py
 
 # 3. Submit streaming job
 spark-submit \
@@ -108,7 +108,7 @@ spark-submit \
   sampledata/ratings.csv
 
 # 5. Start retrieval service
-cd retrieval-service && mvn spring-boot:run
+cd java-retrieval-service && mvn spring-boot:run
 ```
 
 ### Key Endpoints
@@ -123,7 +123,7 @@ cd retrieval-service && mvn spring-boot:run
 | `GET` | `/metrics` | Aggregate bandit metrics (CTR, regret, novelty, coverage) per algorithm |
 | `GET` | `/embedding/{item}` | Item2Vec embedding vector for an item |
 
-See [spark-recsys/README.md](spark-recsys/README.md) for full configuration, environment variable reference, and architecture details.
+See [recsys-pipeline/README.md](recsys-pipeline/README.md) for full configuration, environment variable reference, and architecture details.
 
 ---
 

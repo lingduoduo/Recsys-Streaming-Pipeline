@@ -1,6 +1,6 @@
 # Streaming Recsys Platform
 
-`spark-recsys` is a recommendation-system playground with three complementary paths:
+`recsys-pipeline` is a recommendation-system playground with three complementary paths:
 
 - A real-time Kafka -> Spark Structured Streaming -> Redis pipeline that keeps recent user history and global popularity fresh.
 - A training-data pipeline that joins behavior logs into feature+label samples, writes them to Kafka and HDFS-compatible storage, then rebuilds request-level slates for online learning.
@@ -11,11 +11,11 @@ The retrieval layer is a Spring Boot service that combines three scoring model t
 ## Architecture
 
 ```text
-producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis
+python-modeling/producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis
                                                                         |── user:{id}:recent  (TTL 7d)
                                                                         └── global:item_popularity
 
-producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob
+python-modeling/producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob
                                                     |──► Kafka: training_samples
                                                     └──► Parquet: training-samples/date=YYYY-MM-DD/
 
@@ -33,11 +33,11 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
                                                     |──► Redis user:{id}:candidates (top-K by cosine similarity)
                                                     └──► Parquet candidate-generation/
 
-movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
+python-modeling/movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
 
                  ┌─── Offline: ONNX model file (ONNX_MODEL_PATH)
                  │    lookup tables (ONNX_LOOKUPS_PATH)
-retrieval-service├─── Redis: embeddings, bandit counters, user history, reward stats
+java-retrieval-service├─── Redis: embeddings, bandit counters, user history, reward stats
                  └─── In-memory: FeatureCache (Caffeine)
                       item vectors (i2vEmb:*, TTL 5 min)
                       reward model stats (reward-model:*, TTL 30 s)
@@ -113,7 +113,7 @@ For each recommendation request, the service:
 8. Stores pending recommendation context for replay-buffer training.
 9. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
 
-The default catalog and ranking weights live in `retrieval-service/src/main/resources/application.yml`.
+The default catalog and ranking weights live in `java-retrieval-service/src/main/resources/application.yml`.
 
 ## Quick Start
 
@@ -143,8 +143,8 @@ docker compose up -d
 Start the clickstream producer:
 
 ```bash
-pip install kafka-python
-python producer.py
+python -m pip install -r python-modeling/requirements.txt
+python python-modeling/producer.py
 ```
 
 Run the streaming job:
@@ -170,14 +170,30 @@ RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
 Or run the Python two-stage pipeline (two-tower retrieval + transformer ranking, no Spark required):
 
 ```bash
-pip install torch onnxruntime numpy
-python movielens_pipeline.py
+pip install torch onnx onnxruntime numpy
+python python-modeling/movielens_pipeline.py
+```
+
+The first run trains and exports the three ONNX models. Later runs reuse them. You can
+select users, control the retrieval candidate count, or retrain into a separate model
+directory:
+
+```bash
+python python-modeling/movielens_pipeline.py --user alice --top-k 5
+python python-modeling/movielens_pipeline.py --user alice --user bob
+python python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
+```
+
+Run the focused Python tests with:
+
+```bash
+pytest -q python-modeling
 ```
 
 Start the retrieval service:
 
 ```bash
-cd retrieval-service
+cd java-retrieval-service
 mvn spring-boot:run
 ```
 
@@ -307,7 +323,7 @@ Returns an item embedding from Redis using key `i2vEmb:{item}`.
 
 ## Real-Time Path
 
-### `producer.py`
+### `python-modeling/producer.py`
 
 Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. Uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
 
@@ -323,6 +339,7 @@ Environment variables:
 | `NUM_ITEMS` | `10` | Size of synthetic item pool |
 | `SLATE_SIZE` | `5` | Items per recommendation request in behavior mode |
 | `LOG_EVERY` | `100` | Print a log line every N sent events (not every event) |
+| `MAX_EVENTS` | `0` | Stop after N events; `0` runs continuously |
 
 Event schema:
 
@@ -388,7 +405,7 @@ Environment variables:
 Consumes Kafka behavior logs and turns recommendation impressions plus later feedback into training samples with `features + label`.
 
 ```bash
-PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python producer.py
+PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python python-modeling/producer.py
 
 SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob \
 ONLINE_JOINER_INPUT_TOPIC=behavior_logs \
@@ -580,7 +597,7 @@ After initial candidate generation, candidates pass through two more pipelines.
 
 ## Retrieval Service Configuration
 
-`retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
+`java-retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
 
 ### Offline model paths
 
@@ -755,7 +772,7 @@ Key environment variables:
 | Env var | Default |
 |---|---|
 | `RATINGS_INPUT_PATH` | required if arg omitted |
-| `ITEM2VEC_EMBEDDING_PATH` | `spark-recsys/sampledata/embedding.txt` |
+| `ITEM2VEC_EMBEDDING_PATH` | `recsys-pipeline/sampledata/embedding.txt` |
 | `ITEM2VEC_QUERY_ITEM` | `592` |
 | `ITEM2VEC_REDIS_KEY_PREFIX` | `i2vEmb` |
 | `ITEM2VEC_REDIS_TTL_SECONDS` | `86400` |
@@ -801,7 +818,7 @@ Key environment variables:
 |---|---|
 | `RATINGS_INPUT_PATH` | required if arg omitted |
 | `ITEM2VEC_EMBEDDING_PATH` | required if arg omitted |
-| `USER_EMBEDDING_OUTPUT_PATH` | `spark-recsys/sampledata/user_embedding.txt` |
+| `USER_EMBEDDING_OUTPUT_PATH` | `recsys-pipeline/sampledata/user_embedding.txt` |
 | `USER_EMBEDDING_MIN_RATING` | `3.5` |
 
 Output format:
@@ -827,7 +844,7 @@ Key environment variables:
 | Env var | Default |
 |---|---|
 | `RATINGS_INPUT_PATH` | required if arg omitted |
-| `ALS_EMBEDDING_OUTPUT_PATH` | `spark-recsys/sampledata/als` |
+| `ALS_EMBEDDING_OUTPUT_PATH` | `recsys-pipeline/sampledata/als` |
 | `ALS_RANK` | `16` |
 | `ALS_MAX_ITER` | `10` |
 | `ALS_REG_PARAM` | `0.1` |

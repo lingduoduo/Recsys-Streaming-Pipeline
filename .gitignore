@@ -13,13 +13,13 @@ spark-warehouse/
 derby.log
 
 # Generated recommendation demo outputs
-spark-recsys/sampledata/embedding.txt
-spark-recsys/sampledata/user_embedding.txt
-spark-recsys/sampledata/als/
-spark-recsys/sampledata/movielens_*.onnx
-spark-recsys/sampledata/movielens_*.onnx.data
-spark-recsys/__pycache__/
-spark-recsys/**/__pycache__/
+recsys-pipeline/sampledata/embedding.txt
+recsys-pipeline/sampledata/user_embedding.txt
+recsys-pipeline/sampledata/als/
+recsys-pipeline/sampledata/movielens_*.onnx
+recsys-pipeline/sampledata/movielens_*.onnx.data
+recsys-pipeline/__pycache__/
+recsys-pipeline/**/__pycache__/
 spark-recsys/**/*.pyc
 .DS_Store
 **/.DS_Store

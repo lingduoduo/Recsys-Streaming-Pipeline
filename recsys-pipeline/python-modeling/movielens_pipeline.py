@@ -2,29 +2,28 @@
 """
 movielens_pipeline.py — MovieLens two-stage recommendation pipeline.
 
-Stage 1 – Retrieval  : two-tower dot-product ANN over the full movie catalog.
+Stage 1 – Retrieval  : exact two-tower dot-product search over the movie catalog.
 Stage 2 – Ranking    : transformer with candidate isolation attention masking.
            Multi-task heads: click, rating, favorite, rewatch, dwell.
 
 Run:
-  python spark-recsys/movielens_pipeline.py
+  python recsys-pipeline/python-modeling/movielens_pipeline.py --user alice --top-k 10
 
 Models are trained on first run and cached as ONNX files under sampledata/.
 Subsequent runs skip training and load from disk.
 """
 
-import io
-import json
-import os
+import argparse
 import warnings
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
 
 import numpy as np
+import onnxruntime as ort
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import onnxruntime as ort
-
-warnings.filterwarnings("ignore", category=UserWarning)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Movie catalog and user interaction history
@@ -122,10 +121,48 @@ D_MODEL  = 64   # transformer model dimension
 NHEAD    = 4
 N_LAYERS = 2
 
-SAMPLEDATA  = os.path.join(os.path.dirname(__file__), "sampledata")
-USER_TOWER_ONNX = os.path.join(SAMPLEDATA, "movielens_user_tower.onnx")
-ITEM_TOWER_ONNX = os.path.join(SAMPLEDATA, "movielens_item_tower.onnx")
-RANKING_ONNX    = os.path.join(SAMPLEDATA, "movielens_ranking.onnx")
+DEFAULT_MODEL_DIR = Path(__file__).resolve().parent.parent / "sampledata"
+
+
+@dataclass(frozen=True)
+class ArtifactPaths:
+    """Filesystem locations for the three independently deployable models."""
+
+    user_tower: Path
+    item_tower: Path
+    ranking: Path
+
+    @classmethod
+    def from_directory(cls, directory: Path) -> "ArtifactPaths":
+        return cls(
+            user_tower=directory / "movielens_user_tower.onnx",
+            item_tower=directory / "movielens_item_tower.onnx",
+            ranking=directory / "movielens_ranking.onnx",
+        )
+
+    def all_exist(self) -> bool:
+        return all(path.is_file() for path in self.as_tuple())
+
+    def as_tuple(self) -> tuple[Path, Path, Path]:
+        return self.user_tower, self.item_tower, self.ranking
+
+
+@dataclass(frozen=True)
+class Recommendation:
+    movie_id: str
+    title: str
+    year: int
+    genres: tuple[str, ...]
+    retrieval_score: float
+    click: float
+    rating: float
+    favorite: float
+    rewatch: float
+    dwell: float
+    final_score: float
+
+
+DEFAULT_ARTIFACTS = ArtifactPaths.from_directory(DEFAULT_MODEL_DIR)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Model definitions
@@ -323,8 +360,9 @@ def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
 # Training
 # ──────────────────────────────────────────────────────────────────────────────
 
-def train_two_tower(epochs: int = 300) -> tuple[UserTower, ItemTower]:
+def train_two_tower(epochs: int = 300, seed: int = 42) -> tuple[UserTower, ItemTower]:
     print("Training two-tower retrieval model …")
+    rng = np.random.default_rng(seed)
     triples = _bpr_triples()
     user_tower = UserTower(N_USERS, EMB_DIM)
     item_tower = ItemTower(N_MOVIES, GENRE_DIM, EMB_DIM)
@@ -334,7 +372,7 @@ def train_two_tower(epochs: int = 300) -> tuple[UserTower, ItemTower]:
     )
     idx_arr = np.arange(len(triples))
     for epoch in range(epochs):
-        np.random.shuffle(idx_arr)
+        rng.shuffle(idx_arr)
         total = 0.0
         for i in idx_arr:
             uid, pos_iid, neg_iid = triples[i]
@@ -353,8 +391,10 @@ def train_ranking(
     user_tower: UserTower,
     item_tower: ItemTower,
     epochs: int = 300,
+    seed: int = 42,
 ) -> RankingTransformer:
     print("Training ranking transformer …")
+    rng = np.random.default_rng(seed)
     rows    = _ranking_labels()
     ranker  = RankingTransformer(EMB_DIM, D_MODEL, NHEAD, N_LAYERS)
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
@@ -367,7 +407,7 @@ def train_ranking(
 
     idx_arr = np.arange(len(rows))
     for epoch in range(epochs):
-        np.random.shuffle(idx_arr)
+        rng.shuffle(idx_arr)
         total = 0.0
         for i in idx_arr:
             uid, mid, lbl = rows[i]
@@ -393,32 +433,50 @@ def train_ranking(
 # ONNX export
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _export_onnx_model(
+    model: nn.Module,
+    inputs: tuple,
+    destination: Path,
+    **kwargs: object,
+) -> None:
+    # The ranking graph requires the legacy exporter for its dynamic -inf mask.
+    # Use it consistently for all three models so their dynamic axes behave alike.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="You are using the legacy TorchScript-based ONNX export.*",
+            category=DeprecationWarning,
+        )
+        torch.onnx.export(model, inputs, str(destination), dynamo=False, **kwargs)
+
+
 def export_onnx(
     user_tower: UserTower,
     item_tower: ItemTower,
     ranker: RankingTransformer,
+    artifacts: ArtifactPaths = DEFAULT_ARTIFACTS,
 ) -> None:
     print("Exporting models to ONNX …")
-    os.makedirs(SAMPLEDATA, exist_ok=True)
+    artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
     user_tower.eval(); item_tower.eval(); ranker.eval()
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
 
     # ── User tower: user_id → user_emb ──────────────────────────────────
-    torch.onnx.export(
+    _export_onnx_model(
         user_tower,
         (torch.tensor([0]),),
-        USER_TOWER_ONNX,
+        artifacts.user_tower,
         input_names=["user_id"],
         output_names=["user_emb"],
         dynamic_axes={"user_id": {0: "batch"}, "user_emb": {0: "batch"}},
     )
-    print(f"  user tower  → {USER_TOWER_ONNX}")
+    print(f"  user tower  → {artifacts.user_tower}")
 
     # ── Item tower: (movie_id, genre_feat) → item_emb ───────────────────
-    torch.onnx.export(
+    _export_onnx_model(
         item_tower,
         (torch.arange(2), genre_t[:2]),
-        ITEM_TOWER_ONNX,
+        artifacts.item_tower,
         input_names=["movie_id", "genre_feat"],
         output_names=["item_emb"],
         dynamic_axes={
@@ -427,18 +485,16 @@ def export_onnx(
             "item_emb":  {0: "batch"},
         },
     )
-    print(f"  item tower  → {ITEM_TOWER_ONNX}")
+    print(f"  item tower  → {artifacts.item_tower}")
 
     # ── Ranking transformer: (user_emb, candidate_embs, attn_mask) → 5 signals
-    # Use dynamo=False (legacy TorchScript tracer) — the dynamo exporter rejects
-    # float -inf attention masks with dynamic shapes; the legacy path handles them correctly.
+    # The dynamo exporter rejects float -inf attention masks with dynamic shapes.
     K_trace    = 5
     mask_trace = build_isolation_mask(K_trace)
-    torch.onnx.export(
+    _export_onnx_model(
         ranker,
         (torch.randn(1, EMB_DIM), torch.randn(K_trace, EMB_DIM), mask_trace),
-        RANKING_ONNX,
-        dynamo=False,
+        artifacts.ranking,
         input_names=["user_emb", "candidate_embs", "attn_mask"],
         output_names=["click", "rating", "favorite", "rewatch", "dwell"],
         dynamic_axes={
@@ -452,7 +508,7 @@ def export_onnx(
         },
         opset_version=17,
     )
-    print(f"  ranking     → {RANKING_ONNX}")
+    print(f"  ranking     → {artifacts.ranking}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inference pipeline
@@ -463,19 +519,146 @@ _ENGAGEMENT_WEIGHTS = {
 }
 
 
-def run_pipeline(user: str, top_k: int = 10) -> None:
+def clamp_top_k(top_k: int, watched_count: int) -> int:
+    """Clamp top_k to the number of movies still eligible for recommendation."""
+    if top_k < 1:
+        raise ValueError("top_k must be at least 1")
+    eligible_count = N_MOVIES - watched_count
+    if eligible_count <= 0:
+        raise ValueError("no unwatched movies remain for this user")
+    return min(top_k, eligible_count)
+
+
+def retrieve_top_indices(
+    user_emb: np.ndarray,
+    item_embs: np.ndarray,
+    watched_movie_ids: Sequence[str],
+    top_k: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    k = clamp_top_k(top_k, len(set(watched_movie_ids)))
+    scores_all = (user_emb @ item_embs.T)[0].astype(np.float32)
+    for movie_id in watched_movie_ids:
+        scores_all[MOVIE_TO_IDX[movie_id]] = -np.inf
+    top_indices = np.argsort(-scores_all)[:k]
+    return top_indices, scores_all[top_indices]
+
+
+def aggregate_engagement_scores(
+    click: np.ndarray,
+    rating: np.ndarray,
+    favorite: np.ndarray,
+    rewatch: np.ndarray,
+    dwell: np.ndarray,
+) -> np.ndarray:
+    w = _ENGAGEMENT_WEIGHTS
+    return (
+        w["click"] * click
+        + w["rating"] * rating
+        + w["favorite"] * favorite
+        + w["rewatch"] * rewatch
+        + w["dwell"] * dwell
+    )
+
+
+def load_sessions(artifacts: ArtifactPaths = DEFAULT_ARTIFACTS) -> tuple[
+    ort.InferenceSession,
+    ort.InferenceSession,
+    ort.InferenceSession,
+]:
+    missing = [str(path) for path in artifacts.as_tuple() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing ONNX artifact(s): {', '.join(missing)}")
+    providers = ["CPUExecutionProvider"]
+    return (
+        ort.InferenceSession(str(artifacts.user_tower), providers=providers),
+        ort.InferenceSession(str(artifacts.item_tower), providers=providers),
+        ort.InferenceSession(str(artifacts.ranking), providers=providers),
+    )
+
+
+def score_recommendations(
+    user: str,
+    sessions: tuple[ort.InferenceSession, ort.InferenceSession, ort.InferenceSession],
+    top_k: int,
+) -> tuple[list[Recommendation], dict[str, np.ndarray]]:
+    if user not in USER_HISTORY:
+        raise ValueError(f"Unknown user: {user}. Choose one of: {', '.join(USERS)}")
+    hist = USER_HISTORY[user]
+    user_sess, item_sess, rank_sess = sessions
+
+    uid_arr = np.array([USER_TO_IDX[user]], dtype=np.int64)
+    (user_emb,) = user_sess.run(None, {"user_id": uid_arr})
+
+    all_iids = np.arange(N_MOVIES, dtype=np.int64)
+    genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
+    (all_item_embs,) = item_sess.run(
+        None, {"movie_id": all_iids, "genre_feat": genre_feats},
+    )
+
+    top_indices, retrieval_scores = retrieve_top_indices(
+        user_emb, all_item_embs, hist["watched"], top_k,
+    )
+    cand_embs = all_item_embs[top_indices].astype(np.float32)
+    iso_mask = build_isolation_mask(len(top_indices)).numpy().astype(np.float32)
+
+    click_p, rating_p, fav_p, rew_p, dwell_p = rank_sess.run(
+        None,
+        {
+            "user_emb": user_emb.astype(np.float32),
+            "candidate_embs": cand_embs,
+            "attn_mask": iso_mask,
+        },
+    )
+    final_score = aggregate_engagement_scores(click_p, rating_p, fav_p, rew_p, dwell_p)
+    order = np.argsort(-final_score)
+
+    recommendations: list[Recommendation] = []
+    for idx in order:
+        movie_idx = int(top_indices[idx])
+        movie_id, title, year, genres = MOVIES[movie_idx]
+        recommendations.append(
+            Recommendation(
+                movie_id=movie_id,
+                title=title,
+                year=year,
+                genres=tuple(genres),
+                retrieval_score=float(retrieval_scores[idx]),
+                click=float(click_p[idx]),
+                rating=float(rating_p[idx]),
+                favorite=float(fav_p[idx]),
+                rewatch=float(rew_p[idx]),
+                dwell=float(dwell_p[idx]),
+                final_score=float(final_score[idx]),
+            )
+        )
+
+    diagnostics = {
+        "user_emb": user_emb,
+        "all_item_embs": all_item_embs,
+        "top_indices": top_indices,
+        "retrieval_scores": retrieval_scores,
+        "iso_mask": iso_mask,
+    }
+    return recommendations, diagnostics
+
+
+def run_pipeline(
+    user: str,
+    top_k: int = 10,
+    sessions: tuple[ort.InferenceSession, ort.InferenceSession, ort.InferenceSession] | None = None,
+    artifacts: ArtifactPaths = DEFAULT_ARTIFACTS,
+) -> list[Recommendation]:
     hist = USER_HISTORY.get(user)
     if hist is None:
-        print(f"Unknown user: {user}"); return
+        raise ValueError(f"Unknown user: {user}. Choose one of: {', '.join(USERS)}")
+    top_k = clamp_top_k(top_k, len(set(hist["watched"])))
 
     print(f"\n{'═' * 100}")
     print(f"  MovieLens Recommendation Pipeline   user = {user}")
     print(f"{'═' * 100}")
 
-    # Load ONNX sessions
-    user_sess = ort.InferenceSession(USER_TOWER_ONNX)
-    item_sess = ort.InferenceSession(ITEM_TOWER_ONNX)
-    rank_sess = ort.InferenceSession(RANKING_ONNX)
+    if sessions is None:
+        sessions = load_sessions(artifacts)
 
     # ── Step 1: User interaction history ─────────────────────────────────
     watched_titles = [MOVIES[MOVIE_TO_IDX[m]][1] for m in hist["watched"]]
@@ -491,32 +674,24 @@ def run_pipeline(user: str, top_k: int = 10) -> None:
 
     # ── Step 2: User embedding via two-tower user tower ───────────────────
     print(f"\n[Step 2] Two-tower user tower  →  user embedding")
-    uid_arr   = np.array([USER_TO_IDX[user]], dtype=np.int64)
-    (user_emb,) = user_sess.run(None, {"user_id": uid_arr})  # (1, EMB_DIM)
+    recommendations, diagnostics = score_recommendations(user, sessions, top_k)
+    user_emb = diagnostics["user_emb"]
+    all_item_embs = diagnostics["all_item_embs"]
+    top_indices = diagnostics["top_indices"]
+    retrieval_scores = diagnostics["retrieval_scores"]
+    iso_mask = diagnostics["iso_mask"]
     print(f"  user_emb  shape={user_emb.shape}  "
           f"L2-norm={np.linalg.norm(user_emb):.4f} (normalised ≈ 1.0)")
 
     # ── Step 3: Item embeddings for all movies via two-tower item tower ───
     print(f"\n[Step 3] Two-tower item tower  →  embeddings for all {N_MOVIES} movies")
-    all_iids   = np.arange(N_MOVIES, dtype=np.int64)
-    genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
-    (all_item_embs,) = item_sess.run(
-        None, {"movie_id": all_iids, "genre_feat": genre_feats},
-    )  # (N_MOVIES, EMB_DIM)
     print(f"  item_embs shape={all_item_embs.shape}  "
           f"mean L2-norm={np.linalg.norm(all_item_embs, axis=1).mean():.4f}")
 
     # ── Step 4: Dot-product nearest-neighbour search ──────────────────────
-    print(f"\n[Step 4] Dot-product ANN retrieval  →  top-{top_k} candidates")
-    watched_set = set(hist["watched"])
-    scores_all  = (user_emb @ all_item_embs.T)[0]  # (N_MOVIES,)
-    # Exclude already-watched movies
-    for mid in watched_set:
-        scores_all[MOVIE_TO_IDX[mid]] = -1e9
-    top_indices  = np.argsort(-scores_all)[:top_k]
+    print(f"\n[Step 4] Exact dot-product retrieval  →  top-{top_k} candidates")
     cand_ids     = [MOVIES[i][0] for i in top_indices]
     cand_titles  = [MOVIES[i][1] for i in top_indices]
-    retrieval_scores = scores_all[top_indices]
     print("  Retrieved candidates (dot-product score):")
     for rank, (title, sc) in enumerate(zip(cand_titles, retrieval_scores), 1):
         print(f"    {rank:2d}. {title:<44}  dot={sc:+.4f}")
@@ -525,8 +700,6 @@ def run_pipeline(user: str, top_k: int = 10) -> None:
     print(f"\n[Step 5] Transformer ranking  ({N_LAYERS}-layer, {NHEAD}-head, "
           f"d_model={D_MODEL})  with candidate isolation attention mask")
     K         = len(top_indices)
-    cand_embs = all_item_embs[top_indices].astype(np.float32)  # (K, EMB_DIM)
-    iso_mask  = build_isolation_mask(K).numpy().astype(np.float32)  # (K+1, K+1)
 
     # Show mask structure (compact)
     attend_counts = (iso_mask == 0.0).sum(axis=1)
@@ -536,24 +709,9 @@ def run_pipeline(user: str, top_k: int = 10) -> None:
     print(f"    each candidate attends to "
           f"{int(attend_counts[1])} positions  (user + self only)")
 
-    click_p, rating_p, fav_p, rew_p, dwell_p = rank_sess.run(
-        None,
-        {"user_emb": user_emb.astype(np.float32),
-         "candidate_embs": cand_embs,
-         "attn_mask": iso_mask},
-    )
-
     # ── Step 6: Aggregate engagement signals → final ranking ─────────────
     print(f"\n[Step 6] Multi-task engagement predictions")
     w = _ENGAGEMENT_WEIGHTS
-    final_score = (
-        w["click"]    * click_p
-        + w["rating"] * rating_p
-        + w["favorite"] * fav_p
-        + w["rewatch"]  * rew_p
-        + w["dwell"]    * dwell_p
-    )
-    order = np.argsort(-final_score)
 
     print(f"\n  Final ranked recommendation list")
     W = 105
@@ -563,40 +721,80 @@ def run_pipeline(user: str, top_k: int = 10) -> None:
     print(f"\n  {'─' * W}")
     print(f"  {hdr}")
     print(f"  {'─' * W}")
-    for rank, idx in enumerate(order, 1):
-        mid = cand_ids[idx]
-        _, title, year, genres = MOVIES[MOVIE_TO_IDX[mid]]
-        genre_str = "|".join(genres)
+    for rank, rec in enumerate(recommendations, 1):
         print(
-            f"  {rank:<5} {title:<44} {year:<6}"
-            f" {click_p[idx]:>6.1%} {rating_p[idx]:>7.1%}"
-            f" {fav_p[idx]:>5.1%} {rew_p[idx]:>7.1%} {dwell_p[idx]:>6.1%}"
-            f" {final_score[idx]:>8.4f}"
+            f"  {rank:<5} {rec.title:<44} {rec.year:<6}"
+            f" {rec.click:>6.1%} {rec.rating:>7.1%}"
+            f" {rec.favorite:>5.1%} {rec.rewatch:>7.1%} {rec.dwell:>6.1%}"
+            f" {rec.final_score:>8.4f}"
         )
     print(f"  {'─' * W}")
     print(f"\n  Weights: click={w['click']:.0%}  rating={w['rating']:.0%}"
           f"  favorite={w['favorite']:.0%}  rewatch={w['rewatch']:.0%}"
           f"  dwell={w['dwell']:.0%}")
+    return recommendations
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────────────────────────────────────
 
-def main() -> None:
-    os.makedirs(SAMPLEDATA, exist_ok=True)
+def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Train and run the MovieLens two-stage recommendation sample.",
+    )
+    parser.add_argument(
+        "--user",
+        action="append",
+        choices=USERS,
+        help="User to recommend for. Repeat to select multiple users; defaults to all users.",
+    )
+    parser.add_argument("--top-k", type=int, default=10, help="Retrieval candidate count.")
+    parser.add_argument(
+        "--model-dir",
+        type=Path,
+        default=DEFAULT_MODEL_DIR,
+        help="Directory used to load or save ONNX artifacts.",
+    )
+    parser.add_argument(
+        "--force-train",
+        action="store_true",
+        help="Retrain and overwrite ONNX artifacts even when cached models exist.",
+    )
+    parser.add_argument("--retrieval-epochs", type=int, default=300)
+    parser.add_argument("--ranking-epochs", type=int, default=300)
+    parser.add_argument("--seed", type=int, default=42)
+    parsed = parser.parse_args(args)
+    if parsed.top_k < 1:
+        parser.error("--top-k must be at least 1")
+    if parsed.retrieval_epochs < 1 or parsed.ranking_epochs < 1:
+        parser.error("training epochs must be at least 1")
+    return parsed
 
-    onnx_files = [USER_TOWER_ONNX, ITEM_TOWER_ONNX, RANKING_ONNX]
-    if all(os.path.exists(p) for p in onnx_files):
+
+def main(args: Sequence[str] | None = None) -> None:
+    config = parse_args(args)
+    artifacts = ArtifactPaths.from_directory(config.model_dir.resolve())
+    artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
+
+    if artifacts.all_exist() and not config.force_train:
         print("Pre-trained ONNX models found — skipping training.")
     else:
-        torch.manual_seed(42)
-        np.random.seed(42)
-        user_tower, item_tower = train_two_tower(epochs=300)
-        ranker = train_ranking(user_tower, item_tower, epochs=300)
-        export_onnx(user_tower, item_tower, ranker)
+        torch.manual_seed(config.seed)
+        user_tower, item_tower = train_two_tower(
+            epochs=config.retrieval_epochs,
+            seed=config.seed,
+        )
+        ranker = train_ranking(
+            user_tower,
+            item_tower,
+            epochs=config.ranking_epochs,
+            seed=config.seed,
+        )
+        export_onnx(user_tower, item_tower, ranker, artifacts)
 
-    for user in USERS:
-        run_pipeline(user, top_k=10)
+    sessions = load_sessions(artifacts)
+    for user in config.user or USERS:
+        run_pipeline(user, top_k=config.top_k, sessions=sessions)
     print()
 
 
