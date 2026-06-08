@@ -194,10 +194,10 @@ python services/python-modeling/movielens_pipeline.py --user alice --user bob
 python services/python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
 ```
 
-Run the Python tests and service-launcher smoke tests with:
+Run all Python and service-launcher smoke tests with:
 
 ```bash
-pytest -q test_service_scripts.py services/python-modeling
+pytest -q
 ```
 
 Start the retrieval service:

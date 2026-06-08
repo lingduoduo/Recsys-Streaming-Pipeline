@@ -8,7 +8,7 @@ import torch
 
 
 def load_pipeline_module():
-    module_path = Path(__file__).with_name("movielens_pipeline.py")
+    module_path = Path(__file__).resolve().parents[2] / "services/python-modeling/movielens_pipeline.py"
     spec = importlib.util.spec_from_file_location("movielens_pipeline", module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

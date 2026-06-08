@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def copy_pipeline_scripts(tmp_path: Path) -> Path:

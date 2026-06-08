@@ -3,6 +3,10 @@ import os
 import sys
 import time
 import types
+from pathlib import Path
+
+
+PRODUCER_PATH = Path(__file__).resolve().parents[2] / "services/python-modeling/producer.py"
 
 
 def load_producer_module():
@@ -16,7 +20,7 @@ def load_producer_module():
 
     spec = importlib.util.spec_from_file_location(
         "producer",
-        os.path.join(os.path.dirname(__file__), "producer.py"),
+        PRODUCER_PATH,
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
