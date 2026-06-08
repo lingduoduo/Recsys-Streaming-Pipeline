@@ -670,7 +670,7 @@ def score_recommendations(
 
     diagnostics = {
         "user_emb": user_emb,
-        "all_item_embs": all_item_embs,
+        "all_item_embs": all_item_embs.view(),  # view prevents callers from mutating the cache
         "top_indices": top_indices,
         "retrieval_scores": retrieval_scores,
         "iso_mask": iso_mask,
