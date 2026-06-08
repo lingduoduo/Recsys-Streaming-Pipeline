@@ -414,31 +414,45 @@ def train_ranking(
 
     # Pre-compute frozen two-tower item embeddings
     with torch.no_grad():
-        all_iids  = torch.arange(N_MOVIES)
-        all_item_embs = item_tower(all_iids, genre_t)  # (N_MOVIES, EMB_DIM)
+        all_item_embs = item_tower(torch.arange(N_MOVIES), genre_t)  # (N_MOVIES, EMB_DIM)
 
-    idx_arr = np.arange(len(rows))
+    # Group rows by user so each user is one forward pass per epoch
+    user_rows: dict[int, list[tuple[int, dict[str, float]]]] = {}
+    for uid, mid, lbl in rows:
+        user_rows.setdefault(uid, []).append((mid, lbl))
+    uid_arr = np.array(list(user_rows.keys()))
+
     for epoch in range(epochs):
-        rng.shuffle(idx_arr)
+        rng.shuffle(uid_arr)
         total = 0.0
-        for i in idx_arr:
-            uid, mid, lbl = rows[i]
+        for uid in uid_arr:
+            mids_lbls = user_rows[uid]
             with torch.no_grad():
                 u_emb = user_tower(torch.tensor([uid]))  # (1, EMB_DIM)
-            cand  = all_item_embs[mid].unsqueeze(0)      # (1, EMB_DIM)
-            mask  = build_isolation_mask(1)              # (2, 2)
-            click_p, rating_p, fav_p, rew_p, dwell_p = ranker(u_emb, cand, mask)
+            mids      = torch.tensor([x[0] for x in mids_lbls], dtype=torch.long)
+            cand_embs = all_item_embs[mids]              # (K, EMB_DIM)
+            mask      = build_isolation_mask(len(mids))  # (K+1, K+1)
+            click_p, rating_p, fav_p, rew_p, dwell_p = ranker(u_emb, cand_embs, mask)
+
+            click_lbls  = torch.tensor([x[1]["click"]    for x in mids_lbls])
+            rating_lbls = torch.tensor([x[1]["rating"]   for x in mids_lbls])
+            fav_lbls    = torch.tensor([x[1]["favorite"] for x in mids_lbls])
+            rew_lbls    = torch.tensor([x[1]["rewatch"]  for x in mids_lbls])
+            dwell_lbls  = torch.tensor([x[1]["dwell"]    for x in mids_lbls])
+
             loss = (
-                F.binary_cross_entropy(click_p[0],  torch.tensor(lbl["click"]))
-                + F.mse_loss(rating_p[0],            torch.tensor(lbl["rating"]))
-                + F.binary_cross_entropy(fav_p[0],  torch.tensor(lbl["favorite"]))
-                + F.binary_cross_entropy(rew_p[0],  torch.tensor(lbl["rewatch"]))
-                + F.mse_loss(dwell_p[0],             torch.tensor(lbl["dwell"]))
+                F.binary_cross_entropy(click_p,  click_lbls)
+                + F.mse_loss(rating_p,           rating_lbls)
+                + F.binary_cross_entropy(fav_p,  fav_lbls)
+                + F.binary_cross_entropy(rew_p,  rew_lbls)
+                + F.mse_loss(dwell_p,            dwell_lbls)
             )
-            optim.zero_grad(); loss.backward(); optim.step()
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
             total += loss.item()
         if (epoch + 1) % 100 == 0:
-            print(f"  epoch {epoch + 1}/{epochs}  multi-task loss = {total / len(rows):.4f}")
+            print(f"  epoch {epoch + 1}/{epochs}  multi-task loss = {total / len(uid_arr):.4f}")
     return ranker
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -86,6 +86,22 @@ def test_train_two_tower_parameters_updated_by_training():
         "embedding weights should change after training"
 
 
+def test_train_ranking_produces_valid_predictions():
+    user_tower, item_tower = pipeline.train_two_tower(epochs=5, seed=0)
+    ranker = pipeline.train_ranking(user_tower, item_tower, epochs=5, seed=0)
+    genre_t = torch.tensor(pipeline.MOVIE_GENRE_FEATS)
+    with torch.no_grad():
+        u_emb = user_tower(torch.tensor([0]))           # (1, EMB_DIM)
+        all_item_embs = item_tower(torch.arange(pipeline.N_MOVIES), genre_t)
+        cand_embs = all_item_embs[:5]                    # (5, EMB_DIM)
+        mask = pipeline.build_isolation_mask(5)
+        click_p, rating_p, fav_p, rew_p, dwell_p = ranker(u_emb, cand_embs, mask)
+    for name, out in [("click", click_p), ("rating", rating_p), ("favorite", fav_p),
+                      ("rewatch", rew_p), ("dwell", dwell_p)]:
+        assert out.shape == (5,), f"{name} wrong shape"
+        assert (out >= 0).all() and (out <= 1).all(), f"{name} out of [0,1]"
+
+
 @pytest.mark.skipif(
     not pipeline.DEFAULT_ARTIFACTS.all_exist(),
     reason="checked-in ONNX sample artifacts are unavailable",
