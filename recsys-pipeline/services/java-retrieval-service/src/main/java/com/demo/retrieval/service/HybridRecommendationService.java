@@ -40,9 +40,9 @@ import com.demo.retrieval.service.filters.CandidateFilter.VFFilter;
 import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.filters.VideoFilter;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
-import com.demo.retrieval.service.scorers.CandidateEngagementScorer;
-import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringInput;
-import com.demo.retrieval.service.scorers.CandidateEngagementScorer.ScoringResult;
+import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer;
+import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringInput;
+import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringResult;
 import com.demo.retrieval.service.selectors.TopKScoreSelector;
 import com.demo.retrieval.service.selectors.TopKScoreSelector.SelectionResult;
 import com.demo.retrieval.service.models.MovieCandidateContext;
@@ -123,7 +123,7 @@ public class HybridRecommendationService {
     private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
     private volatile Map<String, MovieProfile> candidatePipelineCatalog;
     private volatile HunkkerCandidatePipeline candidatePipeline;
-    private final CandidateEngagementScorer candidateEngagementScorer = new CandidateEngagementScorer();
+    private final MovieLensOutcomeScorer movieLensOutcomeScorer = new MovieLensOutcomeScorer();
     private final TopKScoreSelector<ScoredCandidate> topKScoreSelector = new TopKScoreSelector<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
@@ -254,7 +254,7 @@ public class HybridRecommendationService {
         // subsequent onlineLearningService.score() call is a pure in-memory read.
         onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
 
-        List<ScoredCandidate> scored = candidateEngagementScorer.applyDiversity(eligibleList.stream()
+        List<ScoredCandidate> scored = movieLensOutcomeScorer.applyDiversity(eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(candidateById.get(item), item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
@@ -316,8 +316,8 @@ public class HybridRecommendationService {
                 row.put("dlScore", round(candidate.dlScore()));
                 row.put("qValue", round(candidate.qValue()));
                 row.put("rewardModelScore", round(candidate.onlineScore()));
-                row.put("engagementProbability", round(candidate.engagementProbability()));
-                row.put("weightedEngagementScore", round(candidate.weightedEngagementScore()));
+                row.put("outcomeProbability", round(candidate.outcomeProbability()));
+                row.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
                 row.put("predictionScore", round(candidate.predictionScore()));
                 row.put("diversityScore", round(candidate.diversityScore()));
                 row.put("explorationBonus", round(candidate.explorationBonus()));
@@ -873,9 +873,8 @@ public class HybridRecommendationService {
         double qLearningScore = computeTabularRlRankingScore(learnedPrior, qValue);
         double baseRankingScore = tabularRl ? qLearningScore : armScore.rankingScore();
         double novelty = 1.0 / (impressions + 1.0);
-        ScoringResult scoring = candidateEngagementScorer.score(new ScoringInput(
+        ScoringResult scoring = movieLensOutcomeScorer.score(new ScoringInput(
             itemId,
-            context,
             normalizeScore(relevance),
             content,
             popularity,
@@ -906,8 +905,8 @@ public class HybridRecommendationService {
             clicks,
             dlScore,
             qValue == null ? 0.0 : qValue,
-            scoring.weightedEngagementScore(),
-            scoring.engagementProbability(),
+            scoring.weightedOutcomeScore(),
+            scoring.outcomeProbability(),
             scoring.predictionScore(),
             scoring.diversityScore(),
             diversityGroupId,
@@ -963,8 +962,8 @@ public class HybridRecommendationService {
         predictions.put("qValue", round(candidate.qValue()));
         predictions.put("rewardModelScore", round(candidate.onlineScore()));
         predictions.put("estimatedReward", round(candidate.estimatedReward()));
-        predictions.put("engagementProbability", round(candidate.engagementProbability()));
-        predictions.put("weightedEngagementScore", round(candidate.weightedEngagementScore()));
+        predictions.put("outcomeProbability", round(candidate.outcomeProbability()));
+        predictions.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
         predictions.put("predictionScore", round(candidate.predictionScore()));
         predictions.put("diversityScore", round(candidate.diversityScore()));
         predictions.put("relevanceScore", round(candidate.relevanceScore()));
@@ -1523,13 +1522,13 @@ public class HybridRecommendationService {
         long clicks,
         double dlScore,
         double qValue,
-        double weightedEngagementScore,
-        double engagementProbability,
+        double weightedOutcomeScore,
+        double outcomeProbability,
         double predictionScore,
         double diversityScore,
         String diversityGroupId,
         String primaryGenre
-    ) implements CandidateEngagementScorer.DiversityCandidate, TopKScoreSelector.Scored {
+    ) implements MovieLensOutcomeScorer.DiversityCandidate, TopKScoreSelector.Scored {
         @Override
         public double preDiversityScore() {
             return predictionScore;
@@ -1557,8 +1556,8 @@ public class HybridRecommendationService {
                 clicks,
                 dlScore,
                 qValue,
-                weightedEngagementScore,
-                engagementProbability,
+                weightedOutcomeScore,
+                outcomeProbability,
                 predictionScore,
                 diversityScore,
                 diversityGroupId,
