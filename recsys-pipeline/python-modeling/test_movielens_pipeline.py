@@ -65,6 +65,18 @@ def test_parse_args_supports_selected_users_and_model_directory(tmp_path):
     assert args.model_dir == tmp_path
 
 
+def test_train_two_tower_produces_valid_normalised_embeddings():
+    user_tower, item_tower = pipeline.train_two_tower(epochs=5, seed=0)
+    genre_t = torch.tensor(pipeline.MOVIE_GENRE_FEATS)
+    with torch.no_grad():
+        u = user_tower(torch.tensor([0]))
+        i = item_tower(torch.arange(pipeline.N_MOVIES), genre_t)
+    assert not torch.isnan(u).any(), "user embedding contains NaN"
+    assert not torch.isnan(i).any(), "item embeddings contain NaN"
+    norms = i.norm(dim=-1)
+    torch.testing.assert_close(norms, torch.ones(pipeline.N_MOVIES), atol=1e-5, rtol=0)
+
+
 @pytest.mark.skipif(
     not pipeline.DEFAULT_ARTIFACTS.all_exist(),
     reason="checked-in ONNX sample artifacts are unavailable",

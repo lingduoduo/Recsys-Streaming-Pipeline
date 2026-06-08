@@ -360,7 +360,7 @@ def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
 # Training
 # ──────────────────────────────────────────────────────────────────────────────
 
-def train_two_tower(epochs: int = 300, seed: int = 42) -> tuple[UserTower, ItemTower]:
+def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32) -> tuple[UserTower, ItemTower]:
     print("Training two-tower retrieval model …")
     rng = np.random.default_rng(seed)
     triples = _bpr_triples()
@@ -370,18 +370,29 @@ def train_two_tower(epochs: int = 300, seed: int = 42) -> tuple[UserTower, ItemT
     optim = torch.optim.Adam(
         list(user_tower.parameters()) + list(item_tower.parameters()), lr=2e-3,
     )
+    # Pre-build index tensors once so the loop avoids repeated Python list creation
+    uids_t     = torch.tensor([t[0] for t in triples], dtype=torch.long)
+    pos_iids_t = torch.tensor([t[1] for t in triples], dtype=torch.long)
+    neg_iids_t = torch.tensor([t[2] for t in triples], dtype=torch.long)
+
     idx_arr = np.arange(len(triples))
     for epoch in range(epochs):
         rng.shuffle(idx_arr)
         total = 0.0
-        for i in idx_arr:
-            uid, pos_iid, neg_iid = triples[i]
-            u = user_tower(torch.tensor([uid]))
-            p = item_tower(torch.tensor([pos_iid]), genre_t[pos_iid: pos_iid + 1])
-            n = item_tower(torch.tensor([neg_iid]), genre_t[neg_iid: neg_iid + 1])
-            loss = -F.logsigmoid((u * p).sum() - (u * n).sum())
-            optim.zero_grad(); loss.backward(); optim.step()
-            total += loss.item()
+        for start in range(0, len(triples), batch_size):
+            batch_idx = torch.tensor(idx_arr[start : start + batch_size], dtype=torch.long)
+            uids  = uids_t[batch_idx]
+            piids = pos_iids_t[batch_idx]
+            niids = neg_iids_t[batch_idx]
+            u = user_tower(uids)                    # (B, EMB_DIM)
+            p = item_tower(piids, genre_t[piids])   # (B, EMB_DIM)
+            n = item_tower(niids, genre_t[niids])   # (B, EMB_DIM)
+            # BPR: mean over batch
+            loss = -F.logsigmoid((u * p).sum(dim=-1) - (u * n).sum(dim=-1)).mean()
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            total += loss.item() * len(batch_idx)
         if (epoch + 1) % 100 == 0:
             print(f"  epoch {epoch + 1}/{epochs}  BPR loss = {total / len(triples):.4f}")
     return user_tower, item_tower
