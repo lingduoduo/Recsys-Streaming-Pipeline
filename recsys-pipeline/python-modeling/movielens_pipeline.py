@@ -360,7 +360,7 @@ def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
 # Training
 # ──────────────────────────────────────────────────────────────────────────────
 
-def train_two_tower(epochs: int = 300, seed: int = 42) -> tuple[UserTower, ItemTower]:
+def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32) -> tuple[UserTower, ItemTower]:
     print("Training two-tower retrieval model …")
     rng = np.random.default_rng(seed)
     triples = _bpr_triples()
@@ -370,18 +370,30 @@ def train_two_tower(epochs: int = 300, seed: int = 42) -> tuple[UserTower, ItemT
     optim = torch.optim.Adam(
         list(user_tower.parameters()) + list(item_tower.parameters()), lr=2e-3,
     )
+    # Pre-build index tensors once so the loop avoids repeated Python list creation
+    uids_t     = torch.tensor([t[0] for t in triples], dtype=torch.long)
+    pos_iids_t = torch.tensor([t[1] for t in triples], dtype=torch.long)
+    neg_iids_t = torch.tensor([t[2] for t in triples], dtype=torch.long)
+
     idx_arr = np.arange(len(triples))
+    idx_t = torch.from_numpy(idx_arr)
     for epoch in range(epochs):
         rng.shuffle(idx_arr)
         total = 0.0
-        for i in idx_arr:
-            uid, pos_iid, neg_iid = triples[i]
-            u = user_tower(torch.tensor([uid]))
-            p = item_tower(torch.tensor([pos_iid]), genre_t[pos_iid: pos_iid + 1])
-            n = item_tower(torch.tensor([neg_iid]), genre_t[neg_iid: neg_iid + 1])
-            loss = -F.logsigmoid((u * p).sum() - (u * n).sum())
-            optim.zero_grad(); loss.backward(); optim.step()
-            total += loss.item()
+        for start in range(0, len(triples), batch_size):
+            batch_idx = idx_t[start : start + batch_size]
+            uids  = uids_t[batch_idx]
+            piids = pos_iids_t[batch_idx]
+            niids = neg_iids_t[batch_idx]
+            u = user_tower(uids)                    # (B, EMB_DIM)
+            p = item_tower(piids, genre_t[piids])   # (B, EMB_DIM)
+            n = item_tower(niids, genre_t[niids])   # (B, EMB_DIM)
+            # BPR: mean over batch
+            loss = -F.logsigmoid((u * p).sum(dim=-1) - (u * n).sum(dim=-1)).mean()
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            total += loss.item() * len(batch_idx)
         if (epoch + 1) % 100 == 0:
             print(f"  epoch {epoch + 1}/{epochs}  BPR loss = {total / len(triples):.4f}")
     return user_tower, item_tower
@@ -402,31 +414,46 @@ def train_ranking(
 
     # Pre-compute frozen two-tower item embeddings
     with torch.no_grad():
-        all_iids  = torch.arange(N_MOVIES)
-        all_item_embs = item_tower(all_iids, genre_t)  # (N_MOVIES, EMB_DIM)
+        all_item_embs = item_tower(torch.arange(N_MOVIES), genre_t)  # (N_MOVIES, EMB_DIM)
 
-    idx_arr = np.arange(len(rows))
+    # Group rows by user so each user is one forward pass per epoch
+    user_rows: dict[int, list[tuple[int, dict[str, float]]]] = {}
+    for uid, mid, lbl in rows:
+        user_rows.setdefault(uid, []).append((mid, lbl))
+    uid_arr = np.array(list(user_rows.keys()))
+
     for epoch in range(epochs):
-        rng.shuffle(idx_arr)
+        rng.shuffle(uid_arr)
         total = 0.0
-        for i in idx_arr:
-            uid, mid, lbl = rows[i]
+        for uid in uid_arr:
+            mids_lbls = user_rows[uid]
             with torch.no_grad():
                 u_emb = user_tower(torch.tensor([uid]))  # (1, EMB_DIM)
-            cand  = all_item_embs[mid].unsqueeze(0)      # (1, EMB_DIM)
-            mask  = build_isolation_mask(1)              # (2, 2)
-            click_p, rating_p, fav_p, rew_p, dwell_p = ranker(u_emb, cand, mask)
+            mids      = torch.tensor([x[0] for x in mids_lbls], dtype=torch.long)
+            cand_embs = all_item_embs[mids]              # (K, EMB_DIM)
+            mask      = build_isolation_mask(len(mids))  # (K+1, K+1)
+            click_p, rating_p, fav_p, rew_p, dwell_p = ranker(u_emb, cand_embs, mask)
+
+            click_lbls  = torch.tensor([x[1]["click"]    for x in mids_lbls])
+            rating_lbls = torch.tensor([x[1]["rating"]   for x in mids_lbls])
+            fav_lbls    = torch.tensor([x[1]["favorite"] for x in mids_lbls])
+            rew_lbls    = torch.tensor([x[1]["rewatch"]  for x in mids_lbls])
+            dwell_lbls  = torch.tensor([x[1]["dwell"]    for x in mids_lbls])
+
             loss = (
-                F.binary_cross_entropy(click_p[0],  torch.tensor(lbl["click"]))
-                + F.mse_loss(rating_p[0],            torch.tensor(lbl["rating"]))
-                + F.binary_cross_entropy(fav_p[0],  torch.tensor(lbl["favorite"]))
-                + F.binary_cross_entropy(rew_p[0],  torch.tensor(lbl["rewatch"]))
-                + F.mse_loss(dwell_p[0],             torch.tensor(lbl["dwell"]))
+                F.binary_cross_entropy(click_p,  click_lbls)
+                + F.mse_loss(rating_p,           rating_lbls)
+                + F.binary_cross_entropy(fav_p,  fav_lbls)
+                + F.binary_cross_entropy(rew_p,  rew_lbls)
+                + F.mse_loss(dwell_p,            dwell_lbls)
             )
-            optim.zero_grad(); loss.backward(); optim.step()
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
             total += loss.item()
         if (epoch + 1) % 100 == 0:
-            print(f"  epoch {epoch + 1}/{epochs}  multi-task loss = {total / len(rows):.4f}")
+            # total is sum of per-user mean losses; divide by user count for a per-user average
+            print(f"  epoch {epoch + 1}/{epochs}  multi-task loss = {total / len(uid_arr):.4f}")
     return ranker
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -518,6 +545,19 @@ _ENGAGEMENT_WEIGHTS = {
     "click": 0.35, "rating": 0.25, "favorite": 0.20, "rewatch": 0.12, "dwell": 0.08,
 }
 
+_item_emb_cache: tuple[int, np.ndarray] | None = None
+
+
+def _get_or_compute_item_embs(item_sess: ort.InferenceSession) -> np.ndarray:
+    """Return all item embeddings, computing once via ONNX and caching in-process."""
+    global _item_emb_cache
+    if _item_emb_cache is None or _item_emb_cache[0] != id(item_sess):
+        all_iids = np.arange(N_MOVIES, dtype=np.int64)
+        genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
+        (embs,) = item_sess.run(None, {"movie_id": all_iids, "genre_feat": genre_feats})
+        _item_emb_cache = (id(item_sess), embs)
+    return _item_emb_cache[1]
+
 
 def clamp_top_k(top_k: int, watched_count: int) -> int:
     """Clamp top_k to the number of movies still eligible for recommendation."""
@@ -537,8 +577,8 @@ def retrieve_top_indices(
 ) -> tuple[np.ndarray, np.ndarray]:
     k = clamp_top_k(top_k, len(set(watched_movie_ids)))
     scores_all = (user_emb @ item_embs.T)[0].astype(np.float32)
-    for movie_id in watched_movie_ids:
-        scores_all[MOVIE_TO_IDX[movie_id]] = -np.inf
+    watched_indices = [MOVIE_TO_IDX[m] for m in watched_movie_ids]
+    scores_all[watched_indices] = -np.inf
     top_indices = np.argsort(-scores_all)[:k]
     return top_indices, scores_all[top_indices]
 
@@ -589,11 +629,7 @@ def score_recommendations(
     uid_arr = np.array([USER_TO_IDX[user]], dtype=np.int64)
     (user_emb,) = user_sess.run(None, {"user_id": uid_arr})
 
-    all_iids = np.arange(N_MOVIES, dtype=np.int64)
-    genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
-    (all_item_embs,) = item_sess.run(
-        None, {"movie_id": all_iids, "genre_feat": genre_feats},
-    )
+    all_item_embs = _get_or_compute_item_embs(item_sess)
 
     top_indices, retrieval_scores = retrieve_top_indices(
         user_emb, all_item_embs, hist["watched"], top_k,
@@ -634,7 +670,7 @@ def score_recommendations(
 
     diagnostics = {
         "user_emb": user_emb,
-        "all_item_embs": all_item_embs,
+        "all_item_embs": all_item_embs.view(),  # view prevents callers from mutating the cache
         "top_indices": top_indices,
         "retrieval_scores": retrieval_scores,
         "iso_mask": iso_mask,
