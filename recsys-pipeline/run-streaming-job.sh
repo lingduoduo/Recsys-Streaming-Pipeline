@@ -19,8 +19,8 @@ if [[ -z "$SPARK_SUBMIT" ]]; then
   fi
 fi
 
-if [[ ! -f spark-streaming-job/target/scala-2.12/spark-recsys-job.jar ]]; then
-  echo "Missing Spark job jar. Run: cd spark-streaming-job && sbt assembly" >&2
+if [[ ! -f services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar ]]; then
+  echo "Missing Spark job jar. Run: cd services/spark-streaming-job && sbt assembly" >&2
   exit 127
 fi
 
@@ -30,4 +30,4 @@ exec "$SPARK_SUBMIT" \
   --executor-memory "${SPARK_EXECUTOR_MEMORY:-2g}" \
   --conf "spark.sql.shuffle.partitions=${SPARK_SQL_SHUFFLE_PARTITIONS:-4}" \
   --class "${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}" \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar

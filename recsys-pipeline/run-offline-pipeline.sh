@@ -62,9 +62,9 @@ else
   exit 127
 fi
 
-JAR="spark-streaming-job/target/scala-2.12/spark-recsys-job.jar"
+JAR="services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar"
 if [[ ! -f "$JAR" ]]; then
-  echo "Missing Spark job jar. Run: cd spark-streaming-job && sbt assembly" >&2
+  echo "Missing Spark job jar. Run: cd services/spark-streaming-job && sbt assembly" >&2
   exit 127
 fi
 

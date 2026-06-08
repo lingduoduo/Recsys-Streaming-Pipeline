@@ -7,7 +7,13 @@ A recommendation-system playground that combines streaming data pipelines, offli
 ```
 Recsys-Streaming-Pipeline/
 ├── spark-analysis/          # Spark/Flink concepts, user analysis, and ML pipelines
-└── recsys-pipeline/         # Streaming recommendation platform and retrieval service
+└── recsys-pipeline/         # Streaming recommendation platform
+    ├── services/
+    │   ├── spark-streaming-job/
+    │   ├── java-retrieval-service/
+    │   └── python-modeling/
+    ├── sampledata/
+    └── docker-compose.yml
 ```
 
 ---
@@ -62,7 +68,7 @@ A streaming recommendation platform: a real-time Kafka→Spark Streaming→Redis
 ```
 Real-time path
 ──────────────
-python-modeling/producer.py  ──Kafka──►  UserEventStreamingJob  ──Redis──►  java-retrieval-service
+services/python-modeling/producer.py  ──Kafka──►  UserEventStreamingJob  ──Redis──►  services/java-retrieval-service
 (user events)            (Structured Streaming)              (Spring Boot)
 
 Training-data path
@@ -80,11 +86,11 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 
 | Component | Language | Description |
 |-----------|----------|-------------|
-| `spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
-| `spark-streaming-job` | Scala / Spark | Joins behavior logs into feature+label samples and reconstructs request-level slates |
-| `spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
-| `java-retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
-| `python-modeling/producer.py` | Python | Kafka producer that generates synthetic user–item events |
+| `services/spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
+| `services/spark-streaming-job` | Scala / Spark | Joins behavior logs into feature+label samples and reconstructs request-level slates |
+| `services/spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
+| `services/java-retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
+| `services/python-modeling/producer.py` | Python | Kafka producer that generates synthetic user–item events |
 
 ### Quick Start
 
@@ -94,21 +100,21 @@ cd recsys-pipeline
 docker compose up -d          # Kafka + Redis
 
 # 2. Run producer
-python python-modeling/producer.py
+python services/python-modeling/producer.py
 
 # 3. Submit streaming job
 spark-submit \
   --class com.demo.task.UserEventStreamingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 
 # 4. Train Item2Vec embeddings
 spark-submit \
   --class com.demo.task.Item2VecTrainingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv
 
 # 5. Start retrieval service
-cd java-retrieval-service && mvn spring-boot:run
+cd services/java-retrieval-service && mvn spring-boot:run
 ```
 
 ### Key Endpoints
