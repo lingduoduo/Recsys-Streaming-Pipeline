@@ -77,6 +77,15 @@ def test_train_two_tower_produces_valid_normalised_embeddings():
     torch.testing.assert_close(norms, torch.ones(pipeline.N_MOVIES), atol=1e-5, rtol=0)
 
 
+def test_train_two_tower_parameters_updated_by_training():
+    torch.manual_seed(0)
+    untrained = pipeline.UserTower(pipeline.N_USERS, pipeline.EMB_DIM)
+    initial_weight = untrained.emb.weight.detach().clone()
+    user_tower, _ = pipeline.train_two_tower(epochs=5, seed=0)
+    assert not torch.equal(user_tower.emb.weight, initial_weight), \
+        "embedding weights should change after training"
+
+
 @pytest.mark.skipif(
     not pipeline.DEFAULT_ARTIFACTS.all_exist(),
     reason="checked-in ONNX sample artifacts are unavailable",

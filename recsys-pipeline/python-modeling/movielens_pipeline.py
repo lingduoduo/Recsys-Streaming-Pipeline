@@ -376,11 +376,12 @@ def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32) -> 
     neg_iids_t = torch.tensor([t[2] for t in triples], dtype=torch.long)
 
     idx_arr = np.arange(len(triples))
+    idx_t = torch.from_numpy(idx_arr)
     for epoch in range(epochs):
         rng.shuffle(idx_arr)
         total = 0.0
         for start in range(0, len(triples), batch_size):
-            batch_idx = torch.tensor(idx_arr[start : start + batch_size], dtype=torch.long)
+            batch_idx = idx_t[start : start + batch_size]
             uids  = uids_t[batch_idx]
             piids = pos_iids_t[batch_idx]
             niids = neg_iids_t[batch_idx]
