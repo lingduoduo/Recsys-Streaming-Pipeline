@@ -194,7 +194,7 @@ python services/python-modeling/movielens_pipeline.py --user alice --user bob
 python services/python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
 ```
 
-Run all Python and service-launcher smoke tests with:
+Run all cross-service Python and launcher tests from `integration-tests/` with:
 
 ```bash
 pytest -q
