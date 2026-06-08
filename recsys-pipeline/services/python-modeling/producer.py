@@ -11,7 +11,7 @@ except ModuleNotFoundError as exc:
     if exc.name == "kafka":
         raise SystemExit(
             "Missing producer dependencies. Run: "
-            "python -m pip install -r python-modeling/requirements.txt"
+            "python -m pip install -r services/python-modeling/requirements.txt"
         ) from exc
     raise
 

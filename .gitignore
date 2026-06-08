@@ -20,6 +20,7 @@ recsys-pipeline/sampledata/movielens_*.onnx
 recsys-pipeline/sampledata/movielens_*.onnx.data
 recsys-pipeline/__pycache__/
 recsys-pipeline/**/__pycache__/
-spark-recsys/**/*.pyc
+recsys-pipeline/**/*.pyc
+*.class
 .DS_Store
 **/.DS_Store

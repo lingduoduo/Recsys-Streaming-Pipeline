@@ -8,14 +8,26 @@
 
 The retrieval layer is a Spring Boot service that combines three scoring model types — an offline ONNX deep-learning model, an online learning reward model updated in real time from the feedback stream, and a UCB/Thompson bandit RL policy — with content-based retrieval, a Redis replay buffer, cold-start candidate generation, and feedback tracking.
 
+## Service Layout
+
+All independently runnable application code lives under `services/`:
+
+| Service | Build tool | Responsibility |
+|---|---|---|
+| `services/spark-streaming-job` | sbt | Streaming ingestion, feature joins, offline embeddings, and candidate generation |
+| `services/java-retrieval-service` | Maven | Spring Boot recommendation and feedback API |
+| `services/python-modeling` | pip / pytest | Synthetic event producer and MovieLens modeling pipeline |
+
+Infrastructure, shared sample data, and orchestration scripts remain at the `recsys-pipeline` root.
+
 ## Architecture
 
 ```text
-python-modeling/producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis
+services/python-modeling/producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis
                                                                         |── user:{id}:recent  (TTL 7d)
                                                                         └── global:item_popularity
 
-python-modeling/producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob
+services/python-modeling/producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob
                                                     |──► Kafka: training_samples
                                                     └──► Parquet: training-samples/date=YYYY-MM-DD/
 
@@ -33,20 +45,18 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
                                                     |──► Redis user:{id}:candidates (top-K by cosine similarity)
                                                     └──► Parquet candidate-generation/
 
-python-modeling/movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
+services/python-modeling/movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
 
-                 ┌─── Offline: ONNX model file (ONNX_MODEL_PATH)
-                 │    lookup tables (ONNX_LOOKUPS_PATH)
-java-retrieval-service├─── Redis: embeddings, bandit counters, user history, reward stats
-                 └─── In-memory: FeatureCache (Caffeine)
-                      item vectors (i2vEmb:*, TTL 5 min)
-                      reward model stats (reward-model:*, TTL 30 s)
-                        │
-                        ▼
-                 /recommend/{user}
-                 /feedback
-                 /metrics
-                 /embedding/{item}
+services/java-retrieval-service
+  ├── Offline: ONNX model file and lookup tables
+  ├── Redis: embeddings, bandit counters, user history, reward stats
+  └── In-memory: FeatureCache (Caffeine)
+        │
+        ▼
+      /recommend/{user}
+      /feedback
+      /metrics
+      /embedding/{item}
 ```
 
 ## Spark Job Package Structure
@@ -113,7 +123,7 @@ For each recommendation request, the service:
 8. Stores pending recommendation context for replay-buffer training.
 9. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
 
-The default catalog and ranking weights live in `java-retrieval-service/src/main/resources/application.yml`.
+The default catalog and ranking weights live in `services/java-retrieval-service/src/main/resources/application.yml`.
 
 ## Quick Start
 
@@ -129,9 +139,9 @@ Prerequisites:
 Build the Spark job jar:
 
 ```bash
-cd spark-streaming-job
+cd services/spark-streaming-job
 sbt assembly
-cd ..
+cd ../..
 ```
 
 Start Kafka, Zookeeper, and Redis:
@@ -143,8 +153,8 @@ docker compose up -d
 Start the clickstream producer:
 
 ```bash
-python -m pip install -r python-modeling/requirements.txt
-python python-modeling/producer.py
+python -m pip install -r services/python-modeling/requirements.txt
+python services/python-modeling/producer.py
 ```
 
 Run the streaming job:
@@ -158,7 +168,7 @@ Or run it directly with `spark-submit`:
 ```bash
 spark-submit \
   --class com.demo.task.UserEventStreamingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
 Run the offline embedding pipeline (Item2Vec → user embeddings → candidate pre-computation):
@@ -171,7 +181,7 @@ Or run the Python two-stage pipeline (two-tower retrieval + transformer ranking,
 
 ```bash
 pip install torch onnx onnxruntime numpy
-python python-modeling/movielens_pipeline.py
+python services/python-modeling/movielens_pipeline.py
 ```
 
 The first run trains and exports the three ONNX models. Later runs reuse them. You can
@@ -179,21 +189,21 @@ select users, control the retrieval candidate count, or retrain into a separate 
 directory:
 
 ```bash
-python python-modeling/movielens_pipeline.py --user alice --top-k 5
-python python-modeling/movielens_pipeline.py --user alice --user bob
-python python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
+python services/python-modeling/movielens_pipeline.py --user alice --top-k 5
+python services/python-modeling/movielens_pipeline.py --user alice --user bob
+python services/python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
 ```
 
-Run the focused Python tests with:
+Run all cross-service Python and launcher tests from `integration-tests/` with:
 
 ```bash
-pytest -q python-modeling
+pytest -q
 ```
 
 Start the retrieval service:
 
 ```bash
-cd java-retrieval-service
+cd services/java-retrieval-service
 mvn spring-boot:run
 ```
 
@@ -323,7 +333,7 @@ Returns an item embedding from Redis using key `i2vEmb:{item}`.
 
 ## Real-Time Path
 
-### `python-modeling/producer.py`
+### `services/python-modeling/producer.py`
 
 Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. Uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
 
@@ -405,7 +415,7 @@ Environment variables:
 Consumes Kafka behavior logs and turns recommendation impressions plus later feedback into training samples with `features + label`.
 
 ```bash
-PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python python-modeling/producer.py
+PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python services/python-modeling/producer.py
 
 SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob \
 ONLINE_JOINER_INPUT_TOPIC=behavior_logs \
@@ -597,7 +607,7 @@ After initial candidate generation, candidates pass through two more pipelines.
 
 ## Retrieval Service Configuration
 
-`java-retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
+`services/java-retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
 
 ### Offline model paths
 
@@ -742,7 +752,7 @@ Builds time-ordered item sequences from ratings with `rating >= 3.5`.
 ```bash
 spark-submit \
   --class com.demo.process.ItemSequencePreprocessingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   /tmp/spark-recsys/item-sequences
 ```
@@ -761,7 +771,7 @@ Trains Spark MLlib `Word2Vec` on item sequences and writes item embeddings to a 
 ```bash
 spark-submit \
   --class com.demo.task.Item2VecTrainingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/embedding.txt \
   item_1
@@ -787,7 +797,7 @@ REDIS_HOST=localhost \
 REDIS_PORT=6379 \
 spark-submit \
   --class com.demo.task.Item2VecTrainingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/embedding.txt \
   item_1
@@ -806,7 +816,7 @@ Builds a user embedding by averaging the vectors of positively rated items.
 ```bash
 spark-submit \
   --class com.demo.task.UserEmbeddingTrainingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/item_embedding_sample.txt \
   sampledata/user_embedding.txt
@@ -834,7 +844,7 @@ Trains Spark ML `ALS` directly on ratings and writes latent user and item factor
 ```bash
 spark-submit \
   --class com.demo.task.AlsEmbeddingTrainingJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/ratings.csv \
   sampledata/als
 ```
@@ -863,7 +873,7 @@ Batch embedding-based candidate pre-computation. Loads pre-trained user and item
 ```bash
 spark-submit \
   --class com.demo.recommend.EmbeddingCandidateGenerationJob \
-  spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
   sampledata/user_embedding.txt \
   sampledata/embedding.txt \
   sampledata/candidates
@@ -919,5 +929,5 @@ Clean project story:
 ## Notes
 
 - `docker-compose.yml` is explicitly for local development and runs Kafka and Redis without authentication.
-- `run-streaming-job.sh` expects `spark-streaming-job/target/scala-2.12/spark-recsys-job.jar` to exist.
+- `run-streaming-job.sh` expects `services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar` to exist.
 - The retrieval service can serve recommendations without embeddings, but the relevance component will be zero until vectors are loaded.

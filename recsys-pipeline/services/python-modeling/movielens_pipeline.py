@@ -7,7 +7,7 @@ Stage 2 – Ranking    : transformer with candidate isolation attention masking.
            Multi-task heads: click, rating, favorite, rewatch, dwell.
 
 Run:
-  python recsys-pipeline/python-modeling/movielens_pipeline.py --user alice --top-k 10
+  python recsys-pipeline/services/python-modeling/movielens_pipeline.py --user alice --top-k 10
 
 Models are trained on first run and cached as ONNX files under sampledata/.
 Subsequent runs skip training and load from disk.
@@ -121,7 +121,7 @@ D_MODEL  = 64   # transformer model dimension
 NHEAD    = 4
 N_LAYERS = 2
 
-DEFAULT_MODEL_DIR = Path(__file__).resolve().parent.parent / "sampledata"
+DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[2] / "sampledata"
 
 
 @dataclass(frozen=True)
