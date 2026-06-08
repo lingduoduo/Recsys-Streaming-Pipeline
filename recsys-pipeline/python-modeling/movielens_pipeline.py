@@ -577,8 +577,8 @@ def retrieve_top_indices(
 ) -> tuple[np.ndarray, np.ndarray]:
     k = clamp_top_k(top_k, len(set(watched_movie_ids)))
     scores_all = (user_emb @ item_embs.T)[0].astype(np.float32)
-    for movie_id in watched_movie_ids:
-        scores_all[MOVIE_TO_IDX[movie_id]] = -np.inf
+    watched_indices = [MOVIE_TO_IDX[m] for m in watched_movie_ids]
+    scores_all[watched_indices] = -np.inf
     top_indices = np.argsort(-scores_all)[:k]
     return top_indices, scores_all[top_indices]
 
