@@ -545,6 +545,19 @@ _ENGAGEMENT_WEIGHTS = {
     "click": 0.35, "rating": 0.25, "favorite": 0.20, "rewatch": 0.12, "dwell": 0.08,
 }
 
+_item_emb_cache: np.ndarray | None = None
+
+
+def _get_or_compute_item_embs(item_sess: ort.InferenceSession) -> np.ndarray:
+    global _item_emb_cache
+    if _item_emb_cache is None:
+        all_iids = np.arange(N_MOVIES, dtype=np.int64)
+        genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
+        (_item_emb_cache,) = item_sess.run(
+            None, {"movie_id": all_iids, "genre_feat": genre_feats}
+        )
+    return _item_emb_cache
+
 
 def clamp_top_k(top_k: int, watched_count: int) -> int:
     """Clamp top_k to the number of movies still eligible for recommendation."""
@@ -616,11 +629,7 @@ def score_recommendations(
     uid_arr = np.array([USER_TO_IDX[user]], dtype=np.int64)
     (user_emb,) = user_sess.run(None, {"user_id": uid_arr})
 
-    all_iids = np.arange(N_MOVIES, dtype=np.int64)
-    genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
-    (all_item_embs,) = item_sess.run(
-        None, {"movie_id": all_iids, "genre_feat": genre_feats},
-    )
+    all_item_embs = _get_or_compute_item_embs(item_sess)
 
     top_indices, retrieval_scores = retrieve_top_indices(
         user_emb, all_item_embs, hist["watched"], top_k,
