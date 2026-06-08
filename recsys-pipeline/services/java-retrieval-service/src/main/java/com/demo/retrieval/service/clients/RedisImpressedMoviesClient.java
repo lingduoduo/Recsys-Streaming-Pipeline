@@ -13,9 +13,9 @@ import java.util.List;
  * logging pipeline. Field: movieIds (comma-separated). Returns an empty list for
  * unknown users.
  *
- * Mirrors the Rust ImpressedPostsClient which reads from a dedicated thrift store
- * rather than the general feature store, because impression data has its own
- * write path and freshness requirements separate from ratings.
+ * Reads from a dedicated Redis key rather than the general feature store;
+ * impression data has its own write path and freshness requirements separate
+ * from ratings.
  */
 @Component
 public class RedisImpressedMoviesClient implements ImpressedMoviesClient {

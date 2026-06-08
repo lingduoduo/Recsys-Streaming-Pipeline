@@ -13,9 +13,9 @@ import java.util.List;
  * precomputation pipeline. Field: movieIds (comma-separated). Returns an empty
  * list for unknown users.
  *
- * Mirrors the Rust CachedPostsQueryHydrator which reads from a dedicated Redis
- * key rather than the general feature store, because cached candidates are
- * written by a separate precomputation path with different freshness guarantees.
+ * Reads from a dedicated Redis key rather than the general feature store;
+ * cached candidates are written by a separate offline precomputation path
+ * with different freshness guarantees.
  */
 @Component
 public class RedisCachedMoviesClient implements CachedMoviesClient {

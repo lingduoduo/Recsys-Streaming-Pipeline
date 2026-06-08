@@ -11,9 +11,9 @@ import java.util.List;
  * Hydrates cachedMovieIds and sets hasCachedMovies when the cached candidate set
  * is large enough to be worth using.
  *
- * Mirrors the Rust CachedPostsQueryHydrator: reads from a dedicated Redis key
- * (separate write path from the general feature store) and computes hasCachedMovies
- * from the list size against a threshold, rather than storing the flag separately.
+ * Reads from a dedicated Redis key (separate write path from the general feature
+ * store) and computes hasCachedMovies from the list size against a threshold,
+ * rather than storing the flag separately.
  */
 @Component
 public class CachedMoviesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
