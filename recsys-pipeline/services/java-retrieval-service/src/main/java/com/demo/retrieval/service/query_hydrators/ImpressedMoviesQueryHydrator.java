@@ -7,8 +7,7 @@ import org.springframework.stereotype.Component;
 /**
  * Hydrates impressedMovieIds from the impression tracking store.
  *
- * Mirrors the Rust ImpressedPostsQueryHydrator which calls a dedicated
- * ImpressedPostsClient rather than the general feature store, because
+ * Calls a dedicated ImpressedMoviesClient rather than the general feature store;
  * impression data has its own write path separate from user ratings.
  */
 @Component

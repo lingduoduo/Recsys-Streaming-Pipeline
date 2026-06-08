@@ -27,9 +27,9 @@ class RecommendationResponseStatsJobSpec extends AnyFlatSpec with Matchers with 
     import sparkSession.implicits._
 
     val samples = Seq(
-      ("s1", "req_1", "user_1", "item_1", 0, 100L, 1, 0, 1.0, Map("subscription_level" -> "gold", "country_code" -> "US"), Map("type" -> "post"), Map("AdsBlenderType" -> "balanced")),
+      ("s1", "req_1", "user_1", "item_1", 0, 100L, 1, 0, 1.0, Map("subscription_level" -> "gold", "country_code" -> "US"), Map("type" -> "movie"), Map("AdsBlenderType" -> "balanced")),
       ("s2", "req_1", "user_1", "item_2", 1, 100L, 0, 0, 0.0, Map("subscription_level" -> "gold", "country_code" -> "US"), Map("product_type" -> "ad"), Map("AdsBlenderType" -> "balanced")),
-      ("s3", "req_1", "user_1", "item_3", 2, 100L, 0, 0, 0.0, Map("subscription_level" -> "gold", "country_code" -> "US"), Map("type" -> "post"), Map("AdsBlenderType" -> "balanced"))
+      ("s3", "req_1", "user_1", "item_3", 2, 100L, 0, 0, 0.0, Map("subscription_level" -> "gold", "country_code" -> "US"), Map("type" -> "movie"), Map("AdsBlenderType" -> "balanced"))
     ).toDF("sample_id", "request_id", "user_id", "item_id", "position", "impression_ts", "clicked", "ordered", "label", "user_features", "item_features", "context_features")
 
     val metrics = RecommendationResponseStatsJob.buildMetricEvents(
@@ -50,7 +50,7 @@ class RecommendationResponseStatsJobSpec extends AnyFlatSpec with Matchers with 
     import sparkSession.implicits._
 
     val samples = Seq(
-      ("s1", "req_2", "user_2", "item_1", 0, 100L, 0, 0, 0.0, Map.empty[String, String], Map("type" -> "post"), Map.empty[String, String])
+      ("s1", "req_2", "user_2", "item_1", 0, 100L, 0, 0, 0.0, Map.empty[String, String], Map("type" -> "movie"), Map.empty[String, String])
     ).toDF("sample_id", "request_id", "user_id", "item_id", "position", "impression_ts", "clicked", "ordered", "label", "user_features", "item_features", "context_features")
 
     val metrics = RecommendationResponseStatsJob.buildMetricEvents(
