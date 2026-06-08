@@ -18,8 +18,7 @@ public class PreviouslyServedMoviesFilter implements CandidateFilter {
         }
 
         Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
-            .collect(Collectors.partitioningBy(candidate ->
-                CandidateRelatedMovieIds.get(candidate).stream().anyMatch(served::contains)));
+            .collect(Collectors.partitioningBy(candidate -> served.contains(candidate.movieId())));
         return new CandidateFilterResult(
             partitioned.getOrDefault(Boolean.FALSE, List.of()),
             partitioned.getOrDefault(Boolean.TRUE, List.of())

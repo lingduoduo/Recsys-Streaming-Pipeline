@@ -36,28 +36,18 @@ public class RedisMovieLensFeatureClient implements MovieLensFeatureClient {
             readList(raw.get("retrievalSequenceMovieIds")),
             readList(raw.get("scoringSequenceMovieIds")),
             readList(raw.get("servedMovieIds")),
-            readList(raw.get("subscribedUserIds")),
-            readList(raw.get("mutedUserIds")),
-            readList(raw.get("blockedUserIds")),
-            readList(raw.get("followedUserIds")),
             readLongList(raw.get("pastRequestTimestamps")),
-            readLongList(raw.get("mutualFollowMinhash")),
             readIntegerList(raw.get("inferredGenres")),
-            readIntegerList(raw.get("followedGenres")),
-            readIntegerList(raw.get("followedCollections")),
             readLongList(raw.get("impressionBloomFilter")),
             readList(raw.get("impressedMovieIds")),
             readList(raw.get("cachedMovieIds")),
             readBoolean(raw.get("hasCachedMovies")),
-            readString(raw.get("ipLocation")),
             new UserDemographics(
                 (int) readLong(raw.get("age")),
                 readString(raw.get("gender")),
                 readString(raw.get("occupation")),
                 readString(raw.get("zipCode"))
-            ),
-            readNullableString(raw.get("inferredGender")),
-            readNullableDouble(raw.get("inferredGenderScore"))
+            )
         ));
     }
 

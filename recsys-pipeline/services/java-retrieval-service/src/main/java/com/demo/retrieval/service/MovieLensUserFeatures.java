@@ -12,23 +12,13 @@ public record MovieLensUserFeatures(
     List<String> retrievalSequenceMovieIds,
     List<String> scoringSequenceMovieIds,
     List<String> servedMovieIds,
-    List<String> subscribedUserIds,
-    List<String> mutedUserIds,
-    List<String> blockedUserIds,
-    List<String> followedUserIds,
     List<Long> pastRequestTimestamps,
-    List<Long> mutualFollowMinhash,
     List<Integer> inferredGenres,
-    List<Integer> followedGenres,
-    List<Integer> followedCollections,
     List<Long> impressionBloomFilter,
     List<String> impressedMovieIds,
     List<String> cachedMovieIds,
     boolean hasCachedMovies,
-    String ipLocation,
-    UserDemographics demographics,
-    String inferredGender,
-    Double inferredGenderScore
+    UserDemographics demographics
 ) {
     public MovieLensUserFeatures(
         String userId,
@@ -52,41 +42,23 @@ public record MovieLensUserFeatures(
             List.of(),
             List.of(),
             List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
             false,
-            "",
-            UserDemographics.empty(),
-            null,
-            null
+            UserDemographics.empty()
         );
     }
 
     public MovieLensUserFeatures {
-        favoriteGenres = copyStrings(favoriteGenres);
-        recentlyRatedMovieIds = copyStrings(recentlyRatedMovieIds);
-        actionSequenceMovieIds = copyStrings(actionSequenceMovieIds);
-        retrievalSequenceMovieIds = copyStrings(retrievalSequenceMovieIds);
-        scoringSequenceMovieIds = copyStrings(scoringSequenceMovieIds);
-        servedMovieIds = copyStrings(servedMovieIds);
-        subscribedUserIds = copyStrings(subscribedUserIds);
-        mutedUserIds = copyStrings(mutedUserIds);
-        blockedUserIds = copyStrings(blockedUserIds);
-        followedUserIds = copyStrings(followedUserIds);
-        pastRequestTimestamps = copyLongs(pastRequestTimestamps);
-        mutualFollowMinhash = copyLongs(mutualFollowMinhash);
-        inferredGenres = copyIntegers(inferredGenres);
-        followedGenres = copyIntegers(followedGenres);
-        followedCollections = copyIntegers(followedCollections);
-        impressionBloomFilter = copyLongs(impressionBloomFilter);
-        impressedMovieIds = copyStrings(impressedMovieIds);
-        cachedMovieIds = copyStrings(cachedMovieIds);
-        ipLocation = ipLocation == null ? "" : ipLocation.trim();
+        favoriteGenres = strings(favoriteGenres);
+        recentlyRatedMovieIds = strings(recentlyRatedMovieIds);
+        actionSequenceMovieIds = strings(actionSequenceMovieIds);
+        retrievalSequenceMovieIds = strings(retrievalSequenceMovieIds);
+        scoringSequenceMovieIds = strings(scoringSequenceMovieIds);
+        servedMovieIds = strings(servedMovieIds);
+        pastRequestTimestamps = pastRequestTimestamps == null ? List.of() : List.copyOf(pastRequestTimestamps);
+        inferredGenres = inferredGenres == null ? List.of() : List.copyOf(inferredGenres);
+        impressionBloomFilter = impressionBloomFilter == null ? List.of() : List.copyOf(impressionBloomFilter);
+        impressedMovieIds = strings(impressedMovieIds);
+        cachedMovieIds = strings(cachedMovieIds);
         demographics = demographics == null ? UserDemographics.empty() : demographics;
     }
 
@@ -95,206 +67,85 @@ public record MovieLensUserFeatures(
     }
 
     public MovieLensUserFeatures withActionSequenceMovieIds(List<String> value) {
-        return copy(value, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds, subscribedUserIds,
-            mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+        return copy(value, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds, pastRequestTimestamps,
+            inferredGenres, impressionBloomFilter, impressedMovieIds, cachedMovieIds, hasCachedMovies, demographics);
     }
 
     public MovieLensUserFeatures withRetrievalSequenceMovieIds(List<String> value) {
-        return copy(actionSequenceMovieIds, value, scoringSequenceMovieIds, servedMovieIds, subscribedUserIds,
-            mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+        return copy(actionSequenceMovieIds, value, scoringSequenceMovieIds, servedMovieIds, pastRequestTimestamps,
+            inferredGenres, impressionBloomFilter, impressedMovieIds, cachedMovieIds, hasCachedMovies, demographics);
     }
 
     public MovieLensUserFeatures withScoringSequenceMovieIds(List<String> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, value, servedMovieIds, subscribedUserIds,
-            mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, value, servedMovieIds, pastRequestTimestamps,
+            inferredGenres, impressionBloomFilter, impressedMovieIds, cachedMovieIds, hasCachedMovies, demographics);
     }
 
     public MovieLensUserFeatures withServedMovieIds(List<String> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, value, subscribedUserIds,
-            mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withSubscribedUserIds(List<String> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds, value,
-            mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withMutedUserIds(List<String> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, value, blockedUserIds, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withBlockedUserIds(List<String> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, value, followedUserIds, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withFollowedUserIds(List<String> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, value, pastRequestTimestamps, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, value,
+            pastRequestTimestamps, inferredGenres, impressionBloomFilter, impressedMovieIds, cachedMovieIds,
+            hasCachedMovies, demographics);
     }
 
     public MovieLensUserFeatures withPastRequestTimestamps(List<Long> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, value, mutualFollowMinhash,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds, value,
+            inferredGenres, impressionBloomFilter, impressedMovieIds, cachedMovieIds, hasCachedMovies, demographics);
     }
 
-    public MovieLensUserFeatures withMutualFollowMinhash(List<Long> value) {
+    public MovieLensUserFeatures withInferredGenres(List<Integer> value) {
         return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps, value,
-            inferredGenres, followedGenres, followedCollections, impressionBloomFilter, impressedMovieIds,
-            cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+            pastRequestTimestamps, value, impressionBloomFilter, impressedMovieIds, cachedMovieIds, hasCachedMovies,
+            demographics);
     }
 
     public MovieLensUserFeatures withInferredGrokTopics(List<Integer> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, value, followedGenres, followedCollections, impressionBloomFilter,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender,
-            inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withFollowedGrokTopics(List<Integer> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, value, followedCollections, impressionBloomFilter,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender,
-            inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withFollowedStarterPacks(List<Integer> value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, value, impressionBloomFilter,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender,
-            inferredGenderScore);
+        return withInferredGenres(value);
     }
 
     public MovieLensUserFeatures withImpressionBloomFilter(List<Long> value) {
         return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, followedCollections, value,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender,
-            inferredGenderScore);
+            pastRequestTimestamps, inferredGenres, value, impressedMovieIds, cachedMovieIds, hasCachedMovies,
+            demographics);
     }
 
     public MovieLensUserFeatures withImpressedMovieIds(List<String> value) {
         return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, followedCollections, impressionBloomFilter,
-            value, cachedMovieIds, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
+            pastRequestTimestamps, inferredGenres, impressionBloomFilter, value, cachedMovieIds, hasCachedMovies,
+            demographics);
     }
 
-    public MovieLensUserFeatures withCachedMovieIds(List<String> value, boolean hasCachedMovies) {
+    public MovieLensUserFeatures withCachedMovieIds(List<String> value, boolean hasCached) {
         return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, followedCollections, impressionBloomFilter,
-            impressedMovieIds, value, hasCachedMovies, ipLocation, demographics, inferredGender, inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withIpLocation(String value) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, followedCollections, impressionBloomFilter,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, value, demographics, inferredGender,
-            inferredGenderScore);
+            pastRequestTimestamps, inferredGenres, impressionBloomFilter, impressedMovieIds, value, hasCached,
+            demographics);
     }
 
     public MovieLensUserFeatures withDemographics(UserDemographics value) {
         return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, followedCollections, impressionBloomFilter,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, ipLocation, value, inferredGender,
-            inferredGenderScore);
-    }
-
-    public MovieLensUserFeatures withInferredGender(String value, Double score) {
-        return copy(actionSequenceMovieIds, retrievalSequenceMovieIds, scoringSequenceMovieIds, servedMovieIds,
-            subscribedUserIds, mutedUserIds, blockedUserIds, followedUserIds, pastRequestTimestamps,
-            mutualFollowMinhash, inferredGenres, followedGenres, followedCollections, impressionBloomFilter,
-            impressedMovieIds, cachedMovieIds, hasCachedMovies, ipLocation, demographics, value, score);
+            pastRequestTimestamps, inferredGenres, impressionBloomFilter, impressedMovieIds, cachedMovieIds,
+            hasCachedMovies, value);
     }
 
     private MovieLensUserFeatures copy(
-        List<String> actionSequenceMovieIds,
-        List<String> retrievalSequenceMovieIds,
-        List<String> scoringSequenceMovieIds,
-        List<String> servedMovieIds,
-        List<String> subscribedUserIds,
-        List<String> mutedUserIds,
-        List<String> blockedUserIds,
-        List<String> followedUserIds,
-        List<Long> pastRequestTimestamps,
-        List<Long> mutualFollowMinhash,
-        List<Integer> inferredGenres,
-        List<Integer> followedGenres,
-        List<Integer> followedCollections,
-        List<Long> impressionBloomFilter,
-        List<String> impressedMovieIds,
-        List<String> cachedMovieIds,
-        boolean hasCachedMovies,
-        String ipLocation,
-        UserDemographics demographics,
-        String inferredGender,
-        Double inferredGenderScore
+        List<String> actions,
+        List<String> retrieval,
+        List<String> scoring,
+        List<String> served,
+        List<Long> requests,
+        List<Integer> genres,
+        List<Long> bloom,
+        List<String> impressed,
+        List<String> cached,
+        boolean hasCached,
+        UserDemographics userDemographics
     ) {
         return new MovieLensUserFeatures(
-            userId,
-            favoriteGenres,
-            avgRating,
-            ratingCount,
-            recentlyRatedMovieIds,
-            actionSequenceMovieIds,
-            retrievalSequenceMovieIds,
-            scoringSequenceMovieIds,
-            servedMovieIds,
-            subscribedUserIds,
-            mutedUserIds,
-            blockedUserIds,
-            followedUserIds,
-            pastRequestTimestamps,
-            mutualFollowMinhash,
-            inferredGenres,
-            followedGenres,
-            followedCollections,
-            impressionBloomFilter,
-            impressedMovieIds,
-            cachedMovieIds,
-            hasCachedMovies,
-            ipLocation,
-            demographics,
-            inferredGender,
-            inferredGenderScore
+            userId, favoriteGenres, avgRating, ratingCount, recentlyRatedMovieIds, actions, retrieval, scoring, served,
+            requests, genres, bloom, impressed, cached, hasCached, userDemographics
         );
     }
 
-    private static List<String> copyStrings(List<String> values) {
-        return values == null ? List.of() : List.copyOf(values);
-    }
-
-    private static List<Long> copyLongs(List<Long> values) {
-        return values == null ? List.of() : List.copyOf(values);
-    }
-
-    private static List<Integer> copyIntegers(List<Integer> values) {
+    private static List<String> strings(List<String> values) {
         return values == null ? List.of() : List.copyOf(values);
     }
 }
