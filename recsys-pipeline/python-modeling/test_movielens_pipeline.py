@@ -88,12 +88,19 @@ def test_train_two_tower_parameters_updated_by_training():
 
 def test_train_ranking_produces_valid_predictions():
     user_tower, item_tower = pipeline.train_two_tower(epochs=5, seed=0)
+    # Snapshot initial ranker weights to verify training actually updates them
+    torch.manual_seed(0)
+    initial_ranker = pipeline.RankingTransformer(pipeline.EMB_DIM, pipeline.D_MODEL,
+                                                 pipeline.NHEAD, pipeline.N_LAYERS)
+    initial_weight = initial_ranker.head_click.weight.detach().clone()
     ranker = pipeline.train_ranking(user_tower, item_tower, epochs=5, seed=0)
+    assert not torch.equal(ranker.head_click.weight, initial_weight), \
+        "ranker weights should change after training"
     genre_t = torch.tensor(pipeline.MOVIE_GENRE_FEATS)
     with torch.no_grad():
-        u_emb = user_tower(torch.tensor([0]))           # (1, EMB_DIM)
+        u_emb = user_tower(torch.tensor([0]))
         all_item_embs = item_tower(torch.arange(pipeline.N_MOVIES), genre_t)
-        cand_embs = all_item_embs[:5]                    # (5, EMB_DIM)
+        cand_embs = all_item_embs[:5]
         mask = pipeline.build_isolation_mask(5)
         click_p, rating_p, fav_p, rew_p, dwell_p = ranker(u_emb, cand_embs, mask)
     for name, out in [("click", click_p), ("rating", rating_p), ("favorite", fav_p),

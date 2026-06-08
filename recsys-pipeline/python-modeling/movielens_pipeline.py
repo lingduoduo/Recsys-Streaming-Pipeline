@@ -452,6 +452,7 @@ def train_ranking(
             optim.step()
             total += loss.item()
         if (epoch + 1) % 100 == 0:
+            # total is sum of per-user mean losses; divide by user count for a per-user average
             print(f"  epoch {epoch + 1}/{epochs}  multi-task loss = {total / len(uid_arr):.4f}")
     return ranker
 
