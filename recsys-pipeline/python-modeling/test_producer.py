@@ -8,8 +8,11 @@ import types
 def load_producer_module():
     """Import producer.py without creating a KafkaProducer connection."""
     kafka_stub = types.ModuleType("kafka")
+    kafka_errors_stub = types.ModuleType("kafka.errors")
     kafka_stub.KafkaProducer = lambda **kwargs: None
+    kafka_errors_stub.NoBrokersAvailable = RuntimeError
     sys.modules.setdefault("kafka", kafka_stub)
+    sys.modules.setdefault("kafka.errors", kafka_errors_stub)
 
     spec = importlib.util.spec_from_file_location(
         "producer",
@@ -93,6 +96,14 @@ class TestEnvConfig:
         monkeypatch.setenv("NUM_USERS", "0")
         num = max(int(os.getenv("NUM_USERS", "5")), 1)
         assert num == 1
+
+
+def test_report_delivery_error_prints_failure(capsys):
+    mod = load_producer_module()
+
+    mod.report_delivery_error(RuntimeError("broker unavailable"))
+
+    assert "delivery failed: broker unavailable" in capsys.readouterr().out
 
 
 class TestBehaviorWorkflowEvents:

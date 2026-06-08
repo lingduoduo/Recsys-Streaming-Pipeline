@@ -22,7 +22,7 @@ object Item2VecTrainingJob {
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
     val embeddingPath = Env.argOrEnv(args, 1, "ITEM2VEC_EMBEDDING_PATH")
-      .getOrElse("spark-recsys/sampledata/embedding.txt")
+      .getOrElse("recsys-pipeline/sampledata/embedding.txt")
     val queryItem = Env.argOrEnv(args, 2, "ITEM2VEC_QUERY_ITEM").getOrElse(DefaultQueryItem)
 
     val spark = SparkSessions.create("Item2VecTrainingJob")

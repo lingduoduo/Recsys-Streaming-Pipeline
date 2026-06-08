@@ -4,7 +4,16 @@ import random
 import time
 import uuid
 
-from kafka import KafkaProducer
+try:
+    from kafka import KafkaProducer
+    from kafka.errors import NoBrokersAvailable
+except ModuleNotFoundError as exc:
+    if exc.name == "kafka":
+        raise SystemExit(
+            "Missing producer dependencies. Run: "
+            "python -m pip install -r python-modeling/requirements.txt"
+        ) from exc
+    raise
 
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "user_events")
@@ -14,6 +23,7 @@ NUM_ITEMS = max(int(os.getenv("NUM_ITEMS", "10")), 1)
 SLATE_SIZE = max(int(os.getenv("SLATE_SIZE", "5")), 1)
 PRODUCER_MODE = os.getenv("PRODUCER_MODE", "clickstream").lower()
 LOG_EVERY = max(int(os.getenv("LOG_EVERY", "100")), 1)
+MAX_EVENTS = max(int(os.getenv("MAX_EVENTS", "0")), 0)
 
 
 def make_click_event(users, items):
@@ -88,11 +98,30 @@ def make_producer():
         linger_ms=20,
         batch_size=32 * 1024,
         compression_type="lz4",
+        api_version_auto_timeout_ms=5_000,
+        request_timeout_ms=10_000,
+        max_block_ms=10_000,
     )
 
 
+def report_delivery_error(error):
+    print(f"delivery failed: {error}", flush=True)
+
+
 def main():
-    producer = make_producer()
+    print(
+        f"connecting to Kafka at {BOOTSTRAP_SERVERS} "
+        f"(topic={TOPIC}, mode={PRODUCER_MODE}, rate={EVENTS_PER_SECOND:g}/s)",
+        flush=True,
+    )
+    try:
+        producer = make_producer()
+    except NoBrokersAvailable:
+        raise SystemExit(
+            f"No Kafka broker is available at {BOOTSTRAP_SERVERS}. "
+            "Start Kafka with: docker compose up -d"
+        ) from None
+    print("connected; producing events (press Ctrl-C to stop)", flush=True)
     users = [f"user_{i}" for i in range(1, NUM_USERS + 1)]
     items = [f"item_{i}" for i in range(1, NUM_ITEMS + 1)]
     interval = 1.0 / EVENTS_PER_SECOND
@@ -109,17 +138,20 @@ def main():
 
             for event in events:
                 key = event.get("request_id") or event["user_id"]
-                producer.send(TOPIC, value=event, key=key)
+                producer.send(TOPIC, value=event, key=key).add_errback(report_delivery_error)
                 sent += 1
-                if sent % LOG_EVERY == 0:
-                    print(f"sent {sent} events, last: {event}")
+                if sent == 1 or sent % LOG_EVERY == 0:
+                    print(f"sent {sent} events, last: {event}", flush=True)
+                if MAX_EVENTS and sent >= MAX_EVENTS:
+                    print(f"reached MAX_EVENTS={MAX_EVENTS}; stopping", flush=True)
+                    return
 
             elapsed = time.monotonic() - tick
             sleep_for = interval - elapsed
             if sleep_for > 0:
                 time.sleep(sleep_for)
     except KeyboardInterrupt:
-        print("stopping producer")
+        print("stopping producer", flush=True)
     finally:
         producer.flush()
         producer.close()

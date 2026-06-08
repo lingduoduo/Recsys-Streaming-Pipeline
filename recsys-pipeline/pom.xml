@@ -10,6 +10,6 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>retrieval-service</module>
+        <module>java-retrieval-service</module>
     </modules>
 </project>

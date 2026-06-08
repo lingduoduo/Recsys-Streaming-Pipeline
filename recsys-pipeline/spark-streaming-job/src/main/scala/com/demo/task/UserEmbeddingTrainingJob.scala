@@ -17,7 +17,7 @@ object UserEmbeddingTrainingJob {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
     val itemEmbeddingPath = Env.requiredArgOrEnv(args, 1, "ITEM2VEC_EMBEDDING_PATH", "item embedding path")
     val userEmbeddingPath = Env.argOrEnv(args, 2, "USER_EMBEDDING_OUTPUT_PATH")
-      .getOrElse("spark-recsys/sampledata/user_embedding.txt")
+      .getOrElse("recsys-pipeline/sampledata/user_embedding.txt")
 
     val saveToRedis = Env.boolean("USER_EMBEDDING_SAVE_TO_REDIS", default = false)
     val spark = SparkSessions.create("UserEmbeddingTrainingJob")

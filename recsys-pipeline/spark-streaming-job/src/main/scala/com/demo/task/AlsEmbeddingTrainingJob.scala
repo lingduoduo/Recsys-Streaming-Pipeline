@@ -19,7 +19,7 @@ object AlsEmbeddingTrainingJob {
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
     val outputPath = Env.argOrEnv(args, 1, "ALS_EMBEDDING_OUTPUT_PATH")
-      .getOrElse("spark-recsys/sampledata/als")
+      .getOrElse("recsys-pipeline/sampledata/als")
 
     val spark = SparkSessions.create("AlsEmbeddingTrainingJob")
 
