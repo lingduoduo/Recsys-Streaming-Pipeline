@@ -545,18 +545,18 @@ _ENGAGEMENT_WEIGHTS = {
     "click": 0.35, "rating": 0.25, "favorite": 0.20, "rewatch": 0.12, "dwell": 0.08,
 }
 
-_item_emb_cache: np.ndarray | None = None
+_item_emb_cache: tuple[int, np.ndarray] | None = None
 
 
 def _get_or_compute_item_embs(item_sess: ort.InferenceSession) -> np.ndarray:
+    """Return all item embeddings, computing once via ONNX and caching in-process."""
     global _item_emb_cache
-    if _item_emb_cache is None:
+    if _item_emb_cache is None or _item_emb_cache[0] != id(item_sess):
         all_iids = np.arange(N_MOVIES, dtype=np.int64)
         genre_feats = MOVIE_GENRE_FEATS.astype(np.float32)
-        (_item_emb_cache,) = item_sess.run(
-            None, {"movie_id": all_iids, "genre_feat": genre_feats}
-        )
-    return _item_emb_cache
+        (embs,) = item_sess.run(None, {"movie_id": all_iids, "genre_feat": genre_feats})
+        _item_emb_cache = (id(item_sess), embs)
+    return _item_emb_cache[1]
 
 
 def clamp_top_k(top_k: int, watched_count: int) -> int:

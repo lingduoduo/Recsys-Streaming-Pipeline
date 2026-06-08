@@ -19,6 +19,11 @@ def load_pipeline_module():
 pipeline = load_pipeline_module()
 
 
+@pytest.fixture(autouse=True)
+def reset_item_emb_cache(monkeypatch):
+    monkeypatch.setattr(pipeline, "_item_emb_cache", None)
+
+
 def test_isolation_mask_allows_user_and_self_attention_only():
     mask = pipeline.build_isolation_mask(3)
 
@@ -109,9 +114,7 @@ def test_train_ranking_produces_valid_predictions():
         assert (out >= 0).all() and (out <= 1).all(), f"{name} out of [0,1]"
 
 
-def test_get_or_compute_item_embs_caches_result(monkeypatch):
-    monkeypatch.setattr(pipeline, "_item_emb_cache", None)
-
+def test_get_or_compute_item_embs_caches_result():
     fake_embs = np.random.default_rng(7).random((pipeline.N_MOVIES, pipeline.EMB_DIM)).astype(np.float32)
     call_count = 0
 
@@ -119,6 +122,8 @@ def test_get_or_compute_item_embs_caches_result(monkeypatch):
         def run(self, _output_names, _inputs):
             nonlocal call_count
             call_count += 1
+            # .copy() is intentional: ensures `result1 is result2` only passes
+            # if the cache, not a fresh array from run(), is returned second call.
             return [fake_embs.copy()]
 
     sess = FakeItemSession()
