@@ -786,7 +786,7 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 | `recsys.bandit.relevance-weight` | `0.6` |
 | `recsys.bandit.content-weight` | `0.25` |
 | `recsys.bandit.popularity-weight` | `0.15` |
-| `recsys.bandit.deep-learning-weight` | `0.0` |
+| `recsys.bandit.deep-learning-weight` | `0.15` |
 | `recsys.bandit.q-learning-alpha` | `0.1` |
 | `recsys.bandit.q-learning-gamma` | `0.9` |
 | `recsys.bandit.q-learning-epsilon` | `0.1` |
@@ -846,7 +846,7 @@ Runtime overrides:
 | `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
 | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
-| `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
+| `RECSYS_DEEP_LEARNING_WEIGHT` | `0.15` |
 
 **Replay buffer**
 
