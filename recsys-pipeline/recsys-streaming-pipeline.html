@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Streaming RecSys Platform — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#020617;color:#e2e8f0;font-family:'JetBrains Mono',monospace;min-height:100vh;padding:32px 24px 48px;}
+  .header{display:flex;align-items:flex-start;gap:14px;margin-bottom:28px;}
+  .pulse-dot{width:10px;height:10px;border-radius:50%;background:#fb923c;flex-shrink:0;margin-top:5px;animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(251,146,60,.5);}50%{box-shadow:0 0 0 7px rgba(251,146,60,0);}}
+  h1{font-size:20px;font-weight:700;color:#f8fafc;letter-spacing:-.3px;}
+  .subtitle{font-size:11px;color:#64748b;margin-top:3px;}
+  .diagram-card{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:20px;overflow-x:auto;}
+  svg{display:block;}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px;}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;}
+  .card-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .card-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .dot-cyan{background:#22d3ee;}.dot-green{background:#34d399;}.dot-violet{background:#a78bfa;}
+  .dot-amber{background:#fbbf24;}.dot-rose{background:#fb7185;}.dot-orange{background:#fb923c;}
+  .card-header h3{font-size:11px;font-weight:600;color:#e2e8f0;}
+  .card ul{list-style:none;}
+  .card li{font-size:10px;color:#94a3b8;padding:2px 0;line-height:1.55;}
+  .footer{margin-top:20px;font-size:9px;color:#334155;text-align:right;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="pulse-dot"></div>
+  <div>
+    <h1>Streaming RecSys Platform</h1>
+    <div class="subtitle">Data Pipeline · Model Prediction Pipeline · Experiment Pipeline · Scala/sbt · Java/Maven · Python · lingduoduo/Recsys-Streaming-Pipeline/recsys-pipeline</div>
+  </div>
+</div>
+
+<div class="diagram-card">
+<svg viewBox="0 0 1300 1020" xmlns="http://www.w3.org/2000/svg" width="1300" height="1020">
+<defs>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+  <marker id="a"     markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#475569"/></marker>
+  <marker id="acyan" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#22d3ee"/></marker>
+  <marker id="agrn"  markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#34d399"/></marker>
+  <marker id="avio"  markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#a78bfa"/></marker>
+  <marker id="aamb"  markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#fbbf24"/></marker>
+  <marker id="aorg"  markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#fb923c"/></marker>
+  <marker id="arose" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#fb7185"/></marker>
+</defs>
+
+<rect width="1300" height="1020" fill="#020617"/>
+<rect width="1300" height="1020" fill="url(#grid)"/>
+
+<!-- ═══ ZONE OUTLINES ═══ -->
+<!-- Data Pipeline (streaming) -->
+<rect x="28" y="28" width="820" height="258" rx="10" fill="none" stroke="#fb923c" stroke-width="1.4" stroke-dasharray="7,4"/>
+<text x="44" y="20" fill="#fb923c" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="600">Data Pipeline  ·  services/spark-streaming-job  (sbt)  ·  com.demo.{process,task,recommend,sink}</text>
+
+<!-- Offline Embedding Pipeline -->
+<rect x="28" y="308" width="820" height="200" rx="10" fill="none" stroke="#fbbf24" stroke-width="1.4" stroke-dasharray="7,4"/>
+<text x="44" y="300" fill="#fbbf24" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="600">Offline Embedding Pipeline  ·  services/spark-streaming-job  +  services/python-modeling</text>
+
+<!-- Java Retrieval Service -->
+<rect x="28" y="530" width="820" height="280" rx="10" fill="none" stroke="#22d3ee" stroke-width="1.4" stroke-dasharray="7,4"/>
+<text x="44" y="522" fill="#22d3ee" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="600">Java Retrieval Service  :8080  ·  services/java-retrieval-service  (Maven / Spring Boot)</text>
+
+<!-- Experiment / RL Pipeline -->
+<rect x="868" y="28" width="404" height="502" rx="10" fill="none" stroke="#a78bfa" stroke-width="1.4" stroke-dasharray="7,4"/>
+<text x="884" y="20" fill="#a78bfa" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="600">Experiment &amp; RL Pipeline  (bandit + online learning)</text>
+
+<!-- Storage -->
+<rect x="28" y="832" width="1244" height="120" rx="10" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="7,4"/>
+<text x="44" y="824" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="600">Storage Tiers</text>
+
+<!-- ═══ ARROWS ═══ -->
+<!-- producer → Kafka topics -->
+<line x1="100" y1="108" x2="240" y2="108" stroke="#fb923c" stroke-width="1.4" marker-end="url(#aorg)"/>
+<line x1="100" y1="134" x2="240" y2="178" stroke="#fb923c" stroke-width="1.3" marker-end="url(#aorg)"/>
+<!-- Kafka user_events → UserEventStreamingJob -->
+<line x1="410" y1="108" x2="530" y2="108" stroke="#fb923c" stroke-width="1.4" marker-end="url(#aorg)"/>
+<!-- Kafka behavior_logs → OnlineJoiner -->
+<line x1="410" y1="188" x2="530" y2="188" stroke="#fb923c" stroke-width="1.4" marker-end="url(#aorg)"/>
+<!-- UserEvent → Redis -->
+<line x1="700" y1="118" x2="980" y2="878" stroke="#fb923c" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#aorg)"/>
+<!-- OnlineJoiner → training_samples Kafka -->
+<line x1="700" y1="188" x2="800" y2="240" stroke="#fb923c" stroke-width="1.2" marker-end="url(#aorg)"/>
+<!-- training_samples → ExperienceCollector -->
+<line x1="580" y1="238" x2="530" y2="238" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#aorg)"/>
+<!-- ExperienceCollector → training_experiences → ResponseStats -->
+<line x1="700" y1="250" x2="790" y2="270" stroke="#fb923c" stroke-width="1.1" marker-end="url(#aorg)"/>
+<!-- MovielensContext → Redis -->
+<line x1="700" y1="210" x2="980" y2="890" stroke="#fb923c" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#aorg)"/>
+
+<!-- Offline: ratings → preprocessing → Item2Vec -->
+<line x1="100" y1="390" x2="240" y2="390" stroke="#fbbf24" stroke-width="1.4" marker-end="url(#aamb)"/>
+<line x1="410" y1="390" x2="530" y2="370" stroke="#fbbf24" stroke-width="1.3" marker-end="url(#aamb)"/>
+<line x1="410" y1="390" x2="530" y2="420" stroke="#fbbf24" stroke-width="1.3" marker-end="url(#aamb)"/>
+<!-- Item2Vec → User Embedding -->
+<line x1="700" y1="370" x2="700" y2="420" stroke="#fbbf24" stroke-width="1.2" marker-end="url(#aamb)"/>
+<!-- embeddings → CandidateGen -->
+<line x1="700" y1="460" x2="660" y2="460" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#aamb)"/>
+<!-- ALS → Redis -->
+<line x1="700" y1="480" x2="980" y2="900" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#aamb)"/>
+<!-- Python two-tower → ONNX -->
+<line x1="240" y1="480" x2="240" y2="600" stroke="#fbbf24" stroke-width="1.2" marker-end="url(#aamb)"/>
+
+<!-- Retrieval service receives ONNX + Redis -->
+<line x1="284" y1="590" x2="388" y2="590" stroke="#22d3ee" stroke-width="1.3" marker-end="url(#acyan)"/>
+<line x1="980" y1="870" x2="580" y2="700" stroke="#a78bfa" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#avio)"/>
+
+<!-- 9-step request flow (internal) -->
+<line x1="388" y1="640" x2="388" y2="680" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#acyan)"/>
+<line x1="420" y1="700" x2="460" y2="700" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#acyan)"/>
+<line x1="600" y1="700" x2="640" y2="700" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#acyan)"/>
+<line x1="780" y1="700" x2="820" y2="670" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#acyan)"/>
+
+<!-- Retrieval → Experiment -->
+<line x1="848" y1="620" x2="878" y2="340" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="5,3" marker-end="url(#avio)"/>
+
+<!-- Feedback → online learning + bandit -->
+<line x1="980" y1="310" x2="980" y2="218" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#avio)"/>
+<line x1="980" y1="218" x2="1150" y2="218" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#avio)"/>
+
+<!-- retrain loop -->
+<line x1="1240" y1="310" x2="1245" y2="600" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arose)"/>
+<line x1="1245" y1="600" x2="848" y2="600" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arose)"/>
+
+<!-- everything → storage -->
+<line x1="388" y1="810" x2="388" y2="832" stroke="#475569" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#a)"/>
+<line x1="700" y1="810" x2="700" y2="832" stroke="#475569" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#a)"/>
+<line x1="980" y1="530" x2="980" y2="832" stroke="#475569" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#a)"/>
+
+<!-- ═══ DATA PIPELINE BOXES ═══ -->
+
+<!-- producer.py -->
+<rect x="38" y="74" width="196" height="86" rx="6" fill="#0f172a"/>
+<rect x="38" y="74" width="196" height="86" rx="6" fill="rgba(251,146,60,.25)" stroke="#fb923c" stroke-width="1.6"/>
+<text x="136" y="94" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">producer.py</text>
+<text x="136" y="109" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">clickstream mode: user_events</text>
+<text x="136" y="122" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">behavior mode: behavior_logs</text>
+<text x="136" y="134" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">lz4 compressed  ·  rate-accurate loop</text>
+<text x="136" y="146" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">EVENTS_PER_SECOND  NUM_USERS/ITEMS</text>
+
+<!-- Kafka topics -->
+<rect x="248" y="74" width="260" height="196" rx="6" fill="#0f172a"/>
+<rect x="248" y="74" width="260" height="196" rx="6" fill="rgba(251,146,60,.18)" stroke="#fb923c" stroke-width="1.6"/>
+<text x="378" y="95" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Kafka Topics  :9092</text>
+<text x="378" y="112" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">user_events</text>
+<text x="378" y="126" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">behavior_logs</text>
+<text x="378" y="140" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">training_samples</text>
+<text x="378" y="154" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">training_experiences</text>
+<text x="378" y="168" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">recommendation_metrics</text>
+<text x="378" y="182" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">movielens_context</text>
+<text x="378" y="198" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Zookeeper  ·  docker-compose.yml</text>
+<text x="378" y="210" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">KAFKA_BOOTSTRAP_SERVERS=localhost:9092</text>
+<text x="378" y="222" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">MAX_OFFSETS_PER_TRIGGER=5000</text>
+<text x="378" y="234" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">TRIGGER_INTERVAL=5s</text>
+<text x="378" y="248" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">CHECKPOINT_LOCATION=/tmp/spark-recsys/</text>
+<text x="378" y="262" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Spark Structured Streaming micro-batch</text>
+
+<!-- Streaming Jobs -->
+<rect x="524" y="74" width="316" height="208" rx="6" fill="#0f172a"/>
+<rect x="524" y="74" width="316" height="208" rx="6" fill="rgba(251,146,60,.22)" stroke="#fb923c" stroke-width="1.6"/>
+<text x="682" y="95" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Spark Streaming Jobs  (com.demo.task / process)</text>
+<text x="682" y="112" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">UserEventStreamingJob  →  Redis user:{id}:recent  +  global:item_popularity</text>
+<text x="682" y="126" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">per-executor JedisPool  ·  LPUSH+LTRIM+EXPIRE per user  ·  ZINCRBY per item</text>
+<text x="682" y="140" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">RECENT_ITEMS_LIMIT=20  TTL=604800s (7d)  PIPELINE_SIZE=500</text>
+<text x="682" y="156" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">OnlineJoinerStreamingJob  →  training_samples  +  Parquet date=YYYY-MM-DD/</text>
+<text x="682" y="170" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">single-pass groupBy(request_id, user_id, item_id)  ·  label 0/1/2 (none/click/order)</text>
+<text x="682" y="184" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">persist(MEMORY_AND_DISK_SER)  ·  try/finally unpersist  ·  2 sinks</text>
+<text x="682" y="198" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">ExperienceCollectorStreamingJob  →  slate JSON  →  training_experiences</text>
+<text x="682" y="212" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">groupBy(request_id, user_id) → sort by position → slate reward aggregate</text>
+<text x="682" y="226" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">RecommendationResponseStatsJob  →  recommendation_metrics</text>
+<text x="682" y="240" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">tags: type · subscription · country · blender  ·  ad vs item classification</text>
+<text x="682" y="254" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">MovieLensContextCollectorStreamingJob  →  user/movie feature hashes</text>
+<text x="682" y="268" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">user:{id}:features  movie:{id}:features  TTL=2592000s (30d)</text>
+
+<!-- ═══ OFFLINE PIPELINE BOXES ═══ -->
+
+<!-- ratings.csv -->
+<rect x="38" y="322" width="196" height="62" rx="6" fill="#0f172a"/>
+<rect x="38" y="322" width="196" height="62" rx="6" fill="rgba(120,53,15,.35)" stroke="#fbbf24" stroke-width="1.6"/>
+<text x="136" y="343" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">sampledata/ratings.csv</text>
+<text x="136" y="359" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">MovieLens base training data</text>
+<text x="136" y="372" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">RATINGS_CSV env override</text>
+
+<!-- Python modeling -->
+<rect x="38" y="400" width="196" height="96" rx="6" fill="#0f172a"/>
+<rect x="38" y="400" width="196" height="96" rx="6" fill="rgba(120,53,15,.35)" stroke="#fbbf24" stroke-width="1.6"/>
+<text x="136" y="420" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">python-modeling</text>
+<text x="136" y="436" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">movielens_pipeline.py</text>
+<text x="136" y="450" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">two-tower retrieval + transformer</text>
+<text x="136" y="462" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">ranking  →  3× ONNX export</text>
+<text x="136" y="474" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">--user alice --top-k 5</text>
+<text x="136" y="486" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">--force-train --model-dir</text>
+
+<!-- Item sequences + embeddings -->
+<rect x="248" y="322" width="266" height="178" rx="6" fill="#0f172a"/>
+<rect x="248" y="322" width="266" height="178" rx="6" fill="rgba(120,53,15,.35)" stroke="#fbbf24" stroke-width="1.6"/>
+<text x="381" y="343" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Spark Embedding Jobs</text>
+<text x="381" y="359" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">ItemSequencePreprocessingJob</text>
+<text x="381" y="373" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">rating ≥ 3.5 → time-ordered sequences</text>
+<text x="381" y="387" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">Item2VecTrainingJob  (com.demo.task)</text>
+<text x="381" y="401" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Spark MLlib Word2Vec → embedding.txt</text>
+<text x="381" y="415" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">→ Redis i2vEmb:{item}  TTL=86400s  if SAVE</text>
+<text x="381" y="429" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">UserEmbeddingTrainingJob</text>
+<text x="381" y="443" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">avg item vectors → user_embedding.txt</text>
+<text x="381" y="457" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">→ Redis uEmb:{user}  TTL=86400s  if SAVE</text>
+<text x="381" y="471" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">AlsEmbeddingTrainingJob</text>
+<text x="381" y="485" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Spark ML ALS  rank=16  iter=10  reg=0.1</text>
+<text x="381" y="499" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">als/userFactors + als/itemFactors Parquet</text>
+
+<!-- Candidate Gen -->
+<rect x="524" y="322" width="316" height="178" rx="6" fill="#0f172a"/>
+<rect x="524" y="322" width="316" height="178" rx="6" fill="rgba(120,53,15,.35)" stroke="#fbbf24" stroke-width="1.6"/>
+<text x="682" y="343" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">EmbeddingCandidateGenerationJob</text>
+<text x="682" y="359" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">com.demo.recommend  ·  broadcast item catalog</text>
+<text x="682" y="373" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">cosine similarity  ·  no cross-join / no shuffle</text>
+<text x="682" y="387" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">top-K per user  CANDIDATE_TOP_K=100</text>
+<text x="682" y="401" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">→ Parquet candidate-generation/</text>
+<text x="682" y="415" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">→ Redis user:{id}:candidates  if SAVE</text>
+<text x="682" y="430" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">Model Artifacts  (sampledata/)</text>
+<text x="682" y="444" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">mlp_embedding_model.onnx</text>
+<text x="682" y="458" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">mlp_embedding_lookups.json</text>
+<text x="682" y="472" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">ONNX_MODEL_PATH  ONNX_LOOKUPS_PATH (hot-swap)</text>
+<text x="682" y="486" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">replay_export.py → sampledata/replay_training.csv</text>
+<text x="682" y="500" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">run-retrain.sh: 5-stage cron loop (0 */6 * * *)</text>
+
+<!-- ═══ JAVA RETRIEVAL SERVICE BOXES ═══ -->
+
+<!-- ONNX + Feature Load -->
+<rect x="38" y="544" width="340" height="88" rx="6" fill="#0f172a"/>
+<rect x="38" y="544" width="340" height="88" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.6"/>
+<text x="208" y="564" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Startup: Model &amp; Feature Load</text>
+<text x="208" y="580" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">DeepLearningPredictionService: loads ONNX at startup</text>
+<text x="208" y="594" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">classpath: mlp_embedding_model.onnx  mlp_embedding_lookups.json</text>
+<text x="208" y="606" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">FeatureCache (Caffeine): pre-MGET all candidate vectors</text>
+<text x="208" y="618" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">item-vector TTL=300s  reward TTL=30s (invalidated on /feedback)</text>
+<text x="208" y="630" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">GET /actuator/model-reload → hot-swap ONNX without restart</text>
+
+<!-- 9-step request flow -->
+<rect x="38" y="648" width="810" height="152" rx="6" fill="#0f172a"/>
+<rect x="38" y="648" width="810" height="152" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.6"/>
+<text x="443" y="668" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">9-Step Recommendation Request Flow  GET /recommend/{user}?limit=6</text>
+<text x="443" y="685" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">① Hydrate query: 21 QueryHydrator impls populate ScoredMoviesQuery (demographics, gender, sequences, social graph, bloom filter, MinHash, geo, served history, cached movies, followed genres)</text>
+<text x="443" y="699" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">② Fetch popular candidates from global:item_popularity  ·  ③ Cold-start candidates from catalog (RECSYS_COLD_START_POOL_SIZE=25)</text>
+<text x="443" y="712" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">④ Filter: 10 CandidateFilter impls (seen/bloom, served, self, blocklist, muted keywords/genres, age, video, reshare-dedup, newUser-genre)</text>
+<text x="443" y="725" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">⑤ Hydrate candidates: 13 CandidateHydrator impls (title/genres, in-network, MinHash Jaccard, engagement counts, genre match, subscription, language, media, blocked-by, visibility, social, quote, safety)</text>
+<text x="443" y="738" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">⑥ Score: offlineScore (cosine+content+popularity+ONNX)  →  learnedPrior (offlineScore × (1-onlineW) + onlineScore × onlineW)  →  banditScore (UCB|Thompson|Q|SARSA)</text>
+<text x="443" y="751" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">  relevanceWeight=0.6  contentWeight=0.25  popularityWeight=0.15  deepLearningWeight=0.0  onlineWeight=0.25  globalW=0.15  itemW=0.45  genreW=0.25  tagW=0.15</text>
+<text x="443" y="764" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">⑦ Randomize top pool (RECSYS_RANDOMIZATION_POOL=5)  ·  ⑧ Write replay:pending:{user}:{item} context  ·  ⑨ Track impressions · pseudo-regret · novelty · catalog coverage</text>
+<text x="443" y="778" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Response: recent[] · recommendations[] · diagnostics[estimatedReward / dlScore / banditScore / explorationBonus / coldStart] · metrics{algorithm / catalogCoverage / pseudoRegret}</text>
+<text x="443" y="792" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">GET /predict/{user}/{item}  ·  GET /predict/id?userId&itemId  ·  GET /predict/metadata  ·  GET /embedding/{item} → i2vEmb:{item}</text>
+
+<!-- ═══ EXPERIMENT / RL PIPELINE ═══ -->
+
+<!-- Bandit arm selection -->
+<rect x="878" y="42" width="374" height="130" rx="6" fill="#0f172a"/>
+<rect x="878" y="42" width="374" height="130" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.6"/>
+<text x="1065" y="62" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Bandit Algorithms  (HybridRecommendationService)</text>
+<text x="1065" y="78" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">UCB: Beta posterior mean + sqrt(log(N)/pulls) exploration bonus</text>
+<text x="1065" y="92" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Thompson: sample from Beta(clicks+1, impressions-clicks+1) per arm</text>
+<text x="1065" y="105" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Q-learning: Q(s,a) += α(r + γ·maxQ(s',a') − Q(s,a))  Redis: q-learning:q:{state}</text>
+<text x="1065" y="118" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">SARSA: on-policy Q(s,a) += α(r + γ·Q(s',a') − Q(s,a))  Redis: sarsa:q:{state}</text>
+<text x="1065" y="131" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">explorationAlpha=0.75  maxExplorationBonus=0.25  coldStartBoost=1.35 (threshold=5)</text>
+<text x="1065" y="144" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">RECSYS_BANDIT_ALGORITHM=ucb|thompson|q-learning|sarsa  (hot-switchable)</text>
+<text x="1065" y="158" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">impressions → bandit:metrics:{algo}  Redis ZADD</text>
+
+<!-- Feedback + online learning -->
+<rect x="878" y="188" width="374" height="148" rx="6" fill="#0f172a"/>
+<rect x="878" y="188" width="374" height="148" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.6"/>
+<text x="1065" y="208" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">POST /feedback  ·  Online Learning</text>
+<text x="1065" y="224" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">3-phase pipelined write (1 round-trip vs ~22)</text>
+<text x="1065" y="238" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Phase 1 READ: GET replay:pending:{user}:{item} (before pipeline)</text>
+<text x="1065" y="251" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Phase 2 PIPELINE: HINCRBY bandit:metrics clicks · reward_total</text>
+<text x="1065" y="264" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">  HINCRBY reward-model:global · :item:{i} · :genre:{g} · :tag:{t}</text>
+<text x="1065" y="277" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">  RPUSH+LTRIM replay:recommendations (max=10000)</text>
+<text x="1065" y="290" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Phase 3 INVALIDATE: featureCache.invalidateRewardStats()</text>
+<text x="1065" y="304" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">OnlineLearningService: weighted mean reward per item/genre/tag/global</text>
+<text x="1065" y="317" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">{"user":"u1","item":"i5","clicked":true,"reward":1.0}</text>
+<text x="1065" y="330" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">GET /metrics: CTR · avgObservedReward · pseudoRegret · catalogCoverage · allAlgorithms</text>
+
+<!-- Retrain loop -->
+<rect x="878" y="352" width="374" height="162" rx="6" fill="#0f172a"/>
+<rect x="878" y="352" width="374" height="162" rx="6" fill="rgba(136,19,55,.2)" stroke="#fb7185" stroke-width="1.4" stroke-dasharray="5,3"/>
+<text x="1065" y="372" fill="#fb7185" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">run-retrain.sh  (cron: 0 */6 * * *)</text>
+<text x="1065" y="388" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">5-stage automated retraining loop</text>
+<text x="1065" y="402" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">① replay_export.py → replay:recommendations → replay_training.csv</text>
+<text x="1065" y="415" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">② Spark ALS → regenerate als item/user embeddings → Redis</text>
+<text x="1065" y="428" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">③ Spark UserEmbedding → weighted-avg user vectors → Redis</text>
+<text x="1065" y="441" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">④ Python two-tower fine-tune → twoTowerItemEmb:* → Redis</text>
+<text x="1065" y="454" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">⑤ POST /actuator/model-reload → hot-swap ONNX in running service</text>
+<text x="1065" y="467" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">--skip-spark | --skip-python | --skip-reload  (stage skip flags)</text>
+<text x="1065" y="481" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">DRY_RUN=1  RECSYS_SERVICE_URL  MODEL_DIR  REDIS_HOST</text>
+<text x="1065" y="495" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Cold-Start RL Roadmap: Q-learning → DQN → Double DQN → Dyna-Q</text>
+<text x="1065" y="508" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">state=user/session context  action=item  reward=/feedback signal</text>
+
+<!-- ═══ STORAGE TIERS ═══ -->
+<!-- Redis -->
+<rect x="38" y="846" width="430" height="88" rx="6" fill="#0f172a"/>
+<rect x="38" y="846" width="430" height="88" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.6"/>
+<text x="253" y="866" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Redis  :6379  (every micro-batch + /feedback)</text>
+<text x="253" y="882" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">user:{id}:recent (list,7d)  ·  global:item_popularity (sorted set)</text>
+<text x="253" y="896" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">i2vEmb:{item}  uEmb:{user}  alsItemEmb:*  alsUserEmb:*  twoTowerItemEmb:*</text>
+<text x="253" y="908" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">user:{id}:candidates (1d)  user:{id}:features (30d)  movie:{id}:features (30d)</text>
+<text x="253" y="920" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">bandit:metrics  bandit:metrics:{algo}  reward-model:{global/item/genre/tag}  q-learning:q:{state}  sarsa:q:{state}</text>
+<text x="253" y="932" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">replay:pending:{user}:{item}  replay:recommendations (list, max 10000)</text>
+
+<!-- Disk -->
+<rect x="484" y="846" width="370" height="88" rx="6" fill="#0f172a"/>
+<rect x="484" y="846" width="370" height="88" rx="6" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.6"/>
+<text x="669" y="866" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">Disk  (filesystem / Parquet)</text>
+<text x="669" y="882" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">sampledata/mlp_embedding_model.onnx  ·  mlp_embedding_lookups.json</text>
+<text x="669" y="896" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">training-samples/date=YYYY-MM-DD/  ·  candidate-generation/  ·  als/userFactors  als/itemFactors</text>
+<text x="669" y="908" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">sampledata/embedding.txt  user_embedding.txt  replay_training.csv</text>
+<text x="669" y="920" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">ONNX hot-swap: set ONNX_MODEL_PATH env → no JAR rebuild needed</text>
+<text x="669" y="932" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">Spark checkpoints: /tmp/spark-recsys/{job-name}/</text>
+
+<!-- Caffeine -->
+<rect x="870" y="846" width="402" height="88" rx="6" fill="#0f172a"/>
+<rect x="870" y="846" width="402" height="88" rx="6" fill="rgba(8,51,68,.45)" stroke="#22d3ee" stroke-width="1.6"/>
+<text x="1071" y="866" fill="#f8fafc" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" text-anchor="middle">In-Memory  (Caffeine FeatureCache)</text>
+<text x="1071" y="882" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="9" text-anchor="middle">item vectors i2vEmb:*  (max 10000, TTL 300s)  ·  reward-model:* stats  (max 50000, TTL 30s)</text>
+<text x="1071" y="896" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">pre-MGET all candidate vectors before scoring loop (eliminates O(N×features) Redis round-trips)</text>
+<text x="1071" y="908" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">populated from Redis on first request  ·  TTL-expired  ·  immediately invalidated on /feedback writes</text>
+<text x="1071" y="920" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">RECSYS_ITEM_VECTOR_CACHE_SIZE  RECSYS_ITEM_VECTOR_TTL  RECSYS_REWARD_CACHE_SIZE  RECSYS_REWARD_TTL</text>
+<text x="1071" y="932" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="8" text-anchor="middle">JVM heap — no separate process — no network hop for hot data</text>
+
+<!-- LEGEND -->
+<rect x="28" y="972" width="1084" height="36" rx="6" fill="rgba(15,23,42,.7)" stroke="#1e293b" stroke-width="1"/>
+<text x="46" y="987" fill="#64748b" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="600">LEGEND</text>
+<rect x="112" y="978" width="11" height="11" rx="2" fill="rgba(251,146,60,.25)"  stroke="#fb923c" stroke-width="1.3"/>
+<text x="127" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Data Pipeline (Kafka/Spark)</text>
+<rect x="280" y="978" width="11" height="11" rx="2" fill="rgba(120,53,15,.35)"  stroke="#fbbf24" stroke-width="1.3"/>
+<text x="295" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Offline Embedding</text>
+<rect x="400" y="978" width="11" height="11" rx="2" fill="rgba(8,51,68,.45)"    stroke="#22d3ee" stroke-width="1.3"/>
+<text x="415" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Java Retrieval Service</text>
+<rect x="540" y="978" width="11" height="11" rx="2" fill="rgba(76,29,149,.4)"   stroke="#a78bfa" stroke-width="1.3"/>
+<text x="555" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Bandit / RL / Feedback</text>
+<rect x="680" y="978" width="11" height="11" rx="2" fill="rgba(136,19,55,.2)"   stroke="#fb7185" stroke-width="1.3" stroke-dasharray="4,2"/>
+<text x="695" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Retrain Loop</text>
+<line x1="778" y1="984" x2="798" y2="984" stroke="#475569" stroke-width="1.4" marker-end="url(#a)"/>
+<text x="802" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Sync</text>
+<line x1="844" y1="984" x2="864" y2="984" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4,2" marker-end="url(#a)"/>
+<text x="868" y="988" fill="#94a3b8" font-family="'JetBrains Mono',monospace" font-size="8">Async</text>
+<text x="112" y="1004" fill="#475569" font-family="'JetBrains Mono',monospace" font-size="8">Java 17  ·  Scala 2.12 / Spark 3.5  ·  Python 3  ·  Docker Compose  ·  sbt  ·  Maven 3.8+  ·  ONNX Runtime  ·  Caffeine  ·  Jedis</text>
+</svg>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-header"><div class="card-dot dot-orange"></div><h3>Data Pipeline — Kafka + Spark Streaming</h3></div>
+    <ul>
+      <li>• producer.py: clickstream (user_events) + behavior mode (behavior_logs, request_id-keyed slates)</li>
+      <li>• UserEventStreamingJob: per-executor JedisPool → LPUSH+LTRIM+EXPIRE per user, ZINCRBY per item</li>
+      <li>• OnlineJoinerStreamingJob: single-pass conditional groupBy → labeled samples (label 0/1/2); Parquet date-partitioned</li>
+      <li>• ExperienceCollectorStreamingJob: item samples → slate JSON (position-sorted, aggregate reward)</li>
+      <li>• RecommendationResponseStatsJob: response metrics → recommendation_metrics topic (type/subscription/country/blender tags)</li>
+      <li>• MovieLensContextCollectorStreamingJob: user/{movie features → Redis hashes TTL=30d</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header"><div class="card-dot dot-cyan"></div><h3>Java Retrieval Service — 9-Step Request Flow</h3></div>
+    <ul>
+      <li>• 21 QueryHydrator impls: demographics, gender inference, action sequences, social graph, bloom filter, MinHash, geo, served history, cached movies, followed genres/collections</li>
+      <li>• 10 CandidateFilter impls: bloom/seen, served, self, blocklist, muted keywords/genres, age, video, reshare-dedup, newUser-genre</li>
+      <li>• 13 CandidateHydrator impls: title/genres, in-network, Jaccard, engagement counts, subscription, language, blocked-by, visibility, social proximity, safety signal</li>
+      <li>• 3-layer scoring: offlineScore (cosine+content+popularity+ONNX) → learnedPrior → banditScore (UCB|Thompson|Q|SARSA)</li>
+      <li>• FeatureCache (Caffeine): pre-MGET before loop; item-vector TTL=300s; reward TTL=30s; immediate invalidation on /feedback</li>
+      <li>• Endpoints: /recommend · /predict/{user}/{item} · /predict/id · /predict/metadata · /embedding/{item} · /feedback · /metrics</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-header"><div class="card-dot dot-violet"></div><h3>Experiment Pipeline — Bandit + Retrain Loop</h3></div>
+    <ul>
+      <li>• UCB: Beta posterior mean + sqrt(log(N)/pulls) confidence bonus; Thompson: Beta(α,β) sample per arm</li>
+      <li>• Q-learning: tabular Q-values in Redis (q-learning:q:{state}), Bellman update on /feedback</li>
+      <li>• SARSA: on-policy variant (sarsa:q:{state}), epsilon-greedy policy for both serve + update</li>
+      <li>• /feedback: 3-phase pipelined write (1 round-trip vs ~22); HINCRBY bandit+reward; RPUSH replay buffer; local cache invalidation</li>
+      <li>• run-retrain.sh: 5-stage cron (0 */6 * * *): replay export → Spark ALS → UserEmb → Python two-tower → POST /actuator/model-reload</li>
+      <li>• Cold-start RL roadmap: Q-learning → DQN → Double DQN → Dyna-Q (simulated experience for new items)</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer">Streaming RecSys Platform · Java 17 · Scala 2.12 · Spark 3.5 · Python 3 · ONNX Runtime · Caffeine · Jedis · Docker Compose · lingduoduo/Recsys-Streaming-Pipeline</div>
+</body>
+</html>
