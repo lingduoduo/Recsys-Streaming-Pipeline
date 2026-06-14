@@ -52,3 +52,19 @@ def test_readme_documents_als_pipeline():
     assert "run-als-pipeline.sh" in content, (
         "README must mention run-als-pipeline.sh"
     )
+
+
+def test_readme_documents_run_retrain():
+    with open(README_PATH) as f:
+        content = f.read()
+    assert "run-retrain.sh" in content, (
+        "README must document run-retrain.sh automated retraining"
+    )
+
+
+def test_readme_documents_dry_run():
+    with open(README_PATH) as f:
+        content = f.read()
+    assert "DRY_RUN=1" in content, (
+        "README must document DRY_RUN=1 mode for run-retrain.sh"
+    )

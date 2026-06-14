@@ -242,6 +242,65 @@ Run all cross-service Python and launcher tests from `integration-tests/` with:
 pytest -q
 ```
 
+## Automated Retraining
+
+The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX
+model into the running Java service. It chains four stages:
+
+1. **Replay export** — reads `replay:recommendations` from Redis and writes
+   `sampledata/replay_training.csv`
+2. **Spark ALS** — regenerates ALS item/user embeddings and writes them to Redis
+3. **Spark UserEmbedding** — regenerates weighted-average user vectors in Redis
+4. **Python two-tower** — fine-tunes the two-tower model on the merged dataset and
+   writes item embeddings to Redis under the `twoTowerItemEmb:*` prefix
+5. **Model hot-reload** — calls `POST /actuator/model-reload` to swap the ONNX model
+   in the running Java service without restart
+
+### One-Off Run
+
+```bash
+cd recsys-pipeline
+./run-retrain.sh
+```
+
+### Scheduled Run (cron)
+
+To retrain every 6 hours:
+
+```
+0 */6 * * * cd /path/to/recsys-pipeline && ./run-retrain.sh >> /var/log/recsys-retrain.log 2>&1
+```
+
+### Skip Individual Stages
+
+```bash
+./run-retrain.sh --skip-spark          # Only Python + reload
+./run-retrain.sh --skip-python         # Only Spark + reload
+./run-retrain.sh --skip-reload         # Train without hot-reload (offline mode)
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_HOST` | `localhost` | Redis server hostname |
+| `REDIS_PORT` | `6379` | Redis server port |
+| `RECSYS_SERVICE_URL` | `http://localhost:8080` | Java retrieval service URL |
+| `RATINGS_CSV` | `sampledata/ratings.csv` | Base training data |
+| `MODEL_DIR` | `sampledata` | ONNX output directory |
+| `DRY_RUN` | `0` | Set to `1` to print steps without executing (`DRY_RUN=1 ./run-retrain.sh`) |
+
+### Replay Buffer Export
+
+The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`.
+Run `replay_export.py` standalone if you want to inspect or back up the buffer:
+
+```bash
+python3 services/python-modeling/replay_export.py \
+    --output /tmp/replay_backup.csv \
+    --redis-host localhost
+```
+
 ## API
 
 ### `GET /recommend/{user}?limit=6`
