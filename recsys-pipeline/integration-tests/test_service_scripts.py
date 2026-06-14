@@ -133,5 +133,5 @@ def test_als_pipeline_requires_ratings_input():
         text=True,
         env={**os.environ, "RATINGS_INPUT_PATH": ""},
     )
-    assert result.returncode != 0
+    assert result.returncode == 1
     assert "RATINGS_INPUT_PATH" in result.stderr

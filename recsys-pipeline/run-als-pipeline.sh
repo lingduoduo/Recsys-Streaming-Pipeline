@@ -41,8 +41,6 @@ if [[ -z "${RATINGS_INPUT_PATH:-}" ]]; then
   exit 1
 fi
 
-export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || echo "")}"
-
 SPARK_SUBMIT=""
 if [[ -n "${SPARK_HOME:-}" && -x "$SPARK_HOME/bin/spark-submit" ]]; then
   SPARK_SUBMIT="$SPARK_HOME/bin/spark-submit"
