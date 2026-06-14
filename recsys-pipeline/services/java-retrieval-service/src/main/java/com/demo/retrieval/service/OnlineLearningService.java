@@ -1,5 +1,6 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import org.springframework.data.redis.core.StringRedisTemplate;

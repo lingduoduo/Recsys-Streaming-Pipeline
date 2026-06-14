@@ -1,5 +1,6 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.model.ModelPrediction;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxValue;
 import ai.onnxruntime.OrtEnvironment;

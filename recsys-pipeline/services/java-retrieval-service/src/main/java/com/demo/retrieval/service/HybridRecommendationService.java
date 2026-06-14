@@ -1,5 +1,10 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.model.FeatureCache;
+import com.demo.retrieval.model.FeedbackRequest;
+import com.demo.retrieval.model.MovieLensUserFeatures;
+import com.demo.retrieval.model.RecommendationResult;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

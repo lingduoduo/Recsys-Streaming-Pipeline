@@ -1,5 +1,7 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.model.MovieLensUserFeatures;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.query_hydrators.UserMovieFeaturesQueryHydrator;
 import org.junit.jupiter.api.Test;
 

@@ -1,7 +1,7 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.MovieLensUserFeatures;
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.model.MovieLensUserFeatures;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.clients.MovieLensFeatureClient;
 import org.springframework.stereotype.Component;
 

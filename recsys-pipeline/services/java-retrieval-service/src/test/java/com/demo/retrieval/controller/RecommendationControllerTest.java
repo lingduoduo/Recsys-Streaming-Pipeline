@@ -2,8 +2,8 @@ package com.demo.retrieval.controller;
 
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
-import com.demo.retrieval.service.ModelPrediction;
-import com.demo.retrieval.service.RecommendationResult;
+import com.demo.retrieval.model.ModelPrediction;
+import com.demo.retrieval.model.RecommendationResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
