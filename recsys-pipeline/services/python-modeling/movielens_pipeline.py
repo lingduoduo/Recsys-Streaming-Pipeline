@@ -108,6 +108,52 @@ USER_HISTORY: dict[str, dict] = {
     },
 }
 
+def load_user_history(
+    ratings_csv,
+    min_rating: float = 3.5,
+):
+    """Build USER_HISTORY-shaped dict from a ratings CSV.
+
+    CSV columns: userId, movieId, rating, timestamp
+    """
+    import csv as _csv
+    history = {}
+    with open(ratings_csv, newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            uid = row["userId"]
+            mid = row["movieId"]
+            rating = float(row["rating"])
+            h = history.setdefault(uid, {
+                "watched": [],
+                "rated_high": [],
+                "favorites": [],
+                "rewatched": [],
+            })
+            if mid not in h["watched"]:
+                h["watched"].append(mid)
+            if rating >= min_rating:
+                h["rated_high"].append((mid, rating))
+            if rating >= 4.5:
+                h["favorites"].append(mid)
+            if rating >= 5.0:
+                h["rewatched"].append(mid)
+    return history
+
+
+def load_movies_from_ratings(ratings_csv):
+    """Return a minimal MOVIES-shaped list from unique movieIds in the ratings CSV."""
+    import csv as _csv
+    seen = {}
+    with open(ratings_csv, newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            mid = row["movieId"]
+            if mid not in seen:
+                seen[mid] = (mid, mid, 0, [])
+    return list(seen.values())
+
+
 USERS = list(USER_HISTORY.keys())
 N_USERS = len(USERS)
 USER_TO_IDX = {u: i for i, u in enumerate(USERS)}
@@ -536,6 +582,67 @@ def export_onnx(
         opset_version=17,
     )
     print(f"  ranking     → {artifacts.ranking}")
+    export_lookup_tables(artifacts)
+
+
+def export_lookup_tables(artifacts=None) -> None:
+    """Write user/item index lookup tables as JSON beside the ONNX models.
+
+    Format: {"user_lookup": {userId: index}, "item_lookup": {movieId: index}}
+    Matches mlp_embedding_lookups.json format for Java service compatibility.
+    """
+    import json as _json
+    if artifacts is None:
+        artifacts = DEFAULT_ARTIFACTS
+    dest = artifacts.user_tower.parent / "movielens_lookups.json"
+    payload = {
+        "user_lookup": {u: i for u, i in USER_TO_IDX.items()},
+        "item_lookup": {m[0]: i for i, m in enumerate(MOVIES)},
+    }
+    with open(dest, "w") as f:
+        _json.dump(payload, f)
+    print(f"  lookups     → {dest}")
+
+def write_item_embeddings_to_redis(
+    item_sess,
+    redis_host: str,
+    redis_port: int = 6379,
+    key_prefix: str = "twoTowerItemEmb",
+    ttl_seconds: int = 86400,
+) -> None:
+    """Write all item embeddings from the item-tower ONNX session to Redis.
+
+    Key format: {key_prefix}:{movieId}
+    Value format: space-separated floats (matches Item2Vec / ALS output format)
+    """
+    import redis as _redis
+    import numpy as _np
+
+    all_iids = _np.arange(N_MOVIES, dtype=_np.int64)
+    genre_feats = MOVIE_GENRE_FEATS.astype(_np.float32)
+
+    # Get input names from session to build the correct input dict
+    input_names = [inp.name for inp in item_sess.get_inputs()]
+    inputs = {}
+    if "movie_id" in input_names:
+        inputs["movie_id"] = all_iids
+    if "genre_feat" in input_names:
+        inputs["genre_feat"] = genre_feats
+
+    (embs,) = item_sess.run(None, inputs)
+
+    client = _redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+    pipe = client.pipeline(transaction=False)
+    for i, (movie_id, _, _, _) in enumerate(MOVIES):
+        vec_str = " ".join(f"{v:.6f}" for v in embs[i])
+        key = f"{key_prefix}:{movie_id}"
+        pipe.set(key, vec_str, ex=ttl_seconds)
+        if (i + 1) % 500 == 0:
+            pipe.execute()
+            pipe = client.pipeline(transaction=False)
+    pipe.execute()
+    print(f"  Wrote {N_MOVIES} item embeddings to Redis ({key_prefix}:*)")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inference pipeline
@@ -799,6 +906,50 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retrieval-epochs", type=int, default=300)
     parser.add_argument("--ranking-epochs", type=int, default=300)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--ratings-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Path to ratings CSV (userId,movieId,rating,timestamp). "
+            "When provided, replaces the built-in USER_HISTORY with data from this file."
+        ),
+    )
+    parser.add_argument(
+        "--min-rating",
+        type=float,
+        default=3.5,
+        help="Minimum rating threshold for 'rated_high' and user embeddings (default: 3.5).",
+    )
+    parser.add_argument(
+        "--fine-tune-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Path to an additional ratings CSV to merge with --ratings-csv before training. "
+            "Use to fine-tune on replay buffer data without discarding base ratings."
+        ),
+    )
+    parser.add_argument(
+        "--save-embeddings-to-redis",
+        action="store_true",
+        default=False,
+        help=(
+            "After training, write item embeddings to Redis under "
+            "twoTowerItemEmb:{movieId}. Requires REDIS_HOST env var."
+        ),
+    )
+    parser.add_argument(
+        "--redis-key-prefix",
+        default="twoTowerItemEmb",
+        help="Redis key prefix for two-tower item embeddings (default: twoTowerItemEmb).",
+    )
+    parser.add_argument(
+        "--redis-ttl",
+        type=int,
+        default=86400,
+        help="TTL in seconds for Redis embedding keys (default: 86400).",
+    )
     parsed = parser.parse_args(args)
     if parsed.top_k < 1:
         parser.error("--top-k must be at least 1")
@@ -809,6 +960,41 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(args: Sequence[str] | None = None) -> None:
     config = parse_args(args)
+
+    # Override module-level globals when a ratings CSV is provided.
+    global USER_HISTORY, MOVIES, MOVIE_TO_IDX, N_MOVIES, MOVIE_GENRE_FEATS
+    global USERS, N_USERS, USER_TO_IDX
+    if config.ratings_csv is not None:
+        USER_HISTORY = load_user_history(config.ratings_csv, min_rating=config.min_rating)
+        MOVIES = load_movies_from_ratings(config.ratings_csv)
+        MOVIE_TO_IDX = {m[0]: i for i, m in enumerate(MOVIES)}
+        N_MOVIES = len(MOVIES)
+        MOVIE_GENRE_FEATS = np.zeros((N_MOVIES, GENRE_DIM), dtype=np.float32)
+        USERS = list(USER_HISTORY.keys())
+        N_USERS = len(USERS)
+        USER_TO_IDX = {u: i for i, u in enumerate(USERS)}
+
+    if config.fine_tune_csv is not None:
+        fine_tune_history = load_user_history(config.fine_tune_csv, min_rating=config.min_rating)
+        for uid, h in fine_tune_history.items():
+            if uid in USER_HISTORY:
+                USER_HISTORY[uid]["watched"].extend(h["watched"])
+                USER_HISTORY[uid]["rated_high"].extend(h["rated_high"])
+                USER_HISTORY[uid]["favorites"].extend(h["favorites"])
+                USER_HISTORY[uid]["rewatched"].extend(h["rewatched"])
+            else:
+                USER_HISTORY[uid] = h
+        fine_tune_movies = load_movies_from_ratings(config.fine_tune_csv)
+        existing_ids = {m[0] for m in MOVIES}
+        new_movies = [m for m in fine_tune_movies if m[0] not in existing_ids]
+        MOVIES.extend(new_movies)
+        MOVIE_TO_IDX = {m[0]: i for i, m in enumerate(MOVIES)}
+        N_MOVIES = len(MOVIES)
+        MOVIE_GENRE_FEATS = np.zeros((N_MOVIES, GENRE_DIM), dtype=np.float32)
+        USERS = list(USER_HISTORY.keys())
+        N_USERS = len(USERS)
+        USER_TO_IDX = {u: i for i, u in enumerate(USERS)}
+
     artifacts = ArtifactPaths.from_directory(config.model_dir.resolve())
     artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
 
@@ -827,6 +1013,19 @@ def main(args: Sequence[str] | None = None) -> None:
             seed=config.seed,
         )
         export_onnx(user_tower, item_tower, ranker, artifacts)
+
+    if config.save_embeddings_to_redis:
+        import os as _os
+        redis_host = _os.environ.get("REDIS_HOST", "localhost")
+        redis_port = int(_os.environ.get("REDIS_PORT", "6379"))
+        _, item_sess, _ = load_sessions(artifacts)
+        write_item_embeddings_to_redis(
+            item_sess,
+            redis_host=redis_host,
+            redis_port=redis_port,
+            key_prefix=config.redis_key_prefix,
+            ttl_seconds=config.redis_ttl,
+        )
 
     sessions = load_sessions(artifacts)
     for user in config.user or USERS:

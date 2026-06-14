@@ -42,7 +42,7 @@ recsys:
     relevance-weight: ${RECSYS_RELEVANCE_WEIGHT:0.6}
     content-weight: ${RECSYS_CONTENT_WEIGHT:0.25}
     popularity-weight: ${RECSYS_POPULARITY_WEIGHT:0.15}
-    deep-learning-weight: ${RECSYS_DEEP_LEARNING_WEIGHT:0.0}
+    deep-learning-weight: ${RECSYS_DEEP_LEARNING_WEIGHT:0.15}
     q-learning-alpha: ${RECSYS_Q_LEARNING_ALPHA:0.1}
     q-learning-gamma: ${RECSYS_Q_LEARNING_GAMMA:0.9}
     q-learning-epsilon: ${RECSYS_Q_LEARNING_EPSILON:0.1}

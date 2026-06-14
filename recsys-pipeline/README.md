@@ -150,31 +150,73 @@ Start Kafka, Zookeeper, and Redis:
 docker compose up -d
 ```
 
-Start the clickstream producer:
+### Step 1 — Offline embeddings (run once before starting the retrieval service)
+
+Train Item2Vec embeddings and write them to Redis (the retrieval service reads `i2vEmb:{itemId}` keys):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ITEM2VEC_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+./run-offline-pipeline.sh
+```
+
+Train user embeddings from the item vectors produced above and write to Redis (`uEmb:{userId}` keys):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ITEM2VEC_EMBEDDING_PATH=sampledata/item_embedding.txt \
+USER_EMBEDDING_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+./run-user-embedding-pipeline.sh
+```
+
+Optionally, train ALS collaborative-filtering embeddings (writes `alsItemEmb:*` and `alsUserEmb:*` keys):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ALS_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+./run-als-pipeline.sh
+```
+
+To switch the retrieval service to ALS embeddings set these env vars before starting it:
+
+```bash
+export ITEM_EMBEDDING_PREFIX=alsItemEmb
+export USER_EMBEDDING_PREFIX=alsUserEmb
+```
+
+### Step 2 — Start the retrieval service
+
+```bash
+cd services/java-retrieval-service
+mvn spring-boot:run
+```
+
+The service loads `mlp_embedding_model.onnx` from the classpath at startup. To use a model trained outside the JAR, set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` environment variables before starting.
+
+### Step 3 — Start the clickstream producer
 
 ```bash
 python -m pip install -r services/python-modeling/requirements.txt
 python services/python-modeling/producer.py
 ```
 
-Run the streaming job:
+### Step 4 — Run the streaming job
 
 ```bash
 ./run-streaming-job.sh
 ```
 
-Or run it directly with `spark-submit`:
+This populates `user:{id}:recent` and `global:item_popularity` in Redis in real time, which the retrieval service uses for recency and popularity signals.
+
+### Step 5 — Query the API
 
 ```bash
-spark-submit \
-  --class com.demo.task.UserEventStreamingJob \
-  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-```
-
-Run the offline embedding pipeline (Item2Vec → user embeddings → candidate pre-computation):
-
-```bash
-RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
+curl http://localhost:8080/recommend/user_1
+curl http://localhost:8080/recommend/user_1?limit=10
+curl http://localhost:8080/metrics
 ```
 
 Or run the Python two-stage pipeline (two-tower retrieval + transformer ranking, no Spark required):
@@ -200,19 +242,63 @@ Run all cross-service Python and launcher tests from `integration-tests/` with:
 pytest -q
 ```
 
-Start the retrieval service:
+## Automated Retraining
+
+The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX
+model into the running Java service. It chains four stages:
+
+1. **Replay export** — reads `replay:recommendations` from Redis and writes
+   `sampledata/replay_training.csv`
+2. **Spark ALS** — regenerates ALS item/user embeddings and writes them to Redis
+3. **Spark UserEmbedding** — regenerates weighted-average user vectors in Redis
+4. **Python two-tower** — fine-tunes the two-tower model on the merged dataset and
+   writes item embeddings to Redis under the `twoTowerItemEmb:*` prefix
+5. **Model hot-reload** — calls `POST /actuator/model-reload` to swap the ONNX model
+   in the running Java service without restart
+
+### One-Off Run
 
 ```bash
-cd services/java-retrieval-service
-mvn spring-boot:run
+cd recsys-pipeline
+./run-retrain.sh
 ```
 
-Query the API:
+### Scheduled Run (cron)
+
+To retrain every 6 hours:
+
+```
+0 */6 * * * cd /path/to/recsys-pipeline && ./run-retrain.sh >> /var/log/recsys-retrain.log 2>&1
+```
+
+### Skip Individual Stages
 
 ```bash
-curl http://localhost:8080/recommend/user_1
-curl http://localhost:8080/recommend/user_1?limit=10
-curl http://localhost:8080/metrics
+./run-retrain.sh --skip-spark          # Only Python + reload
+./run-retrain.sh --skip-python         # Only Spark + reload
+./run-retrain.sh --skip-reload         # Train without hot-reload (offline mode)
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_HOST` | `localhost` | Redis server hostname |
+| `REDIS_PORT` | `6379` | Redis server port |
+| `RECSYS_SERVICE_URL` | `http://localhost:8080` | Java retrieval service URL |
+| `RATINGS_CSV` | `sampledata/ratings.csv` | Base training data |
+| `MODEL_DIR` | `sampledata` | ONNX output directory |
+| `DRY_RUN` | `0` | Set to `1` to print steps without executing (`DRY_RUN=1 ./run-retrain.sh`) |
+
+### Replay Buffer Export
+
+The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`.
+Run `replay_export.py` standalone if you want to inspect or back up the buffer:
+
+```bash
+python3 services/python-modeling/replay_export.py \
+    --output /tmp/replay_backup.csv \
+    --redis-host localhost
 ```
 
 ## API
