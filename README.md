@@ -6,15 +6,35 @@ A recommendation-system playground that combines streaming data pipelines, offli
 
 ```
 Recsys-Streaming-Pipeline/
-├── spark-analysis/          # Spark/Flink concepts, user analysis, and ML pipelines
-└── recsys-pipeline/         # Streaming recommendation platform
+├── spark-analysis/                    # Spark/Flink concepts, user analysis, and ML pipelines
+│   ├── spark_report.scala             # RDD, DataFrame, window functions, logistic regression pipeline
+│   ├── spark_encoder.scala            # Active user feature engineering and binary classification
+│   ├── spark_model.scala              # Extended encoder with search-activity features
+│   ├── retention_label.scala          # BigQuery → Spark retention labeling (D1, D7, WAU)
+│   └── Algebird.md                    # Algebird sketch library notes
+└── recsys-pipeline/                   # Streaming recommendation platform
     ├── services/
-    │   ├── spark-streaming-job/
-    │   ├── java-retrieval-service/
-    │   └── python-modeling/
-    ├── sampledata/
-    └── docker-compose.yml
+    │   ├── spark-streaming-job/       # Scala/Spark: streaming ingestion, feature joins, offline embeddings
+    │   ├── java-retrieval-service/    # Java/Spring Boot: ONNX scoring, bandit RL, REST API
+    │   └── python-modeling/           # Python: event producer, two-tower training, ONNX export
+    ├── scripts/
+    │   └── install-cron.sh            # Installs scheduled retraining cron job
+    ├── sampledata/                    # ratings.csv and sample embeddings
+    ├── run-streaming-job.sh           # Submit Spark streaming job
+    ├── run-offline-pipeline.sh        # Train Item2Vec embeddings
+    ├── run-user-embedding-pipeline.sh # Train user embeddings
+    ├── run-als-pipeline.sh            # Train ALS collaborative-filtering embeddings
+    ├── run-retrain.sh                 # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
+    ├── recsys-streaming-pipeline.png  # Architecture diagram
+    ├── recsys-streaming-pipeline.html # Interactive architecture diagram
+    └── docker-compose.yml             # Local Kafka + Redis
 ```
+
+## Architecture
+
+![Recsys Streaming Pipeline](recsys-pipeline/recsys-streaming-pipeline.png)
+
+> Interactive version: [recsys-streaming-pipeline.html](recsys-pipeline/recsys-streaming-pipeline.html)
 
 ---
 

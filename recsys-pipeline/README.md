@@ -20,6 +20,11 @@ Infrastructure, shared sample data, and orchestration scripts remain at the `rec
 
 ## Architecture
 
+![Recsys Streaming Pipeline](recsys-streaming-pipeline.png)
+
+> Interactive version: [recsys-streaming-pipeline.html](recsys-streaming-pipeline.html)
+
+
 ### Data Pipeline
 
 ```text
