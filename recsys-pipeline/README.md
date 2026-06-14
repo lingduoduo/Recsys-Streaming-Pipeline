@@ -150,31 +150,73 @@ Start Kafka, Zookeeper, and Redis:
 docker compose up -d
 ```
 
-Start the clickstream producer:
+### Step 1 — Offline embeddings (run once before starting the retrieval service)
+
+Train Item2Vec embeddings and write them to Redis (the retrieval service reads `i2vEmb:{itemId}` keys):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ITEM2VEC_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+./run-offline-pipeline.sh
+```
+
+Train user embeddings from the item vectors produced above and write to Redis (`uEmb:{userId}` keys):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ITEM2VEC_EMBEDDING_PATH=sampledata/item_embedding.txt \
+USER_EMBEDDING_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+./run-user-embedding-pipeline.sh
+```
+
+Optionally, train ALS collaborative-filtering embeddings (writes `alsItemEmb:*` and `alsUserEmb:*` keys):
+
+```bash
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+ALS_SAVE_TO_REDIS=true \
+REDIS_HOST=localhost \
+./run-als-pipeline.sh
+```
+
+To switch the retrieval service to ALS embeddings set these env vars before starting it:
+
+```bash
+export ITEM_EMBEDDING_PREFIX=alsItemEmb
+export USER_EMBEDDING_PREFIX=alsUserEmb
+```
+
+### Step 2 — Start the retrieval service
+
+```bash
+cd services/java-retrieval-service
+mvn spring-boot:run
+```
+
+The service loads `mlp_embedding_model.onnx` from the classpath at startup. To use a model trained outside the JAR, set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` environment variables before starting.
+
+### Step 3 — Start the clickstream producer
 
 ```bash
 python -m pip install -r services/python-modeling/requirements.txt
 python services/python-modeling/producer.py
 ```
 
-Run the streaming job:
+### Step 4 — Run the streaming job
 
 ```bash
 ./run-streaming-job.sh
 ```
 
-Or run it directly with `spark-submit`:
+This populates `user:{id}:recent` and `global:item_popularity` in Redis in real time, which the retrieval service uses for recency and popularity signals.
+
+### Step 5 — Query the API
 
 ```bash
-spark-submit \
-  --class com.demo.task.UserEventStreamingJob \
-  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-```
-
-Run the offline embedding pipeline (Item2Vec → user embeddings → candidate pre-computation):
-
-```bash
-RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
+curl http://localhost:8080/recommend/user_1
+curl http://localhost:8080/recommend/user_1?limit=10
+curl http://localhost:8080/metrics
 ```
 
 Or run the Python two-stage pipeline (two-tower retrieval + transformer ranking, no Spark required):
@@ -198,21 +240,6 @@ Run all cross-service Python and launcher tests from `integration-tests/` with:
 
 ```bash
 pytest -q
-```
-
-Start the retrieval service:
-
-```bash
-cd services/java-retrieval-service
-mvn spring-boot:run
-```
-
-Query the API:
-
-```bash
-curl http://localhost:8080/recommend/user_1
-curl http://localhost:8080/recommend/user_1?limit=10
-curl http://localhost:8080/metrics
 ```
 
 ## API
