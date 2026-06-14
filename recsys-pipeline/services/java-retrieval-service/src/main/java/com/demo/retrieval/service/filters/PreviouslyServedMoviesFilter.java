@@ -1,6 +1,6 @@
 package com.demo.retrieval.service.filters;
 
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 
 import java.util.HashSet;

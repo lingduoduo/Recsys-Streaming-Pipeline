@@ -1,5 +1,6 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.model.MovieLensUserFeatures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

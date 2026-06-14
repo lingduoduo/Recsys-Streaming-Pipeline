@@ -1,6 +1,6 @@
 package com.demo.retrieval.service.candidate_pipeline;
 
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;

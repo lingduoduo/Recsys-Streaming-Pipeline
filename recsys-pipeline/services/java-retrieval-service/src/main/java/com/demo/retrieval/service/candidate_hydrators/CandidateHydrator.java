@@ -1,6 +1,6 @@
 package com.demo.retrieval.service.candidate_hydrators;
 
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 
 import java.util.List;
 

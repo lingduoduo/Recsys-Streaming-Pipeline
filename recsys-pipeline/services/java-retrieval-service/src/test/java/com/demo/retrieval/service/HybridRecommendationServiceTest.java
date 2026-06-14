@@ -1,5 +1,7 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.model.FeatureCache;
+import com.demo.retrieval.model.RecommendationResult;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.clients.UserMovieHistoryClient.UserMovieHistory;

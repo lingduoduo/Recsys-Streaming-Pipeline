@@ -1,6 +1,6 @@
 package com.demo.retrieval.service.query_hydrators;
 
-import com.demo.retrieval.service.ScoredMoviesQuery;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.clients.UserMovieHistoryClient;
 import com.demo.retrieval.service.clients.UserMovieHistoryClient.UserMovieHistory;
 

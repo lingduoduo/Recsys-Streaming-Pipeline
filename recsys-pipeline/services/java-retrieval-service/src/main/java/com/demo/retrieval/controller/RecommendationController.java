@@ -1,10 +1,10 @@
 package com.demo.retrieval.controller;
 
 import com.demo.retrieval.service.DeepLearningPredictionService;
-import com.demo.retrieval.service.FeedbackRequest;
+import com.demo.retrieval.model.FeedbackRequest;
 import com.demo.retrieval.service.HybridRecommendationService;
-import com.demo.retrieval.service.ModelPrediction;
-import com.demo.retrieval.service.RecommendationResult;
+import com.demo.retrieval.model.ModelPrediction;
+import com.demo.retrieval.model.RecommendationResult;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
