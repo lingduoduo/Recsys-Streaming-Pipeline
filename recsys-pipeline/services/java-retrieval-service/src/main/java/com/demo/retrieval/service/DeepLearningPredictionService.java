@@ -37,7 +37,7 @@ public class DeepLearningPredictionService {
     private static final String ITEM_INPUT = "item_ids";
 
     private final OrtEnvironment environment;
-    private final OrtSession session;
+    private volatile OrtSession session;
     private final Map<String, Long> userLookup;
     private final Map<String, Long> itemLookup;
 
@@ -89,6 +89,18 @@ public class DeepLearningPredictionService {
     @PreDestroy
     void close() throws OrtException {
         session.close();
+    }
+
+    public synchronized void reload() throws IOException, OrtException {
+        try (OrtSession.SessionOptions opts = new OrtSession.SessionOptions()) {
+            opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+            OrtSession newSession = environment.createSession(loadModelBytes(), opts);
+            OrtSession old = this.session;
+            this.session = newSession;
+            if (old != null) {
+                old.close();
+            }
+        }
     }
 
     public Map<String, Double> predictBatch(String user, List<String> items) {
