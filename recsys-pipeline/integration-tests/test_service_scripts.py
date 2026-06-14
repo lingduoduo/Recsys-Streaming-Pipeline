@@ -4,6 +4,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -108,3 +110,28 @@ def test_offline_script_passes_ratings_and_embedding_paths_to_spark(tmp_path: Pa
     assert "com.demo.task.Item2VecTrainingJob" in args
     assert "services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar" in args
     assert args[-3:] == ["sampledata/ratings.csv", "sampledata/custom_embedding.txt", "42"]
+
+
+PIPELINE_DIR = os.path.join(os.path.dirname(__file__), "..")
+
+
+def test_als_pipeline_script_exists():
+    script = os.path.join(PIPELINE_DIR, "run-als-pipeline.sh")
+    assert os.path.isfile(script), "run-als-pipeline.sh not found"
+
+
+def test_als_pipeline_script_is_executable():
+    script = os.path.join(PIPELINE_DIR, "run-als-pipeline.sh")
+    assert os.access(script, os.X_OK), "run-als-pipeline.sh is not executable"
+
+
+def test_als_pipeline_requires_ratings_input():
+    script = os.path.join(PIPELINE_DIR, "run-als-pipeline.sh")
+    result = subprocess.run(
+        ["bash", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RATINGS_INPUT_PATH": ""},
+    )
+    assert result.returncode != 0
+    assert "RATINGS_INPUT_PATH" in result.stderr
