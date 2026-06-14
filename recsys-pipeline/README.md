@@ -1,12 +1,10 @@
 # Streaming Recsys Platform
 
-`recsys-pipeline` is a recommendation-system playground with three complementary paths:
+`recsys-pipeline` is a recommendation-system playground organized around three pipelines:
 
-- A real-time Kafka -> Spark Structured Streaming -> Redis pipeline that keeps recent user history and global popularity fresh.
-- A training-data pipeline that joins behavior logs into feature+label samples, writes them to Kafka and HDFS-compatible storage, then rebuilds request-level slates for online learning.
-- An offline Spark training flow that builds Item2Vec, user, and ALS embeddings from historical ratings.
-
-The retrieval layer is a Spring Boot service that combines three scoring model types — an offline ONNX deep-learning model, an online learning reward model updated in real time from the feedback stream, and a UCB/Thompson bandit RL policy — with content-based retrieval, a Redis replay buffer, cold-start candidate generation, and feedback tracking.
+- **Data pipeline** — Spark Structured Streaming jobs that ingest Kafka click and behavior events, join impressions with feedback into feature+label training samples, train Item2Vec and ALS embeddings from historical ratings, and keep per-user history and global item popularity fresh in Redis.
+- **Model prediction pipeline** — A Spring Boot retrieval service that loads pre-trained ONNX models and embedding configs at startup, combines offline embedding scores with an online reward model, and serves ranked recommendations through a REST API.
+- **Experiment pipeline** — A bandit-based evaluation layer (UCB, Thompson Sampling, Q-learning, SARSA) that tracks per-algorithm click-through and reward metrics, maintains a replay buffer for offline analysis, and supports hot-swapping model artifacts without redeployment.
 
 ## Service Layout
 
@@ -14,74 +12,91 @@ All independently runnable application code lives under `services/`:
 
 | Service | Build tool | Responsibility |
 |---|---|---|
-| `services/spark-streaming-job` | sbt | Streaming ingestion, feature joins, offline embeddings, and candidate generation |
-| `services/java-retrieval-service` | Maven | Spring Boot recommendation and feedback API |
-| `services/python-modeling` | pip / pytest | Synthetic event producer and MovieLens modeling pipeline |
+| `services/spark-streaming-job` | sbt | Streaming ingestion, feature joins, offline embedding training, and candidate pre-computation |
+| `services/java-retrieval-service` | Maven | Loads ONNX models and embedding configs at startup, scores candidates, runs bandit evaluation (UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST |
+| `services/python-modeling` | pip / pytest | Synthetic event producer, MovieLens two-tower training, ONNX model export, and evaluation utilities |
 
 Infrastructure, shared sample data, and orchestration scripts remain at the `recsys-pipeline` root.
 
 ## Architecture
 
+### Data Pipeline
+
 ```text
-services/python-modeling/producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis
-                                                                        |── user:{id}:recent  (TTL 7d)
-                                                                        └── global:item_popularity
+── Streaming features ───────────────────────────────────────────────────────────────────────
 
-services/python-modeling/producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob
-                                                    |──► Kafka: training_samples
-                                                    └──► Parquet: training-samples/date=YYYY-MM-DD/
+producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis user:{id}:recent  (TTL 7d)
+                                                                              └──► Redis global:item_popularity
 
-Kafka: training_samples ──► ExperienceCollectorStreamingJob ──► Kafka: training_experiences
-Kafka: training_experiences ──► RecommendationResponseStatsJob ──► Kafka: recommendation_metrics
-Kafka: movielens_context ──► MovieLensContextCollectorStreamingJob ──► Redis user/movie context
+producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob ──► Kafka: training_samples
+                                                                                   └──► Parquet training-samples/date=YYYY-MM-DD/
+
+Kafka: training_samples     ──► ExperienceCollectorStreamingJob  ──► Kafka: training_experiences
+Kafka: training_experiences ──► RecommendationResponseStatsJob   ──► Kafka: recommendation_metrics
+Kafka: movielens_context    ──► MovieLensContextCollectorStreamingJob ──► Redis user/movie context
+
+── Offline embeddings ───────────────────────────────────────────────────────────────────────
 
 ratings.csv ──► ItemSequencePreprocessingJob ──► Item2VecTrainingJob ──► embedding.txt
                                                                      └──► Redis i2vEmb:{item}
 
 ratings.csv + embedding.txt ──► UserEmbeddingTrainingJob ──► user_embedding.txt
-ratings.csv ──► AlsEmbeddingTrainingJob ──► als/userFactors + als/itemFactors
+ratings.csv                 ──► AlsEmbeddingTrainingJob  ──► als/userFactors + als/itemFactors
 
-user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJob
-                                                    |──► Redis user:{id}:candidates (top-K by cosine similarity)
-                                                    └──► Parquet candidate-generation/
+user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJob ──► Redis user:{id}:candidates  (top-K cosine)
+                                                                             └──► Parquet candidate-generation/
+```
 
-services/python-modeling/movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
+### Model Prediction Pipeline
 
-services/java-retrieval-service
-  ├── Offline: ONNX model file and lookup tables
-  ├── Redis: embeddings, bandit counters, user history, reward stats
-  └── In-memory: FeatureCache (Caffeine)
-        │
-        ▼
-      /recommend/{user}
-      /feedback
-      /metrics
-      /embedding/{item}
+```text
+movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
+
+sampledata/*.onnx ──────────────────────────────────────────────┐
+Redis: embeddings, user history, candidate lists ───────────────┼──► java-retrieval-service  (FeatureCache / Caffeine)
+Redis: reward stats, bandit counters ───────────────────────────┘          │
+                                                                            ├──► GET  /recommend/{user}
+                                                                            ├──► GET  /embedding/{item}
+                                                                            └──► GET  /predict/{user}/{item}
+```
+
+### Experiment Pipeline
+
+```text
+GET /recommend/{user} ──► bandit arm selection ──► impression logged → Redis bandit:metrics:{algo}
+                           UCB | Thompson |
+                           Q-learning | SARSA
+
+POST /feedback ──► online reward update ──► Redis reward-model:{item|genre|tag|global}
+               └──► Redis replay:recommendations  (replay buffer)
+                             │
+                             ▼
+                    run-retrain.sh ──► retrain embeddings + model ──► POST /actuator/model-reload  (hot-swap)
+
+GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learning vs SARSA)
 ```
 
 ## Spark Job Package Structure
 
-The Spark module follows a pipeline-oriented layout inspired by common recommendation feature platforms:
-
 | Package | Responsibility | Examples |
 |---|---|---|
-| `com.demo.process` | Transform, join, label, and prepare stream or batch data | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `ItemSequencePreprocessingJob` |
-| `com.demo.task` | Runnable entry points for streaming ingestion and offline training tasks | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob` |
-| `com.demo.recommend` | Candidate generation and recommendation-specific retrieval logic | `EmbeddingCandidateGenerationJob` |
-| `com.demo.sink` | External writes and persistence helpers | `RedisWriter` |
-| `com.demo.util` | Shared runtime and Spark helpers | `Env`, `SparkSessions` |
+| `com.demo.process` | Transform, join, and label stream and batch data into training samples | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `ItemSequencePreprocessingJob` |
+| `com.demo.task` | Runnable entry points for streaming ingestion and offline embedding training | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob` |
+| `com.demo.recommend` | Offline candidate pre-computation from trained embeddings | `EmbeddingCandidateGenerationJob` |
+| `com.demo.sink` | External write helpers | `RedisWriter` |
+| `com.demo.util` | Shared Spark session and environment utilities | `Env`, `SparkSessions` |
 
 ## Scoring Model Architecture
 
-Candidate items are scored from three model types, each with a different learning paradigm:
+Candidate items are scored through three stages, each with a different learning paradigm:
 
-| Model type | Class | Signal | When it learns |
+| Model type | Class | Signal | Update cadence |
 |---|---|---|---|
-| **Offline** | `DeepLearningPredictionService` | ONNX MLP score for a (user, item) pair; loaded from `mlp_embedding_model.onnx` at startup | At training time; static at serve time |
-| **Online learning** | `OnlineLearningService` | Weighted mean reward per item, genre, tag, and globally; stored as Redis hashes | After every `/feedback` call |
-| **RL** | `HybridRecommendationService` | UCB, Thompson Sampling, or tabular Q-learning score using replay state/action/reward events | After impressions and `/feedback` rewards |
+| **Offline** | `DeepLearningPredictionService` | ONNX MLP score for a (user, item) pair | At training time; static at serve time |
+| **Online** | `OnlineLearningService` | Weighted mean reward per item, genre, tag, and global prior | After every `/feedback` call |
+| **Bandit / RL** | `HybridRecommendationService` | UCB, Thompson Sampling, Q-learning, or SARSA score from replay state/action/reward events | After impressions and `/feedback` rewards |
 
-The final per-candidate score is computed as:
+All paths share the same `offlineScore` and `learnedPrior` base. The final `banditScore` diverges by algorithm:
 
 ```
 offlineScore  = relevanceWeight × cosine(userEmb, itemEmb)
@@ -91,57 +106,54 @@ offlineScore  = relevanceWeight × cosine(userEmb, itemEmb)
 
 learnedPrior  = offlineScore × (1 − onlineWeight) + onlineScore × onlineWeight
 
+── UCB / Thompson ────────────────────────────────────────────────
 banditScore   = BetaPosteriorMean(learnedPrior, clicks, impressions)
               + explorationBonus(UCB | Thompson)
+
+── Q-learning / SARSA ───────────────────────────────────────────
+banditScore   = Q(stateKey, item)   ← tabular Q-value in Redis, updated via Bellman equation
 ```
 
 ## Storage Architecture
 
 Feature data is split across three tiers by access pattern and update frequency.
 
-| Tier | Technology | What lives there | Update frequency |
-|------|-----------|-----------------|-----------------|
-| **Offline** | Filesystem | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Training jobs; hot-swap without redeploy via env vars |
-| **Redis** | Redis | User recent-click lists, global item popularity, item/user embeddings, bandit counters, reward model stats, replay buffer | Streaming jobs (every micro-batch) and `/feedback` calls |
-| **In-memory** | Caffeine | Item vectors (`i2vEmb:*`), reward model statistics (`reward-model:*`) | Populated from Redis on first request; TTL-expired and invalidated on write |
+| Tier | Contents | Updated by |
+|------|----------|------------|
+| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Training jobs; swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild |
+| **Redis** | User click history, global item popularity, item/user embeddings, bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
+| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
 
-The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop a single `MGET` warms all candidate and recent-item vectors; reward model estimates are cached per key for `rewardTtlSeconds` and invalidated immediately when `/feedback` updates them.
+The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
 
-**Offline model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the model artifacts on the filesystem without rebuilding the JAR. Falls back to the classpath resources when the env vars are unset (development and test default).
+**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default).
 
-## What The Retrieval Service Does
+## Recommendation Request Flow
 
-For each recommendation request, the service:
+For each incoming request, the retrieval service executes nine steps in order:
 
-1. Runs the query hydration pipeline — 21 `QueryHydrator` implementations populate the `ScoredMoviesQuery` with per-user context (watch history, rating sequences, social graph, served history, minhash, cached candidates, bloom filter, geo, demographics, inferred signals).
-2. Pulls popular items from `global:item_popularity`.
-3. Generates extra cold-start candidates from the configured catalog.
-4. Runs candidate filters (`CandidateFilter`) to drop seen, blocked, muted, or ineligible candidates.
-5. Runs candidate hydrators (`CandidateHydrator`) to enrich surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags.
-6. Scores candidates by combining all three model types: offline ONNX scores, online reward-model estimates, and the bandit arm score (see above).
-7. Randomizes the top scoring pool slightly to avoid deterministic repetition.
-8. Stores pending recommendation context for replay-buffer training.
-9. Tracks impressions, clicks, regret-style metrics, novelty, and catalog coverage.
+1. **Hydrate query** — 21 `QueryHydrator` implementations populate `ScoredMoviesQuery` with per-user context: watch history, rating sequences, social graph, served history, MinHash, cached candidates, bloom filter, geo, demographics, and inferred signals.
+2. **Fetch popular candidates** — pulls top items from `global:item_popularity`.
+3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history.
+4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates.
+5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags.
+6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [Scoring Model Architecture](#scoring-model-architecture)).
+7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition.
+8. **Store context** — writes pending recommendation context to the replay buffer for downstream training.
+9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage.
 
-The default catalog and ranking weights live in `services/java-retrieval-service/src/main/resources/application.yml`.
+Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
 
 ## Quick Start
 
-Prerequisites:
+**Prerequisites:** Java 17, Apache Spark 3.5.x (Scala 2.12), sbt, Maven 3.8+, Docker Compose, Python 3.
 
-- Java 17
-- Apache Spark 3.5.x with Scala 2.12
-- `sbt`
-- Maven 3.8+
-- Docker / Docker Compose
-- Python 3
+The five steps below bring up the full stack: offline embeddings → retrieval service → clickstream producer → streaming job → API.
 
-Build the Spark job jar:
+Build the Spark job JAR (run from the repo root):
 
 ```bash
-cd services/spark-streaming-job
-sbt assembly
-cd ../..
+(cd services/spark-streaming-job && sbt assembly)
 ```
 
 Start Kafka, Zookeeper, and Redis:
@@ -150,9 +162,11 @@ Start Kafka, Zookeeper, and Redis:
 docker compose up -d
 ```
 
-### Step 1 — Offline embeddings (run once before starting the retrieval service)
+### Step 1 — Offline embeddings
 
-Train Item2Vec embeddings and write them to Redis (the retrieval service reads `i2vEmb:{itemId}` keys):
+> Run once before starting the retrieval service.
+
+Train Item2Vec embeddings and write them to Redis (`i2vEmb:{itemId}` keys):
 
 ```bash
 RATINGS_INPUT_PATH=sampledata/ratings.csv \
@@ -161,7 +175,7 @@ REDIS_HOST=localhost \
 ./run-offline-pipeline.sh
 ```
 
-Train user embeddings from the item vectors produced above and write to Redis (`uEmb:{userId}` keys):
+Train user embeddings from the item vectors above and write to Redis (`uEmb:{userId}` keys):
 
 ```bash
 RATINGS_INPUT_PATH=sampledata/ratings.csv \
@@ -171,7 +185,7 @@ REDIS_HOST=localhost \
 ./run-user-embedding-pipeline.sh
 ```
 
-Optionally, train ALS collaborative-filtering embeddings (writes `alsItemEmb:*` and `alsUserEmb:*` keys):
+**Optional** — train ALS collaborative-filtering embeddings (`alsItemEmb:*`, `alsUserEmb:*`):
 
 ```bash
 RATINGS_INPUT_PATH=sampledata/ratings.csv \
@@ -180,7 +194,7 @@ REDIS_HOST=localhost \
 ./run-als-pipeline.sh
 ```
 
-To switch the retrieval service to ALS embeddings set these env vars before starting it:
+To use ALS embeddings instead, set these before starting the retrieval service:
 
 ```bash
 export ITEM_EMBEDDING_PREFIX=alsItemEmb
@@ -190,16 +204,15 @@ export USER_EMBEDDING_PREFIX=alsUserEmb
 ### Step 2 — Start the retrieval service
 
 ```bash
-cd services/java-retrieval-service
-mvn spring-boot:run
+mvn -f services/java-retrieval-service/pom.xml spring-boot:run
 ```
 
-The service loads `mlp_embedding_model.onnx` from the classpath at startup. To use a model trained outside the JAR, set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` environment variables before starting.
+The service loads `mlp_embedding_model.onnx` from the classpath at startup. To use a model trained outside the JAR, set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` before starting.
 
 ### Step 3 — Start the clickstream producer
 
 ```bash
-python -m pip install -r services/python-modeling/requirements.txt
+pip install -r services/python-modeling/requirements.txt
 python services/python-modeling/producer.py
 ```
 
@@ -209,7 +222,7 @@ python services/python-modeling/producer.py
 ./run-streaming-job.sh
 ```
 
-This populates `user:{id}:recent` and `global:item_popularity` in Redis in real time, which the retrieval service uses for recency and popularity signals.
+This populates `user:{id}:recent` and `global:item_popularity` in Redis in real time; the retrieval service uses both for recency and popularity signals.
 
 ### Step 5 — Query the API
 
@@ -219,16 +232,14 @@ curl http://localhost:8080/recommend/user_1?limit=10
 curl http://localhost:8080/metrics
 ```
 
-Or run the Python two-stage pipeline (two-tower retrieval + transformer ranking, no Spark required):
+**Standalone alternative** — run the Python two-stage pipeline (two-tower retrieval + transformer ranking) without Spark or the Java service:
 
 ```bash
 pip install torch onnx onnxruntime numpy
 python services/python-modeling/movielens_pipeline.py
 ```
 
-The first run trains and exports the three ONNX models. Later runs reuse them. You can
-select users, control the retrieval candidate count, or retrain into a separate model
-directory:
+The first run trains and exports the three ONNX models; later runs reuse them. Optional flags:
 
 ```bash
 python services/python-modeling/movielens_pipeline.py --user alice --top-k 5
@@ -236,7 +247,7 @@ python services/python-modeling/movielens_pipeline.py --user alice --user bob
 python services/python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
 ```
 
-Run all cross-service Python and launcher tests from `integration-tests/` with:
+Run the cross-service integration tests:
 
 ```bash
 pytest -q
@@ -244,22 +255,17 @@ pytest -q
 
 ## Automated Retraining
 
-The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX
-model into the running Java service. It chains four stages:
+The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX model into the running Java service. It chains five stages:
 
-1. **Replay export** — reads `replay:recommendations` from Redis and writes
-   `sampledata/replay_training.csv`
+1. **Replay export** — reads `replay:recommendations` from Redis and writes `sampledata/replay_training.csv`
 2. **Spark ALS** — regenerates ALS item/user embeddings and writes them to Redis
 3. **Spark UserEmbedding** — regenerates weighted-average user vectors in Redis
-4. **Python two-tower** — fine-tunes the two-tower model on the merged dataset and
-   writes item embeddings to Redis under the `twoTowerItemEmb:*` prefix
-5. **Model hot-reload** — calls `POST /actuator/model-reload` to swap the ONNX model
-   in the running Java service without restart
+4. **Python two-tower** — fine-tunes the two-tower model on the merged dataset and writes item embeddings to Redis under the `twoTowerItemEmb:*` prefix
+5. **Model hot-reload** — calls `POST /actuator/model-reload` to swap the ONNX model in the running Java service without restart
 
 ### One-Off Run
 
 ```bash
-cd recsys-pipeline
 ./run-retrain.sh
 ```
 
@@ -288,12 +294,11 @@ To retrain every 6 hours:
 | `RECSYS_SERVICE_URL` | `http://localhost:8080` | Java retrieval service URL |
 | `RATINGS_CSV` | `sampledata/ratings.csv` | Base training data |
 | `MODEL_DIR` | `sampledata` | ONNX output directory |
-| `DRY_RUN` | `0` | Set to `1` to print steps without executing (`DRY_RUN=1 ./run-retrain.sh`) |
+| `DRY_RUN` | `0` | Set to `1` to print steps without executing |
 
 ### Replay Buffer Export
 
-The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`.
-Run `replay_export.py` standalone if you want to inspect or back up the buffer:
+The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`. Run `replay_export.py` standalone to inspect or back up the buffer:
 
 ```bash
 python3 services/python-modeling/replay_export.py \
@@ -306,8 +311,6 @@ python3 services/python-modeling/replay_export.py \
 ### `GET /recommend/{user}?limit=6`
 
 Returns recent interactions, selected recommendations, per-item diagnostics, and request-level metrics.
-
-Example response:
 
 ```json
 {
@@ -342,10 +345,7 @@ Example response:
 }
 ```
 
-Notes:
-
-- `limit` defaults to `6`.
-- `limit` is clamped to `1..50`.
+- `limit` defaults to `6`, clamped to `1..50`.
 - User and item IDs must match `[a-zA-Z0-9_:-]{1,64}`.
 
 ### `GET /predict/{user}/{item}`
@@ -370,16 +370,14 @@ Returns model name, lookup table sizes, and ONNX input/output names for the load
 
 ### `POST /feedback`
 
-Records user feedback for an exposed item. All Redis writes are batched in a single `executePipelined` call (one network round-trip instead of ~22). The three phases on each call:
+Records user feedback for an exposed item. All Redis writes are batched in a single `executePipelined` call (one round-trip instead of ~22). The three phases on each call:
 
 1. **Read** — fetch the pending replay context written at serve time (`GET replay:pending:{user}:{item}`). Must happen before the pipeline because reads cannot be issued inside a write pipeline.
 2. **Write (pipelined)** — batch all writes in one flush:
    - Increment bandit click counter and per-algorithm metrics hashes.
-   - Increment `OnlineLearningService` reward stats for the item, its genres, its tags, and the global prior (`HINCRBY` on `reward-model:*` hashes).
+   - Update online reward stats for the item, its genres, its tags, and the global prior (`HINCRBY` on `reward-model:*` hashes).
    - Push the rewarded event to the replay buffer (`RPUSH` + `LTRIM`).
 3. **Invalidate** — purge affected `reward-model:*` keys from the Caffeine in-memory cache so the next `/recommend` request reads fresh stats.
-
-Example:
 
 ```bash
 curl -X POST http://localhost:8080/feedback \
@@ -389,29 +387,33 @@ curl -X POST http://localhost:8080/feedback \
 
 ### `GET /metrics`
 
-Returns aggregate online metrics for the currently configured algorithm, plus a built-in per-algorithm comparison view.
+Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view.
 
-- `requests`
-- `recommendationsServed`
-- `clicks`
-- `ctr`
-- `avgObservedReward`
-- `avgEstimatedReward`
-- `avgPseudoRegret`
-- `cumulativePseudoRegret`
-- `avgNoveltyScore`
-- `coldStartImpressions`
-- `exploratoryImpressions`
-- `catalogCoverage`
-- `allAlgorithms.ucb`
-- `allAlgorithms.thompson`
-- `global`
+| Field | Description |
+|---|---|
+| `requests` | Total recommendation requests served |
+| `recommendationsServed` | Total items recommended |
+| `clicks` | Total clicks recorded via `/feedback` |
+| `ctr` | Click-through rate |
+| `avgObservedReward` | Mean reward from `/feedback` calls |
+| `avgEstimatedReward` | Mean predicted reward at serve time |
+| `avgPseudoRegret` | Mean per-request regret estimate |
+| `cumulativePseudoRegret` | Running sum of pseudo-regret |
+| `avgNoveltyScore` | Mean novelty of served items |
+| `coldStartImpressions` | Impressions on cold-start items |
+| `exploratoryImpressions` | Impressions driven by exploration bonus |
+| `catalogCoverage` | Fraction of catalog served at least once |
+| `allAlgorithms.ucb` | Per-metric breakdown for UCB |
+| `allAlgorithms.thompson` | Per-metric breakdown for Thompson Sampling |
+| `global` | Aggregate across all algorithms |
 
-Metrics are stored in Redis under:
+Redis keys:
 
-- `bandit:metrics` for all traffic combined
-- `bandit:metrics:ucb`
-- `bandit:metrics:thompson`
+| Key | Scope |
+|---|---|
+| `bandit:metrics` | All traffic combined |
+| `bandit:metrics:ucb` | UCB only |
+| `bandit:metrics:thompson` | Thompson Sampling only |
 
 ### `GET /embedding/{item}`
 
@@ -421,29 +423,29 @@ Returns an item embedding from Redis using key `i2vEmb:{item}`.
 
 ### `services/python-modeling/producer.py`
 
-Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. Uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
+Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
 
 Environment variables:
 
 | Env var | Default | Description |
 |---|---|---|
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
-| `KAFKA_TOPIC` | `user_events` | Topic to publish to |
-| `PRODUCER_MODE` | `clickstream` | `clickstream` emits simple clicks keyed by `user_id`; `behavior` emits full slates keyed by `request_id` |
-| `EVENTS_PER_SECOND` | `1` | Target event rate (loop corrects for send latency) |
-| `NUM_USERS` | `5` | Size of synthetic user pool |
-| `NUM_ITEMS` | `10` | Size of synthetic item pool |
-| `SLATE_SIZE` | `5` | Items per recommendation request in behavior mode |
-| `LOG_EVERY` | `100` | Print a log line every N sent events (not every event) |
-| `MAX_EVENTS` | `0` | Stop after N events; `0` runs continuously |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
+| `KAFKA_TOPIC` | `user_events` | Kafka topic to publish to |
+| `PRODUCER_MODE` | `clickstream` | `clickstream` emits single click events keyed by `user_id`; `behavior` emits full impression/click/order slates keyed by `request_id` |
+| `EVENTS_PER_SECOND` | `1` | Target publish rate; the event loop corrects for send latency |
+| `NUM_USERS` | `5` | Synthetic user pool size |
+| `NUM_ITEMS` | `10` | Synthetic item pool size |
+| `SLATE_SIZE` | `5` | Items per slate in `behavior` mode |
+| `LOG_EVERY` | `100` | Log a summary line every N events |
+| `MAX_EVENTS` | `0` | Stop after N events; `0` runs indefinitely |
 
-Event schema:
+`clickstream` mode event schema:
 
 ```json
 {"user_id":"user_1","item_id":"item_3","event_type":"click","timestamp":1713600001}
 ```
 
-Behavior workflow schema:
+`behavior` mode event schema:
 
 ```json
 {
@@ -461,9 +463,9 @@ Behavior workflow schema:
 
 ### `UserEventStreamingJob`
 
-Consumes click events from Kafka and writes Redis state used by the retrieval service. Redis connections are managed through a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than opening a new TCP connection per partition.
+Consumes click events from Kafka and writes user click history and item popularity to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than a new TCP connection per partition.
 
-For each micro-batch it:
+For each micro-batch, it:
 
 1. Aggregates clicked items per user in a single pass.
 2. Writes one `LPUSH` + `LTRIM` + `EXPIRE` per user to `user:{id}:recent` (not one write per event).
@@ -498,11 +500,17 @@ Environment variables:
 
 ### `OnlineJoinerStreamingJob`
 
-Consumes Kafka behavior logs and turns recommendation impressions plus later feedback into training samples with `features + label`.
+Joins impression events with later feedback from Kafka to produce labeled training samples (features + label).
+
+Start the behavior-mode producer:
 
 ```bash
 PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python services/python-modeling/producer.py
+```
 
+Start the joiner job:
+
+```bash
 SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob \
 ONLINE_JOINER_INPUT_TOPIC=behavior_logs \
 ONLINE_JOINER_OUTPUT_TOPIC=training_samples \
@@ -510,12 +518,12 @@ ONLINE_JOINER_HDFS_OUTPUT_PATH=/tmp/spark-recsys/training-samples \
 ./run-streaming-job.sh
 ```
 
-For each micro-batch it:
+For each micro-batch, it:
 
-1. Runs a **single-pass conditional `groupBy`** over `(request_id, user_id, item_id)` that replaces the previous double-filter + join pattern: impression/exposure rows contribute position, timestamp, and feature fields; click/order/purchase rows contribute feedback signals — one shuffle instead of two (groupBy + join), one scan instead of two.
+1. Runs a **single-pass conditional `groupBy`** over `(request_id, user_id, item_id)`: impression/exposure rows contribute position, timestamp, and feature fields; click/order/purchase rows contribute feedback signals. Replaces the previous double-filter + join pattern — one shuffle and one scan instead of two each.
 2. Drops groups with no impression in this batch (`impression_ts IS NULL`) — pure late-feedback events with no matching slate exposure.
 3. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0` = not clicked, `1.0` = clicked, `2.0` = ordered).
-4. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes them to both sinks inside a `try/finally` that always unpersists.
+4. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes to both sinks inside a `try/finally` that always unpersists.
 5. Writes samples to Kafka for online model updates.
 6. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
 
@@ -531,7 +539,7 @@ Environment variables:
 
 ### `ExperienceCollectorStreamingJob`
 
-Consumes item-level samples from Kafka and rebuilds each recommendation request as a list-level experience, also called an impression list or slate.
+Consumes item-level training samples from Kafka and rebuilds each recommendation request as a list-level slate experience.
 
 ```bash
 SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob \
@@ -540,7 +548,7 @@ EXPERIENCE_COLLECTOR_OUTPUT_TOPIC=training_experiences \
 ./run-streaming-job.sh
 ```
 
-For each micro-batch it groups samples by `request_id + user_id`, sorts items by `position`, and emits a slate JSON containing request context, item features, item labels, slate size, and aggregate slate reward.
+For each micro-batch, it groups samples by `(request_id, user_id)`, sorts items by `position`, and emits a slate JSON containing request context, item features, item labels, slate size, and aggregate slate reward.
 
 Environment variables:
 
@@ -553,7 +561,7 @@ Environment variables:
 
 ### `RecommendationResponseStatsJob`
 
-Consumes request-level slates from `training_experiences` and emits global response metric events to Kafka. The job borrows the shape of a For You feed response stats collector: one response produces a total counter, a country-bucketed total counter, selected item/ad counts, and guardrail checks for empty or sufficiently populated responses.
+Consumes request-level slates from `training_experiences` and emits global response metric events to Kafka. Per response, the job produces a total counter, a country-bucketed total counter, selected item/ad counts, and guardrail checks for empty or insufficiently populated responses.
 
 ```bash
 SPARK_MAIN_CLASS=com.demo.process.RecommendationResponseStatsJob \
@@ -562,13 +570,22 @@ RESPONSE_STATS_OUTPUT_TOPIC=recommendation_metrics \
 ./run-streaming-job.sh
 ```
 
-Metric payloads use:
+Each metric payload contains:
 
-- `metric_name`: `RecommendationFeed.response`
-- `tags`: `type`, `subscription`, optional `country`, optional `blender`, and optional `stage`
-- `value`: count for that response/stat
+| Field | Value |
+|---|---|
+| `metric_name` | `RecommendationFeed.response` |
+| `tags` | `type`, `subscription`, optional `country`, optional `blender`, optional `stage` |
+| `value` | Count for that response/stat |
 
-Item/ad splitting reads `item_features.type` or `item_features.product_type`; values `ad`, `ads`, and `sponsored` count as ads, and every other selected candidate counts as an item. `subscription` comes from `user_features.subscription_level` or `user_features.subscription`; `country` comes from context/user country fields and is bucketed; `blender` comes from `context_features.AdsBlenderType` or `context_features.ads_blender_type`.
+Tag sources:
+
+| Tag | Source field(s) | Notes |
+|---|---|---|
+| `type` | `item_features.type` or `item_features.product_type` | `ad`, `ads`, `sponsored` → ad; all others → item |
+| `subscription` | `user_features.subscription_level` or `user_features.subscription` | |
+| `country` | Context/user country fields | Bucketed |
+| `blender` | `context_features.AdsBlenderType` or `context_features.ads_blender_type` | Optional |
 
 Environment variables:
 
@@ -581,7 +598,7 @@ Environment variables:
 
 ### `MovieLensContextCollectorStreamingJob`
 
-Consumes MovieLens user, movie, and rating context updates from Kafka and writes the Redis hashes used by the retrieval service query hydrators. This is the MovieLens analogue of the source/context collection ideas in the added Rust source references: context events are normalized once in the streaming layer, then the online service reads compact per-user and per-movie feature state at request time.
+Consumes MovieLens user, movie, and rating context updates from Kafka and writes the Redis hashes used by the retrieval service query hydrators. Context events are normalized once in the streaming layer; the online service then reads compact per-user and per-movie feature state at request time.
 
 ```bash
 SPARK_MAIN_CLASS=com.demo.process.MovieLensContextCollectorStreamingJob \
@@ -589,12 +606,11 @@ MOVIELENS_CONTEXT_INPUT_TOPIC=movielens_context \
 ./run-streaming-job.sh
 ```
 
-For each micro-batch it:
+For each micro-batch, it:
 
 1. Classifies mixed JSON records as `user_update`, `movie_update`, or `rating`.
-2. Merges user demographic fields and rating aggregates into `user:{id}:features`.
-3. Maintains `avgRating`, `ratingCount`, `recentlyRatedMovieIds`, and `actionSequenceMovieIds` for query hydration.
-4. Stores movie title, genres, and release year under `movie:{id}:features`.
+2. Merges user demographic fields and rating aggregates (`avgRating`, `ratingCount`, `recentlyRatedMovieIds`, `actionSequenceMovieIds`) into `user:{id}:features`.
+3. Stores movie title, genres, and release year under `movie:{id}:features`.
 
 Redis keys written:
 
@@ -625,14 +641,14 @@ Before scoring, each request is enriched through two sequential pipelines.
 
 ### Query Hydration
 
-`QueryHydrator<ScoredMoviesQuery>` implementations populate per-user context fields on the incoming request. Each hydrator reads one concern and writes one field group; hydrators run independently and can be parallelised.
+`QueryHydrator<ScoredMoviesQuery>` implementations populate per-user context fields on the incoming request. Each hydrator reads one concern and writes one field group; hydrators run independently and can be parallelized.
 
 | Hydrator | Field(s) hydrated | Source |
 |---|---|---|
 | `UserDemographicsQueryHydrator` | `demographics` | `MovieLensFeatureClient` (`user:{id}:features`) |
 | `UserInferredGenderQueryHydrator` | `inferredGender`, `inferredGenderScore` | `MovieLensFeatureClient`; falls back to `demographics.gender` for new users (ratingCount == 0) |
 | `UserMovieFeaturesQueryHydrator` | rating-based features | `MovieLensFeatureClient` |
-| `UserActionSequenceQueryHydrator` | `actionSequenceMovieIds` (dedup + truncate to 50) | `MovieLensFeatureClient` — `recentlyRatedMovieIds` |
+| `UserActionSequenceQueryHydrator` | `actionSequenceMovieIds` (dedup + truncate to 50) | `MovieLensFeatureClient` (field: `recentlyRatedMovieIds`) |
 | `RetrievalSequenceQueryHydrator` | `retrievalSequenceMovieIds` (dedup + truncate to 100) | `UserActionAggregationClient` (`user:{id}:features` via dedup pipeline) |
 | `ScoringSequenceQueryHydrator` | `scoringSequenceMovieIds` (dedup + truncate to 20) | `UserActionAggregationClient` |
 | `ServedHistoryQueryHydrator` | `servedMovieIds` | `ServedHistoryClient` (`user:{id}:served_history`) |
@@ -651,7 +667,7 @@ Before scoring, each request is enriched through two sequential pipelines.
 | `FollowedCollectionsQueryHydrator` | `followedCollections` | `FollowedStarterPacksClient` (`user:{id}:starter_packs`) |
 | `MovieLensUserHistoryQueryHydrator` | `watchedMovieIds`, `ratedMovieIds` | `UserMovieHistoryClient` (`user:{id}:history`) |
 
-All client classes live under `com.demo.retrieval.service.clients`. `MovieLensFeatureClient` covers the general rating-and-demographics feature store. `SocialGraphClient` covers block/mute/follow/subscribe relationships (different write path). All other clients each own a dedicated Redis key namespace.
+All client classes live under `com.demo.retrieval.service.clients`. `MovieLensFeatureClient` covers the general rating-and-demographics feature store. `SocialGraphClient` covers block/mute/follow/subscribe relationships (different write path); all other clients own a dedicated Redis key namespace.
 
 ### Candidate Filters and Hydrators
 
@@ -661,43 +677,43 @@ After initial candidate generation, candidates pass through two more pipelines.
 
 | Filter | Removes |
 |---|---|
-| `PreviouslySeenMoviesFilter` | Movies the user has already watched |
-| `PreviouslySeenMoviesBackupFilter` | Same as above using `impressedMovieIds`; fallback when bloom filter is unavailable |
-| `PreviouslyServedMoviesFilter` | Movies served in recent requests (`servedMovieIds`) |
-| `SelfMovieFilter` | Movies where the requesting user is the creator (`userId == ownerId`) |
+| `PreviouslySeenMoviesFilter` | Movies the user has already watched (via bloom filter) |
+| `PreviouslySeenMoviesBackupFilter` | Watched movies using `impressedMovieIds`; used when bloom filter is unavailable |
+| `PreviouslyServedMoviesFilter` | Recently served movies (`servedMovieIds`) |
+| `SelfMovieFilter` | Movies created by the requesting user (`userId == ownerId`) |
 | `CreatorBlocklistFilter` | Movies from blocked creators |
-| `MutedKeywordFilter` | Movies whose title/tags match muted keywords |
+| `MutedKeywordFilter` | Movies whose title or tags match muted keywords |
 | `AgeFilter` | Movies outside the user's age-appropriate range |
-| `VideoFilter` | Non-video content (configurable) |
+| `VideoFilter` | Non-video content (configurable via filter settings) |
 | `ReshareDeduplicationFilter` | Duplicate reshares of the same source movie |
-| `GenreIdsFilter` | Candidates not matching requested genre IDs |
-| `NewUserGenreFilter` | Topic-restricted candidates for new users |
+| `GenreIdsFilter` | Candidates not matching the requested genre IDs |
+| `NewUserGenreFilter` | Candidates outside the genre allowlist for new users |
 
 **Candidate hydrators** (`CandidateHydrator`) enrich surviving candidates with additional signals:
 
 | Hydrator | Adds |
 |---|---|
-| `CoreDataCandidateHydrator` | Title, genres, release year from movie feature store |
-| `InNetworkCandidateHydrator` | Whether the candidate is from a followed creator |
+| `CoreDataCandidateHydrator` | Title, genres, and release year from the movie feature store |
+| `InNetworkCandidateHydrator` | In-network flag — whether the candidate is from a followed creator |
 | `MutualFollowJaccardCandidateHydrator` | Jaccard similarity score via MinHash |
 | `EngagementCountsCandidateHydrator` | Global rating count and average rating |
-| `GenreMatchCandidateHydrator` | Genre match signal |
+| `GenreMatchCandidateHydrator` | Genre overlap signal against user preferences |
 | `SubscriptionCandidateHydrator` | Subscription-gated content flag |
-| `LanguageCodeCandidateHydrator` | Language metadata |
+| `LanguageCodeCandidateHydrator` | Language code |
 | `HasMediaCandidateHydrator` | Media type flags |
-| `BlockedByCandidateHydrator` | Whether the viewer is blocked by the candidate creator |
-| `VisibilityFilteringCandidateHydrator` | Visibility policy check |
-| `FollowingRepliedUsersCandidateHydrator` | Social proximity signal |
-| `QuoteCandidateHydrator` | Quote/reference metadata |
+| `BlockedByCandidateHydrator` | Blocked-by flag — whether the viewer is blocked by the candidate's creator |
+| `VisibilityFilteringCandidateHydrator` | Visibility eligibility flag based on content policy |
+| `FollowingRepliedUsersCandidateHydrator` | Social proximity signal from followed or replied-to creators |
+| `QuoteCandidateHydrator` | Quote and reference metadata |
 | `GizmoduckCandidateHydrator` | External content safety signal |
 
 ## Retrieval Service Configuration
 
 `services/java-retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
 
-### Offline model paths
+### Disk model paths
 
-Set these to load model artifacts from the filesystem instead of the bundled classpath resources. Unset (default) → use classpath (development and test).
+Set these to load model artifacts from the filesystem instead of the bundled classpath resources. When unset, falls back to classpath (the development and test default).
 
 | Env var | Default | Description |
 |---|---|---|
@@ -715,18 +731,35 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 
 ### Recommendation properties
 
+**Embeddings**
+
 | Property | Default |
 |---|---|
 | `recsys.embeddings.item-prefix` | `i2vEmb` |
 | `recsys.embeddings.user-prefix` | `uEmb` |
+
+**Candidate generation**
+
+| Property | Default |
+|---|---|
 | `recsys.candidate-generation.popularity-fetch-multiplier` | `5` |
 | `recsys.candidate-generation.cold-start-pool-size` | `25` |
 | `recsys.candidate-generation.top-n-randomization-pool` | `5` |
+
+**Filtering**
+
+| Property | Default |
+|---|---|
 | `recsys.filtering.enabled` | `true` |
 | `recsys.filtering.blocked-users` | *(empty)* |
 | `recsys.filtering.muted-product-types` | *(empty)* |
 | `recsys.filtering.muted-genres` | *(empty)* |
 | `recsys.filtering.muted-keywords` | *(empty)* |
+
+**Bandit**
+
+| Property | Default |
+|---|---|
 | `recsys.bandit.algorithm` | `ucb` |
 | `recsys.bandit.exploration-alpha` | `0.75` |
 | `recsys.bandit.max-exploration-bonus` | `0.25` |
@@ -739,8 +772,18 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 | `recsys.bandit.q-learning-alpha` | `0.1` |
 | `recsys.bandit.q-learning-gamma` | `0.9` |
 | `recsys.bandit.q-learning-epsilon` | `0.1` |
+
+**Replay buffer**
+
+| Property | Default |
+|---|---|
 | `recsys.replay-buffer.max-size` | `10000` |
 | `recsys.replay-buffer.candidate-snapshot-size` | `20` |
+
+**Reward model**
+
+| Property | Default |
+|---|---|
 | `recsys.reward-model.weight` | `0.25` |
 | `recsys.reward-model.global-weight` | `0.15` |
 | `recsys.reward-model.item-weight` | `0.45` |
@@ -750,16 +793,33 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 
 Runtime overrides:
 
+**Infrastructure**
+
 | Env var | Default |
 |---|---|
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |
+
+**Embeddings**
+
+| Env var | Default |
+|---|---|
 | `ITEM_EMBEDDING_PREFIX` | `i2vEmb` |
 | `USER_EMBEDDING_PREFIX` | `uEmb` |
+
+**Candidate generation**
+
+| Env var | Default |
+|---|---|
 | `RECSYS_POPULARITY_FETCH_MULTIPLIER` | `5` |
 | `RECSYS_COLD_START_POOL_SIZE` | `25` |
 | `RECSYS_RANDOMIZATION_POOL` | `5` |
+
+**Bandit**
+
+| Env var | Default |
+|---|---|
 | `RECSYS_BANDIT_ALGORITHM` | `ucb` |
 | `RECSYS_EXPLORATION_ALPHA` | `0.75` |
 | `RECSYS_MAX_EXPLORATION_BONUS` | `0.25` |
@@ -769,38 +829,61 @@ Runtime overrides:
 | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
 | `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
+
+**Replay buffer**
+
+| Env var | Default |
+|---|---|
 | `RECSYS_REPLAY_BUFFER_MAX_SIZE` | `10000` |
 | `RECSYS_REPLAY_CANDIDATE_SNAPSHOT_SIZE` | `20` |
+
+**Reward model**
+
+| Env var | Default |
+|---|---|
 | `RECSYS_REWARD_MODEL_WEIGHT` | `0.25` |
 | `RECSYS_REWARD_GLOBAL_WEIGHT` | `0.15` |
 | `RECSYS_REWARD_ITEM_WEIGHT` | `0.45` |
 | `RECSYS_REWARD_GENRE_WEIGHT` | `0.25` |
 | `RECSYS_REWARD_TAG_WEIGHT` | `0.15` |
 | `RECSYS_REWARD_MIN_FEATURE_COUNT` | `3` |
+
+**In-memory cache**
+
+| Env var | Default |
+|---|---|
 | `RECSYS_ITEM_VECTOR_CACHE_SIZE` | `10000` |
 | `RECSYS_ITEM_VECTOR_TTL` | `300` |
 | `RECSYS_REWARD_CACHE_SIZE` | `50000` |
 | `RECSYS_REWARD_TTL` | `30` |
+
+**Disk model**
+
+| Env var | Default |
+|---|---|
 | `ONNX_MODEL_PATH` | *(classpath fallback)* |
 | `ONNX_LOOKUPS_PATH` | *(classpath fallback)* |
 
-Bandit algorithm notes:
+### Bandit algorithm notes
 
-- `ucb` builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
-- `thompson` builds the same posterior and ranks items by a Beta posterior sample, which gives a concrete stochastic arm draw per request.
-- `q-learning` stores tabular Q-values in Redis under `q-learning:q:{stateKey}` and updates them from feedback with `Q(s,a) += alpha * (reward + gamma * max_a Q(s',a) - Q(s,a))`.
-- `sarsa` stores tabular Q-values under `sarsa:q:{stateKey}` and updates with the on-policy target `reward + gamma * Q(s', a')`, where `a'` is selected by the same epsilon-greedy policy used for serving.
-- The `learnedPrior` fed to the bandit is a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model), so bandit updates refine rather than replace the base ranker.
-- Set `RECSYS_DEEP_LEARNING_WEIGHT` to a value between `0.0` and `1.0` to enable the offline ONNX model's contribution to `offlineScore`. The weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
-- Switch algorithms with `RECSYS_BANDIT_ALGORITHM=ucb`, `RECSYS_BANDIT_ALGORITHM=thompson`, `RECSYS_BANDIT_ALGORITHM=q-learning`, or `RECSYS_BANDIT_ALGORITHM=sarsa`.
+All four algorithms consume the same `learnedPrior` — a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model) — so bandit updates refine rather than replace the base ranker.
 
-### Realtime training write path
+- **`ucb`** — builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
+- **`thompson`** — builds the same posterior and ranks items by sampling from the Beta posterior, giving a stochastic arm draw per request.
+- **`q-learning`** — stores tabular Q-values in Redis under `q-learning:q:{stateKey}` and updates from feedback with `Q(s,a) += alpha * (reward + gamma * max_a Q(s',a) - Q(s,a))`.
+- **`sarsa`** — stores tabular Q-values under `sarsa:q:{stateKey}` and updates with the on-policy target `reward + gamma * Q(s', a')`, where `a'` is selected by the same epsilon-greedy policy used for serving.
 
-`/feedback` triggers online learning by updating reward statistics in Redis for the item, its genres and tags, and a global prior. Before pipelining, this was ~22 individual round-trips per feedback call. The current implementation collapses all writes into one:
+Set `RECSYS_DEEP_LEARNING_WEIGHT` to a non-zero value to enable the ONNX model's contribution to `offlineScore`. Weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
+
+Switch algorithms by setting `RECSYS_BANDIT_ALGORITHM` to `ucb`, `thompson`, `q-learning`, or `sarsa`.
+
+### Real-time training write path
+
+`/feedback` triggers online learning by updating reward statistics in Redis for the item, its genres, tags, and a global prior. Before batching, this was ~22 individual round-trips per feedback call. The current implementation collapses all writes into one:
 
 ```
 GET  replay:pending:{user}:{item}           ← phase 1: read (before pipeline)
-─────────────────────────────── pipeline ───────────────────────────────────
+──────────────────────── pipeline (phase 2: write) ─────────────────────────
 HINCRBY bandit:metrics clicks 1             ← if clicked
 HINCRBY bandit:metrics:{algo} clicks 1
 INCR    bandit:item:{item}:clicks
@@ -833,7 +916,7 @@ Replay and reward-model Redis keys:
 
 ### `ItemSequencePreprocessingJob`
 
-Builds time-ordered item sequences from ratings with `rating >= 3.5`.
+Builds time-ordered item sequences from ratings where `rating >= 3.5`.
 
 ```bash
 spark-submit \
@@ -847,12 +930,12 @@ Environment variables:
 
 | Env var | Description |
 |---|---|
-| `RATINGS_INPUT_PATH` | Ratings CSV input |
-| `ITEM_SEQUENCES_OUTPUT_PATH` | Optional output path |
+| `RATINGS_INPUT_PATH` | Path to the ratings CSV; overrides the first positional argument |
+| `ITEM_SEQUENCES_OUTPUT_PATH` | Output directory for item sequences; overrides the second positional argument |
 
 ### `Item2VecTrainingJob`
 
-Trains Spark MLlib `Word2Vec` on item sequences and writes item embeddings to a text file. It can also publish embeddings into Redis for the retrieval service.
+Trains Spark MLlib `Word2Vec` on item sequences, writes item embeddings to a text file, and optionally publishes them to Redis for the retrieval service.
 
 ```bash
 spark-submit \
@@ -867,15 +950,15 @@ Key environment variables:
 
 | Env var | Default |
 |---|---|
-| `RATINGS_INPUT_PATH` | required if arg omitted |
+| `RATINGS_INPUT_PATH` | *(positional arg)* |
 | `ITEM2VEC_EMBEDDING_PATH` | `recsys-pipeline/sampledata/embedding.txt` |
 | `ITEM2VEC_QUERY_ITEM` | `592` |
 | `ITEM2VEC_REDIS_KEY_PREFIX` | `i2vEmb` |
-| `ITEM2VEC_REDIS_TTL_SECONDS` | `86400` |
+| `ITEM2VEC_REDIS_TTL_SECONDS` | `86400` (1 day) |
 | `ITEM2VEC_MIN_COUNT` | `1` |
 | `ITEM2VEC_SAVE_TO_REDIS` | `false` |
 
-Example: train and write embeddings to Redis:
+Train and publish embeddings to Redis:
 
 ```bash
 ITEM2VEC_SAVE_TO_REDIS=true \
@@ -897,7 +980,7 @@ item_1:0.0123 -0.4567 0.8910 ...
 
 ### `UserEmbeddingTrainingJob`
 
-Builds a user embedding by averaging the vectors of positively rated items.
+Builds a user embedding by averaging item vectors for ratings at or above `USER_EMBEDDING_MIN_RATING` (default `3.5`).
 
 ```bash
 spark-submit \
@@ -912,8 +995,8 @@ Key environment variables:
 
 | Env var | Default |
 |---|---|
-| `RATINGS_INPUT_PATH` | required if arg omitted |
-| `ITEM2VEC_EMBEDDING_PATH` | required if arg omitted |
+| `RATINGS_INPUT_PATH` | *(positional arg)* |
+| `ITEM2VEC_EMBEDDING_PATH` | *(positional arg)* |
 | `USER_EMBEDDING_OUTPUT_PATH` | `recsys-pipeline/sampledata/user_embedding.txt` |
 | `USER_EMBEDDING_MIN_RATING` | `3.5` |
 
@@ -925,7 +1008,7 @@ user_1:0.9 0.1 0.0
 
 ### `AlsEmbeddingTrainingJob`
 
-Trains Spark ML `ALS` directly on ratings and writes latent user and item factors.
+Trains Spark ML ALS collaborative filtering on the ratings matrix and writes latent user and item factors.
 
 ```bash
 spark-submit \
@@ -939,7 +1022,7 @@ Key environment variables:
 
 | Env var | Default |
 |---|---|
-| `RATINGS_INPUT_PATH` | required if arg omitted |
+| `RATINGS_INPUT_PATH` | *(positional arg)* |
 | `ALS_EMBEDDING_OUTPUT_PATH` | `recsys-pipeline/sampledata/als` |
 | `ALS_RANK` | `16` |
 | `ALS_MAX_ITER` | `10` |
@@ -954,7 +1037,7 @@ sampledata/als/itemFactors/part-...
 
 ### `EmbeddingCandidateGenerationJob`
 
-Batch embedding-based candidate pre-computation. Loads pre-trained user and item embeddings (output of `UserEmbeddingTrainingJob` or `AlsEmbeddingTrainingJob`), broadcasts the full item catalog to every executor, and computes cosine similarity locally per user partition with no cross-join or shuffle. Writes top-K candidates per user to Parquet and optionally to Redis.
+Pre-computes top-K candidates per user in batch. Loads pre-trained user and item embeddings (output of `UserEmbeddingTrainingJob` or `AlsEmbeddingTrainingJob`), broadcasts the full item catalog to every executor, and computes cosine similarity locally per user partition with no cross-join or shuffle. Writes results to Parquet and optionally to Redis.
 
 ```bash
 spark-submit \
@@ -969,51 +1052,47 @@ Key environment variables:
 
 | Env var | Default |
 |---|---|
-| `USER_EMBEDDING_PATH` | required if arg omitted |
-| `ITEM_EMBEDDING_PATH` | required if arg omitted |
-| `CANDIDATE_OUTPUT_PATH` | optional Parquet output path |
+| `USER_EMBEDDING_PATH` | *(positional arg)* |
+| `ITEM_EMBEDDING_PATH` | *(positional arg)* |
+| `CANDIDATE_OUTPUT_PATH` | *(positional arg)* |
 | `CANDIDATE_TOP_K` | `100` |
 | `CANDIDATE_SAVE_TO_REDIS` | `false` |
 | `CANDIDATE_REDIS_KEY_PREFIX` | `user` (writes `user:{id}:candidates`) |
-| `CANDIDATE_REDIS_TTL_SECONDS` | `86400` |
+| `CANDIDATE_REDIS_TTL_SECONDS` | `86400` (1 day) |
 
 ## Cold-Start RL Extension Plan
 
-The current retrieval service is intentionally the right starting point for a cold-start recommendation project: it already has content-based retrieval, item embeddings, online feedback, and a UCB/Thompson-style exploration layer. The next steps should extend that path gradually rather than jumping straight to a full DQN ranker.
+The retrieval service is a natural starting point for a cold-start RL project: it already has content-based retrieval, item embeddings, online feedback, and a bandit exploration layer. The recommended path extends that foundation gradually rather than jumping straight to a full DQN ranker.
 
-Recommended build order:
-
-1. ✅ Strengthen the existing baseline *(implemented)*:
-   - content-based retrieval from genres, tags, popularity, and embeddings
-   - offline ONNX MLP score (`DeepLearningPredictionService`) blended via `deep-learning-weight`
-   - online reward model (`OnlineLearningService`) updated from the feedback stream
+1. ✅ **Baseline** *(implemented)*
+   - Content-based retrieval from genres, tags, popularity, and embeddings
+   - Offline ONNX MLP score (`DeepLearningPredictionService`) blended via `deep-learning-weight`
+   - Online reward model (`OnlineLearningService`) updated from the feedback stream
    - UCB/Thompson bandit exploration for low-exposure and cold-start items
-   - replay buffer storing `(user, context, candidates, action, reward, timestamp)`
-2. Add the RL framing:
-   - model recommendation as contextual Q-learning where the state is the user/session context, the action is the recommended item, and the reward comes from `/feedback`
-   - keep the UCB ranker as the online-safe policy while the Q-value model is trained offline or in shadow mode
-3. Scale with DQN ranking:
-   - replace tabular Q-values with a neural scorer over user, item, and content embeddings
-   - rank candidate items by predicted Q-value rather than treating the full catalog as the action space
-   - train from the replay buffer with negative samples from exposed-but-unclicked items
-4. Stabilize with Double DQN:
-   - use the online network to choose the next best item
-   - use the target network to evaluate that item
-   - periodically update the target network to reduce overestimation and ranking churn
-5. Improve cold-start sample efficiency with Dyna-style planning:
-   - train a lightweight environment or reward model from observed feedback
-   - generate simulated feedback for new or low-exposure items
-   - mix real replay and simulated replay, with lower weight on simulated samples
+   - Replay buffer storing `(user, context, candidates, action, reward, timestamp)`
 
-Clean project story:
+2. **Establish the RL framing**
+   - Model recommendation as contextual Q-learning: state = user/session context, action = recommended item, reward = `/feedback` signal
+   - Keep the UCB ranker as the online-safe policy while the Q-value model trains offline or in shadow mode
 
-- Q-learning gives the recommendation loop an RL framing.
-- DQN makes the ranking policy scalable with user and item embeddings.
-- Double DQN makes the learned ranker more stable.
-- Dyna-Q improves cold-start sample efficiency by learning from simulated feedback before enough real impressions arrive.
+3. **Scale with DQN ranking**
+   - Replace tabular Q-values with a neural scorer over user, item, and content embeddings
+   - Rank candidates by predicted Q-value rather than treating the full catalog as the action space
+   - Train from the replay buffer using exposed-but-unclicked items as negatives
+
+4. **Stabilize with Double DQN**
+   - Use the online network to select the next best item; use the target network to evaluate it
+   - Periodically sync the target network to reduce overestimation and ranking churn
+
+5. **Improve cold-start efficiency with Dyna-Q planning**
+   - Train a lightweight reward model from observed feedback
+   - Generate simulated feedback for new or low-exposure items
+   - Mix real and simulated replay at a lower weight for simulated samples
+
+Each step adds one capability: Q-learning frames the loop as RL, DQN makes it scalable with embeddings, Double DQN stabilizes the learned ranker, and Dyna-Q improves cold-start efficiency through simulated experience.
 
 ## Notes
 
-- `docker-compose.yml` is explicitly for local development and runs Kafka and Redis without authentication.
-- `run-streaming-job.sh` expects `services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar` to exist.
-- The retrieval service can serve recommendations without embeddings, but the relevance component will be zero until vectors are loaded.
+- `docker-compose.yml` is for local development only; it runs Kafka and Redis without authentication.
+- `run-streaming-job.sh` requires the assembled JAR at `services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar` (produced by `sbt assembly`).
+- The retrieval service can serve recommendations without embeddings, but relevance scores will be zero until item and user vectors are loaded into Redis.
