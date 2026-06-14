@@ -258,3 +258,26 @@ def test_export_lookup_tables(tmp_path):
     assert "item_lookup" in lookups
     assert "u1" in lookups["user_lookup"]
     assert "m001" in lookups["item_lookup"]
+
+
+def test_write_embeddings_to_redis_skips_when_disabled(tmp_path, monkeypatch):
+    """When REDIS_HOST is not set, no Redis connection should be attempted."""
+    monkeypatch.delenv("REDIS_HOST", raising=False)
+    ratings = tmp_path / "ratings.csv"
+    _write_csv(SAMPLE_RATINGS, ratings)
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    # Should complete without raising a ConnectionError
+    pipeline.main([
+        "--ratings-csv", str(ratings),
+        "--model-dir", str(model_dir),
+        "--retrieval-epochs", "1",
+        "--ranking-epochs", "1",
+        "--force-train",
+    ])
+
+
+def test_parse_args_has_save_embeddings_to_redis_flag():
+    config = pipeline.parse_args([])
+    assert hasattr(config, "save_embeddings_to_redis")
+    assert config.save_embeddings_to_redis is False

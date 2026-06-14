@@ -603,6 +603,47 @@ def export_lookup_tables(artifacts=None) -> None:
         _json.dump(payload, f)
     print(f"  lookups     → {dest}")
 
+def write_item_embeddings_to_redis(
+    item_sess,
+    redis_host: str,
+    redis_port: int = 6379,
+    key_prefix: str = "twoTowerItemEmb",
+    ttl_seconds: int = 86400,
+) -> None:
+    """Write all item embeddings from the item-tower ONNX session to Redis.
+
+    Key format: {key_prefix}:{movieId}
+    Value format: space-separated floats (matches Item2Vec / ALS output format)
+    """
+    import redis as _redis
+    import numpy as _np
+
+    all_iids = _np.arange(N_MOVIES, dtype=_np.int64)
+    genre_feats = MOVIE_GENRE_FEATS.astype(_np.float32)
+
+    # Get input names from session to build the correct input dict
+    input_names = [inp.name for inp in item_sess.get_inputs()]
+    inputs = {}
+    if "movie_id" in input_names:
+        inputs["movie_id"] = all_iids
+    if "genre_feat" in input_names:
+        inputs["genre_feat"] = genre_feats
+
+    (embs,) = item_sess.run(None, inputs)
+
+    client = _redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+    pipe = client.pipeline(transaction=False)
+    for i, (movie_id, _, _, _) in enumerate(MOVIES):
+        vec_str = " ".join(f"{v:.6f}" for v in embs[i])
+        key = f"{key_prefix}:{movie_id}"
+        pipe.set(key, vec_str, ex=ttl_seconds)
+        if (i + 1) % 500 == 0:
+            pipe.execute()
+            pipe = client.pipeline(transaction=False)
+    pipe.execute()
+    print(f"  Wrote {N_MOVIES} item embeddings to Redis ({key_prefix}:*)")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Inference pipeline
 # ──────────────────────────────────────────────────────────────────────────────
@@ -880,6 +921,26 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         default=3.5,
         help="Minimum rating threshold for 'rated_high' and user embeddings (default: 3.5).",
     )
+    parser.add_argument(
+        "--save-embeddings-to-redis",
+        action="store_true",
+        default=False,
+        help=(
+            "After training, write item embeddings to Redis under "
+            "twoTowerItemEmb:{movieId}. Requires REDIS_HOST env var."
+        ),
+    )
+    parser.add_argument(
+        "--redis-key-prefix",
+        default="twoTowerItemEmb",
+        help="Redis key prefix for two-tower item embeddings (default: twoTowerItemEmb).",
+    )
+    parser.add_argument(
+        "--redis-ttl",
+        type=int,
+        default=86400,
+        help="TTL in seconds for Redis embedding keys (default: 86400).",
+    )
     parsed = parser.parse_args(args)
     if parsed.top_k < 1:
         parser.error("--top-k must be at least 1")
@@ -922,6 +983,19 @@ def main(args: Sequence[str] | None = None) -> None:
             seed=config.seed,
         )
         export_onnx(user_tower, item_tower, ranker, artifacts)
+
+    if config.save_embeddings_to_redis:
+        import os as _os
+        redis_host = _os.environ.get("REDIS_HOST", "localhost")
+        redis_port = int(_os.environ.get("REDIS_PORT", "6379"))
+        _, item_sess, _ = load_sessions(artifacts)
+        write_item_embeddings_to_redis(
+            item_sess,
+            redis_host=redis_host,
+            redis_port=redis_port,
+            key_prefix=config.redis_key_prefix,
+            ttl_seconds=config.redis_ttl,
+        )
 
     sessions = load_sessions(artifacts)
     for user in config.user or USERS:
