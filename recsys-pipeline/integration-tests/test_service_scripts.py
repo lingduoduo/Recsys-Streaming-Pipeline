@@ -135,3 +135,37 @@ def test_als_pipeline_requires_ratings_input():
     )
     assert result.returncode == 1
     assert "RATINGS_INPUT_PATH" in result.stderr
+
+
+def test_user_embedding_script_exists():
+    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    assert os.path.isfile(script), "run-user-embedding-pipeline.sh not found"
+
+
+def test_user_embedding_script_is_executable():
+    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    assert os.access(script, os.X_OK), "run-user-embedding-pipeline.sh is not executable"
+
+
+def test_user_embedding_requires_ratings_input():
+    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    result = subprocess.run(
+        ["bash", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RATINGS_INPUT_PATH": "", "ITEM2VEC_EMBEDDING_PATH": "some.txt"},
+    )
+    assert result.returncode == 1
+    assert "RATINGS_INPUT_PATH" in result.stderr
+
+
+def test_user_embedding_requires_item_embedding():
+    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    result = subprocess.run(
+        ["bash", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RATINGS_INPUT_PATH": "ratings.csv", "ITEM2VEC_EMBEDDING_PATH": ""},
+    )
+    assert result.returncode == 1
+    assert "ITEM2VEC_EMBEDDING_PATH" in result.stderr
