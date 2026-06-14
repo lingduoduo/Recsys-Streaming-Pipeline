@@ -271,7 +271,25 @@ The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX
 
 ### Scheduled Run (cron)
 
-To retrain every 6 hours:
+Use the install script to add a cron job on the host machine:
+
+```bash
+# Install — runs every 6 hours, logs to /var/log/recsys-retrain.log
+./scripts/install-cron.sh
+
+# Custom schedule (every day at 2 AM)
+./scripts/install-cron.sh --schedule "0 2 * * *" --log /var/log/recsys-retrain.log
+
+# Preview the crontab entry without writing it
+./scripts/install-cron.sh --dry-run
+
+# Remove the cron job
+./scripts/install-cron.sh --uninstall
+```
+
+The script is idempotent — running it twice does not create duplicate entries. Verify the installed entry with `crontab -l`.
+
+To add the entry manually instead:
 
 ```
 0 */6 * * * cd /path/to/recsys-pipeline && ./run-retrain.sh >> /var/log/recsys-retrain.log 2>&1
