@@ -1,5 +1,8 @@
+import csv
 import importlib.util
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -153,3 +156,81 @@ def test_real_onnx_pipeline_returns_sorted_unwatched_recommendations():
         (rec.final_score for rec in recommendations),
         reverse=True,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ratings.csv loader tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+SAMPLE_RATINGS = [
+    ("u1", "m001", "4.0", "1000"),
+    ("u1", "m002", "5.0", "1001"),
+    ("u1", "m003", "2.0", "1002"),  # below threshold — should not appear in rated_high
+    ("u2", "m002", "4.5", "1003"),
+    ("u2", "m004", "3.5", "1004"),
+]
+
+
+def _write_csv(rows, path):
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["userId", "movieId", "rating", "timestamp"])
+        w.writerows(rows)
+
+
+def test_load_user_history_watched():
+    with tempfile.NamedTemporaryFile(suffix=".csv", mode="w", delete=False) as f:
+        tmp = f.name
+    try:
+        _write_csv(SAMPLE_RATINGS, tmp)
+        history = pipeline.load_user_history(Path(tmp), min_rating=3.5)
+        assert "u1" in history
+        assert set(history["u1"]["watched"]) == {"m001", "m002", "m003"}
+    finally:
+        os.unlink(tmp)
+
+
+def test_load_user_history_rated_high():
+    with tempfile.NamedTemporaryFile(suffix=".csv", mode="w", delete=False) as f:
+        tmp = f.name
+    try:
+        _write_csv(SAMPLE_RATINGS, tmp)
+        history = pipeline.load_user_history(Path(tmp), min_rating=3.5)
+        rated_ids = {mid for mid, _ in history["u1"]["rated_high"]}
+        assert "m001" in rated_ids
+        assert "m002" in rated_ids
+        assert "m003" not in rated_ids  # rating 2.0 < 3.5
+    finally:
+        os.unlink(tmp)
+
+
+def test_load_movies_from_ratings():
+    with tempfile.NamedTemporaryFile(suffix=".csv", mode="w", delete=False) as f:
+        tmp = f.name
+    try:
+        _write_csv(SAMPLE_RATINGS, tmp)
+        movies = pipeline.load_movies_from_ratings(Path(tmp))
+        movie_ids = [m[0] for m in movies]
+        assert "m001" in movie_ids
+        assert "m004" in movie_ids
+        assert len(set(movie_ids)) == len(movie_ids), "duplicate movie IDs"
+    finally:
+        os.unlink(tmp)
+
+
+def test_pipeline_runs_with_ratings_csv(tmp_path):
+    """Smoke test: pipeline trains and runs inference without error."""
+    ratings = tmp_path / "ratings.csv"
+    _write_csv(SAMPLE_RATINGS, ratings)
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    pipeline.main([
+        "--ratings-csv", str(ratings),
+        "--model-dir", str(model_dir),
+        "--retrieval-epochs", "2",
+        "--ranking-epochs", "2",
+        "--force-train",
+    ])
+    assert (model_dir / "movielens_user_tower.onnx").is_file()
+    assert (model_dir / "movielens_item_tower.onnx").is_file()
+    assert (model_dir / "movielens_ranking.onnx").is_file()

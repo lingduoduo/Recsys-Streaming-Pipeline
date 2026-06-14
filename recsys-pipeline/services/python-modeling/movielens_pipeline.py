@@ -108,6 +108,52 @@ USER_HISTORY: dict[str, dict] = {
     },
 }
 
+def load_user_history(
+    ratings_csv,
+    min_rating: float = 3.5,
+):
+    """Build USER_HISTORY-shaped dict from a ratings CSV.
+
+    CSV columns: userId, movieId, rating, timestamp
+    """
+    import csv as _csv
+    history = {}
+    with open(ratings_csv, newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            uid = row["userId"]
+            mid = row["movieId"]
+            rating = float(row["rating"])
+            h = history.setdefault(uid, {
+                "watched": [],
+                "rated_high": [],
+                "favorites": [],
+                "rewatched": [],
+            })
+            if mid not in h["watched"]:
+                h["watched"].append(mid)
+            if rating >= min_rating:
+                h["rated_high"].append((mid, rating))
+            if rating >= 4.5:
+                h["favorites"].append(mid)
+            if rating >= 5.0:
+                h["rewatched"].append(mid)
+    return history
+
+
+def load_movies_from_ratings(ratings_csv):
+    """Return a minimal MOVIES-shaped list from unique movieIds in the ratings CSV."""
+    import csv as _csv
+    seen = {}
+    with open(ratings_csv, newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            mid = row["movieId"]
+            if mid not in seen:
+                seen[mid] = (mid, mid, 0, [])
+    return list(seen.values())
+
+
 USERS = list(USER_HISTORY.keys())
 N_USERS = len(USERS)
 USER_TO_IDX = {u: i for i, u in enumerate(USERS)}
@@ -799,6 +845,21 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retrieval-epochs", type=int, default=300)
     parser.add_argument("--ranking-epochs", type=int, default=300)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--ratings-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Path to ratings CSV (userId,movieId,rating,timestamp). "
+            "When provided, replaces the built-in USER_HISTORY with data from this file."
+        ),
+    )
+    parser.add_argument(
+        "--min-rating",
+        type=float,
+        default=3.5,
+        help="Minimum rating threshold for 'rated_high' and user embeddings (default: 3.5).",
+    )
     parsed = parser.parse_args(args)
     if parsed.top_k < 1:
         parser.error("--top-k must be at least 1")
@@ -809,6 +870,20 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(args: Sequence[str] | None = None) -> None:
     config = parse_args(args)
+
+    # Override module-level globals when a ratings CSV is provided.
+    global USER_HISTORY, MOVIES, MOVIE_TO_IDX, N_MOVIES, MOVIE_GENRE_FEATS
+    global USERS, N_USERS, USER_TO_IDX
+    if config.ratings_csv is not None:
+        USER_HISTORY = load_user_history(config.ratings_csv, min_rating=config.min_rating)
+        MOVIES = load_movies_from_ratings(config.ratings_csv)
+        MOVIE_TO_IDX = {m[0]: i for i, m in enumerate(MOVIES)}
+        N_MOVIES = len(MOVIES)
+        MOVIE_GENRE_FEATS = np.zeros((N_MOVIES, GENRE_DIM), dtype=np.float32)
+        USERS = list(USER_HISTORY.keys())
+        N_USERS = len(USERS)
+        USER_TO_IDX = {u: i for i, u in enumerate(USERS)}
+
     artifacts = ArtifactPaths.from_directory(config.model_dir.resolve())
     artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
 
