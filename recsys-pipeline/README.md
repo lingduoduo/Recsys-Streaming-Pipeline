@@ -93,6 +93,7 @@ Candidate items are scored through three stages, each with a different learning 
 | Model type | Class | Signal | Update cadence |
 |---|---|---|---|
 | **Offline** | `DeepLearningPredictionService` | ONNX MLP score for a (user, item) pair | At training time; static at serve time |
+| **Two-tower** | `TwoTowerPredictionService` | User-tower + item-tower cosine score re-ranked by a transformer; enabled via `ONNX_USER_TOWER_PATH` | At training time; hot-reloaded via `POST /actuator/model-reload` |
 | **Online** | `OnlineLearningService` | Weighted mean reward per item, genre, tag, and global prior | After every `/feedback` call |
 | **Bandit / RL** | `HybridRecommendationService` | UCB, Thompson Sampling, Q-learning, or SARSA score from replay state/action/reward events | After impressions and `/feedback` rewards |
 
@@ -120,13 +121,13 @@ Feature data is split across three tiers by access pattern and update frequency.
 
 | Tier | Contents | Updated by |
 |------|----------|------------|
-| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Training jobs; swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild |
-| **Redis** | User click history, global item popularity, item/user embeddings, bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
+| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), two-tower ONNX models (`movielens_user_tower.onnx`, `movielens_item_tower.onnx`, `movielens_ranking.onnx`), Parquet training samples partitioned by date | Training jobs; swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild |
+| **Redis** | User click history, global item popularity, item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`, `twoTowerItemEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
 | **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
 
 The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
 
-**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default).
+**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the MLP model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default). To enable the two-tower scoring path, set `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, and `ONNX_RANKING_PATH` to the three ONNX files exported by `movielens_pipeline.py`.
 
 ## Recommendation Request Flow
 
@@ -245,6 +246,17 @@ The first run trains and exports the three ONNX models; later runs reuse them. O
 python services/python-modeling/movielens_pipeline.py --user alice --top-k 5
 python services/python-modeling/movielens_pipeline.py --user alice --user bob
 python services/python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
+
+# Train from a real ratings CSV instead of the built-in synthetic catalog:
+python services/python-modeling/movielens_pipeline.py \
+    --ratings-csv sampledata/ratings.csv \
+    --force-train
+
+# Train, then write item embeddings to Redis (enables TwoTowerPredictionService):
+python services/python-modeling/movielens_pipeline.py \
+    --ratings-csv sampledata/ratings.csv \
+    --save-embeddings-to-redis \
+    --redis-host localhost
 ```
 
 Run the cross-service integration tests:
@@ -733,10 +745,20 @@ After initial candidate generation, candidates pass through two more pipelines.
 
 Set these to load model artifacts from the filesystem instead of the bundled classpath resources. When unset, falls back to classpath (the development and test default).
 
+**MLP model** (`DeepLearningPredictionService`):
+
 | Env var | Default | Description |
 |---|---|---|
 | `ONNX_MODEL_PATH` | *(classpath)* | Absolute path to `mlp_embedding_model.onnx` on the filesystem |
 | `ONNX_LOOKUPS_PATH` | *(classpath)* | Absolute path to `mlp_embedding_lookups.json` on the filesystem |
+
+**Two-tower model** (`TwoTowerPredictionService` — disabled unless all three are set):
+
+| Env var | Default | Description |
+|---|---|---|
+| `ONNX_USER_TOWER_PATH` | *(unset)* | Absolute path to `movielens_user_tower.onnx` exported by `movielens_pipeline.py` |
+| `ONNX_ITEM_TOWER_PATH` | *(unset)* | Absolute path to `movielens_item_tower.onnx` |
+| `ONNX_RANKING_PATH` | *(unset)* | Absolute path to `movielens_ranking.onnx` (transformer re-ranker) |
 
 ### In-memory cache (FeatureCache)
 
