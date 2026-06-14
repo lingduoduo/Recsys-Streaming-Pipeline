@@ -281,3 +281,39 @@ def test_parse_args_has_save_embeddings_to_redis_flag():
     config = pipeline.parse_args([])
     assert hasattr(config, "save_embeddings_to_redis")
     assert config.save_embeddings_to_redis is False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# --fine-tune-csv flag tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+mp = pipeline
+
+REPLAY_RATINGS = [
+    ("u1", "m005", "4.0", "2000"),
+    ("u3", "m001", "5.0", "2001"),
+]
+
+
+def test_fine_tune_merges_ratings(tmp_path):
+    base_csv = tmp_path / "ratings.csv"
+    replay_csv = tmp_path / "replay.csv"
+    _write_csv(SAMPLE_RATINGS, base_csv)
+    _write_csv(REPLAY_RATINGS, replay_csv)
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    mp.main([
+        "--ratings-csv", str(base_csv),
+        "--fine-tune-csv", str(replay_csv),
+        "--model-dir", str(model_dir),
+        "--retrieval-epochs", "1",
+        "--ranking-epochs", "1",
+        "--force-train",
+    ])
+    assert (model_dir / "movielens_user_tower.onnx").is_file()
+
+
+def test_parse_args_has_fine_tune_csv():
+    config = mp.parse_args([])
+    assert hasattr(config, "fine_tune_csv")
+    assert config.fine_tune_csv is None

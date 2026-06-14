@@ -922,6 +922,15 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="Minimum rating threshold for 'rated_high' and user embeddings (default: 3.5).",
     )
     parser.add_argument(
+        "--fine-tune-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Path to an additional ratings CSV to merge with --ratings-csv before training. "
+            "Use to fine-tune on replay buffer data without discarding base ratings."
+        ),
+    )
+    parser.add_argument(
         "--save-embeddings-to-redis",
         action="store_true",
         default=False,
@@ -958,6 +967,27 @@ def main(args: Sequence[str] | None = None) -> None:
     if config.ratings_csv is not None:
         USER_HISTORY = load_user_history(config.ratings_csv, min_rating=config.min_rating)
         MOVIES = load_movies_from_ratings(config.ratings_csv)
+        MOVIE_TO_IDX = {m[0]: i for i, m in enumerate(MOVIES)}
+        N_MOVIES = len(MOVIES)
+        MOVIE_GENRE_FEATS = np.zeros((N_MOVIES, GENRE_DIM), dtype=np.float32)
+        USERS = list(USER_HISTORY.keys())
+        N_USERS = len(USERS)
+        USER_TO_IDX = {u: i for i, u in enumerate(USERS)}
+
+    if config.fine_tune_csv is not None:
+        fine_tune_history = load_user_history(config.fine_tune_csv, min_rating=config.min_rating)
+        for uid, h in fine_tune_history.items():
+            if uid in USER_HISTORY:
+                USER_HISTORY[uid]["watched"].extend(h["watched"])
+                USER_HISTORY[uid]["rated_high"].extend(h["rated_high"])
+                USER_HISTORY[uid]["favorites"].extend(h["favorites"])
+                USER_HISTORY[uid]["rewatched"].extend(h["rewatched"])
+            else:
+                USER_HISTORY[uid] = h
+        fine_tune_movies = load_movies_from_ratings(config.fine_tune_csv)
+        existing_ids = {m[0] for m in MOVIES}
+        new_movies = [m for m in fine_tune_movies if m[0] not in existing_ids]
+        MOVIES.extend(new_movies)
         MOVIE_TO_IDX = {m[0]: i for i, m in enumerate(MOVIES)}
         N_MOVIES = len(MOVIES)
         MOVIE_GENRE_FEATS = np.zeros((N_MOVIES, GENRE_DIM), dtype=np.float32)
