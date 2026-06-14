@@ -30,12 +30,6 @@ Recsys-Streaming-Pipeline/
     └── docker-compose.yml             # Local Kafka + Redis
 ```
 
-## Architecture
-
-![Recsys Streaming Pipeline](recsys-pipeline/recsys-streaming-pipeline.png)
-
-> Interactive version: [recsys-streaming-pipeline.html](recsys-pipeline/recsys-streaming-pipeline.html)
-
 ---
 
 ## spark-analysis
