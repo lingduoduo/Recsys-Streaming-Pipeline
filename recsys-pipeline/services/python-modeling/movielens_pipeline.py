@@ -582,6 +582,26 @@ def export_onnx(
         opset_version=17,
     )
     print(f"  ranking     → {artifacts.ranking}")
+    export_lookup_tables(artifacts)
+
+
+def export_lookup_tables(artifacts=None) -> None:
+    """Write user/item index lookup tables as JSON beside the ONNX models.
+
+    Format: {"user_lookup": {userId: index}, "item_lookup": {movieId: index}}
+    Matches mlp_embedding_lookups.json format for Java service compatibility.
+    """
+    import json as _json
+    if artifacts is None:
+        artifacts = DEFAULT_ARTIFACTS
+    dest = artifacts.user_tower.parent / "movielens_lookups.json"
+    payload = {
+        "user_lookup": {u: i for u, i in USER_TO_IDX.items()},
+        "item_lookup": {m[0]: i for i, m in enumerate(MOVIES)},
+    }
+    with open(dest, "w") as f:
+        _json.dump(payload, f)
+    print(f"  lookups     → {dest}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inference pipeline

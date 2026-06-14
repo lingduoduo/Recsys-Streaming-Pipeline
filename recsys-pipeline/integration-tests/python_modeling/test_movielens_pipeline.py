@@ -234,3 +234,27 @@ def test_pipeline_runs_with_ratings_csv(tmp_path):
     assert (model_dir / "movielens_user_tower.onnx").is_file()
     assert (model_dir / "movielens_item_tower.onnx").is_file()
     assert (model_dir / "movielens_ranking.onnx").is_file()
+
+
+def test_export_lookup_tables(tmp_path):
+    ratings = tmp_path / "ratings.csv"
+    _write_csv(SAMPLE_RATINGS, ratings)
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    import json
+    mp = pipeline
+    mp.main([
+        "--ratings-csv", str(ratings),
+        "--model-dir", str(model_dir),
+        "--retrieval-epochs", "2",
+        "--ranking-epochs", "2",
+        "--force-train",
+    ])
+    lookup_path = model_dir / "movielens_lookups.json"
+    assert lookup_path.is_file(), "movielens_lookups.json not found"
+    with open(lookup_path) as f:
+        lookups = json.load(f)
+    assert "user_lookup" in lookups
+    assert "item_lookup" in lookups
+    assert "u1" in lookups["user_lookup"]
+    assert "m001" in lookups["item_lookup"]
