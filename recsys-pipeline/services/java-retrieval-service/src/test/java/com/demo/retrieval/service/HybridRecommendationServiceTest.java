@@ -72,6 +72,8 @@ class HybridRecommendationServiceTest {
         FeatureCache featureCache = new FeatureCache(properties);
         DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
         when(predictionService.predict(any(), any())).thenReturn(Optional.empty());
+        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
+        when(twoTowerPredictionService.isEnabled()).thenReturn(false);
         HybridRecommendationService service = new HybridRecommendationService(
             redis,
             properties,
@@ -80,7 +82,8 @@ class HybridRecommendationServiceTest {
             featureCache,
             List.of(new MovieLensUserHistoryQueryHydrator(
                 userId -> new UserMovieHistory(List.of("watched"), List.of("rated"))
-            ))
+            )),
+            twoTowerPredictionService
         );
 
         RecommendationResult result = service.recommend("u1", 1);

@@ -95,6 +95,7 @@ public class HybridRecommendationService {
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
     private final DeepLearningPredictionService predictionService;
+    private final TwoTowerPredictionService twoTowerPredictionService;
     private final OnlineLearningService onlineLearningService;
     private final FeatureCache featureCache;
     private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
@@ -111,11 +112,13 @@ public class HybridRecommendationService {
         DeepLearningPredictionService predictionService,
         OnlineLearningService onlineLearningService,
         FeatureCache featureCache,
-        List<QueryHydrator<ScoredMoviesQuery>> queryHydrators
+        List<QueryHydrator<ScoredMoviesQuery>> queryHydrators,
+        TwoTowerPredictionService twoTowerPredictionService
     ) {
         this.redis = redis;
         this.properties = properties;
         this.predictionService = predictionService;
+        this.twoTowerPredictionService = twoTowerPredictionService;
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
@@ -215,7 +218,17 @@ public class HybridRecommendationService {
         Map<String, Double> qValues = tabularRl
             ? batchFetchQValues(stateKey, eligibleList)
             : Map.of();
-        Map<String, Double> dlScores = predictionService.predictBatch(user, eligibleList);
+        Map<String, Double> dlScoresRaw = predictionService.predictBatch(user, eligibleList);
+        if (twoTowerPredictionService.isEnabled()) {
+            Map<String, Double> twoTowerScores = twoTowerPredictionService.predictBatch(user, eligibleList);
+            if (!twoTowerScores.isEmpty()) {
+                Map<String, Double> merged = new HashMap<>(dlScoresRaw);
+                twoTowerScores.forEach((item, score) ->
+                    merged.merge(item, score, Math::max));
+                dlScoresRaw = Map.copyOf(merged);
+            }
+        }
+        final Map<String, Double> dlScores = dlScoresRaw;
 
         // Warm reward-stats cache for all candidates in one pipeline flush so every
         // subsequent onlineLearningService.score() call is a pure in-memory read.
