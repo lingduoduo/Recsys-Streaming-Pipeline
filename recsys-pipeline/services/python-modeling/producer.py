@@ -16,7 +16,7 @@ except ModuleNotFoundError as exc:
     raise
 
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-TOPIC = os.getenv("KAFKA_TOPIC", "user_events")
+TOPIC = os.getenv("KAFKA_TOPIC", "recsys_events")
 EVENTS_PER_SECOND = max(float(os.getenv("EVENTS_PER_SECOND", "1")), 0.1)
 NUM_USERS = max(int(os.getenv("NUM_USERS", "5")), 1)
 NUM_ITEMS = max(int(os.getenv("NUM_ITEMS", "10")), 1)
@@ -28,30 +28,34 @@ MAX_EVENTS = max(int(os.getenv("MAX_EVENTS", "0")), 0)
 
 def make_click_event(users, items):
     return {
+        "event_id": str(uuid.uuid4()),
         "user_id": random.choice(users),
         "item_id": random.choice(items),
         "event_type": "click",
-        "timestamp": int(time.time()),
+        "timestamp_ms": int(time.time() * 1000),
     }
 
 
 def make_behavior_slate(users, items):
-    now = int(time.time())
+    now_ms = int(time.time() * 1000)
     user = random.choice(users)
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     slate_items = random.sample(items, min(SLATE_SIZE, len(items)))
     device = random.choice(["ios", "android", "web"])
     country = random.choice(["US", "CA", "GB"])
     user_tier = random.choice(["new", "standard", "vip"])
+    session_id = f"sess_{uuid.uuid4().hex[:8]}"
 
     events = []
     for position, item in enumerate(slate_items):
         events.append({
+            "event_id": str(uuid.uuid4()),
             "request_id": request_id,
+            "session_id": session_id,
             "user_id": user,
             "item_id": item,
             "event_type": "impression",
-            "timestamp": now,
+            "timestamp_ms": now_ms,
             "position": position,
             "user_features": {"tier": user_tier},
             "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
@@ -61,11 +65,13 @@ def make_behavior_slate(users, items):
     clicked_item = random.choice(slate_items) if random.random() < 0.35 else None
     if clicked_item:
         events.append({
+            "event_id": str(uuid.uuid4()),
             "request_id": request_id,
+            "session_id": session_id,
             "user_id": user,
             "item_id": clicked_item,
             "event_type": "click",
-            "timestamp": now + random.randint(1, 20),
+            "timestamp_ms": now_ms + random.randint(1, 20) * 1000,
             "position": slate_items.index(clicked_item),
             "user_features": {},
             "item_features": {},
@@ -74,11 +80,13 @@ def make_behavior_slate(users, items):
 
         if random.random() < 0.12:
             events.append({
+                "event_id": str(uuid.uuid4()),
                 "request_id": request_id,
+                "session_id": session_id,
                 "user_id": user,
                 "item_id": clicked_item,
                 "event_type": "order",
-                "timestamp": now + random.randint(21, 120),
+                "timestamp_ms": now_ms + random.randint(21, 120) * 1000,
                 "position": slate_items.index(clicked_item),
                 "user_features": {},
                 "item_features": {},
@@ -123,7 +131,7 @@ def main():
         ) from None
     print("connected; producing events (press Ctrl-C to stop)", flush=True)
     users = [f"user_{i}" for i in range(1, NUM_USERS + 1)]
-    items = [f"item_{i}" for i in range(1, NUM_ITEMS + 1)]
+    items = [f"movie_{i}" for i in range(1, NUM_ITEMS + 1)]
     interval = 1.0 / EVENTS_PER_SECOND
     sent = 0
 
