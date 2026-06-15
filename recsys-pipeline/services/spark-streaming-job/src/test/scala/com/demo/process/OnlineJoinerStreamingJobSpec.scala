@@ -77,11 +77,16 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     // Apply the same normalisation that parseEvents performs
     val normalised = events
-      .withColumn("timestamp", coalesce(col("timestamp_ms"), col("timestamp") * 1000L))
+      .withColumn("timestamp", coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
       .drop("timestamp_ms")
 
     val rows = OnlineJoinerStreamingJob.buildTrainingSamples(normalised).collect()
     rows should have length 1
     rows.head.getAs[Int]("clicked") shouldBe 1
+
+    val impressionTime = rows.head.getAs[java.sql.Timestamp]("impression_time")
+    impressionTime should not be null
+    // impression_time should be in year 2024, not 54426
+    impressionTime.toLocalDateTime.getYear shouldBe 2024
   }
 }

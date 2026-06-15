@@ -89,7 +89,7 @@ object OnlineJoinerStreamingJob {
       .select(from_json(col("json"), EventSchema).as("data"))
       .select("data.*")
       .withColumn("timestamp",
-        coalesce(col("timestamp_ms"), col("timestamp") * 1000L))
+        coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
       .drop("timestamp_ms")
       .filter(
         col("request_id").isNotNull &&
