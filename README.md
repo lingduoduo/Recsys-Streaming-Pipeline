@@ -118,9 +118,10 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 ### Quick Start
 
 ```bash
-# 1. Start infrastructure
+# 1. Start infrastructure (requires a running Docker daemon: Docker Desktop, or `colima start`)
 cd recsys-pipeline
-docker compose up -d          # Kafka + Redis
+docker compose up -d          # Kafka + Redis (+ Zookeeper)
+docker compose ps             # wait until kafka/redis are healthy
 
 # 2. Run producer (install deps first)
 python -m pip install -r services/python-modeling/requirements.txt
