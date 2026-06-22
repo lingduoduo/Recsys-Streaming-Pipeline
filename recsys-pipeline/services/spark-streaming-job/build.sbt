@@ -32,6 +32,8 @@ lazy val root = (project in file("."))
           case _               => MergeStrategy.discard
         }
       case "reference.conf" => MergeStrategy.concat
+      case PathList(ps @ _*) if Set("license", "license.txt", "notice", "notice.txt").contains(ps.last.toLowerCase) =>
+        MergeStrategy.discard
       case _                => MergeStrategy.deduplicate
     }
   )
