@@ -41,6 +41,21 @@ for arg in "$@"; do
   esac
 done
 
+# Sample-count guard: skip retraining unless HDFS has enough samples
+TRAINING_PATH="${TRAINING_PATH:-/tmp/spark-recsys/training-samples}"
+RETRAIN_THRESHOLD="${RETRAIN_THRESHOLD:-50}"
+
+SAMPLE_COUNT=0
+if [[ -d "${TRAINING_PATH}" ]]; then
+  SAMPLE_COUNT=$(find "${TRAINING_PATH}" -name "*.parquet" | wc -l | tr -d ' ')
+fi
+
+if [[ "${SAMPLE_COUNT}" -lt "${RETRAIN_THRESHOLD}" && "${DRY_RUN}" != "1" ]]; then
+  echo "Skipping retrain: only ${SAMPLE_COUNT} Parquet files found in ${TRAINING_PATH} (threshold: ${RETRAIN_THRESHOLD})."
+  echo "Run with DRY_RUN=1 to preview, or RETRAIN_THRESHOLD=0 to force."
+  exit 0
+fi
+
 run() {
   if [[ "${DRY_RUN}" == "1" ]]; then
     echo "DRY RUN: skip → $*"

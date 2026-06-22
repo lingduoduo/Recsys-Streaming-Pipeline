@@ -14,7 +14,8 @@ object OnlineJoinerStreamingJob {
     StructField("user_id", StringType, nullable = false),
     StructField("item_id", StringType, nullable = false),
     StructField("event_type", StringType, nullable = false),
-    StructField("timestamp", LongType, nullable = false),
+    StructField("timestamp_ms", LongType, nullable = true),    // unified (millis)
+    StructField("timestamp", LongType, nullable = true),        // legacy compat
     StructField("position", IntegerType, nullable = true),
     StructField("user_features", MapType(StringType, StringType), nullable = true),
     StructField("item_features", MapType(StringType, StringType), nullable = true),
@@ -23,7 +24,7 @@ object OnlineJoinerStreamingJob {
 
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    val inputTopic = sys.env.getOrElse("ONLINE_JOINER_INPUT_TOPIC", "behavior_logs")
+    val inputTopic = sys.env.getOrElse("ONLINE_JOINER_INPUT_TOPIC", "recsys_events")
     val outputTopic = sys.env.getOrElse("ONLINE_JOINER_OUTPUT_TOPIC", "training_samples")
     val outputPath = sys.env.getOrElse("ONLINE_JOINER_HDFS_OUTPUT_PATH", "/tmp/spark-recsys/training-samples")
     val checkpointLocation = sys.env.getOrElse(
@@ -39,7 +40,8 @@ object OnlineJoinerStreamingJob {
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("subscribe", inputTopic)
-      .option("startingOffsets", "latest")
+      .option("startingOffsets", sys.env.getOrElse("KAFKA_STARTING_OFFSETS", "earliest"))
+      .option("kafka.group.id", sys.env.getOrElse("KAFKA_GROUP_ID", "training-joiner"))
       .option("failOnDataLoss", "false")
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
@@ -86,6 +88,9 @@ object OnlineJoinerStreamingJob {
     rawKafka.selectExpr("CAST(value AS STRING) AS json")
       .select(from_json(col("json"), EventSchema).as("data"))
       .select("data.*")
+      .withColumn("timestamp",
+        coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
+      .drop("timestamp_ms")
       .filter(
         col("request_id").isNotNull &&
           col("user_id").isNotNull &&
