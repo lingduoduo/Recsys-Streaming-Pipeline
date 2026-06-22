@@ -120,7 +120,8 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 ```bash
 # 1. Start infrastructure
 cd recsys-pipeline
-docker compose up -d          # Kafka + Redis
+docker compose up -d          # Kafka + Redis (+ Zookeeper)
+docker compose ps             # wait until kafka/redis are healthy
 
 # 2. Run producer (install deps first)
 python -m pip install -r services/python-modeling/requirements.txt
