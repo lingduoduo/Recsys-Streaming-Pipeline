@@ -115,6 +115,18 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | `services/java-retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
 | `services/python-modeling/producer.py` | Python | Kafka producer that generates synthetic user–item events |
 
+### Ports
+
+| Port | Service | Bound by | Notes |
+|------|---------|----------|-------|
+| `8080` | Retrieval service (Spring Boot) | `java-retrieval-service` (`SERVER_PORT`) | REST API: `/recommend`, `/predict`, `/feedback`, `/metrics` |
+| `9092` | Kafka — host listener | `docker-compose.yml` | Producer and Spark jobs connect here (`localhost:9092`) |
+| `29092` | Kafka — internal listener | `docker-compose.yml` | Inter-container only (`kafka:29092`) |
+| `2181` | Zookeeper | `docker-compose.yml` | Kafka coordination |
+| `6379` | Redis | `docker-compose.yml` (`REDIS_PORT`) | Embeddings, counters, user history |
+
+> The Spark driver UI also binds `4040` (incrementing if taken) while a streaming/training job runs.
+
 ### Quick Start
 
 ```bash
