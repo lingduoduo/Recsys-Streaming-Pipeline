@@ -6,17 +6,26 @@ A recommendation-system playground that combines streaming data pipelines, offli
 
 ```
 Recsys-Streaming-Pipeline/
+├── README.md                          # This file
+├── SPEC.md                            # Training-consolidation spec (offline/online unification)
+├── docs/
+│   └── superpowers/plans/             # Phased implementation plans
 ├── spark-analysis/                    # Spark/Flink concepts, user analysis, and ML pipelines
+│   ├── README.md                      # spark-analysis overview
 │   ├── spark_report.scala             # RDD, DataFrame, window functions, logistic regression pipeline
 │   ├── spark_encoder.scala            # Active user feature engineering and binary classification
 │   ├── spark_model.scala              # Extended encoder with search-activity features
-│   ├── retention_label.scala          # BigQuery → Spark retention labeling (D1, D7, WAU)
+│   ├── retention_label.scala          # BigQuery → Spark retention labeling (D1, D2, L7, WAU)
 │   └── Algebird.md                    # Algebird sketch library notes
 └── recsys-pipeline/                   # Streaming recommendation platform
+    ├── README.md                      # recsys-pipeline overview
+    ├── pom.xml                        # Maven build for the Scala/Java services
+    ├── pytest.ini                     # Pytest config for integration tests
     ├── services/
     │   ├── spark-streaming-job/       # Scala/Spark: streaming ingestion, feature joins, offline embeddings
     │   ├── java-retrieval-service/    # Java/Spring Boot: ONNX scoring, bandit RL, REST API
     │   └── python-modeling/           # Python: event producer, two-tower training, ONNX export
+    ├── integration-tests/             # Cross-service integration tests (pytest + shell)
     ├── scripts/
     │   └── install-cron.sh            # Installs scheduled retraining cron job
     ├── sampledata/                    # ratings.csv and sample embeddings
@@ -87,8 +96,8 @@ services/python-modeling/producer.py  ──Kafka──►  UserEventStreamingJo
 
 Training-data path
 ──────────────────
-behavior logs ──Kafka──► OnlineJoinerStreamingJob ──Kafka/HDFS──► training samples
-training samples ──Kafka──► ExperienceCollectorStreamingJob ──Kafka──► slates
+recsys_events    ──Kafka──► OnlineJoinerStreamingJob       ──Kafka/HDFS──► training_samples
+training_samples ──Kafka──► ExperienceCollectorStreamingJob ──Kafka──►    training_experiences (slates)
 
 Offline path
 ────────────
@@ -101,7 +110,7 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | Component | Language | Description |
 |-----------|----------|-------------|
 | `services/spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
-| `services/spark-streaming-job` | Scala / Spark | Joins behavior logs into feature+label samples and reconstructs request-level slates |
+| `services/spark-streaming-job` | Scala / Spark | Joins the `recsys_events` stream into feature+label samples and reconstructs request-level slates |
 | `services/spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
 | `services/java-retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
 | `services/python-modeling/producer.py` | Python | Kafka producer that generates synthetic user–item events |
@@ -113,10 +122,12 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 cd recsys-pipeline
 docker compose up -d          # Kafka + Redis
 
-# 2. Run producer
+# 2. Run producer (install deps first)
+python -m pip install -r services/python-modeling/requirements.txt
 python services/python-modeling/producer.py
 
-# 3. Submit streaming job
+# 3. Build the Spark job jar, then submit it
+(cd services/spark-streaming-job && sbt assembly)
 spark-submit \
   --class com.demo.task.UserEventStreamingJob \
   services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
