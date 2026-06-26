@@ -118,13 +118,33 @@ SIGINT/SIGTERM to shut them down together.
 - *Acceptance:* one command starts all 3 with separate checkpoints; Ctrl-C stops all.
 - *Files:* `run-data-pipeline.sh` (new); README note (separate docs PR).
 
-### Phase 2 — semantics-changing (ASK FIRST, not in default scope)
+### Phase 2 — semantics-changing (APPROVED 2026-06-26)
 
-**6. Correctness — event dedup + late-data handling.**
-Optional: `event_id`-based dedup with a watermark, and explicit corrupt-record
-accounting (count/log `from_json`-null rows instead of silently dropping). Changes
-streaming state + checkpoint layout, so gated behind approval.
-- *Acceptance:* duplicates within watermark are dropped; corrupt records counted.
+Producer facts (verified): every `recsys_events` record carries `event_id`
+(uuid4) and `timestamp_ms` (millis). Spark 3.5.1 provides
+`dropDuplicatesWithinWatermark`.
+
+**6a. Event dedup + watermark — BOTH recsys_events jobs** (approved scope: both).
+Derive an `event_time` timestamp from `timestamp_ms`, apply
+`.withWatermark("event_time", EVENT_WATERMARK_DELAY)` then
+`.dropDuplicatesWithinWatermark("event_id")` on the streaming DataFrame (before
+`foreachBatch`) in `UserEventStreamingJob` and `OnlineJoinerStreamingJob`. The
+joiner schema (`EventSchemas.joiner`) must gain `event_id` (not currently parsed).
+`EVENT_WATERMARK_DELAY` default `"10 minutes"`, env-tunable.
+- *Why both:* UserEvent's `ZINCRBY` double-counts duplicates (primary harm);
+  OnlineJoiner's groupBy mostly absorbs them, but dedup is applied for consistency
+  per the approved scope.
+- *Acceptance:* given two micro-batches containing the same `event_id` within the
+  watermark, the duplicate is emitted once.
+
+**6b. Corrupt-record accounting — count + log per batch** (approved).
+In each recsys_events parser's `foreachBatch`, count rows where `from_json`
+failed (struct parsed to null) and log the count; keep dropping them (no DLQ).
+- *Acceptance:* a batch containing N malformed payloads logs `corrupt=N`.
+
+**Operational note:** dedup makes the queries stateful, changing checkpoint
+layout. Existing `UserEventStreamingJob` / `OnlineJoinerStreamingJob` checkpoints
+are incompatible — first deploy requires a fresh `SPARK_CHECKPOINT_LOCATION`.
 
 ## Code Style
 
