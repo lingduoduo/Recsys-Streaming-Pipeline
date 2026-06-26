@@ -24,3 +24,9 @@ recsys-pipeline/**/*.pyc
 *.class
 .DS_Store
 **/.DS_Store
+
+# Local planning scratch (kept out of the repo)
+/task_plan.md
+/progress.md
+# Subagent-driven-development scratch (briefs, reports, review packages)
+/.superpowers/

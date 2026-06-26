@@ -7,9 +7,10 @@ A recommendation-system playground that combines streaming data pipelines, offli
 ```
 Recsys-Streaming-Pipeline/
 ├── README.md                          # This file
-├── SPEC.md                            # Training-consolidation spec (offline/online unification)
-├── docs/
-│   └── superpowers/plans/             # Phased implementation plans
+├── docs/                              # Dev docs — specs, plans, notes (see docs/README.md)
+│   ├── specs/                         # Training-consolidation + data-pipeline specs
+│   ├── plans/                         # Phased implementation plans
+│   └── notes/                         # Research findings
 ├── spark-analysis/                    # Spark/Flink concepts, user analysis, and ML pipelines
 │   ├── README.md                      # spark-analysis overview
 │   ├── spark_report.scala             # RDD, DataFrame, window functions, logistic regression pipeline
