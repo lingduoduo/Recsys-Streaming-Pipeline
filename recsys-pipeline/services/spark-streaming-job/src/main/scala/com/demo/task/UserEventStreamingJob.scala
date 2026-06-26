@@ -1,7 +1,7 @@
 package com.demo.task
 
 import com.demo.event.{EventParsing, EventSchemas}
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -63,6 +63,8 @@ object UserEventStreamingJob {
     val triggerInterval      = sys.env.getOrElse("TRIGGER_INTERVAL", "5 seconds")
     val redisPipelineSize    = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
     val redisPoolMaxTotal    = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
+
+    BatchMetricsListener.register(spark)
 
     val df = spark.readStream
       .format("kafka")

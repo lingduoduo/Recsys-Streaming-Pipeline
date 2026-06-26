@@ -1,7 +1,7 @@
 package com.demo.process
 
 import com.demo.event.EventParsing
-import com.demo.util.SparkSessions
+import com.demo.util.{BatchMetricsListener, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -36,6 +36,7 @@ object ExperienceCollectorStreamingJob {
     val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds")
 
     val spark = SparkSessions.create("ExperienceCollectorStreamingJob")
+    BatchMetricsListener.register(spark)
 
     val raw = spark.readStream
       .format("kafka")

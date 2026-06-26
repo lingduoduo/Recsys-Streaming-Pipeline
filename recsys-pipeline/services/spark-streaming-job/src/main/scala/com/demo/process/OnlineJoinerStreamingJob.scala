@@ -1,7 +1,7 @@
 package com.demo.process
 
 import com.demo.event.{EventParsing, EventSchemas}
-import com.demo.util.SparkSessions
+import com.demo.util.{BatchMetricsListener, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -23,6 +23,7 @@ object OnlineJoinerStreamingJob {
     val outputFiles = math.max(1, com.demo.util.Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
 
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
+    BatchMetricsListener.register(spark)
 
     val raw = spark.readStream
       .format("kafka")
