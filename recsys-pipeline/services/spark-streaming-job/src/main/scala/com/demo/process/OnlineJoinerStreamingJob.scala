@@ -35,11 +35,14 @@ object OnlineJoinerStreamingJob {
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
 
-    raw.writeStream
+    val watermarkDelay = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes")
+    val events = dedupedEvents(raw, watermarkDelay)
+
+    events.writeStream
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
         // buildTrainingSamples now does a single-pass groupBy (one shuffle) instead of
         // filter+groupBy+join (two shuffles), so events no longer needs to be persisted.
-        val samples = buildTrainingSamples(parseEvents(batch))
+        val samples = buildTrainingSamples(batch)
           .withColumn("batch_id", lit(batchId))
           .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
@@ -76,8 +79,11 @@ object OnlineJoinerStreamingJob {
       .format("parquet")
       .save(path)
 
+  def dedupedEvents(raw: DataFrame, watermarkDelay: String): DataFrame =
+    EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
+
   def parseEvents(rawKafka: DataFrame): DataFrame =
-    EventParsing.fromJson(rawKafka, EventSchemas.joiner)
+    EventParsing.observeIngest(EventParsing.fromJson(rawKafka, EventSchemas.joiner))
       .withColumn("timestamp",
         coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
       .drop("timestamp_ms")

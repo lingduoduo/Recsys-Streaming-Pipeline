@@ -34,6 +34,11 @@ object UserEventStreamingJob {
   lazy val spark: SparkSession =
     SparkSessions.create("UserEventStreamingJob", defaultShufflePartitions = 4)
 
+  // the coalesce + null-filter tail of the old parseEvents
+  def normalize(df: DataFrame): DataFrame =
+    df.withColumn("timestamp_ms", coalesce(col("timestamp_ms"), col("timestamp") * 1000L))
+      .filter(col("user_id").isNotNull && col("item_id").isNotNull)
+
   /**
    * Parse a DataFrame that has a string "value" column (raw Kafka JSON payloads)
    * into the unified event schema.  Supports both:
@@ -43,12 +48,15 @@ object UserEventStreamingJob {
    * Filters out rows where user_id or item_id is null.
    */
   def parseEvents(raw: DataFrame): DataFrame =
-    EventParsing.fromJson(raw, EventSchemas.userEvent)
-      .withColumn(
-        "timestamp_ms",
-        coalesce(col("timestamp_ms"), col("timestamp") * 1000L)
-      )
-      .filter(col("user_id").isNotNull && col("item_id").isNotNull)
+    normalize(EventParsing.fromJson(raw, EventSchemas.userEvent))
+
+  /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
+  def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
+    val parsedAll = EventParsing.observeIngest(EventParsing.fromJson(raw, EventSchemas.userEvent))
+    val valid = normalize(parsedAll)
+    EventParsing.dedupeWithinWatermark(valid, to_timestamp(from_unixtime(col("timestamp_ms") / 1000)), watermarkDelay)
+      .filter(col("event_type") === "click")
+  }
 
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -76,8 +84,9 @@ object UserEventStreamingJob {
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()                       // raw `value` (binary) — fromJson casts it
 
-    // Only keep click events for item popularity counting.
-    val parsed = parseEvents(df).filter(col("event_type") === "click")
+    // Only keep click events for item popularity counting, with watermarked dedup.
+    val watermarkDelay = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes")
+    val parsed = dedupedClicks(df, watermarkDelay)
 
     // Executor-local pool: one pool per JVM (i.e. per executor), shared across micro-batches.
     val poolHost = redisHost

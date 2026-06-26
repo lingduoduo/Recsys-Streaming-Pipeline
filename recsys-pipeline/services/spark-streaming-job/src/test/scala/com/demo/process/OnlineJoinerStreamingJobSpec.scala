@@ -1,6 +1,7 @@
 package com.demo.process
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions.{coalesce, col}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
@@ -109,5 +110,19 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     impressionTime should not be null
     // impression_time should be in year 2024, not 54426
     impressionTime.toLocalDateTime.getYear shouldBe 2024
+  }
+
+  "dedupedEvents" should "drop duplicate event_id within the watermark across micro-batches" in {
+    val s = spark; import s.implicits._
+    implicit val sqlCtx = s.sqlContext
+    val input = MemoryStream[String]
+    val deduped = OnlineJoinerStreamingJob.dedupedEvents(input.toDF(), "10 minutes")
+    val q = deduped.writeStream.format("memory").queryName("oj_out").outputMode("append").start()
+    try {
+      val e = """{"event_id":"x1","request_id":"r1","user_id":"u1","item_id":"i1","event_type":"impression","timestamp_ms":1718400000000,"position":0}"""
+      input.addData(e); q.processAllAvailable()
+      input.addData(e); q.processAllAvailable()
+      s.table("oj_out").count() shouldBe 1
+    } finally q.stop()
   }
 }
