@@ -1,26 +1,13 @@
 package com.demo.process
 
-import com.demo.util.SparkSessions
+import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.util.{BatchMetricsListener, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
-import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
 
 object OnlineJoinerStreamingJob {
-
-  val EventSchema: StructType = StructType(Seq(
-    StructField("request_id", StringType, nullable = false),
-    StructField("user_id", StringType, nullable = false),
-    StructField("item_id", StringType, nullable = false),
-    StructField("event_type", StringType, nullable = false),
-    StructField("timestamp_ms", LongType, nullable = true),    // unified (millis)
-    StructField("timestamp", LongType, nullable = true),        // legacy compat
-    StructField("position", IntegerType, nullable = true),
-    StructField("user_features", MapType(StringType, StringType), nullable = true),
-    StructField("item_features", MapType(StringType, StringType), nullable = true),
-    StructField("context_features", MapType(StringType, StringType), nullable = true)
-  ))
 
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -33,8 +20,10 @@ object OnlineJoinerStreamingJob {
     )
     val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
     val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds")
+    val outputFiles = math.max(1, com.demo.util.Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
 
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
+    BatchMetricsListener.register(spark)
 
     val raw = spark.readStream
       .format("kafka")
@@ -66,13 +55,7 @@ object OnlineJoinerStreamingJob {
             .option("topic", outputTopic)
             .save()
 
-          samples
-            .withColumn("date", to_date(col("impression_time")))
-            .write
-            .mode("append")
-            .partitionBy("date")
-            .format("parquet")
-            .save(outputPath)
+          writeParquet(samples.withColumn("date", to_date(col("impression_time"))), outputPath, outputFiles)
         } finally {
           samples.unpersist()
         }
@@ -84,10 +67,17 @@ object OnlineJoinerStreamingJob {
       .awaitTermination()
   }
 
+  def writeParquet(samples: DataFrame, path: String, outputFiles: Int): Unit =
+    samples
+      .coalesce(math.max(1, outputFiles))   // bound per-batch file count (avoid small-files blowup)
+      .write
+      .mode("append")
+      .partitionBy("date")
+      .format("parquet")
+      .save(path)
+
   def parseEvents(rawKafka: DataFrame): DataFrame =
-    rawKafka.selectExpr("CAST(value AS STRING) AS json")
-      .select(from_json(col("json"), EventSchema).as("data"))
-      .select("data.*")
+    EventParsing.fromJson(rawKafka, EventSchemas.joiner)
       .withColumn("timestamp",
         coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
       .drop("timestamp_ms")
