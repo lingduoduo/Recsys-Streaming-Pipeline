@@ -14,6 +14,10 @@ object EventParsing {
       .select(from_json(col("value"), schema).as("data"))
       .select("data.*")
 
+  /** Attaches an "ingest" observed metric counting rows where user_id is null (corrupt parses). */
+  def observeIngest(df: DataFrame): DataFrame =
+    df.observe("ingest", sum(when(col("user_id").isNull, 1L).otherwise(0L)).as("corrupt"))
+
   /** Watermarked event-id de-duplication. Adds a transient `event_time` column from
     * `eventTime`, sets the watermark, and drops duplicate `event_id`s seen within it. */
   def dedupeWithinWatermark(df: DataFrame, eventTime: Column, delay: String): DataFrame =

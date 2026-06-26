@@ -83,7 +83,7 @@ object OnlineJoinerStreamingJob {
     EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
 
   def parseEvents(rawKafka: DataFrame): DataFrame =
-    EventParsing.fromJson(rawKafka, EventSchemas.joiner)
+    EventParsing.observeIngest(EventParsing.fromJson(rawKafka, EventSchemas.joiner))
       .withColumn("timestamp",
         coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
       .drop("timestamp_ms")
