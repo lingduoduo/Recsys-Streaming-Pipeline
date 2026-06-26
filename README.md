@@ -107,13 +107,124 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 
 ### Components
 
-| Component | Language | Description |
-|-----------|----------|-------------|
-| `services/spark-streaming-job` | Scala / Spark | Consumes Kafka events; writes user histories and item popularity to Redis |
-| `services/spark-streaming-job` | Scala / Spark | Joins the `recsys_events` stream into feature+label samples and reconstructs request-level slates |
-| `services/spark-streaming-job` | Scala / Spark | Trains Item2Vec embeddings from rating sequences; stores to Redis with TTL |
-| `services/java-retrieval-service` | Java / Spring Boot | REST API serving hybrid recommendations with offline, online, and RL signals |
-| `services/python-modeling/producer.py` | Python | Kafka producer that generates synthetic user–item events |
+| Component | Language | Pipeline | Description |
+|-----------|----------|----------|-------------|
+| `services/python-modeling/producer.py` | Python | Data | Kafka producer emitting synthetic user–item events to `recsys_events` |
+| `spark-streaming-job` · `UserEventStreamingJob` | Scala / Spark | Data | Consumes `recsys_events`; writes user history + item popularity to Redis |
+| `spark-streaming-job` · `OnlineJoinerStreamingJob` | Scala / Spark | Data | Joins `recsys_events` into feature+label training samples |
+| `spark-streaming-job` · `ExperienceCollectorStreamingJob` | Scala / Spark | Data | Reconstructs request-level slates (`training_experiences`) |
+| `spark-streaming-job` · Item2Vec / ALS / UserEmbedding jobs | Scala / Spark | Modeling | Train item/user embeddings from rating sequences |
+| `services/python-modeling/movielens_pipeline.py` | Python | Modeling | Two-tower training + ONNX export |
+| `services/java-retrieval-service` | Java / Spring Boot | Experiment | REST API serving hybrid recommendations + bandit RL |
+
+The platform runs as **three pipelines**. On first setup run them top to bottom; each section is headed by the **service and port** it owns. Unless noted, commands run from `recsys-pipeline/`.
+
+---
+
+### Infrastructure — Kafka `:9092` · Zookeeper `:2181` · Redis `:6379`
+
+Requires a running Docker daemon (Docker Desktop, or `colima start`).
+
+```bash
+cd recsys-pipeline
+docker compose up -d     # Kafka (:9092, :29092), Zookeeper (:2181), Redis (:6379)
+docker compose ps        # wait until kafka/redis report "healthy"
+```
+
+Topics (`recsys_events`, `training_samples`, `training_experiences`) auto-create on first use.
+
+---
+
+### 1. Data Pipeline — Kafka `:9092` → Redis `:6379`
+
+Generates events and turns them into training data. No HTTP surface.
+
+```bash
+# One-time setup: Python deps + build the Spark fat jar
+python -m pip install -r services/python-modeling/requirements.txt
+(cd services/spark-streaming-job && sbt assembly)
+
+# Emit synthetic user–item events to the recsys_events topic (:9092)
+python services/python-modeling/producer.py
+
+# Ingest events → user history + item popularity in Redis (:6379)
+./run-streaming-job.sh                                                       # UserEventStreamingJob (default)
+
+# Join events → feature+label training samples (Kafka + HDFS/parquet)
+SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob ./run-streaming-job.sh
+
+# Collect samples → request-level slates (training_experiences topic)
+SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob ./run-streaming-job.sh
+```
+
+---
+
+### 2. Modeling Pipeline — Spark embeddings + Python two-tower → ONNX
+
+Trains embeddings offline and produces the ONNX model the retrieval service serves.
+
+```bash
+# Item2Vec item embeddings (writes sampledata/item_embedding.txt + Redis)
+RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
+
+# ALS collaborative-filtering embeddings
+RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-als-pipeline.sh
+
+# User embeddings (needs the item embedding file from the offline step)
+RATINGS_INPUT_PATH=sampledata/ratings.csv \
+  ITEM2VEC_EMBEDDING_PATH=sampledata/item_embedding.txt \
+  ./run-user-embedding-pipeline.sh
+
+# Export the Redis replay buffer back to a ratings CSV (for retraining)
+python services/python-modeling/replay_export.py
+
+# Full retrain: replay export → ALS → user emb → two-tower → hot-reload
+./run-retrain.sh                       # flags: --skip-spark --skip-python --skip-reload; DRY_RUN=1
+```
+
+The retrain's final step hot-reloads the ONNX model in the running service (`:8080`):
+
+```bash
+curl -X POST http://localhost:8080/actuator/model-reload
+```
+
+---
+
+### 3. Experiment Pipeline — Retrieval service `:8080`
+
+Serves recommendations and runs online learning + UCB/Thompson bandit RL.
+
+```bash
+# Start the service (binds :8080; connects to Redis :6379)
+cd services/java-retrieval-service && mvn spring-boot:run
+```
+
+```bash
+# Ranked recommendations with per-item diagnostics + request metrics
+curl 'http://localhost:8080/recommend/u_1?limit=6'
+
+# Offline ONNX score for a (user, item) pair
+curl 'http://localhost:8080/predict/u_1/movie_42'
+
+# Same prediction using raw integer lookup IDs
+curl 'http://localhost:8080/predict/id?userId=1&itemId=42'
+
+# Loaded model name, lookup-table sizes, ONNX input/output names
+curl http://localhost:8080/predict/metadata
+
+# Item2Vec embedding vector for an item
+curl http://localhost:8080/embedding/movie_42
+
+# Record a click/reward → triggers online learning + bandit update
+curl -X POST http://localhost:8080/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"u_1","item":"movie_42","clicked":true,"reward":1.0}'
+
+# Aggregate bandit metrics (CTR, regret, novelty, coverage) per algorithm
+curl http://localhost:8080/metrics
+```
+
+---
 
 ### Ports
 
@@ -126,46 +237,6 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | `6379` | Redis | `docker-compose.yml` (`REDIS_PORT`) | Embeddings, counters, user history |
 
 > The Spark driver UI also binds `4040` (incrementing if taken) while a streaming/training job runs.
-
-### Quick Start
-
-```bash
-# 1. Start infrastructure (requires a running Docker daemon: Docker Desktop, or `colima start`)
-cd recsys-pipeline
-docker compose up -d          # Kafka + Redis (+ Zookeeper)
-docker compose ps             # wait until kafka/redis are healthy
-
-# 2. Run producer (install deps first)
-python -m pip install -r services/python-modeling/requirements.txt
-python services/python-modeling/producer.py
-
-# 3. Build the Spark job jar, then submit it
-(cd services/spark-streaming-job && sbt assembly)
-spark-submit \
-  --class com.demo.task.UserEventStreamingJob \
-  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
-
-# 4. Train Item2Vec embeddings
-spark-submit \
-  --class com.demo.task.Item2VecTrainingJob \
-  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
-  sampledata/ratings.csv
-
-# 5. Start retrieval service
-cd services/java-retrieval-service && mvn spring-boot:run
-```
-
-### Key Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/recommend/{user}?limit=6` | Ranked recommendations with per-item diagnostics and request metrics |
-| `GET` | `/predict/{user}/{item}` | Offline ONNX model score for a (user, item) pair |
-| `GET` | `/predict/id?userId=&itemId=` | Same as above using raw integer lookup IDs |
-| `GET` | `/predict/metadata` | Loaded model name, lookup table sizes, and ONNX input/output names |
-| `POST` | `/feedback` | Record a click/reward signal; triggers online learning and bandit updates |
-| `GET` | `/metrics` | Aggregate bandit metrics (CTR, regret, novelty, coverage) per algorithm |
-| `GET` | `/embedding/{item}` | Item2Vec embedding vector for an item |
 
 See [recsys-pipeline/README.md](recsys-pipeline/README.md) for full configuration, environment variable reference, and architecture details.
 
