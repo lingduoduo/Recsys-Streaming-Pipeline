@@ -574,7 +574,7 @@ Environment variables:
 
 ### Event de-duplication (Phase 2)
 
-**Event de-duplication (Phase 2):** `UserEventStreamingJob` and
+`UserEventStreamingJob` and
 `OnlineJoinerStreamingJob` drop duplicate `event_id`s within
 `EVENT_WATERMARK_DELAY` (default `10 minutes`). Because this makes the queries
 stateful, **existing checkpoints are incompatible** — on first deploy of this
