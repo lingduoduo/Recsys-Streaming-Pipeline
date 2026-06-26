@@ -1,10 +1,10 @@
 package com.demo.task
 
-import com.demo.util.{Env, SparkSessions}
+import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
-import org.apache.spark.sql.types._
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.{JedisPool, JedisPoolConfig}
 
@@ -29,16 +29,6 @@ private[demo] object RedisPool {
 object UserEventStreamingJob {
   private val log = LoggerFactory.getLogger(getClass)
 
-  // Unified schema: timestamp_ms (millis) is primary; timestamp (seconds) is legacy compat.
-  private val schema = StructType(Seq(
-    StructField("event_id",    StringType, nullable = true),
-    StructField("user_id",     StringType, nullable = false),
-    StructField("item_id",     StringType, nullable = false),
-    StructField("event_type",  StringType, nullable = false),
-    StructField("timestamp_ms", LongType,  nullable = true),
-    StructField("timestamp",   LongType,   nullable = true)
-  ))
-
   // Lazy so tests that import spark.implicits don't pay the full SparkSessions.create cost
   // unless they actually need the production session; in tests SparkTestSupport wins.
   lazy val spark: SparkSession =
@@ -52,16 +42,13 @@ object UserEventStreamingJob {
    *
    * Filters out rows where user_id or item_id is null.
    */
-  def parseEvents(raw: DataFrame): DataFrame = {
-    raw
-      .select(from_json(col("value"), schema).as("data"))
-      .select("data.*")
+  def parseEvents(raw: DataFrame): DataFrame =
+    EventParsing.fromJson(raw, EventSchemas.userEvent)
       .withColumn(
         "timestamp_ms",
         coalesce(col("timestamp_ms"), col("timestamp") * 1000L)
       )
       .filter(col("user_id").isNotNull && col("item_id").isNotNull)
-  }
 
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -77,6 +64,8 @@ object UserEventStreamingJob {
     val redisPipelineSize    = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
     val redisPoolMaxTotal    = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
 
+    BatchMetricsListener.register(spark)
+
     val df = spark.readStream
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
@@ -85,8 +74,7 @@ object UserEventStreamingJob {
       .option("startingOffsets", "earliest")
       .option("failOnDataLoss", "false")
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
-      .load()
-      .selectExpr("CAST(value AS STRING) as value")
+      .load()                       // raw `value` (binary) — fromJson casts it
 
     // Only keep click events for item popularity counting.
     val parsed = parseEvents(df).filter(col("event_type") === "click")

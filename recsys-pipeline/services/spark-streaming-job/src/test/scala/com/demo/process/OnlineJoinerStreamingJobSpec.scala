@@ -59,6 +59,27 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     row.getAs[Double]("label") shouldBe 0.0
   }
 
+  it should "write at most ONLINE_JOINER_OUTPUT_FILES parquet files per date partition" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+    import java.nio.file.Files
+
+    val dir = Files.createTempDirectory("joiner-parquet").toFile
+    val out = new java.io.File(dir, "samples").getAbsolutePath
+
+    val samples = Seq(
+      ("s1", java.sql.Date.valueOf("2026-06-26")),
+      ("s2", java.sql.Date.valueOf("2026-06-26")),
+      ("s3", java.sql.Date.valueOf("2026-06-26"))
+    ).toDF("sample_id", "date")
+
+    OnlineJoinerStreamingJob.writeParquet(samples, out, outputFiles = 1)
+
+    val partDir = new java.io.File(out, "date=2026-06-26")
+    val parquetFiles = partDir.listFiles().filter(_.getName.endsWith(".parquet"))
+    parquetFiles.length shouldBe 1
+  }
+
   it should "parse unified schema with timestamp_ms field" in {
     val sparkSession = spark
     import sparkSession.implicits._
