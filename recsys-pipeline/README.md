@@ -572,6 +572,15 @@ Environment variables:
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |
 
+### Event de-duplication (Phase 2)
+
+**Event de-duplication (Phase 2):** `UserEventStreamingJob` and
+`OnlineJoinerStreamingJob` drop duplicate `event_id`s within
+`EVENT_WATERMARK_DELAY` (default `10 minutes`). Because this makes the queries
+stateful, **existing checkpoints are incompatible** — on first deploy of this
+change, point `SPARK_CHECKPOINT_LOCATION` at a fresh directory. Per-batch
+`corrupt=<n>` counts are logged by the metrics listener.
+
 ### `ExperienceCollectorStreamingJob`
 
 Consumes item-level training samples from Kafka and rebuilds each recommendation request as a list-level slate experience.
