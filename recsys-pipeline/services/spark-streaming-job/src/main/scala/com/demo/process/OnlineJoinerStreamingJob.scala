@@ -20,6 +20,7 @@ object OnlineJoinerStreamingJob {
     )
     val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
     val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds")
+    val outputFiles = math.max(1, com.demo.util.Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
 
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
 
@@ -53,13 +54,7 @@ object OnlineJoinerStreamingJob {
             .option("topic", outputTopic)
             .save()
 
-          samples
-            .withColumn("date", to_date(col("impression_time")))
-            .write
-            .mode("append")
-            .partitionBy("date")
-            .format("parquet")
-            .save(outputPath)
+          writeParquet(samples.withColumn("date", to_date(col("impression_time"))), outputPath, outputFiles)
         } finally {
           samples.unpersist()
         }
@@ -70,6 +65,15 @@ object OnlineJoinerStreamingJob {
       .start()
       .awaitTermination()
   }
+
+  def writeParquet(samples: DataFrame, path: String, outputFiles: Int): Unit =
+    samples
+      .coalesce(math.max(1, outputFiles))   // bound per-batch file count (avoid small-files blowup)
+      .write
+      .mode("append")
+      .partitionBy("date")
+      .format("parquet")
+      .save(path)
 
   def parseEvents(rawKafka: DataFrame): DataFrame =
     EventParsing.fromJson(rawKafka, EventSchemas.joiner)
