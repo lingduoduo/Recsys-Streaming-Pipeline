@@ -1,26 +1,13 @@
 package com.demo.process
 
+import com.demo.event.{EventParsing, EventSchemas}
 import com.demo.util.SparkSessions
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
-import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
 
 object OnlineJoinerStreamingJob {
-
-  val EventSchema: StructType = StructType(Seq(
-    StructField("request_id", StringType, nullable = false),
-    StructField("user_id", StringType, nullable = false),
-    StructField("item_id", StringType, nullable = false),
-    StructField("event_type", StringType, nullable = false),
-    StructField("timestamp_ms", LongType, nullable = true),    // unified (millis)
-    StructField("timestamp", LongType, nullable = true),        // legacy compat
-    StructField("position", IntegerType, nullable = true),
-    StructField("user_features", MapType(StringType, StringType), nullable = true),
-    StructField("item_features", MapType(StringType, StringType), nullable = true),
-    StructField("context_features", MapType(StringType, StringType), nullable = true)
-  ))
 
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -85,9 +72,7 @@ object OnlineJoinerStreamingJob {
   }
 
   def parseEvents(rawKafka: DataFrame): DataFrame =
-    rawKafka.selectExpr("CAST(value AS STRING) AS json")
-      .select(from_json(col("json"), EventSchema).as("data"))
-      .select("data.*")
+    EventParsing.fromJson(rawKafka, EventSchemas.joiner)
       .withColumn("timestamp",
         coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
       .drop("timestamp_ms")

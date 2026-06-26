@@ -1,5 +1,6 @@
 package com.demo.process
 
+import com.demo.event.EventParsing
 import com.demo.util.SparkSessions
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -69,9 +70,7 @@ object ExperienceCollectorStreamingJob {
   }
 
   def parseSamples(rawKafka: DataFrame): DataFrame =
-    rawKafka.selectExpr("CAST(value AS STRING) AS json")
-      .select(from_json(col("json"), TrainingSampleSchema).as("data"))
-      .select("data.*")
+    EventParsing.fromJson(rawKafka, TrainingSampleSchema)
       .filter(
         col("request_id").isNotNull &&
           col("user_id").isNotNull &&
