@@ -29,15 +29,19 @@ Recsys-Streaming-Pipeline/
     ├── integration-tests/             # Cross-service integration tests (pytest + shell)
     ├── scripts/
     │   └── install-cron.sh            # Installs scheduled retraining cron job
-    ├── sampledata/                    # ratings.csv and sample embeddings
-    ├── run-streaming-job.sh           # Submit Spark streaming job
-    ├── run-offline-pipeline.sh        # Train Item2Vec embeddings
-    ├── run-user-embedding-pipeline.sh # Train user embeddings
-    ├── run-als-pipeline.sh            # Train ALS collaborative-filtering embeddings
-    ├── run-retrain.sh                 # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
-    ├── recsys-streaming-pipeline.png  # Architecture diagram
-    ├── recsys-streaming-pipeline.html # Interactive architecture diagram
-    └── docker-compose.yml             # Local Kafka + Redis
+    ├── sampledata/                     # ratings.csv, catalog.json, sample embeddings
+    ├── run-streaming-job.sh            # Submit a single Spark streaming job (SPARK_MAIN_CLASS)
+    ├── run-data-pipeline.sh            # Launch all core streaming jobs together
+    ├── run-offline-pipeline.sh         # Train Item2Vec embeddings
+    ├── run-user-embedding-pipeline.sh  # Train user embeddings
+    ├── run-als-pipeline.sh             # Train ALS collaborative-filtering embeddings
+    ├── run-retrain.sh                  # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
+    ├── run-engagement-sim.sh           # E2E sim: engagement CTR time-series (+ report)
+    ├── run-movielens-segment-sim.sh    # E2E sim: engagement by user segment (+ report)
+    ├── run-movie-category-sim.sh       # E2E sim: engagement by movie category l1/l2/l3 (+ report)
+    ├── recsys-streaming-pipeline.png   # Architecture diagram
+    ├── recsys-streaming-pipeline.html  # Interactive architecture diagram
+    └── docker-compose.yml              # Local Kafka + Redis
 ```
 
 ---
