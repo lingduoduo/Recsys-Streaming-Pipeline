@@ -15,6 +15,7 @@ Development docs for the Recsys Streaming Pipeline — specs (what & why), plans
 | [2026-06-27-session-id-tracking.md](specs/2026-06-27-session-id-tracking.md) | Thread session_id (emitted but currently dropped at from_json) through OnlineJoiner into training_samples for session-level engagement analysis — additive. |
 | [2026-06-27-recall-samples-job.md](specs/2026-06-27-recall-samples-job.md) | Derive per-impression recall data (user/session/time/recommended+click movie/label) from training_samples → new recall_samples Kafka topic. |
 | [2026-06-27-ranking-samples-job.md](specs/2026-06-27-ranking-samples-job.md) | Derive per-impression ranking data (user/item features + Redis embeddings, is_click, rating) from training_samples → new ranking_samples Kafka topic. |
+| [2026-06-27-relevance-samples-job.md](specs/2026-06-27-relevance-samples-job.md) | Derive per-impression relevance data (query=user:session, movie title/genres/year from Redis, score=label) from training_samples → new relevance_samples Kafka topic. |
 
 ## Plans — [`plans/`](plans/)
 
@@ -33,6 +34,7 @@ Implementation plans (bite-sized TDD tasks) derived from the specs.
 | [2026-06-27-session-id-tracking.md](plans/2026-06-27-session-id-tracking.md) | Track session_id through the data stream into training_samples + training_experiences — implemented (PR #97) |
 | [2026-06-27-recall-samples-job.md](plans/2026-06-27-recall-samples-job.md) | Recall-samples streaming job (training_samples → recall_samples topic) — shipped (PR #98) |
 | [2026-06-27-ranking-samples-job.md](plans/2026-06-27-ranking-samples-job.md) | Ranking-samples streaming job (training_samples + Redis embeddings → ranking_samples topic) — shipped (PR #99) |
+| [2026-06-27-relevance-samples-job.md](plans/2026-06-27-relevance-samples-job.md) | Relevance-samples streaming job (training_samples + Redis movie metadata → relevance_samples topic) — shipped (PR #100) |
 
 ## Notes — [`notes/`](notes/)
 
