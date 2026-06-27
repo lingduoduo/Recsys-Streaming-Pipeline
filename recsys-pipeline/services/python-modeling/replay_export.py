@@ -2,11 +2,14 @@
 """Export the Redis replay buffer to a ratings-CSV file for offline retraining.
 
 Usage:
-    python replay_export.py [--output PATH] [--redis-host HOST] [--redis-port PORT]
-                            [--key replay:recommendations] [--limit N]
+    python replay_export.py [--output PATH] [--parquet PATH] [--redis-host HOST]
+                            [--redis-port PORT] [--key replay:recommendations] [--limit N]
 
 Output CSV columns: userId, movieId, rating, timestamp
 rating = min(reward * 5.0, 5.0)  — maps [0, 1] reward to MovieLens 0–5 scale
+
+--parquet additionally writes the raw replay experience tuples (state/action/reward/
+next_state, i.e. every field on each entry) to a Parquet file for downstream training.
 """
 from __future__ import annotations
 
@@ -46,9 +49,28 @@ def write_csv(entries: list[dict], output: Path) -> None:
     print(f"Wrote {len(rows)} rows to {output}")
 
 
+def write_parquet(entries: list[dict], output: Path) -> None:
+    """Write the raw replay experience tuples (all fields per entry) to Parquet."""
+    try:
+        import pandas as pd
+    except ImportError as e:  # pragma: no cover - depends on optional dep
+        raise SystemExit(
+            "--parquet requires pandas + pyarrow (pip install pandas pyarrow)"
+        ) from e
+    output.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(entries).to_parquet(output, index=False)
+    print(f"Wrote {len(entries)} experience tuples to {output}")
+
+
 def main(args: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=_DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--parquet",
+        type=Path,
+        default=None,
+        help="Optional Parquet path for the raw replay experience tuples (requires pandas+pyarrow).",
+    )
     parser.add_argument("--redis-host", default=os.environ.get("REDIS_HOST", "localhost"))
     parser.add_argument("--redis-port", type=int, default=int(os.environ.get("REDIS_PORT", "6379")))
     parser.add_argument("--key", default=_DEFAULT_KEY)
@@ -63,6 +85,8 @@ def main(args: Sequence[str] | None = None) -> None:
         return
     entries = [json.loads(b) for b in raw]
     write_csv(entries, cfg.output)
+    if cfg.parquet is not None:
+        write_parquet(entries, cfg.parquet)
 
 
 if __name__ == "__main__":

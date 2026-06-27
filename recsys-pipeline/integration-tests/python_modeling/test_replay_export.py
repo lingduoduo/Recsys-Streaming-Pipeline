@@ -43,6 +43,41 @@ def test_write_csv(tmp_path):
     assert set(rows[0].keys()) == {"userId", "movieId", "rating", "timestamp"}
 
 
+def test_write_parquet_roundtrips_raw_tuples(tmp_path):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    output = tmp_path / "replay.parquet"
+    replay_export.write_parquet(SAMPLE_ENTRIES, output)
+    assert output.is_file()
+    df = pd.read_parquet(output)
+    assert len(df) == 3
+    # raw experience fields preserved (not the CSV rating mapping)
+    assert {"userId", "itemId", "score", "reward", "timestamp"}.issubset(df.columns)
+    assert df.iloc[0]["reward"] == pytest.approx(0.9)
+
+
+def test_main_writes_parquet_when_requested(tmp_path):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    csv_out = tmp_path / "replay_training.csv"
+    parquet_out = tmp_path / "replay.parquet"
+    raw = [json.dumps(e).encode() for e in SAMPLE_ENTRIES]
+
+    mock_client = MagicMock()
+    mock_client.lrange.return_value = raw
+
+    with patch("replay_export.redis.Redis", return_value=mock_client):
+        replay_export.main([
+            "--output", str(csv_out),
+            "--parquet", str(parquet_out),
+            "--redis-host", "localhost",
+        ])
+
+    assert csv_out.is_file()
+    assert parquet_out.is_file()
+    assert len(pd.read_parquet(parquet_out)) == 3
+
+
 def test_main_reads_from_redis_mock(tmp_path):
     output = tmp_path / "replay_training.csv"
     raw = [json.dumps(e).encode() for e in SAMPLE_ENTRIES]
