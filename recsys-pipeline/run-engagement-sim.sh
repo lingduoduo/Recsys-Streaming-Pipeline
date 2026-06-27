@@ -3,7 +3,7 @@
 #   docker (Kafka+Redis) → backfill_producer → recsys_events, then BOTH consumers:
 #     • OnlineJoinerStreamingJob  → date-partitioned Parquet  (time-series store for the report)
 #     • UserEventStreamingJob     → Redis global:item_popularity  (Kafka → Redis path)
-# The Parquet output under $SIM_ROOT/training-samples is what engagement_report.py reads.
+# The Parquet output under $SIM_ROOT/training-samples is what engagement_report_pyspark.py reads.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -94,7 +94,5 @@ redis_cli ZREVRANGE global:item_popularity 0 9 WITHSCORES | paste - - | sed 's/^
 parts="$(find "$OUT_DIR" -maxdepth 1 -type d -name 'date=*' 2>/dev/null | wc -l | tr -d ' ' || true)"
 echo
 echo "==> done. $parts date partitions under $OUT_DIR; Redis populated with $zcard items."
-echo "    report (Spark):  ENGAGEMENT_INPUT_PATH=$OUT_DIR SPARK_MAIN_CLASS=com.demo.report.EngagementReportJob ./run-streaming-job.sh"
-echo "    report (PySpark): \"\$SPARK_HOME/bin/spark-submit\" services/python-modeling/engagement_report_pyspark.py --input $OUT_DIR"
-echo "    report (Python): python services/python-modeling/engagement_report.py --input $OUT_DIR"
+echo "    report:  \"\$SPARK_HOME/bin/spark-submit\" services/python-modeling/engagement_report_pyspark.py --input $OUT_DIR"
 echo "    stop:    docker compose down"

@@ -7,7 +7,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
 import backfill_producer as bp  # noqa: E402  (path set above)
-import engagement_report as er  # noqa: E402
 
 START = datetime(2026, 6, 1)
 END = START + timedelta(days=21)
@@ -39,25 +38,39 @@ def test_slate_times_are_sorted_and_span_window():
     assert times[0] >= START and times[-1] < END
 
 
-def test_build_series_computes_ctr_by_bucket():
+def test_pyspark_report_daily_ctr(tmp_path):
+    """Integration: run engagement_report_pyspark.py through the project's pinned Spark
+    on a tiny Parquet and check the daily CTR CSV. Skipped if Spark isn't available."""
     pd = pytest.importorskip("pandas")
-    # Two impressions on Mon (1 click), two on Sat (2 clicks).
-    df = pd.DataFrame({
+    pytest.importorskip("pyarrow")
+    import csv
+    import os
+    import subprocess
+
+    spark_home = os.environ.get("SPARK_HOME")
+    if not spark_home or not os.path.isfile(os.path.join(spark_home, "bin", "spark-submit")):
+        pytest.skip("SPARK_HOME/spark-submit not available")
+
+    # Two impressions Mon (1 click), two Sat (2 clicks).
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
         "impression_time": pd.to_datetime([
-            "2026-06-01 09:00", "2026-06-01 09:00",   # Mon
-            "2026-06-06 21:00", "2026-06-06 21:00",   # Sat
+            "2026-06-01 09:00", "2026-06-01 09:00",
+            "2026-06-06 21:00", "2026-06-06 21:00",
         ]),
         "clicked": [1, 0, 1, 1],
-    })
-    df["day"] = df["impression_time"].dt.floor("D")
-    df["hour"] = df["impression_time"].dt.hour
-    df["dow"] = df["impression_time"].dt.dayofweek
+    }).to_parquet(parquet, index=False,
+                  coerce_timestamps="us", allow_truncated_timestamps=True)  # Spark 3.5 rejects NANOS
 
-    daily, by_hour, by_dow = er.build_series(df)
+    script = Path(__file__).parents[2] / "services/python-modeling/engagement_report_pyspark.py"
+    out = tmp_path / "report"
+    subprocess.run(
+        [os.path.join(spark_home, "bin", "spark-submit"), str(script),
+         "--input", str(parquet), "--outdir", str(out)],
+        check=True, capture_output=True, timeout=300,
+    )
 
-    mon = daily.loc[daily.day == pd.Timestamp("2026-06-01"), "ctr"].iloc[0]
-    sat = daily.loc[daily.day == pd.Timestamp("2026-06-06"), "ctr"].iloc[0]
-    assert mon == pytest.approx(0.5)
-    assert sat == pytest.approx(1.0)
-    # day-of-week frame carries Sat (5) higher than Mon (0)
-    assert by_dow.loc[by_dow.dow == 5, "ctr"].iloc[0] > by_dow.loc[by_dow.dow == 0, "ctr"].iloc[0]
+    csv_file = next((out / "ctr_daily").glob("part-*.csv"))
+    rows = {r["day"]: float(r["ctr"]) for r in csv.DictReader(csv_file.open())}
+    assert rows["2026-06-01"] == pytest.approx(0.5)
+    assert rows["2026-06-06"] == pytest.approx(1.0)

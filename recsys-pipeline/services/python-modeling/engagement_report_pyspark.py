@@ -3,9 +3,9 @@
 
 Spark's distributed engine with Python's ecosystem: reads the date-partitioned
 training_samples Parquet and computes CTR = avg(clicked) by date / hour-of-day /
-day-of-week, writing CSVs. Same output as EngagementReportJob.scala and the pandas
-engagement_report.py — pick this when you want Spark scalability but Python tooling
-(e.g. to bolt statsmodels/ruptures onto the small collected aggregate later).
+day-of-week, writing CSVs. Spark's distributed engine with Python's ecosystem — so the
+future statistical analyses (STL decomposition, changepoint detection) can run on the
+small collected aggregate via statsmodels/ruptures (see the stubs below).
 
 IMPORTANT — version match: run through the project's pinned Spark so PySpark and the
 JVM agree (a pip pyspark that differs from $SPARK_HOME fails with "JavaPackage object
@@ -47,6 +47,21 @@ def by_dow(df: DataFrame) -> DataFrame:
 
 def write_csv(df: DataFrame, path: str) -> None:
     df.coalesce(1).write.mode("overwrite").option("header", "true").csv(path)
+
+
+# ── Future scope (deeper analysis on the small collected aggregate) ─────────────
+# These run on daily(df).toPandas() — the aggregated series is tiny, so the Python
+# stats ecosystem (statsmodels / ruptures) is the right tool, not Spark.
+def detect_changepoint(daily_pdf):
+    """TODO: formal changepoint detection (e.g. ruptures/PELT) to separate a sudden
+    step from gradual drift, returning the change date + magnitude + confidence."""
+    raise NotImplementedError("future scope: changepoint detection")
+
+
+def seasonal_decompose(daily_pdf):
+    """TODO: STL decomposition into trend / weekly-seasonal / residual to judge whether
+    a move is a normal seasonal effect or a genuine shift."""
+    raise NotImplementedError("future scope: seasonal decomposition")
 
 
 def main(argv=None) -> None:
