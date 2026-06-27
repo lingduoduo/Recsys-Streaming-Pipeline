@@ -27,14 +27,15 @@ class ExperienceCollectorStreamingJobSpec extends AnyFlatSpec with Matchers with
     import sparkSession.implicits._
 
     val samples = Seq(
-      ("s2", "req_1", "user_1", "item_2", 1, 100L, 0, 0, 0.0, Map("tier" -> "gold"), Map("genre" -> "comedy"), Map("device" -> "ios")),
-      ("s1", "req_1", "user_1", "item_1", 0, 100L, 1, 0, 1.0, Map("tier" -> "gold"), Map("genre" -> "drama"), Map("device" -> "ios"))
-    ).toDF("sample_id", "request_id", "user_id", "item_id", "position", "impression_ts", "clicked", "ordered", "label", "user_features", "item_features", "context_features")
+      ("s2", "sess_1", "req_1", "user_1", "item_2", 1, 100L, 0, 0, 0.0, Map("tier" -> "gold"), Map("genre" -> "comedy"), Map("device" -> "ios")),
+      ("s1", "sess_1", "req_1", "user_1", "item_1", 0, 100L, 1, 0, 1.0, Map("tier" -> "gold"), Map("genre" -> "drama"), Map("device" -> "ios"))
+    ).toDF("sample_id", "session_id", "request_id", "user_id", "item_id", "position", "impression_ts", "clicked", "ordered", "label", "user_features", "item_features", "context_features")
 
     val row = ExperienceCollectorStreamingJob.buildSlates(samples).first()
     val items = row.getAs[Seq[org.apache.spark.sql.Row]]("items")
 
     row.getAs[String]("slate_id") shouldBe "req_1:user_1"
+    row.getAs[String]("session_id") shouldBe "sess_1"
     row.getAs[Int]("slate_clicked") shouldBe 1
     row.getAs[Double]("slate_reward") shouldBe 1.0
     row.getAs[Int]("slate_size") shouldBe 2

@@ -32,4 +32,19 @@ class EventParsingSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
     out.columns should contain allOf ("request_id", "position", "user_features", "item_features", "context_features")
     out.collect().head.getAs[Int]("position") shouldBe 2
   }
+
+  it should "parse session_id on joiner events (nullable when absent)" in {
+    val s = spark; import s.implicits._
+    val raw = Seq(
+      """{"session_id":"sess_1","request_id":"req_1","user_id":"u1","item_id":"i1","event_type":"impression","timestamp":100}""",
+      """{"request_id":"req_2","user_id":"u2","item_id":"i2","event_type":"impression","timestamp":101}"""
+    ).toDF("value")
+
+    val rows = EventParsing.fromJson(raw, EventSchemas.joiner)
+      .select("request_id", "session_id").collect()
+      .map(r => r.getString(0) -> Option(r.getAs[String]("session_id"))).toMap
+
+    rows("req_1") shouldBe Some("sess_1")
+    rows("req_2") shouldBe None
+  }
 }

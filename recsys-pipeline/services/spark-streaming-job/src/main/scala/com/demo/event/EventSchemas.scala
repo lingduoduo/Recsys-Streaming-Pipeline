@@ -20,9 +20,10 @@ object EventSchemas {
   val userEvent: StructType =
     StructType(StructField("event_id", StringType, nullable = true) +: baseFields)
 
-  /** OnlineJoinerStreamingJob view: adds event_id, request_id, position, and feature maps. */
+  /** OnlineJoinerStreamingJob view: adds event_id, session_id, request_id, position, and feature maps. */
   val joiner: StructType = StructType(
     (StructField("event_id", StringType, nullable = true) +:
+      StructField("session_id", StringType, nullable = true) +:
       StructField("request_id", StringType, nullable = false) +: baseFields) ++ Seq(
       StructField("position", IntegerType, nullable = true),
       StructField("user_features", MapType(StringType, StringType), nullable = true),

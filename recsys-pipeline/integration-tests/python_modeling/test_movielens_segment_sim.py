@@ -60,6 +60,18 @@ def test_assign_demographics_canonical_fields_and_deterministic():
         assert len(d["zip_code"]) == 5 and d["zip_code"].isdigit()
 
 
+def test_make_slate_threads_session_id_across_multiple_slates():
+    import random
+    rng = random.Random(0)
+    items = [f"movie_{i}" for i in range(1, 11)]
+    s1 = mp.make_slate("user_1", _demo(), items, rng, "sessX")
+    s2 = mp.make_slate("user_1", _demo(), items, rng, "sessX")
+    # every event in both slates carries the given session_id
+    assert all(e["session_id"] == "sessX" for e in s1 + s2)
+    # the two slates are distinct request_ids → a session spans multiple slates
+    assert len({e["request_id"] for e in s1 + s2}) == 2
+
+
 def test_demographics_event_shape_matches_userupdated():
     ev = mp.demographics_event("user_1", _demo())
     assert set(ev) == {"user_id", "age", "gender", "occupation", "zip_code", "timestamp"}

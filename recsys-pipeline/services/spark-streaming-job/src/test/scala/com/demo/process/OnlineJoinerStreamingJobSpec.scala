@@ -29,13 +29,14 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     import sparkSession.implicits._
 
     val events = Seq(
-      ("req_1", "user_1", "item_1", "impression", 100L, 0, Map("tier" -> "gold"), Map("genre" -> "drama"), Map("device" -> "ios")),
-      ("req_1", "user_1", "item_2", "impression", 100L, 1, Map("tier" -> "gold"), Map("genre" -> "comedy"), Map("device" -> "ios")),
-      ("req_1", "user_1", "item_1", "click", 105L, 0, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String]),
-      ("req_1", "user_1", "item_2", "order", 120L, 1, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String])
-    ).toDF("request_id", "user_id", "item_id", "event_type", "timestamp", "position", "user_features", "item_features", "context_features")
+      ("sess_1", "req_1", "user_1", "item_1", "impression", 100L, 0, Map("tier" -> "gold"), Map("genre" -> "drama"), Map("device" -> "ios")),
+      ("sess_1", "req_1", "user_1", "item_2", "impression", 100L, 1, Map("tier" -> "gold"), Map("genre" -> "comedy"), Map("device" -> "ios")),
+      ("sess_1", "req_1", "user_1", "item_1", "click", 105L, 0, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String]),
+      ("sess_1", "req_1", "user_1", "item_2", "order", 120L, 1, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String])
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position", "user_features", "item_features", "context_features")
 
-    val rows = OnlineJoinerStreamingJob.buildTrainingSamples(events)
+    val samples = OnlineJoinerStreamingJob.buildTrainingSamples(events)
+    val rows = samples
       .select("item_id", "clicked", "ordered", "label")
       .collect()
       .map(row => row.getString(0) -> (row.getInt(1), row.getInt(2), row.getDouble(3)))
@@ -43,6 +44,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     rows("item_1") shouldBe (1, 0, 1.0)
     rows("item_2") shouldBe (0, 1, 2.0)
+    // session_id is carried through from the slate's events
+    samples.select("session_id").distinct().collect().map(_.getString(0)) shouldBe Array("sess_1")
   }
 
   it should "keep unclicked impressions as negative samples" in {
@@ -50,8 +53,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     import sparkSession.implicits._
 
     val events = Seq(
-      ("req_2", "user_1", "item_9", "exposure", 200L, 3, Map.empty[String, String], Map("genre" -> "news"), Map.empty[String, String])
-    ).toDF("request_id", "user_id", "item_id", "event_type", "timestamp", "position", "user_features", "item_features", "context_features")
+      ("sess_2", "req_2", "user_1", "item_9", "exposure", 200L, 3, Map.empty[String, String], Map("genre" -> "news"), Map.empty[String, String])
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position", "user_features", "item_features", "context_features")
 
     val row = OnlineJoinerStreamingJob.buildTrainingSamples(events).first()
 
@@ -89,12 +92,12 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     // This mirrors what parseEvents produces after normalisation.
     val events = Seq(
       // impression at ms 1718400000000
-      ("req_3", "user_5", "movie_3", "impression", Some(1718400000000L), None: Option[Long],
+      ("sess_3", "req_3", "user_5", "movie_3", "impression", Some(1718400000000L), None: Option[Long],
         0, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String]),
       // click at ms 1718400005000
-      ("req_3", "user_5", "movie_3", "click", Some(1718400005000L), None: Option[Long],
+      ("sess_3", "req_3", "user_5", "movie_3", "click", Some(1718400005000L), None: Option[Long],
         0, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String])
-    ).toDF("request_id", "user_id", "item_id", "event_type", "timestamp_ms", "timestamp",
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp_ms", "timestamp",
            "position", "user_features", "item_features", "context_features")
 
     // Apply the same normalisation that parseEvents performs

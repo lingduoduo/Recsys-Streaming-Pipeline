@@ -161,7 +161,9 @@ object OnlineJoinerStreamingJob {
         first(when(isImpression, col("context_features")), ignoreNulls = true).as("context_features"),
         max(when(col("etype") === "click", lit(1)).otherwise(lit(0))).as("clicked"),
         max(when(col("etype").isin("order", "purchase"), lit(1)).otherwise(lit(0))).as("ordered"),
-        max(when(isFeedback, col("timestamp"))).as("last_feedback_ts")
+        max(when(isFeedback, col("timestamp"))).as("last_feedback_ts"),
+        // session_id is constant across a slate's events; carry it through (one session per request).
+        first(col("session_id"), ignoreNulls = true).as("session_id")
       )
       // Drop groups that have no impression in this batch (pure late-feedback events)
       .filter(col("impression_ts").isNotNull)
@@ -179,6 +181,7 @@ object OnlineJoinerStreamingJob {
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
         col("last_feedback_ts"),
+        coalesce(col("session_id"), lit("")).as("session_id"),
         coalesce(col("user_features"),     typedLit(Map.empty[String, String])).as("user_features"),
         coalesce(col("item_features"),     typedLit(Map.empty[String, String])).as("item_features"),
         coalesce(col("context_features"),  typedLit(Map.empty[String, String])).as("context_features")
