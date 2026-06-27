@@ -11,6 +11,7 @@ object ExperienceCollectorStreamingJob {
 
   val TrainingSampleSchema: StructType = StructType(Seq(
     StructField("sample_id", StringType, nullable = false),
+    StructField("session_id", StringType, nullable = true),
     StructField("request_id", StringType, nullable = false),
     StructField("user_id", StringType, nullable = false),
     StructField("item_id", StringType, nullable = false),
@@ -83,6 +84,7 @@ object ExperienceCollectorStreamingJob {
       .groupBy("request_id", "user_id")
       .agg(
         min(col("impression_ts")).as("request_ts"),
+        first(col("session_id"), ignoreNulls = true).as("session_id"),  // one session per slate
         first(coalesce(col("user_features"), typedLit(Map.empty[String, String])), ignoreNulls = true).as("user_features"),
         first(coalesce(col("context_features"), typedLit(Map.empty[String, String])), ignoreNulls = true).as("context_features"),
         max(col("clicked")).as("slate_clicked"),
@@ -105,6 +107,7 @@ object ExperienceCollectorStreamingJob {
         concat_ws(":", col("request_id"), col("user_id")).as("slate_id"),
         col("request_id"),
         col("user_id"),
+        col("session_id"),
         col("request_ts"),
         col("slate_clicked"),
         col("slate_ordered"),

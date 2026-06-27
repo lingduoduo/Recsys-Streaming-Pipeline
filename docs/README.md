@@ -26,7 +26,7 @@ Implementation plans (bite-sized TDD tasks) derived from the specs.
 | [2026-06-26-data-pipeline-phase2.md](plans/2026-06-26-data-pipeline-phase2.md) | Data-pipeline optimization Phase 2 (event dedup + corrupt accounting) — shipped (PR #89) |
 | [2026-06-27-consolidation-phase2-phase5.md](plans/2026-06-27-consolidation-phase2-phase5.md) | Training consolidation — Phase 2 + Phase 5 gap closure — shipped (PR #91) |
 | [2026-06-27-movielens-segment-simulation.md](plans/2026-06-27-movielens-segment-simulation.md) | MovieLens-aligned user-segment simulation — shipped (PR #94) |
-| [2026-06-27-session-id-tracking.md](plans/2026-06-27-session-id-tracking.md) | Track session_id through the data stream into training_samples — planned |
+| [2026-06-27-session-id-tracking.md](plans/2026-06-27-session-id-tracking.md) | Track session_id through the data stream into training_samples + training_experiences — implemented (PR #97) |
 
 ## Notes — [`notes/`](notes/)
 

@@ -4,7 +4,9 @@
 > TDD, one work item per commit. Build/test dir: `recsys-pipeline/services/spark-streaming-job`
 > (`sbt test`). Additive only — existing job specs are the regression gate.
 
-**Status:** 📋 planned (not yet implemented).
+**Status:** ✅ Tasks 1–3 implemented (PR #97) — `session_id` now flows into `training_samples`
+and `training_experiences`. Task 4 (session-level report) remains optional/future. `sbt test`
+green (39).
 
 ## Global constraints
 
