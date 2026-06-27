@@ -22,7 +22,9 @@ lazy val root = (project in file("."))
       "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
       "--add-opens=java.base/java.nio=ALL-UNNAMED",
       "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
-      "--add-opens=java.base/java.util=ALL-UNNAMED"
+      "--add-opens=java.base/java.util=ALL-UNNAMED",
+      // Spark date/time ops (hour/dayofweek/date_format) reach sun.util.calendar under JDK 17.
+      "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
     ),
     assembly / assemblyJarName := "spark-recsys-job.jar",
     assembly / assemblyMergeStrategy := {
