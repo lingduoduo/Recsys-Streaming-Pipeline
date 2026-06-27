@@ -50,7 +50,7 @@ object MovieLensContextCollectorStreamingJob {
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("subscribe", inputTopic)
-      .option("startingOffsets", "latest")
+      .option("startingOffsets", sys.env.getOrElse("KAFKA_STARTING_OFFSETS", "latest"))
       .option("failOnDataLoss", "false")
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
@@ -155,12 +155,10 @@ object MovieLensContextCollectorStreamingJob {
       val pool = RedisPool.get(redisHost, redisPort, redisPoolMaxTotal)
       val jedis = pool.getResource
       try {
-        val pipeline = jedis.pipelined()
-        var pendingCommands = 0
-
-        def flushIfNeeded(): Unit =
-          if (pendingCommands >= redisPipelineSize) { pipeline.sync(); pendingCommands = 0 }
-
+        // Phase 1: build each key's fields, doing any existing-state reads with DIRECT (non-pipelined)
+        // jedis calls. Reads must not interleave with an open pipeline on the same connection — that
+        // makes hget read buffered pipeline replies and corrupts the protocol (drops most writes).
+        val writes = scala.collection.mutable.ArrayBuffer.empty[(String, java.util.Map[String, String])]
         rows.foreach { row =>
           try {
             val userId = row.getAs[String]("user_id")
@@ -189,12 +187,7 @@ object MovieLensContextCollectorStreamingJob {
                 fields += "actionSequenceMovieIds" -> recent.mkString(",")
               }
 
-              if (fields.nonEmpty) {
-                pipeline.hset(key, fields.asJava)
-                pipeline.expire(key, contextTtlSeconds)
-                pendingCommands += 2
-                flushIfNeeded()
-              }
+              if (fields.nonEmpty) writes += ((key, fields.asJava))
             }
           } catch {
             case e: Exception =>
@@ -202,7 +195,18 @@ object MovieLensContextCollectorStreamingJob {
           }
         }
 
-        if (pendingCommands > 0) pipeline.sync()
+        // Phase 2: flush all writes through a single pipeline (no reads interleaved).
+        if (writes.nonEmpty) {
+          val pipeline = jedis.pipelined()
+          var pendingCommands = 0
+          writes.foreach { case (key, f) =>
+            pipeline.hset(key, f)
+            pipeline.expire(key, contextTtlSeconds)
+            pendingCommands += 2
+            if (pendingCommands >= redisPipelineSize) { pipeline.sync(); pendingCommands = 0 }
+          }
+          if (pendingCommands > 0) pipeline.sync()
+        }
       } finally {
         jedis.close()
       }
