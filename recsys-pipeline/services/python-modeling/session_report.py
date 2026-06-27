@@ -11,9 +11,9 @@ OnlineJoinerStreamingJob) and aggregates engagement by session:
 Run through the project's pinned Spark:
     "$SPARK_HOME/bin/spark-submit" services/python-modeling/session_report.py --input <parquet>
 
-Note: the current behavior producers mint a fresh session_id per slate, so on live sim data
-slates/session ≈ 1. The aggregation itself is correct for real multi-slate sessions (see test);
-grouping slates into multi-slate sessions is a producer-side follow-up.
+Note: the segment producer (movielens_segment_producer.py) groups behavior into sessions of
+1..SESSION_MAX_SLATES slates, so live slates/session > 1 (e.g. ~3.0 with the default). Producers
+that still mint one session per slate (backfill_producer.py, producer.py) will show ≈1.
 """
 from __future__ import annotations
 

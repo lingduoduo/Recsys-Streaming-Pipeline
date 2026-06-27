@@ -31,6 +31,7 @@ RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")
 NUM_USERS = max(int(os.getenv("NUM_USERS", "800")), 1)
 NUM_SLATES = max(int(os.getenv("NUM_SLATES", "20000")), 1)
+SESSION_MAX_SLATES = max(int(os.getenv("SESSION_MAX_SLATES", "5")), 1)  # slates per session: 1..this
 RATINGS_PER_USER = max(int(os.getenv("RATINGS_PER_USER", "20")), 0)
 NUM_ITEMS = max(int(os.getenv("NUM_ITEMS", "30")), 1)
 SLATE_SIZE = max(int(os.getenv("SLATE_SIZE", "5")), 1)
@@ -118,10 +119,9 @@ def demographics_event(user: str, demo: dict) -> dict:
     }
 
 
-def make_slate(user: str, demo: dict, items, rng: random.Random) -> list[dict]:
+def make_slate(user: str, demo: dict, items, rng: random.Random, session_id: str) -> list[dict]:
     now_ms = int(time.time() * 1000)
     request_id = f"req_{uuid.uuid4().hex[:12]}"
-    session_id = f"sess_{uuid.uuid4().hex[:8]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
     platform = rng.choice(PLATFORMS)
     context_features = {"platform": platform}   # demographics are NOT embedded here
@@ -180,13 +180,21 @@ def main() -> None:
                 item = rng.choice(items)
                 producer.send(CONTEXT_TOPIC, value=rating_event(user, item, demo[user], rng), key=user)
                 sent += 1
-        for s in range(NUM_SLATES):                         # behavior slates
+        # Behavior is grouped into sessions: one user + a fresh session_id spanning K slates,
+        # so the session report sees slates/session > 1.
+        slates = 0
+        while slates < NUM_SLATES:
             user = rng.choice(users)
-            for event in make_slate(user, demo[user], items, rng):
-                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                sent += 1
-            if (s + 1) % 2000 == 0:
-                print(f"  {s + 1}/{NUM_SLATES} slates, {sent} events", flush=True)
+            session_id = f"sess_{uuid.uuid4().hex[:8]}"
+            for _ in range(rng.randint(1, SESSION_MAX_SLATES)):
+                if slates >= NUM_SLATES:
+                    break
+                for event in make_slate(user, demo[user], items, rng, session_id):
+                    producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
+                    sent += 1
+                slates += 1
+                if slates % 2000 == 0:
+                    print(f"  {slates}/{NUM_SLATES} slates, {sent} events", flush=True)
     finally:
         producer.flush()
         producer.close()

@@ -5,10 +5,11 @@
 > (`sbt test`). Additive only — existing job specs are the regression gate.
 
 **Status:** ✅ Tasks 1–4 implemented (PR #97) — `session_id` flows into `training_samples` and
-`training_experiences`, and `session_report.py` aggregates session-level engagement. `sbt test`
-green (39); Python session-report integration test green. Producers still mint one session per
-slate (so live `slates/session` ≈ 1); multi-slate session grouping in the producers is the only
-remaining follow-up.
+`training_experiences`, `session_report.py` aggregates session-level engagement, and
+`movielens_segment_producer.py` now groups behavior into multi-slate sessions
+(`SESSION_MAX_SLATES`). `sbt test` green (39); Python tests green; e2e on the segment sim shows
+live **slates/session ≈ 3.0** (sessions/user 22, impressions/session 15, clicks/session 0.76).
+(backfill_producer.py / producer.py still mint one session per slate — optional future parity.)
 
 ## Global constraints
 
