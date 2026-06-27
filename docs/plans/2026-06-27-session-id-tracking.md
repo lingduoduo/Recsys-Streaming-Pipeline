@@ -4,9 +4,11 @@
 > TDD, one work item per commit. Build/test dir: `recsys-pipeline/services/spark-streaming-job`
 > (`sbt test`). Additive only — existing job specs are the regression gate.
 
-**Status:** ✅ Tasks 1–3 implemented (PR #97) — `session_id` now flows into `training_samples`
-and `training_experiences`. Task 4 (session-level report) remains optional/future. `sbt test`
-green (39).
+**Status:** ✅ Tasks 1–4 implemented (PR #97) — `session_id` flows into `training_samples` and
+`training_experiences`, and `session_report.py` aggregates session-level engagement. `sbt test`
+green (39); Python session-report integration test green. Producers still mint one session per
+slate (so live `slates/session` ≈ 1); multi-slate session grouping in the producers is the only
+remaining follow-up.
 
 ## Global constraints
 
