@@ -52,6 +52,34 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
                                                                              └──► Parquet candidate-generation/
 ```
 
+### Derived ML Datasets
+
+All three jobs below consume `training_samples` (the OnlineJoiner output, which now carries
+`session_id` end-to-end) and emit one row per recommended impression to a new Kafka topic. They
+are additive — no existing topic/schema changed — and run standalone via `run-streaming-job.sh`.
+
+```text
+Kafka: training_samples ──► RecallSampleStreamingJob     ──► Kafka: recall_samples
+Kafka: training_samples ──► RankingSampleStreamingJob    ──► Kafka: ranking_samples     (+ Redis uEmb/i2vEmb)
+Kafka: training_samples ──► RelevanceSampleStreamingJob  ──► Kafka: relevance_samples   (+ Redis movie:{id}:features)
+```
+
+| Job | Topic | Row schema |
+|---|---|---|
+| `RecallSampleStreamingJob` | `recall_samples` | `user_id`, `session_id`, `event_ts`, `recommended_movie_id`, `click_movie_id` (null unless clicked), `rating` (label) |
+| `RankingSampleStreamingJob` | `ranking_samples` | + `user_features`/`item_features` maps, `user_embedding` (`uEmb:{user}`), `item_embedding` (`i2vEmb:{item}`), `is_click`, `rating` |
+| `RelevanceSampleStreamingJob` | `relevance_samples` | LTR shape: `query` (`user_id:session_id`), `recommended_movie_id`, `title`/`genres`/`release_year` (from `movie:{id}:features`), `score` (label) |
+
+`rating`/`score` is the implicit engagement label (click → 1.0, order → 2.0, else 0.0). The ranking
+and relevance jobs join Redis per micro-batch (embeddings / movie metadata); missing keys yield an
+empty vector / null fields. Env knobs: `{RECALL,RANKING,RELEVANCE}_INPUT_TOPIC` (default
+`training_samples`), `{RECALL,RANKING,RELEVANCE}_OUTPUT_TOPIC`, and (ranking) `USER_EMBEDDING_PREFIX`
+/ `ITEM_EMBEDDING_PREFIX`.
+
+```bash
+SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.sh
+```
+
 ### Model Prediction Pipeline
 
 ```text
@@ -85,7 +113,7 @@ GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learnin
 
 | Package | Responsibility | Examples |
 |---|---|---|
-| `com.demo.process` | Transform, join, and label stream and batch data into training samples | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `ItemSequencePreprocessingJob` |
+| `com.demo.process` | Transform, join, and label stream/batch data into training samples; derive recall/ranking/relevance datasets | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `MovieLensContextCollectorStreamingJob`, `RecallSampleStreamingJob`, `RankingSampleStreamingJob`, `RelevanceSampleStreamingJob`, `ItemSequencePreprocessingJob` |
 | `com.demo.task` | Runnable entry points for streaming ingestion and offline embedding training | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob` |
 | `com.demo.recommend` | Offline candidate pre-computation from trained embeddings | `EmbeddingCandidateGenerationJob` |
 | `com.demo.sink` | External write helpers | `RedisWriter` |
@@ -571,6 +599,14 @@ Environment variables:
 | `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |
+
+### Session tracking
+
+Each behavior slate carries a `session_id` (producers group 1..`SESSION_MAX_SLATES` slates per user
+into a session). `OnlineJoinerStreamingJob` threads it through to `training_samples` (Kafka value +
+Parquet), and `ExperienceCollectorStreamingJob` carries it into `training_experiences`. It is
+additive and nullable. `services/python-modeling/session_report.py` aggregates session-level
+engagement (sessions/user, slates/session, clicks/session, session CTR) from the Parquet.
 
 ### Event de-duplication (Phase 2)
 
@@ -1113,6 +1149,38 @@ Key environment variables:
 | `CANDIDATE_SAVE_TO_REDIS` | `false` |
 | `CANDIDATE_REDIS_KEY_PREFIX` | `user` (writes `user:{id}:candidates`) |
 | `CANDIDATE_REDIS_TTL_SECONDS` | `86400` (1 day) |
+
+## Simulation Harnesses
+
+End-to-end synthetic-stream sims drive the real pipeline (docker → producer → Spark jobs →
+Parquet/Redis → PySpark report) and answer analytical questions. Each is a one-command script;
+the producers embed a documented ground truth so the report can be validated against what was
+generated.
+
+| Sim | Script | Question answered |
+|---|---|---|
+| Engagement time-series | `run-engagement-sim.sh` | How does CTR trend over weeks (trend / weekly + diurnal seasonality / changepoint)? |
+| User segments | `run-movielens-segment-sim.sh` | How does engagement differ by cohort / age / sex / education / geo / platform (+ `avg_rating`)? |
+| Movie categories | `run-movie-category-sim.sh` | How does engagement differ by 3-level category (l1 genre family / l2 genre / l3 genre×decade)? |
+
+Reports (`services/python-modeling/*_report*.py`, `session_report.py`) read the resulting Parquet
+(joining Redis demographics/movie features where needed) and write per-segment CSVs.
+
+> Run PySpark reports through the project's pinned Spark: `"$SPARK_HOME/bin/spark-submit"`. A
+> mismatched pip `pyspark` (vs `$SPARK_HOME`) fails with `JavaPackage object is not callable`. See
+> `docs/specs/` and `docs/plans/` for the per-sim specs/plans.
+
+## Tests
+
+| Service | Command (from repo root) | Covers |
+|---|---|---|
+| Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
+| Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, two-tower, catalog loader, model reload |
+| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, and `session_report` |
+
+The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform
+(no Kafka/Redis needed). Some Python integration tests shell out to `"$SPARK_HOME/bin/spark-submit"`
+and are skipped automatically when `SPARK_HOME` is unset.
 
 ## Cold-Start RL Extension Plan
 
