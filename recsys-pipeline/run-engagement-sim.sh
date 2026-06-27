@@ -95,5 +95,6 @@ parts="$(find "$OUT_DIR" -maxdepth 1 -type d -name 'date=*' 2>/dev/null | wc -l 
 echo
 echo "==> done. $parts date partitions under $OUT_DIR; Redis populated with $zcard items."
 echo "    report (Spark):  ENGAGEMENT_INPUT_PATH=$OUT_DIR SPARK_MAIN_CLASS=com.demo.report.EngagementReportJob ./run-streaming-job.sh"
+echo "    report (PySpark): \"\$SPARK_HOME/bin/spark-submit\" services/python-modeling/engagement_report_pyspark.py --input $OUT_DIR"
 echo "    report (Python): python services/python-modeling/engagement_report.py --input $OUT_DIR"
 echo "    stop:    docker compose down"
