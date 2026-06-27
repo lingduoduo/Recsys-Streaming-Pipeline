@@ -29,15 +29,19 @@ Recsys-Streaming-Pipeline/
     ├── integration-tests/             # Cross-service integration tests (pytest + shell)
     ├── scripts/
     │   └── install-cron.sh            # Installs scheduled retraining cron job
-    ├── sampledata/                    # ratings.csv and sample embeddings
-    ├── run-streaming-job.sh           # Submit Spark streaming job
-    ├── run-offline-pipeline.sh        # Train Item2Vec embeddings
-    ├── run-user-embedding-pipeline.sh # Train user embeddings
-    ├── run-als-pipeline.sh            # Train ALS collaborative-filtering embeddings
-    ├── run-retrain.sh                 # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
-    ├── recsys-streaming-pipeline.png  # Architecture diagram
-    ├── recsys-streaming-pipeline.html # Interactive architecture diagram
-    └── docker-compose.yml             # Local Kafka + Redis
+    ├── sampledata/                     # ratings.csv, catalog.json, sample embeddings
+    ├── run-streaming-job.sh            # Submit a single Spark streaming job (SPARK_MAIN_CLASS)
+    ├── run-data-pipeline.sh            # Launch all core streaming jobs together
+    ├── run-offline-pipeline.sh         # Train Item2Vec embeddings
+    ├── run-user-embedding-pipeline.sh  # Train user embeddings
+    ├── run-als-pipeline.sh             # Train ALS collaborative-filtering embeddings
+    ├── run-retrain.sh                  # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
+    ├── run-engagement-sim.sh           # E2E sim: engagement CTR time-series (+ report)
+    ├── run-movielens-segment-sim.sh    # E2E sim: engagement by user segment (+ report)
+    ├── run-movie-category-sim.sh       # E2E sim: engagement by movie category l1/l2/l3 (+ report)
+    ├── recsys-streaming-pipeline.png   # Architecture diagram
+    ├── recsys-streaming-pipeline.html  # Interactive architecture diagram
+    └── docker-compose.yml              # Local Kafka + Redis
 ```
 
 ---
@@ -132,7 +136,8 @@ docker compose up -d     # Kafka (:9092, :29092), Zookeeper (:2181), Redis (:637
 docker compose ps        # wait until kafka/redis report "healthy"
 ```
 
-Topics (`recsys_events`, `training_samples`, `training_experiences`) auto-create on first use.
+Topics (`recsys_events`, `training_samples`, `training_experiences`, and the derived
+`recall_samples` / `ranking_samples` / `relevance_samples`) auto-create on first use.
 
 ---
 
@@ -156,7 +161,20 @@ SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob ./run-streaming-job.s
 
 # Collect samples → request-level slates (training_experiences topic)
 SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob ./run-streaming-job.sh
+
+# Derive ML datasets from training_samples → new *_samples topics
+# (ranking/relevance also read Redis embeddings / movie features)
+SPARK_MAIN_CLASS=com.demo.process.RecallSampleStreamingJob    ./run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob   ./run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./run-streaming-job.sh
+
+# Or launch the core streaming jobs together
+./run-data-pipeline.sh
 ```
+
+> End-to-end **simulation harnesses** drive this whole pipeline and emit analysis reports:
+> `./run-engagement-sim.sh`, `./run-movielens-segment-sim.sh`, `./run-movie-category-sim.sh`
+> (see the recsys-pipeline README → *Simulation Harnesses*).
 
 ---
 
