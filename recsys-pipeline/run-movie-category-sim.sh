@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Movie-category engagement simulation through the REAL pipeline paths:
+#   docker (Kafka+Redis) → movie_segment_producer
+#     → movielens_context → MovieLensContextCollectorStreamingJob → Redis movie:{id}:features
+#     → recsys_events     → OnlineJoinerStreamingJob              → Parquet (engagement)
+#   → movie_category_report.py joins Parquet engagement with Redis movie categories (l1/l2/l3).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+SIM_ROOT="${SIM_ROOT:-/tmp/spark-recsys/movie-category-sim}"
+OUT_DIR="$SIM_ROOT/training-samples"
+DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-600}"
+RUN_ID="${RUN_ID:-r$(date +%s)}"
+RECSYS_TOPIC="recsys_events_${RUN_ID}"
+CONTEXT_TOPIC="movielens_context_${RUN_ID}"
+NUM_ITEMS="${NUM_ITEMS:-400}"
+NUM_SLATES="${NUM_SLATES:-20000}"
+
+# Drain until a probe reaches `target` (>0), or — when target=0 — until it is >0 and unchanged for
+# 3 reads. Target form is needed for the collector (writes ~NUM_ITEMS keys in one batch with gaps).
+drain() {  # $1=label $2=probe $3=target(0=stable)
+  local label="$1" probe="$2" target="$3" prev=-1 stable=0 waited=0 count
+  while (( waited < DRAIN_TIMEOUT )); do
+    sleep 6; waited=$((waited + 6))
+    count="$(eval "$probe" 2>/dev/null | tr -d ' \r' || true)"; count="${count:-0}"
+    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    echo "   [$label] t=${waited}s count=$count${target:+/$target}"
+    if (( target > 0 )); then
+      (( count >= target )) && break
+    elif (( count > 0 && count == prev )); then
+      stable=$((stable + 1)); (( stable >= 3 )) && break
+    else stable=0; fi
+    prev="$count"
+  done
+}
+
+run_and_drain() {  # $1=class $2=ckpt $3=label $4=probe $5=target ; remaining: K=V env
+  local cls="$1" ckpt="$2" label="$3" probe="$4" target="$5"; shift 5
+  echo "==> running $cls"
+  env "$@" SPARK_MAIN_CLASS="$cls" SPARK_CHECKPOINT_LOCATION="$SIM_ROOT/$ckpt" \
+    KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
+    MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
+    TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
+    ./run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
+  local pid=$!
+  trap 'kill "$pid" 2>/dev/null || true' EXIT
+  drain "$label" "$probe" "$target"
+  kill "$pid" 2>/dev/null || true; trap - EXIT; wait "$pid" 2>/dev/null || true
+}
+
+redis_cli() { docker compose exec -T redis redis-cli "$@"; }
+
+echo "==> fresh sim dirs under $SIM_ROOT"; rm -rf "$SIM_ROOT"; mkdir -p "$OUT_DIR"
+
+echo "==> starting Kafka + Redis"; docker compose up -d zookeeper kafka redis
+echo "==> waiting for Kafka to be healthy"
+for _ in $(seq 1 60); do
+  [[ "$(docker compose ps kafka --format '{{.Health}}' 2>/dev/null)" == "healthy" ]] && break; sleep 3
+done
+[[ "$(docker compose ps kafka --format '{{.Health}}')" == "healthy" ]] || { echo "Kafka not healthy"; exit 1; }
+
+echo "==> clean slate: flush Redis; per-run topics $RECSYS_TOPIC / $CONTEXT_TOPIC"
+docker compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
+
+echo "==> building Spark job jar"
+(cd services/spark-streaming-job && sbt -error assembly)
+
+echo "==> producing movie metadata ($CONTEXT_TOPIC) + behavior ($RECSYS_TOPIC)"
+NUM_ITEMS="$NUM_ITEMS" NUM_SLATES="$NUM_SLATES" \
+RECSYS_TOPIC="$RECSYS_TOPIC" MOVIELENS_CONTEXT_TOPIC="$CONTEXT_TOPIC" \
+  python services/python-modeling/movie_segment_producer.py
+
+# Movie metadata → Redis movie:{id}:features  (wait until all NUM_ITEMS keys are written)
+run_and_drain com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
+  "redis_cli --scan --pattern 'movie:*:features' | wc -l" "$NUM_ITEMS" \
+  "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
+# Engagement → Parquet (stable file count)
+run_and_drain com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
+  "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 \
+  "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC"
+
+echo
+echo "==> CATEGORY REPORT (Parquet engagement ⨝ Redis movie categories)"
+REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" \
+  services/python-modeling/movie_category_report.py --input "$OUT_DIR" 2>&1 \
+  | grep -vE "INFO|WARN|^[0-9]{2}/"
+
+echo
+echo "==> done. CSVs under $SIM_ROOT/report-categories ; stop infra with: docker compose down"
