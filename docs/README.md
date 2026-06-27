@@ -18,6 +18,7 @@ Development docs for the Recsys Streaming Pipeline — specs (what & why), plans
 | [2026-06-27-relevance-samples-job.md](specs/2026-06-27-relevance-samples-job.md) | Derive per-impression relevance data (query=user:session, movie title/genres/year from Redis, score=label) from training_samples → new relevance_samples Kafka topic. |
 | [2026-06-27-keyword-analysis.md](specs/2026-06-27-keyword-analysis.md) | Keyword analysis: first keyword/subkeyword (genre) distribution + per-category (l1/l2/l3) top keywords for movies vs queries. |
 | [2026-06-27-query-analysis.md](specs/2026-06-27-query-analysis.md) | Query analysis: most-common queries (genre-combo intent) + short (≤10 chars) vs long query engagement (CTR/CVR/avg rating). |
+| [2026-06-27-relevance-analysis.md](specs/2026-06-27-relevance-analysis.md) | Relevance analysis: relevance-state (impression/click/order) distribution + mean-score breakdowns by query and movie genre. |
 
 ## Plans — [`plans/`](plans/)
 
@@ -39,6 +40,7 @@ Implementation plans (bite-sized TDD tasks) derived from the specs.
 | [2026-06-27-relevance-samples-job.md](plans/2026-06-27-relevance-samples-job.md) | Relevance-samples streaming job (training_samples + Redis movie metadata → relevance_samples topic) — shipped (PR #100) |
 | [2026-06-27-keyword-analysis.md](plans/2026-06-27-keyword-analysis.md) | Keyword analysis report (distribution + category top keywords) — shipped (PR #102) |
 | [2026-06-27-query-analysis.md](plans/2026-06-27-query-analysis.md) | Query analysis report (most-common + short-vs-long engagement) — shipped (PR #103) |
+| [2026-06-27-relevance-analysis.md](plans/2026-06-27-relevance-analysis.md) | Relevance analysis report (state distribution + query/genre relevance) — shipped (PR #104) |
 
 ## Notes — [`notes/`](notes/)
 
