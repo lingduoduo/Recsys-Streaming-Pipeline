@@ -50,7 +50,7 @@ object MovieLensContextCollectorStreamingJob {
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("subscribe", inputTopic)
-      .option("startingOffsets", "latest")
+      .option("startingOffsets", sys.env.getOrElse("KAFKA_STARTING_OFFSETS", "latest"))
       .option("failOnDataLoss", "false")
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
