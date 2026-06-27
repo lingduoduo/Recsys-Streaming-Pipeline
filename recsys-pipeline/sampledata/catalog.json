@@ -1,0 +1,44 @@
+{
+  "item1": {
+    "title": "Retro Space Adventure",
+    "genres": ["sci-fi", "adventure"],
+    "tags": ["space", "classic", "ensemble"],
+    "newRelease": false
+  },
+  "item2": {
+    "title": "City Heat",
+    "genres": ["action", "thriller"],
+    "tags": ["crime", "urban", "fast-paced"],
+    "newRelease": false
+  },
+  "item3": {
+    "title": "Midnight Runway",
+    "genres": ["drama", "romance"],
+    "tags": ["fashion", "character", "emotional"],
+    "newRelease": false
+  },
+  "item4": {
+    "title": "Deep Blue Signal",
+    "genres": ["sci-fi", "thriller"],
+    "tags": ["ai", "mystery", "future"],
+    "newRelease": true
+  },
+  "item5": {
+    "title": "Wild Terrain",
+    "genres": ["adventure", "family"],
+    "tags": ["nature", "uplifting", "journey"],
+    "newRelease": true
+  },
+  "item6": {
+    "title": "Glass Horizon",
+    "genres": ["drama", "sci-fi"],
+    "tags": ["future", "reflective", "arthouse"],
+    "newRelease": false
+  },
+  "item7": {
+    "title": "Laugh Circuit",
+    "genres": ["comedy", "sci-fi"],
+    "tags": ["robots", "workplace", "feel-good"],
+    "newRelease": true
+  }
+}

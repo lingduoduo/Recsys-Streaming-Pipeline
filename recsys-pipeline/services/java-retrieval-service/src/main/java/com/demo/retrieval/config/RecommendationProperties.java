@@ -17,6 +17,10 @@ public class RecommendationProperties {
     private ReplayBuffer replayBuffer = new ReplayBuffer();
     private RewardModel rewardModel = new RewardModel();
     private Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+    // Optional path to a catalog JSON file ({itemId: MovieProfile}). When set, its entries are
+    // merged on top of the inline `catalog` at startup so the catalog can outgrow application.yml
+    // and stay in sync with the Python pipeline's catalog. Empty = use inline catalog only.
+    private String catalogPath = "";
 
     public Embeddings getEmbeddings() {
         return embeddings;
@@ -80,6 +84,14 @@ public class RecommendationProperties {
 
     public void setCatalog(Map<String, MovieProfile> catalog) {
         this.catalog = catalog;
+    }
+
+    public String getCatalogPath() {
+        return catalogPath;
+    }
+
+    public void setCatalogPath(String catalogPath) {
+        this.catalogPath = catalogPath;
     }
 
     public static class Cache {

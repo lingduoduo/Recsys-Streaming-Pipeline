@@ -112,6 +112,55 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     impressionTime.toLocalDateTime.getYear shouldBe 2024
   }
 
+  "enrichWithCatalog" should "attach genres/tags by item_id and fill empty arrays for misses" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val samples = Seq("item_1", "item_2").toDF("item_id")
+    val catalog = Seq(
+      ("item_1", Seq("drama", "crime"), Seq("classic"))
+    ).toDF("item_id", "genres", "tags")
+
+    val out = OnlineJoinerStreamingJob.enrichWithCatalog(samples, catalog)
+      .collect()
+      .map(r => r.getString(r.fieldIndex("item_id")) ->
+        (r.getAs[Seq[String]]("genres"), r.getAs[Seq[String]]("tags")))
+      .toMap
+
+    out("item_1") shouldBe (Seq("drama", "crime"), Seq("classic"))
+    out("item_2") shouldBe (Seq.empty[String], Seq.empty[String])
+  }
+
+  "withCatalog" should "add empty genres/tags columns when no catalog is configured" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val samples = Seq("item_1").toDF("item_id")
+    val out = OnlineJoinerStreamingJob.withCatalog(samples, None)
+
+    out.columns should contain allOf ("genres", "tags")
+    val row = out.first()
+    row.getAs[Seq[String]]("genres") shouldBe Seq.empty[String]
+    row.getAs[Seq[String]]("tags") shouldBe Seq.empty[String]
+  }
+
+  "loadCatalog" should "parse the object-map catalog JSON into (item_id, genres, tags)" in {
+    import java.nio.file.{Files, Paths}
+    val dir = Files.createTempDirectory("catalog").toFile
+    val file = new java.io.File(dir, "catalog.json")
+    Files.write(file.toPath,
+      """{"item1":{"title":"A","genres":["sci-fi","adventure"],"tags":["space"]},
+        | "item2":{"title":"B","genres":["drama"],"tags":[]}}""".stripMargin.getBytes)
+
+    val rows = OnlineJoinerStreamingJob.loadCatalog(spark, file.getAbsolutePath)
+      .collect()
+      .map(r => r.getString(0) -> r.getAs[Seq[String]]("genres"))
+      .toMap
+
+    rows("item1") shouldBe Seq("sci-fi", "adventure")
+    rows("item2") shouldBe Seq("drama")
+  }
+
   "dedupedEvents" should "drop duplicate event_id within the watermark across micro-batches" in {
     val s = spark; import s.implicits._
     implicit val sqlCtx = s.sqlContext

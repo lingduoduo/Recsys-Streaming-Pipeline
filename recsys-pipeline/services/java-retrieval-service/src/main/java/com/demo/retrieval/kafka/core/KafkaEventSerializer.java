@@ -10,7 +10,7 @@ public final class KafkaEventSerializer {
 
     private KafkaEventSerializer() {}
 
-    static byte[] toJsonBytes(Map<String, Object> fields) {
+    public static byte[] toJsonBytes(Map<String, Object> fields) {
         try {
             return MAPPER.writeValueAsBytes(fields);
         } catch (JsonProcessingException e) {

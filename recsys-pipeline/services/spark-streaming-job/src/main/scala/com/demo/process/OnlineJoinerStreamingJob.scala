@@ -5,6 +5,7 @@ import com.demo.util.{BatchMetricsListener, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
 
 object OnlineJoinerStreamingJob {
@@ -21,9 +22,15 @@ object OnlineJoinerStreamingJob {
     val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
     val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds")
     val outputFiles = math.max(1, com.demo.util.Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
+    val catalogPath = sys.env.getOrElse("ONLINE_JOINER_CATALOG_PATH", "")
 
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
     BatchMetricsListener.register(spark)
+
+    // Load the shared item catalog once (small → broadcast on each join). Empty path = no
+    // catalog, in which case the Parquet output still carries empty genres/tags columns so the
+    // schema stays stable. Same catalog.json the Java service reads (single source of truth).
+    val catalog: Option[DataFrame] = if (catalogPath.nonEmpty) Some(loadCatalog(spark, catalogPath)) else None
 
     val raw = spark.readStream
       .format("kafka")
@@ -58,7 +65,10 @@ object OnlineJoinerStreamingJob {
             .option("topic", outputTopic)
             .save()
 
-          writeParquet(samples.withColumn("date", to_date(col("impression_time"))), outputPath, outputFiles)
+          // Catalog genres/tags land in Parquet only; the Kafka training_samples value is left
+          // unchanged so the downstream ExperienceCollector contract is untouched.
+          val parquet = withCatalog(samples, catalog).withColumn("date", to_date(col("impression_time")))
+          writeParquet(parquet, outputPath, outputFiles)
         } finally {
           samples.unpersist()
         }
@@ -69,6 +79,43 @@ object OnlineJoinerStreamingJob {
       .start()
       .awaitTermination()
   }
+
+  /** Read the shared catalog JSON ({itemId: {genres:[...], tags:[...], ...}}) into a long-form
+    * DataFrame of (item_id, genres, tags). Reads the whole file as one string and parses it with
+    * Spark's own JSON support, so no extra dependency and the same object-map file the Java
+    * service consumes works unchanged. */
+  def loadCatalog(spark: SparkSession, path: String): DataFrame = {
+    val entry = StructType(Seq(
+      StructField("genres", ArrayType(StringType), nullable = true),
+      StructField("tags", ArrayType(StringType), nullable = true)
+    ))
+    spark.read.option("wholetext", "true").text(path)
+      .select(from_json(col("value"), MapType(StringType, entry)).as("m"))
+      .select(explode(col("m")).as(Seq("item_id", "profile")))
+      .select(
+        col("item_id"),
+        col("profile.genres").as("genres"),
+        col("profile.tags").as("tags")
+      )
+  }
+
+  /** Attach genres/tags to the samples. When no catalog is configured, add empty arrays so the
+    * Parquet schema is identical with or without a catalog. */
+  def withCatalog(samples: DataFrame, catalog: Option[DataFrame]): DataFrame =
+    catalog match {
+      case Some(cat) => enrichWithCatalog(samples, cat)
+      case None =>
+        samples
+          .withColumn("genres", typedLit(Seq.empty[String]))
+          .withColumn("tags", typedLit(Seq.empty[String]))
+    }
+
+  /** Broadcast left-join the catalog onto samples by item_id; unmatched items get empty arrays. */
+  def enrichWithCatalog(samples: DataFrame, catalog: DataFrame): DataFrame =
+    samples
+      .join(broadcast(catalog), Seq("item_id"), "left")
+      .withColumn("genres", coalesce(col("genres"), typedLit(Seq.empty[String])))
+      .withColumn("tags", coalesce(col("tags"), typedLit(Seq.empty[String])))
 
   def writeParquet(samples: DataFrame, path: String, outputFiles: Int): Unit =
     samples

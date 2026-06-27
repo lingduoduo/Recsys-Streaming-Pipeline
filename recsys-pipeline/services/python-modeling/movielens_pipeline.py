@@ -168,6 +168,10 @@ NHEAD    = 4
 N_LAYERS = 2
 
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[2] / "sampledata"
+# Shared training source — the same ratings.csv the Spark jobs read. Used by default so
+# all models reflect one user population/catalog; falls back to the built-in demo data
+# when the file is absent (e.g. a fresh checkout running tests).
+DEFAULT_RATINGS_CSV = DEFAULT_MODEL_DIR / "ratings.csv"
 
 
 @dataclass(frozen=True)
@@ -191,6 +195,12 @@ class ArtifactPaths:
 
     def as_tuple(self) -> tuple[Path, Path, Path]:
         return self.user_tower, self.item_tower, self.ranking
+
+    def checkpoint(self, which: str) -> Path:
+        """PyTorch state_dict path alongside the ONNX export, used for warm-init fine-tuning."""
+        onnx = {"user_tower": self.user_tower, "item_tower": self.item_tower,
+                "ranking": self.ranking}[which]
+        return onnx.with_suffix(".pt")
 
 
 @dataclass(frozen=True)
@@ -367,23 +377,34 @@ def build_isolation_mask(K: int) -> torch.Tensor:
 # Training data generators
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _bpr_triples() -> list[tuple[int, int, int]]:
-    """(user_idx, pos_movie_idx, neg_movie_idx) triples for BPR two-tower training."""
+def _bpr_triples(item_weights: "dict[str, float] | None" = None) -> list[tuple[int, int, int]]:
+    """(user_idx, pos_movie_idx, neg_movie_idx) triples for BPR two-tower training.
+
+    When `item_weights` is given (online reward weights), high-reward positives get more negative
+    samples → they appear in more triples → higher effective positive-sampling probability in BPR.
+    """
     rng = np.random.default_rng(42)
+    base_neg = 6
     triples: list[tuple[int, int, int]] = []
     for user, hist in USER_HISTORY.items():
         uid = USER_TO_IDX[user]
         pos_ids = {mid for mid, r in hist["rated_high"] if r >= 3.5}
         neg_ids = [m[0] for m in MOVIES if m[0] not in set(hist["watched"])]
         for pos in pos_ids:
-            sampled_neg = rng.choice(neg_ids, size=min(6, len(neg_ids)), replace=False)
+            weight = 1.0 if item_weights is None else item_weights.get(pos, 1.0)
+            n_neg = min(len(neg_ids), max(1, round(base_neg * weight)))
+            sampled_neg = rng.choice(neg_ids, size=n_neg, replace=False)
             for neg in sampled_neg:
                 triples.append((uid, MOVIE_TO_IDX[pos], MOVIE_TO_IDX[neg]))
     return triples
 
 
 def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
-    """(user_idx, movie_idx, {signal: label}) per (user, movie) pair."""
+    """(user_idx, movie_idx, {signal: label}) per (user, movie) pair.
+
+    For replay fine-tuning the online reward becomes the supervision signal: replay_export
+    maps reward→rating (reward*5), so the rating/dwell heads here learn rating/5.0 == reward.
+    """
     rows: list[tuple[int, int, dict[str, float]]] = []
     for user, hist in USER_HISTORY.items():
         uid = USER_TO_IDX[user]
@@ -402,19 +423,74 @@ def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
             }))
     return rows
 
+def load_reward_weights(
+    client,
+    item_prefix: str = "reward-model:item:",
+    genre_prefix: str = "reward-model:genre:",
+) -> dict[str, dict[str, float]]:
+    """Read online reward stats from Redis into per-item / per-genre training weights.
+
+    Each reward-model:* key is a hash with fields `count` and `reward_total`; mean reward =
+    reward_total / count. Weight = 1.0 + mean, so reward 0 → 1.0 (no change) and higher online
+    reward → upweight. Returns {"item": {id: weight}, "genre": {genre: weight}}.
+    """
+    def _decode(x):
+        return x.decode() if isinstance(x, bytes) else x
+
+    def _weights(prefix: str) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for key in client.scan_iter(match=prefix + "*"):
+            stats = {_decode(f): _decode(v) for f, v in client.hgetall(key).items()}
+            count = float(stats.get("count") or 0)
+            if count <= 0:
+                continue
+            mean = float(stats.get("reward_total") or 0) / count
+            out[_decode(key)[len(prefix):]] = 1.0 + mean
+        return out
+
+    return {"item": _weights(item_prefix), "genre": _weights(genre_prefix)}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────────────
 
-def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32) -> tuple[UserTower, ItemTower]:
+def _maybe_warm_init(model: nn.Module, path: Path) -> bool:
+    """Load weights from a saved state_dict into `model`, tolerating shape changes.
+
+    Embedding tables grow when fine-tuning data adds users/items, so tensors whose shape no
+    longer matches are skipped (those rows train from scratch) while the rest — MLP and
+    transformer weights — are warm-started. Returns True if the checkpoint existed.
+    """
+    if not path.is_file():
+        return False
+    saved = torch.load(path, map_location="cpu")
+    current = model.state_dict()
+    compatible = {k: v for k, v in saved.items()
+                  if k in current and v.shape == current[k].shape}
+    model.load_state_dict(compatible, strict=False)
+    if len(compatible) < len(current):
+        print(f"  warm-init: loaded {len(compatible)}/{len(current)} tensors from "
+              f"{path.name} (shape-mismatched tensors trained fresh)")
+    else:
+        print(f"  warm-init: loaded all weights from {path.name}")
+    return True
+
+
+def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32,
+                    warm_init: "ArtifactPaths | None" = None, lr: float = 2e-3,
+                    item_weights: "dict[str, float] | None" = None) -> tuple[UserTower, ItemTower]:
     print("Training two-tower retrieval model …")
     rng = np.random.default_rng(seed)
-    triples = _bpr_triples()
+    triples = _bpr_triples(item_weights)
     user_tower = UserTower(N_USERS, EMB_DIM)
     item_tower = ItemTower(N_MOVIES, GENRE_DIM, EMB_DIM)
+    if warm_init is not None:
+        _maybe_warm_init(user_tower, warm_init.checkpoint("user_tower"))
+        _maybe_warm_init(item_tower, warm_init.checkpoint("item_tower"))
     genre_t    = torch.tensor(MOVIE_GENRE_FEATS)
     optim = torch.optim.Adam(
-        list(user_tower.parameters()) + list(item_tower.parameters()), lr=2e-3,
+        list(user_tower.parameters()) + list(item_tower.parameters()), lr=lr,
     )
     # Pre-build index tensors once so the loop avoids repeated Python list creation
     uids_t     = torch.tensor([t[0] for t in triples], dtype=torch.long)
@@ -450,13 +526,27 @@ def train_ranking(
     item_tower: ItemTower,
     epochs: int = 300,
     seed: int = 42,
+    warm_init: "ArtifactPaths | None" = None,
+    lr: float = 1e-3,
+    genre_weights: "dict[str, float] | None" = None,
 ) -> RankingTransformer:
     print("Training ranking transformer …")
     rng = np.random.default_rng(seed)
     rows    = _ranking_labels()
     ranker  = RankingTransformer(EMB_DIM, D_MODEL, NHEAD, N_LAYERS)
+    if warm_init is not None:
+        _maybe_warm_init(ranker, warm_init.checkpoint("ranking"))
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
-    optim   = torch.optim.Adam(ranker.parameters(), lr=1e-3)
+    optim   = torch.optim.Adam(ranker.parameters(), lr=lr)
+
+    # Per-movie loss weight from online genre reward (mean over the movie's genres). None ⇒ all
+    # candidates weighted 1.0, which makes the weighted mean below identical to a plain mean.
+    movie_weight: "dict[int, float] | None" = None
+    if genre_weights:
+        movie_weight = {}
+        for m_id, _, _, genres in MOVIES:
+            gs = [genre_weights.get(g, 1.0) for g in genres]
+            movie_weight[MOVIE_TO_IDX[m_id]] = float(np.mean(gs)) if gs else 1.0
 
     # Pre-compute frozen two-tower item embeddings
     with torch.no_grad():
@@ -486,12 +576,20 @@ def train_ranking(
             rew_lbls    = torch.tensor([x[1]["rewatch"]  for x in mids_lbls])
             dwell_lbls  = torch.tensor([x[1]["dwell"]    for x in mids_lbls])
 
+            # Per-candidate weights (online genre reward); uniform weights reduce to a plain mean.
+            w = torch.tensor(
+                [1.0 if movie_weight is None else movie_weight.get(x[0], 1.0) for x in mids_lbls]
+            )
+
+            def _wmean(per_elem: torch.Tensor) -> torch.Tensor:
+                return (per_elem * w).sum() / w.sum()
+
             loss = (
-                F.binary_cross_entropy(click_p,  click_lbls)
-                + F.mse_loss(rating_p,           rating_lbls)
-                + F.binary_cross_entropy(fav_p,  fav_lbls)
-                + F.binary_cross_entropy(rew_p,  rew_lbls)
-                + F.mse_loss(dwell_p,            dwell_lbls)
+                _wmean(F.binary_cross_entropy(click_p, click_lbls, reduction="none"))
+                + _wmean(F.mse_loss(rating_p,          rating_lbls, reduction="none"))
+                + _wmean(F.binary_cross_entropy(fav_p, fav_lbls,    reduction="none"))
+                + _wmean(F.binary_cross_entropy(rew_p, rew_lbls,    reduction="none"))
+                + _wmean(F.mse_loss(dwell_p,           dwell_lbls,  reduction="none"))
             )
             optim.zero_grad()
             loss.backward()
@@ -533,6 +631,12 @@ def export_onnx(
     artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
     user_tower.eval(); item_tower.eval(); ranker.eval()
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
+
+    # Persist PyTorch state_dicts alongside the ONNX exports so a later run can warm-init
+    # from them (ONNX is inference-only and can't be resumed as a training checkpoint).
+    torch.save(user_tower.state_dict(), artifacts.checkpoint("user_tower"))
+    torch.save(item_tower.state_dict(), artifacts.checkpoint("item_tower"))
+    torch.save(ranker.state_dict(), artifacts.checkpoint("ranking"))
 
     # ── User tower: user_id → user_emb ──────────────────────────────────
     _export_onnx_model(
@@ -909,11 +1013,19 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--ratings-csv",
         type=Path,
-        default=None,
+        default=DEFAULT_RATINGS_CSV,
         help=(
-            "Path to ratings CSV (userId,movieId,rating,timestamp). "
-            "When provided, replaces the built-in USER_HISTORY with data from this file."
+            "Path to ratings CSV (userId,movieId,rating,timestamp). Defaults to the shared "
+            "sampledata/ratings.csv; replaces the built-in USER_HISTORY with data from this file. "
+            "Pass --no-ratings-csv to force the built-in demo data."
         ),
+    )
+    parser.add_argument(
+        "--no-ratings-csv",
+        dest="ratings_csv",
+        action="store_const",
+        const=None,
+        help="Ignore ratings.csv and train on the built-in demo USER_HISTORY.",
     )
     parser.add_argument(
         "--min-rating",
@@ -928,6 +1040,26 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Path to an additional ratings CSV to merge with --ratings-csv before training. "
             "Use to fine-tune on replay buffer data without discarding base ratings."
+        ),
+    )
+    parser.add_argument(
+        "--warm-init",
+        action="store_true",
+        default=False,
+        help=(
+            "Warm-start training from the existing .pt checkpoints in --model-dir (continue "
+            "training instead of starting from scratch). Uses a reduced learning rate; combine "
+            "with small --retrieval-epochs/--ranking-epochs for a quick fine-tune pass."
+        ),
+    )
+    parser.add_argument(
+        "--use-reward-weights",
+        action="store_true",
+        default=False,
+        help=(
+            "Read online reward stats (reward-model:item:* / reward-model:genre:*) from Redis and "
+            "use them to weight training: high-reward items get more BPR positive sampling, and "
+            "genre reward scales the ranking loss. Requires REDIS_HOST env var."
         ),
     )
     parser.add_argument(
@@ -964,6 +1096,13 @@ def main(args: Sequence[str] | None = None) -> None:
     # Override module-level globals when a ratings CSV is provided.
     global USER_HISTORY, MOVIES, MOVIE_TO_IDX, N_MOVIES, MOVIE_GENRE_FEATS
     global USERS, N_USERS, USER_TO_IDX
+    if config.ratings_csv is not None and not Path(config.ratings_csv).exists():
+        warnings.warn(
+            f"ratings CSV not found at {config.ratings_csv}; "
+            "falling back to built-in demo USER_HISTORY.",
+            stacklevel=2,
+        )
+        config.ratings_csv = None
     if config.ratings_csv is not None:
         USER_HISTORY = load_user_history(config.ratings_csv, min_rating=config.min_rating)
         MOVIES = load_movies_from_ratings(config.ratings_csv)
@@ -998,19 +1137,41 @@ def main(args: Sequence[str] | None = None) -> None:
     artifacts = ArtifactPaths.from_directory(config.model_dir.resolve())
     artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
 
-    if artifacts.all_exist() and not config.force_train:
+    if artifacts.all_exist() and not config.force_train and not config.warm_init:
         print("Pre-trained ONNX models found — skipping training.")
     else:
         torch.manual_seed(config.seed)
+        # Warm-init continues from saved checkpoints at a reduced LR so the fine-tune pass
+        # adapts to the new (replay) data without forgetting the base model.
+        warm = artifacts if config.warm_init else None
+        lr_scale = 0.25 if config.warm_init else 1.0
+
+        item_weights = genre_weights = None
+        if config.use_reward_weights:
+            import os as _os
+            client = __import__("redis").Redis(
+                host=_os.environ.get("REDIS_HOST", "localhost"),
+                port=int(_os.environ.get("REDIS_PORT", "6379")),
+            )
+            weights = load_reward_weights(client)
+            item_weights, genre_weights = weights["item"], weights["genre"]
+            print(f"Loaded reward weights: {len(item_weights)} items, {len(genre_weights)} genres")
+
         user_tower, item_tower = train_two_tower(
             epochs=config.retrieval_epochs,
             seed=config.seed,
+            warm_init=warm,
+            lr=2e-3 * lr_scale,
+            item_weights=item_weights,
         )
         ranker = train_ranking(
             user_tower,
             item_tower,
             epochs=config.ranking_epochs,
             seed=config.seed,
+            warm_init=warm,
+            lr=1e-3 * lr_scale,
+            genre_weights=genre_weights,
         )
         export_onnx(user_tower, item_tower, ranker, artifacts)
 

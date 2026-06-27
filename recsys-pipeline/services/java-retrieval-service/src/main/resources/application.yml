@@ -56,6 +56,9 @@ recsys:
     genre-weight: ${RECSYS_REWARD_GENRE_WEIGHT:0.25}
     tag-weight: ${RECSYS_REWARD_TAG_WEIGHT:0.15}
     min-feature-count: ${RECSYS_REWARD_MIN_FEATURE_COUNT:3}
+  # Optional external catalog JSON ({itemId: {title, genres, tags, ...}}); merged on top of the
+  # inline catalog below at startup. Empty = inline catalog only. See sampledata/catalog.json.
+  catalog-path: ${RECSYS_CATALOG_PATH:}
   catalog:
     item1:
       title: "Retro Space Adventure"
