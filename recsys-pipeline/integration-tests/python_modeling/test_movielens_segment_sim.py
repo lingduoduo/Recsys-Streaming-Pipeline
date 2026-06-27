@@ -66,19 +66,35 @@ def test_demographics_event_shape_matches_userupdated():
     assert isinstance(ev["age"], int)
 
 
+def test_rating_mean_tracks_engagement_segments():
+    assert mp.rating_mean(_demo(age=30)) > mp.rating_mean(_demo(age=60))            # 25-34 > 55+
+    assert mp.rating_mean(_demo(occupation="student")) > \
+        mp.rating_mean(_demo(occupation="retired"))
+    assert 1.0 <= mp.rating_mean(_demo(age=60, occupation="retired")) <= 5.0
+
+
+def test_rating_event_shape_matches_ratingevent():
+    import random
+    ev = mp.rating_event("user_1", "movie_3", _demo(), random.Random(0))
+    assert set(ev) == {"user_id", "item_id", "event_type", "rating", "timestamp"}
+    assert ev["event_type"] == "rating"
+    assert 1.0 <= ev["rating"] <= 5.0
+
+
 # ── report: Redis demographics parsing (no Spark needed) ─────────────────────────
 def test_fetch_demographics_parses_and_derives():
     import movielens_segment_report as rep
 
     fake = MagicMock()
     fake.scan_iter.return_value = ["user:u1:features"]
-    fake.hgetall.return_value = {"age": "30", "gender": "F",
-                                 "occupation": "student", "zipCode": "90210"}
+    fake.hgetall.return_value = {"age": "30", "gender": "F", "occupation": "student",
+                                 "zipCode": "90210", "avgRating": "4.5", "ratingCount": "12"}
     with patch("redis.Redis", return_value=fake):
         rows = rep.fetch_demographics("localhost", 6379)
 
     assert rows == [{"user_id": "u1", "gender": "F", "occupation": "student",
-                     "age_band": "25-34", "geo": "West"}]
+                     "age_band": "25-34", "geo": "West",
+                     "user_avg_rating": 4.5, "user_rating_count": 12}]
 
 
 def test_fetch_demographics_returns_empty_when_redis_down():

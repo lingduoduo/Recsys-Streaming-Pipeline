@@ -31,6 +31,7 @@ RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")
 NUM_USERS = max(int(os.getenv("NUM_USERS", "800")), 1)
 NUM_SLATES = max(int(os.getenv("NUM_SLATES", "20000")), 1)
+RATINGS_PER_USER = max(int(os.getenv("RATINGS_PER_USER", "20")), 0)
 NUM_ITEMS = max(int(os.getenv("NUM_ITEMS", "30")), 1)
 SLATE_SIZE = max(int(os.getenv("SLATE_SIZE", "5")), 1)
 SEED = int(os.getenv("SEED", "13"))
@@ -80,6 +81,29 @@ def order_prob(demo: dict, platform: str) -> float:
     p = 0.20 + (0.04 if demo["occupation"] in ("engineer", "scientist") else 0.0) \
         + (0.03 if platform == "ios" else 0.0)
     return min(0.9, max(0.02, p))
+
+
+def rating_mean(demo: dict) -> float:
+    """Ground-truth mean rating for a user (1-5), correlated with engagement segments so the
+    report's avg-rating-per-segment recovers the same orderings as CTR."""
+    eff = (AGE_EFF[derive_age_band(demo["age"])] + GENDER_EFF[demo["gender"]]
+           + OCC_EFF[demo["occupation"]] + REGION_EFF[derive_geo(demo["zip_code"])])
+    return min(5.0, max(1.0, 3.2 + 8.0 * eff))
+
+
+def rating_value(demo: dict, rng: random.Random) -> int:
+    return min(5, max(1, round(rng.gauss(rating_mean(demo), 0.8))))
+
+
+def rating_event(user: str, item: str, demo: dict, rng: random.Random) -> dict:
+    """RatingEvent-shaped record for movielens_context (event_type=rating)."""
+    return {
+        "user_id": user,
+        "item_id": item,
+        "event_type": "rating",
+        "rating": float(rating_value(demo, rng)),
+        "timestamp": int(time.time()),
+    }
 
 
 def demographics_event(user: str, demo: dict) -> dict:
@@ -144,14 +168,18 @@ def main() -> None:
     users = list(demo.keys())
     items = [f"movie_{i}" for i in range(1, NUM_ITEMS + 1)]
 
-    print(f"demographics → {CONTEXT_TOPIC} ({NUM_USERS} users); "
+    print(f"demographics + {RATINGS_PER_USER} ratings/user → {CONTEXT_TOPIC} ({NUM_USERS} users); "
           f"behavior → {RECSYS_TOPIC} ({NUM_SLATES} slates)", flush=True)
     producer = make_producer()
     sent = 0
     try:
-        for user in users:                                  # one demographics record per user
+        for user in users:                                  # demographics + ratings per user
             producer.send(CONTEXT_TOPIC, value=demographics_event(user, demo[user]), key=user)
             sent += 1
+            for _ in range(RATINGS_PER_USER):
+                item = rng.choice(items)
+                producer.send(CONTEXT_TOPIC, value=rating_event(user, item, demo[user], rng), key=user)
+                sent += 1
         for s in range(NUM_SLATES):                         # behavior slates
             user = rng.choice(users)
             for event in make_slate(user, demo[user], items, rng):

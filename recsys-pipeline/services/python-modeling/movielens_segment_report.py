@@ -49,6 +49,8 @@ def fetch_demographics(host: str, port: int) -> list[dict]:
                 "occupation": h.get("occupation"),
                 "age_band": derive_age_band(h.get("age")),
                 "geo": derive_geo(h.get("zipCode")),
+                "user_avg_rating": float(h.get("avgRating") or 0.0),     # explicit feedback (RatingEvent)
+                "user_rating_count": int(float(h.get("ratingCount") or 0)),
             })
         return rows
     except Exception as e:  # noqa: BLE001 - degrade to platform-only
@@ -89,13 +91,22 @@ def demographic_metrics(joined: DataFrame, dim: str, overall_ctr: float) -> Data
         F.sum("impressions").alias("impressions"),
         F.sum("clicks").alias("clicks"),
         F.sum("orders").alias("orders"),
-        F.countDistinct("user_id").alias("users"))
-    return _finalize(grouped, overall_ctr)
+        F.countDistinct("user_id").alias("users"),
+        # explicit-feedback avg rating, weighted by each user's rating count
+        F.sum(F.col("user_avg_rating") * F.col("user_rating_count")).alias("_rsum"),
+        F.sum("user_rating_count").alias("_rn"))
+    return (_finalize(grouped, overall_ctr)
+            .withColumn("avg_rating",
+                        F.when(F.col("_rn") > 0, F.round(F.col("_rsum") / F.col("_rn"), 3)))
+            .drop("_rsum", "_rn"))
 
 
 def _demographics_df(spark: SparkSession, rows: list[dict]) -> DataFrame:
-    schema = T.StructType([T.StructField(c, T.StringType()) for c in
-                           ("user_id", "gender", "occupation", "age_band", "geo")])
+    schema = T.StructType(
+        [T.StructField(c, T.StringType()) for c in
+         ("user_id", "gender", "occupation", "age_band", "geo")]
+        + [T.StructField("user_avg_rating", T.DoubleType()),
+           T.StructField("user_rating_count", T.LongType())])
     return spark.createDataFrame(rows, schema)
 
 
