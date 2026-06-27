@@ -196,6 +196,12 @@ class ArtifactPaths:
     def as_tuple(self) -> tuple[Path, Path, Path]:
         return self.user_tower, self.item_tower, self.ranking
 
+    def checkpoint(self, which: str) -> Path:
+        """PyTorch state_dict path alongside the ONNX export, used for warm-init fine-tuning."""
+        onnx = {"user_tower": self.user_tower, "item_tower": self.item_tower,
+                "ranking": self.ranking}[which]
+        return onnx.with_suffix(".pt")
+
 
 @dataclass(frozen=True)
 class Recommendation:
@@ -387,7 +393,11 @@ def _bpr_triples() -> list[tuple[int, int, int]]:
 
 
 def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
-    """(user_idx, movie_idx, {signal: label}) per (user, movie) pair."""
+    """(user_idx, movie_idx, {signal: label}) per (user, movie) pair.
+
+    For replay fine-tuning the online reward becomes the supervision signal: replay_export
+    maps reward→rating (reward*5), so the rating/dwell heads here learn rating/5.0 == reward.
+    """
     rows: list[tuple[int, int, dict[str, float]]] = []
     for user, hist in USER_HISTORY.items():
         uid = USER_TO_IDX[user]
@@ -410,15 +420,41 @@ def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
 # Training
 # ──────────────────────────────────────────────────────────────────────────────
 
-def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32) -> tuple[UserTower, ItemTower]:
+def _maybe_warm_init(model: nn.Module, path: Path) -> bool:
+    """Load weights from a saved state_dict into `model`, tolerating shape changes.
+
+    Embedding tables grow when fine-tuning data adds users/items, so tensors whose shape no
+    longer matches are skipped (those rows train from scratch) while the rest — MLP and
+    transformer weights — are warm-started. Returns True if the checkpoint existed.
+    """
+    if not path.is_file():
+        return False
+    saved = torch.load(path, map_location="cpu")
+    current = model.state_dict()
+    compatible = {k: v for k, v in saved.items()
+                  if k in current and v.shape == current[k].shape}
+    model.load_state_dict(compatible, strict=False)
+    if len(compatible) < len(current):
+        print(f"  warm-init: loaded {len(compatible)}/{len(current)} tensors from "
+              f"{path.name} (shape-mismatched tensors trained fresh)")
+    else:
+        print(f"  warm-init: loaded all weights from {path.name}")
+    return True
+
+
+def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32,
+                    warm_init: "ArtifactPaths | None" = None, lr: float = 2e-3) -> tuple[UserTower, ItemTower]:
     print("Training two-tower retrieval model …")
     rng = np.random.default_rng(seed)
     triples = _bpr_triples()
     user_tower = UserTower(N_USERS, EMB_DIM)
     item_tower = ItemTower(N_MOVIES, GENRE_DIM, EMB_DIM)
+    if warm_init is not None:
+        _maybe_warm_init(user_tower, warm_init.checkpoint("user_tower"))
+        _maybe_warm_init(item_tower, warm_init.checkpoint("item_tower"))
     genre_t    = torch.tensor(MOVIE_GENRE_FEATS)
     optim = torch.optim.Adam(
-        list(user_tower.parameters()) + list(item_tower.parameters()), lr=2e-3,
+        list(user_tower.parameters()) + list(item_tower.parameters()), lr=lr,
     )
     # Pre-build index tensors once so the loop avoids repeated Python list creation
     uids_t     = torch.tensor([t[0] for t in triples], dtype=torch.long)
@@ -454,13 +490,17 @@ def train_ranking(
     item_tower: ItemTower,
     epochs: int = 300,
     seed: int = 42,
+    warm_init: "ArtifactPaths | None" = None,
+    lr: float = 1e-3,
 ) -> RankingTransformer:
     print("Training ranking transformer …")
     rng = np.random.default_rng(seed)
     rows    = _ranking_labels()
     ranker  = RankingTransformer(EMB_DIM, D_MODEL, NHEAD, N_LAYERS)
+    if warm_init is not None:
+        _maybe_warm_init(ranker, warm_init.checkpoint("ranking"))
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
-    optim   = torch.optim.Adam(ranker.parameters(), lr=1e-3)
+    optim   = torch.optim.Adam(ranker.parameters(), lr=lr)
 
     # Pre-compute frozen two-tower item embeddings
     with torch.no_grad():
@@ -537,6 +577,12 @@ def export_onnx(
     artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
     user_tower.eval(); item_tower.eval(); ranker.eval()
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
+
+    # Persist PyTorch state_dicts alongside the ONNX exports so a later run can warm-init
+    # from them (ONNX is inference-only and can't be resumed as a training checkpoint).
+    torch.save(user_tower.state_dict(), artifacts.checkpoint("user_tower"))
+    torch.save(item_tower.state_dict(), artifacts.checkpoint("item_tower"))
+    torch.save(ranker.state_dict(), artifacts.checkpoint("ranking"))
 
     # ── User tower: user_id → user_emb ──────────────────────────────────
     _export_onnx_model(
@@ -943,6 +989,16 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--warm-init",
+        action="store_true",
+        default=False,
+        help=(
+            "Warm-start training from the existing .pt checkpoints in --model-dir (continue "
+            "training instead of starting from scratch). Uses a reduced learning rate; combine "
+            "with small --retrieval-epochs/--ranking-epochs for a quick fine-tune pass."
+        ),
+    )
+    parser.add_argument(
         "--save-embeddings-to-redis",
         action="store_true",
         default=False,
@@ -1017,19 +1073,27 @@ def main(args: Sequence[str] | None = None) -> None:
     artifacts = ArtifactPaths.from_directory(config.model_dir.resolve())
     artifacts.user_tower.parent.mkdir(parents=True, exist_ok=True)
 
-    if artifacts.all_exist() and not config.force_train:
+    if artifacts.all_exist() and not config.force_train and not config.warm_init:
         print("Pre-trained ONNX models found — skipping training.")
     else:
         torch.manual_seed(config.seed)
+        # Warm-init continues from saved checkpoints at a reduced LR so the fine-tune pass
+        # adapts to the new (replay) data without forgetting the base model.
+        warm = artifacts if config.warm_init else None
+        lr_scale = 0.25 if config.warm_init else 1.0
         user_tower, item_tower = train_two_tower(
             epochs=config.retrieval_epochs,
             seed=config.seed,
+            warm_init=warm,
+            lr=2e-3 * lr_scale,
         )
         ranker = train_ranking(
             user_tower,
             item_tower,
             epochs=config.ranking_epochs,
             seed=config.seed,
+            warm_init=warm,
+            lr=1e-3 * lr_scale,
         )
         export_onnx(user_tower, item_tower, ranker, artifacts)
 

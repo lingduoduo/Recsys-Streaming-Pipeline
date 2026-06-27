@@ -319,6 +319,58 @@ def test_parse_args_has_fine_tune_csv():
     assert config.fine_tune_csv is None
 
 
+def test_parse_args_has_warm_init_flag():
+    assert mp.parse_args([]).warm_init is False
+    assert mp.parse_args(["--warm-init"]).warm_init is True
+
+
+def test_export_onnx_persists_pt_checkpoints(tmp_path):
+    ratings = tmp_path / "ratings.csv"
+    _write_csv(SAMPLE_RATINGS, ratings)
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    mp.main([
+        "--ratings-csv", str(ratings), "--model-dir", str(model_dir),
+        "--retrieval-epochs", "1", "--ranking-epochs", "1", "--force-train",
+    ])
+    artifacts = mp.ArtifactPaths.from_directory(model_dir)
+    assert artifacts.checkpoint("user_tower").is_file()
+    assert artifacts.checkpoint("item_tower").is_file()
+    assert artifacts.checkpoint("ranking").is_file()
+
+
+def test_warm_init_loads_saved_weights(tmp_path):
+    torch.manual_seed(0)
+    saved = mp.UserTower(mp.N_USERS, mp.EMB_DIM)
+    path = tmp_path / "movielens_user_tower.pt"
+    torch.save(saved.state_dict(), path)
+
+    fresh = mp.UserTower(mp.N_USERS, mp.EMB_DIM)
+    loaded = mp._maybe_warm_init(fresh, path)
+
+    assert loaded is True
+    assert torch.equal(fresh.emb.weight, saved.emb.weight)
+
+
+def test_warm_init_tolerates_grown_embedding_table(tmp_path):
+    """A larger user table (fine-tune adds users) loads the compatible tensors and skips the rest."""
+    torch.manual_seed(0)
+    small = mp.UserTower(2, mp.EMB_DIM)
+    path = tmp_path / "movielens_user_tower.pt"
+    torch.save(small.state_dict(), path)
+
+    bigger = mp.UserTower(5, mp.EMB_DIM)
+    loaded = mp._maybe_warm_init(bigger, path)
+
+    assert loaded is True  # did not crash on the (2,) vs (5,) embedding mismatch
+    assert bigger.emb.weight.shape[0] == 5
+
+
+def test_warm_init_returns_false_when_no_checkpoint(tmp_path):
+    fresh = mp.UserTower(mp.N_USERS, mp.EMB_DIM)
+    assert mp._maybe_warm_init(fresh, tmp_path / "missing.pt") is False
+
+
 def test_ratings_csv_defaults_to_shared_sampledata():
     config = mp.parse_args([])
     assert config.ratings_csv == mp.DEFAULT_RATINGS_CSV
