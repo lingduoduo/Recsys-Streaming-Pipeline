@@ -13,6 +13,7 @@ Development docs for the Recsys Streaming Pipeline — specs (what & why), plans
 | [2026-06-27-movielens-segment-simulation.md](specs/2026-06-27-movielens-segment-simulation.md) | Segment-comparison sim aligned to canonical UserEvent demographics via the movielens_context→Redis path; report joins Parquet engagement with Redis demographics. |
 | [2026-06-27-movie-category-simulation.md](specs/2026-06-27-movie-category-simulation.md) | Item-side parallel: compares engagement across a 3-level movie category (l1 family / l2 genre / l3 genre×decade) via the movie metadata → Redis path. |
 | [2026-06-27-session-id-tracking.md](specs/2026-06-27-session-id-tracking.md) | Thread session_id (emitted but currently dropped at from_json) through OnlineJoiner into training_samples for session-level engagement analysis — additive. |
+| [2026-06-27-recall-samples-job.md](specs/2026-06-27-recall-samples-job.md) | Derive per-impression recall data (user/session/time/recommended+click movie/label) from training_samples → new recall_samples Kafka topic. |
 
 ## Plans — [`plans/`](plans/)
 
@@ -29,6 +30,7 @@ Implementation plans (bite-sized TDD tasks) derived from the specs.
 | [2026-06-27-movielens-segment-simulation.md](plans/2026-06-27-movielens-segment-simulation.md) | MovieLens-aligned user-segment simulation — shipped (PR #94) |
 | [2026-06-27-movie-category-simulation.md](plans/2026-06-27-movie-category-simulation.md) | Movie-category (l1/l2/l3) engagement simulation — shipped (PR #96) |
 | [2026-06-27-session-id-tracking.md](plans/2026-06-27-session-id-tracking.md) | Track session_id through the data stream into training_samples + training_experiences — implemented (PR #97) |
+| [2026-06-27-recall-samples-job.md](plans/2026-06-27-recall-samples-job.md) | Recall-samples streaming job (training_samples → recall_samples topic) — shipped (PR #98) |
 
 ## Notes — [`notes/`](notes/)
 
