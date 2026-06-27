@@ -48,6 +48,17 @@ every injected ordering via the real Redis-demographics join. Tests: Python 66 p
 | occupation | Redis | student/engineer top, retired bottom | ✓ |
 | geo | Redis | West/Northeast top, Southeast bottom | ✓ (top recovered; near-zero-effect mid-ranks shuffle on noise) |
 
+## Follow-up: avg-rating-per-segment (explicit feedback)
+
+Added after the initial build:
+- Producer emits segment-modulated `RatingEvent`s to `movielens_context` (`rating_mean`/`rating_value`).
+- Report reads Redis `avgRating`/`ratingCount` and adds a count-weighted `avg_rating` per demographic dim.
+- **Bug fixed:** `MovieLensContextCollectorStreamingJob.writeUserUpdates` interleaved `jedis.hget`
+  with an open pipeline (only when ratings present) → wrote ~1 user per partition. Split read-phase
+  from write-phase. Also hardened the sim runner: unique per-run topics, Redis flush, and a
+  collector drain that waits for all `NUM_USERS` keys (the "stable count" heuristic killed it mid-batch).
+- Verified: collector writes all 800 keys; `avg_rating` tracks CTR (age 25-34 3.84 → 55+ 3.21).
+
 ## Future scope
 
 - Significance tests (z / chi-square per segment vs rest) and 2-D cross-tabs (e.g. platform × age_band).

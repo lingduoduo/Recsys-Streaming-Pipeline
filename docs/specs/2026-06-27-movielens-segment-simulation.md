@@ -43,7 +43,18 @@ movielens_segment_report.py  (PySpark)
 
 ## Metrics & comparison
 
-Per segment value: `impressions`, `ctr`, `order_rate`, `clicks_per_user`, `ctr_lift_pct`.
+Per segment value: `impressions`, `ctr`, `order_rate`, `clicks_per_user`, `ctr_lift_pct`, and —
+for the demographic dims — `avg_rating` (explicit feedback). The producer also emits
+segment-modulated `RatingEvent`s to `movielens_context`; the collector aggregates them into Redis
+`avgRating`/`ratingCount`, and the report adds a rating-count-weighted `avg_rating` per segment.
+
+## Collector bug fixed (required by this feature)
+
+`MovieLensContextCollectorStreamingJob.writeUserUpdates` interleaved direct `jedis.hget` reads
+with an **open Jedis pipeline** on the same connection — only triggered when `ratingCountDelta>0`
+(i.e. rating events present). That corrupts the protocol so only ~1 user per shuffle partition is
+written. Split into a read-phase (direct calls) then a write-phase (pipeline). Without this, the
+demographic segments collapse to a handful of users.
 
 ## Ground truth (injected, validated by the run)
 
