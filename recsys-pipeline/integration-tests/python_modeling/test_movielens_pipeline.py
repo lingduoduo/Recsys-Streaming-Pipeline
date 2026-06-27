@@ -371,6 +371,57 @@ def test_warm_init_returns_false_when_no_checkpoint(tmp_path):
     assert mp._maybe_warm_init(fresh, tmp_path / "missing.pt") is False
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# --use-reward-weights (P5.3) tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _FakeRedis:
+    def __init__(self, data):
+        self.data = data  # {key: {field: value}}
+
+    def scan_iter(self, match):
+        prefix = match[:-1]  # strip trailing "*"
+        return [k for k in self.data if k.startswith(prefix)]
+
+    def hgetall(self, key):
+        return self.data[key]
+
+
+def test_parse_args_has_use_reward_weights_flag():
+    assert mp.parse_args([]).use_reward_weights is False
+    assert mp.parse_args(["--use-reward-weights"]).use_reward_weights is True
+
+
+def test_load_reward_weights_parses_item_and_genre():
+    data = {
+        "reward-model:item:m001": {"count": "4", "reward_total": "2.0"},   # mean 0.5 → 1.5
+        "reward-model:genre:drama": {"count": "2", "reward_total": "2.0"},  # mean 1.0 → 2.0
+        "reward-model:item:cold": {"count": "0", "reward_total": "0"},      # zero count → skip
+    }
+    weights = mp.load_reward_weights(_FakeRedis(data))
+    assert weights["item"]["m001"] == pytest.approx(1.5)
+    assert weights["genre"]["drama"] == pytest.approx(2.0)
+    assert "cold" not in weights["item"]
+
+
+def test_bpr_triples_upweights_high_reward_items(monkeypatch):
+    movies = [(f"m{i}", "", 0, []) for i in range(15)]
+    monkeypatch.setattr(mp, "MOVIES", movies)
+    monkeypatch.setattr(mp, "MOVIE_TO_IDX", {m[0]: i for i, m in enumerate(movies)})
+    monkeypatch.setattr(mp, "USER_HISTORY",
+                        {"x": {"watched": ["m0"], "rated_high": [("m0", 5.0)],
+                               "favorites": [], "rewatched": []}})
+    monkeypatch.setattr(mp, "USER_TO_IDX", {"x": 0})
+
+    idx0 = mp.MOVIE_TO_IDX["m0"]
+    base = sum(1 for _, p, _ in mp._bpr_triples() if p == idx0)
+    weighted = sum(1 for _, p, _ in mp._bpr_triples({"m0": 2.0}) if p == idx0)
+
+    assert base == 6          # base_neg
+    assert weighted == 12     # round(6 * 2.0)
+    assert weighted > base
+
+
 def test_ratings_csv_defaults_to_shared_sampledata():
     config = mp.parse_args([])
     assert config.ratings_csv == mp.DEFAULT_RATINGS_CSV

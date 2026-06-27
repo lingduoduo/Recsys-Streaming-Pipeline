@@ -377,16 +377,23 @@ def build_isolation_mask(K: int) -> torch.Tensor:
 # Training data generators
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _bpr_triples() -> list[tuple[int, int, int]]:
-    """(user_idx, pos_movie_idx, neg_movie_idx) triples for BPR two-tower training."""
+def _bpr_triples(item_weights: "dict[str, float] | None" = None) -> list[tuple[int, int, int]]:
+    """(user_idx, pos_movie_idx, neg_movie_idx) triples for BPR two-tower training.
+
+    When `item_weights` is given (online reward weights), high-reward positives get more negative
+    samples → they appear in more triples → higher effective positive-sampling probability in BPR.
+    """
     rng = np.random.default_rng(42)
+    base_neg = 6
     triples: list[tuple[int, int, int]] = []
     for user, hist in USER_HISTORY.items():
         uid = USER_TO_IDX[user]
         pos_ids = {mid for mid, r in hist["rated_high"] if r >= 3.5}
         neg_ids = [m[0] for m in MOVIES if m[0] not in set(hist["watched"])]
         for pos in pos_ids:
-            sampled_neg = rng.choice(neg_ids, size=min(6, len(neg_ids)), replace=False)
+            weight = 1.0 if item_weights is None else item_weights.get(pos, 1.0)
+            n_neg = min(len(neg_ids), max(1, round(base_neg * weight)))
+            sampled_neg = rng.choice(neg_ids, size=n_neg, replace=False)
             for neg in sampled_neg:
                 triples.append((uid, MOVIE_TO_IDX[pos], MOVIE_TO_IDX[neg]))
     return triples
@@ -416,6 +423,34 @@ def _ranking_labels() -> list[tuple[int, int, dict[str, float]]]:
             }))
     return rows
 
+def load_reward_weights(
+    client,
+    item_prefix: str = "reward-model:item:",
+    genre_prefix: str = "reward-model:genre:",
+) -> dict[str, dict[str, float]]:
+    """Read online reward stats from Redis into per-item / per-genre training weights.
+
+    Each reward-model:* key is a hash with fields `count` and `reward_total`; mean reward =
+    reward_total / count. Weight = 1.0 + mean, so reward 0 → 1.0 (no change) and higher online
+    reward → upweight. Returns {"item": {id: weight}, "genre": {genre: weight}}.
+    """
+    def _decode(x):
+        return x.decode() if isinstance(x, bytes) else x
+
+    def _weights(prefix: str) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for key in client.scan_iter(match=prefix + "*"):
+            stats = {_decode(f): _decode(v) for f, v in client.hgetall(key).items()}
+            count = float(stats.get("count") or 0)
+            if count <= 0:
+                continue
+            mean = float(stats.get("reward_total") or 0) / count
+            out[_decode(key)[len(prefix):]] = 1.0 + mean
+        return out
+
+    return {"item": _weights(item_prefix), "genre": _weights(genre_prefix)}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────────────
@@ -443,10 +478,11 @@ def _maybe_warm_init(model: nn.Module, path: Path) -> bool:
 
 
 def train_two_tower(epochs: int = 300, seed: int = 42, batch_size: int = 32,
-                    warm_init: "ArtifactPaths | None" = None, lr: float = 2e-3) -> tuple[UserTower, ItemTower]:
+                    warm_init: "ArtifactPaths | None" = None, lr: float = 2e-3,
+                    item_weights: "dict[str, float] | None" = None) -> tuple[UserTower, ItemTower]:
     print("Training two-tower retrieval model …")
     rng = np.random.default_rng(seed)
-    triples = _bpr_triples()
+    triples = _bpr_triples(item_weights)
     user_tower = UserTower(N_USERS, EMB_DIM)
     item_tower = ItemTower(N_MOVIES, GENRE_DIM, EMB_DIM)
     if warm_init is not None:
@@ -492,6 +528,7 @@ def train_ranking(
     seed: int = 42,
     warm_init: "ArtifactPaths | None" = None,
     lr: float = 1e-3,
+    genre_weights: "dict[str, float] | None" = None,
 ) -> RankingTransformer:
     print("Training ranking transformer …")
     rng = np.random.default_rng(seed)
@@ -501,6 +538,15 @@ def train_ranking(
         _maybe_warm_init(ranker, warm_init.checkpoint("ranking"))
     genre_t = torch.tensor(MOVIE_GENRE_FEATS)
     optim   = torch.optim.Adam(ranker.parameters(), lr=lr)
+
+    # Per-movie loss weight from online genre reward (mean over the movie's genres). None ⇒ all
+    # candidates weighted 1.0, which makes the weighted mean below identical to a plain mean.
+    movie_weight: "dict[int, float] | None" = None
+    if genre_weights:
+        movie_weight = {}
+        for m_id, _, _, genres in MOVIES:
+            gs = [genre_weights.get(g, 1.0) for g in genres]
+            movie_weight[MOVIE_TO_IDX[m_id]] = float(np.mean(gs)) if gs else 1.0
 
     # Pre-compute frozen two-tower item embeddings
     with torch.no_grad():
@@ -530,12 +576,20 @@ def train_ranking(
             rew_lbls    = torch.tensor([x[1]["rewatch"]  for x in mids_lbls])
             dwell_lbls  = torch.tensor([x[1]["dwell"]    for x in mids_lbls])
 
+            # Per-candidate weights (online genre reward); uniform weights reduce to a plain mean.
+            w = torch.tensor(
+                [1.0 if movie_weight is None else movie_weight.get(x[0], 1.0) for x in mids_lbls]
+            )
+
+            def _wmean(per_elem: torch.Tensor) -> torch.Tensor:
+                return (per_elem * w).sum() / w.sum()
+
             loss = (
-                F.binary_cross_entropy(click_p,  click_lbls)
-                + F.mse_loss(rating_p,           rating_lbls)
-                + F.binary_cross_entropy(fav_p,  fav_lbls)
-                + F.binary_cross_entropy(rew_p,  rew_lbls)
-                + F.mse_loss(dwell_p,            dwell_lbls)
+                _wmean(F.binary_cross_entropy(click_p, click_lbls, reduction="none"))
+                + _wmean(F.mse_loss(rating_p,          rating_lbls, reduction="none"))
+                + _wmean(F.binary_cross_entropy(fav_p, fav_lbls,    reduction="none"))
+                + _wmean(F.binary_cross_entropy(rew_p, rew_lbls,    reduction="none"))
+                + _wmean(F.mse_loss(dwell_p,           dwell_lbls,  reduction="none"))
             )
             optim.zero_grad()
             loss.backward()
@@ -999,6 +1053,16 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--use-reward-weights",
+        action="store_true",
+        default=False,
+        help=(
+            "Read online reward stats (reward-model:item:* / reward-model:genre:*) from Redis and "
+            "use them to weight training: high-reward items get more BPR positive sampling, and "
+            "genre reward scales the ranking loss. Requires REDIS_HOST env var."
+        ),
+    )
+    parser.add_argument(
         "--save-embeddings-to-redis",
         action="store_true",
         default=False,
@@ -1081,11 +1145,24 @@ def main(args: Sequence[str] | None = None) -> None:
         # adapts to the new (replay) data without forgetting the base model.
         warm = artifacts if config.warm_init else None
         lr_scale = 0.25 if config.warm_init else 1.0
+
+        item_weights = genre_weights = None
+        if config.use_reward_weights:
+            import os as _os
+            client = __import__("redis").Redis(
+                host=_os.environ.get("REDIS_HOST", "localhost"),
+                port=int(_os.environ.get("REDIS_PORT", "6379")),
+            )
+            weights = load_reward_weights(client)
+            item_weights, genre_weights = weights["item"], weights["genre"]
+            print(f"Loaded reward weights: {len(item_weights)} items, {len(genre_weights)} genres")
+
         user_tower, item_tower = train_two_tower(
             epochs=config.retrieval_epochs,
             seed=config.seed,
             warm_init=warm,
             lr=2e-3 * lr_scale,
+            item_weights=item_weights,
         )
         ranker = train_ranking(
             user_tower,
@@ -1094,6 +1171,7 @@ def main(args: Sequence[str] | None = None) -> None:
             seed=config.seed,
             warm_init=warm,
             lr=1e-3 * lr_scale,
+            genre_weights=genre_weights,
         )
         export_onnx(user_tower, item_tower, ranker, artifacts)
 
