@@ -11,6 +11,7 @@ Development docs for the Recsys Streaming Pipeline — specs (what & why), plans
 | [2026-06-27-consolidation-phase2-phase5.md](specs/2026-06-27-consolidation-phase2-phase5.md) | Scoped follow-up: close training-consolidation Phase 2 (unified data contract) and Phase 5 (online→offline feedback) gaps. |
 | [2026-06-26-data-pipeline-optimization.md](specs/2026-06-26-data-pipeline-optimization.md) | Streaming data-pipeline optimization across five dimensions (throughput, cost, correctness, code quality, operability). Phase 1 + Phase 2. |
 | [2026-06-27-movielens-segment-simulation.md](specs/2026-06-27-movielens-segment-simulation.md) | Segment-comparison sim aligned to canonical UserEvent demographics via the movielens_context→Redis path; report joins Parquet engagement with Redis demographics. |
+| [2026-06-27-movie-category-simulation.md](specs/2026-06-27-movie-category-simulation.md) | Item-side parallel: compares engagement across a 3-level movie category (l1 family / l2 genre / l3 genre×decade) via the movie metadata → Redis path. |
 
 ## Plans — [`plans/`](plans/)
 
@@ -25,6 +26,7 @@ Implementation plans (bite-sized TDD tasks) derived from the specs.
 | [2026-06-26-data-pipeline-phase2.md](plans/2026-06-26-data-pipeline-phase2.md) | Data-pipeline optimization Phase 2 (event dedup + corrupt accounting) — shipped (PR #89) |
 | [2026-06-27-consolidation-phase2-phase5.md](plans/2026-06-27-consolidation-phase2-phase5.md) | Training consolidation — Phase 2 + Phase 5 gap closure — shipped (PR #91) |
 | [2026-06-27-movielens-segment-simulation.md](plans/2026-06-27-movielens-segment-simulation.md) | MovieLens-aligned user-segment simulation — shipped (PR #94) |
+| [2026-06-27-movie-category-simulation.md](plans/2026-06-27-movie-category-simulation.md) | Movie-category (l1/l2/l3) engagement simulation — shipped (PR #96) |
 
 ## Notes — [`notes/`](notes/)
 
