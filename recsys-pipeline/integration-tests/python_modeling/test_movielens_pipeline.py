@@ -317,3 +317,14 @@ def test_parse_args_has_fine_tune_csv():
     config = mp.parse_args([])
     assert hasattr(config, "fine_tune_csv")
     assert config.fine_tune_csv is None
+
+
+def test_ratings_csv_defaults_to_shared_sampledata():
+    config = mp.parse_args([])
+    assert config.ratings_csv == mp.DEFAULT_RATINGS_CSV
+    assert config.ratings_csv.name == "ratings.csv"
+
+
+def test_no_ratings_csv_forces_builtin_data():
+    config = mp.parse_args(["--no-ratings-csv"])
+    assert config.ratings_csv is None

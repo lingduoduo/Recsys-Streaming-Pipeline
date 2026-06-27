@@ -168,6 +168,10 @@ NHEAD    = 4
 N_LAYERS = 2
 
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[2] / "sampledata"
+# Shared training source — the same ratings.csv the Spark jobs read. Used by default so
+# all models reflect one user population/catalog; falls back to the built-in demo data
+# when the file is absent (e.g. a fresh checkout running tests).
+DEFAULT_RATINGS_CSV = DEFAULT_MODEL_DIR / "ratings.csv"
 
 
 @dataclass(frozen=True)
@@ -909,11 +913,19 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--ratings-csv",
         type=Path,
-        default=None,
+        default=DEFAULT_RATINGS_CSV,
         help=(
-            "Path to ratings CSV (userId,movieId,rating,timestamp). "
-            "When provided, replaces the built-in USER_HISTORY with data from this file."
+            "Path to ratings CSV (userId,movieId,rating,timestamp). Defaults to the shared "
+            "sampledata/ratings.csv; replaces the built-in USER_HISTORY with data from this file. "
+            "Pass --no-ratings-csv to force the built-in demo data."
         ),
+    )
+    parser.add_argument(
+        "--no-ratings-csv",
+        dest="ratings_csv",
+        action="store_const",
+        const=None,
+        help="Ignore ratings.csv and train on the built-in demo USER_HISTORY.",
     )
     parser.add_argument(
         "--min-rating",
@@ -964,6 +976,13 @@ def main(args: Sequence[str] | None = None) -> None:
     # Override module-level globals when a ratings CSV is provided.
     global USER_HISTORY, MOVIES, MOVIE_TO_IDX, N_MOVIES, MOVIE_GENRE_FEATS
     global USERS, N_USERS, USER_TO_IDX
+    if config.ratings_csv is not None and not Path(config.ratings_csv).exists():
+        warnings.warn(
+            f"ratings CSV not found at {config.ratings_csv}; "
+            "falling back to built-in demo USER_HISTORY.",
+            stacklevel=2,
+        )
+        config.ratings_csv = None
     if config.ratings_csv is not None:
         USER_HISTORY = load_user_history(config.ratings_csv, min_rating=config.min_rating)
         MOVIES = load_movies_from_ratings(config.ratings_csv)
