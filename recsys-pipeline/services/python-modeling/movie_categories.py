@@ -42,6 +42,12 @@ def primary_genre(genres) -> str:
     return g[0] if g else "unknown"
 
 
+def secondary_genre(genres) -> str:
+    """Second genre (the 'subkeyword'); 'none' when a movie has only one genre."""
+    g = _as_list(genres)
+    return g[1] if len(g) > 1 else "none"
+
+
 def family_of(genre: str) -> str:
     return GENRE_FAMILY.get(genre, "Other")
 
