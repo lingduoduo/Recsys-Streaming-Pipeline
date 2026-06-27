@@ -136,7 +136,8 @@ docker compose up -d     # Kafka (:9092, :29092), Zookeeper (:2181), Redis (:637
 docker compose ps        # wait until kafka/redis report "healthy"
 ```
 
-Topics (`recsys_events`, `training_samples`, `training_experiences`) auto-create on first use.
+Topics (`recsys_events`, `training_samples`, `training_experiences`, and the derived
+`recall_samples` / `ranking_samples` / `relevance_samples`) auto-create on first use.
 
 ---
 
@@ -160,7 +161,20 @@ SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob ./run-streaming-job.s
 
 # Collect samples → request-level slates (training_experiences topic)
 SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob ./run-streaming-job.sh
+
+# Derive ML datasets from training_samples → new *_samples topics
+# (ranking/relevance also read Redis embeddings / movie features)
+SPARK_MAIN_CLASS=com.demo.process.RecallSampleStreamingJob    ./run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob   ./run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./run-streaming-job.sh
+
+# Or launch the core streaming jobs together
+./run-data-pipeline.sh
 ```
+
+> End-to-end **simulation harnesses** drive this whole pipeline and emit analysis reports:
+> `./run-engagement-sim.sh`, `./run-movielens-segment-sim.sh`, `./run-movie-category-sim.sh`
+> (see the recsys-pipeline README → *Simulation Harnesses*).
 
 ---
 
