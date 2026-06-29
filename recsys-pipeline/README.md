@@ -20,9 +20,9 @@ Infrastructure, shared sample data, and orchestration scripts remain at the `rec
 
 ## Architecture
 
-![Recsys Streaming Pipeline](recsys-streaming-pipeline.png)
+![Recsys Streaming Pipeline](recsys-streaming-pipeline-architecture.png)
 
-> Interactive version: [recsys-streaming-pipeline.html](recsys-streaming-pipeline.html)
+> Interactive version: [recsys-streaming-pipeline.html](recsys-streaming-pipeline-architecture.html)
 
 
 ### Data Pipeline
@@ -1170,13 +1170,47 @@ Reports (`services/python-modeling/*_report*.py`, `session_report.py`) read the 
 > mismatched pip `pyspark` (vs `$SPARK_HOME`) fails with `JavaPackage object is not callable`. See
 > `docs/specs/` and `docs/plans/` for the per-sim specs/plans.
 
+## Analysis Reports
+
+Offline reports over the engagement data (`training_samples` Parquet, joined with movie
+genres/embeddings from Redis where needed). The first three are PySpark (run via
+`"$SPARK_HOME/bin/spark-submit"`); the two retrieval-eval reports are self-contained pandas/Python
+(hand-rolled metrics, run with plain `python`). All write CSVs under `<input>/../report-*`.
+
+| Report | Script | What it shows | Outputs |
+|--------|--------|---------------|---------|
+| **Keyword / SubKeyword Distributions** | `keyword_analysis_report.py` | Distribution of keyword (1st genre) & subkeyword (2nd genre) for movies vs queries; per-category (l1/l2/l3) top keywords | `by_keyword`, `by_subkeyword`, `top_keywords_l1/l2/l3` |
+| **Query Analysis** | `query_analysis_report.py` | Most-common queries (genre-combo intent); short (≤10 chars) vs long (>10) query engagement | `top_queries`, `by_query_length` |
+| **Relevance Analysis** | `relevance_analysis_report.py` | Relevance-state (impression/click/order) distribution + mean score by query and by movie genre | `by_state`, `by_query`, `by_genre` |
+| **Recall-Task Performance** | `recall_eval_report.py` | BM25 vs embedding vs hybrid (RRF) retrieval, leave-one-out per user | `recall_eval.csv` (recall@k, hitrate@k) |
+| **Ranking Performance** | `ranking_eval_report.py` | logloss + ROC-AUC of ranking signals (popularity / position / embedding) vs the click label | `ranking_eval.csv` |
+
+Definitions shared across reports: a **query** = a recommended impression's genre-combo intent
+(`concat_ws(" ", genres)`); engagement label `0.0/1.0/2.0` = impression-only / clicked / ordered;
+**CTR** = clicks/impressions, **CVR** = orders/impressions.
+
+```bash
+IN=/tmp/spark-recsys/movie-category-sim/training-samples   # any sim's training_samples Parquet
+
+# PySpark reports
+REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/keyword_analysis_report.py   --input "$IN"
+REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/query_analysis_report.py     --input "$IN"
+REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/relevance_analysis_report.py --input "$IN"
+
+# Retrieval-eval reports (plain Python; need movie:{id}:features, i2vEmb/uEmb in Redis)
+REDIS_HOST=localhost python services/python-modeling/recall_eval_report.py  --input "$IN"
+REDIS_HOST=localhost python services/python-modeling/ranking_eval_report.py --input "$IN"
+```
+
+See `docs/specs/` and `docs/plans/` for each report's full spec/plan.
+
 ## Tests
 
 | Service | Command (from repo root) | Covers |
 |---|---|---|
 | Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
 | Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, two-tower, catalog loader, model reload |
-| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, and `session_report` |
+| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, `session_report`, and the analysis reports (keyword / query / relevance / recall-eval / ranking-eval) |
 
 The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform
 (no Kafka/Redis needed). Some Python integration tests shell out to `"$SPARK_HOME/bin/spark-submit"`
