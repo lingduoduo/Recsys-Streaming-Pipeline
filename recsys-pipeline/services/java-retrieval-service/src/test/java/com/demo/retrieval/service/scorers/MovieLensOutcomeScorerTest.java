@@ -5,6 +5,7 @@ import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringInput;
 import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringResult;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MovieLensOutcomeScorerTest {
@@ -28,6 +29,27 @@ class MovieLensOutcomeScorerTest {
         assertTrue(outcomes.positiveRating() > outcomes.negativeFeedback());
         assertTrue(outcomes.watch() > outcomes.click());
         assertTrue(outcomes.overall() > 0.0);
+    }
+
+    @Test
+    void convexBlendWeightsSumToOne() {
+        assertEquals(1.0,
+            MovieLensOutcomeScorer.EXPLOITATION_BANDIT_WEIGHT
+            + MovieLensOutcomeScorer.EXPLOITATION_OUTCOME_WEIGHT
+            + MovieLensOutcomeScorer.EXPLOITATION_DL_WEIGHT
+            + MovieLensOutcomeScorer.EXPLOITATION_Q_WEIGHT, 1e-9,
+            "exploitation blend must stay convex");
+        assertEquals(1.0,
+            MovieLensOutcomeScorer.ESTIMATED_REWARD_POSTERIOR_WEIGHT
+            + MovieLensOutcomeScorer.ESTIMATED_REWARD_OUTCOME_WEIGHT, 1e-9,
+            "estimated-reward blend must stay convex");
+        assertEquals(1.0,
+            MovieLensOutcomeScorer.OUTCOME_POSITIVE_RATING_WEIGHT
+            + MovieLensOutcomeScorer.OUTCOME_PREFERENCE_WEIGHT
+            + MovieLensOutcomeScorer.OUTCOME_CLICK_WEIGHT
+            + MovieLensOutcomeScorer.OUTCOME_WATCH_WEIGHT
+            + MovieLensOutcomeScorer.OUTCOME_NOVEL_DISCOVERY_WEIGHT, 1e-9,
+            "positive-outcome weights must stay convex");
     }
 
     private static ScoringInput input(
