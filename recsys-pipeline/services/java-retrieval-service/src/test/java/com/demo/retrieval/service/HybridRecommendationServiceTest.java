@@ -1,6 +1,7 @@
 package com.demo.retrieval.service;
 
 import com.demo.retrieval.model.FeatureCache;
+import com.demo.retrieval.model.MovieLensUserFeatures;
 import com.demo.retrieval.model.RecommendationResult;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
@@ -23,6 +24,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -93,6 +95,27 @@ class HybridRecommendationServiceTest {
         assertEquals(List.of("fresh"), result.recommendations());
         assertFalse(result.recommendations().contains("watched"));
         assertFalse(result.recommendations().contains("rated"));
+    }
+
+    @Test
+    void deriveTasteProfilePullsGenresFromSeedItemsCatalog() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        RecommendationProperties properties = new RecommendationProperties();
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("watched", movie("drama"));
+        properties.setCatalog(catalog);
+        FeatureCache featureCache = new FeatureCache(properties);
+        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
+        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
+        HybridRecommendationService service = new HybridRecommendationService(
+            redis, properties, predictionService,
+            new OnlineLearningService(redis, properties, featureCache),
+            featureCache, List.of(), twoTowerPredictionService);
+
+        HybridRecommendationService.TasteProfile profile = service.deriveTasteProfile(
+            List.of("watched"), List.of(), MovieLensUserFeatures.forUser("u1"), List.of());
+
+        assertTrue(profile.genres().contains("drama"));
     }
 
     private static MovieProfile movie(String genre) {
