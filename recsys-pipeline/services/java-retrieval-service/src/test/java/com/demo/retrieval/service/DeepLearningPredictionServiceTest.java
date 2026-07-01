@@ -6,11 +6,22 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DeepLearningPredictionServiceTest {
+
+    @Test
+    void normalizeBatchScoresPadsAndTruncatesToN() {
+        assertArrayEquals(new double[]{1.0, 2.0, 0.0},
+            DeepLearningPredictionService.normalizeBatchScores(new float[]{1.0f, 2.0f}, 3), 1e-9);
+        assertArrayEquals(new double[]{1.0, 2.0},
+            DeepLearningPredictionService.normalizeBatchScores(new float[]{1.0f, 2.0f, 9.0f}, 2), 1e-9);
+        assertArrayEquals(new double[]{5.0, 0.0},
+            DeepLearningPredictionService.normalizeBatchScores(new float[][]{{5.0f}, {}}, 2), 1e-9);
+    }
 
     @Test
     void loadsClasspathArtifactsAndPredictsWithStringLookups() throws Exception {

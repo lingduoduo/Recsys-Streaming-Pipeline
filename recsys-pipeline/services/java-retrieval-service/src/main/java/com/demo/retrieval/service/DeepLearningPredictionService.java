@@ -167,26 +167,32 @@ public class DeepLearningPredictionService {
     }
 
     private double[] readBatchScores(OnnxValue value, int n) throws OrtException {
-        Object raw = value.getValue();
-        if (raw instanceof float[][] scores) {
-            double[] out = new double[n];
-            for (int i = 0; i < n; i++) out[i] = scores[i][0];
+        return normalizeBatchScores(value.getValue(), n);
+    }
+
+    // Always returns exactly n scores: missing indices default to 0.0, extras are ignored, so a
+    // model whose output length drifts from the batch size degrades gracefully instead of crashing
+    // the recommend request with an ArrayIndexOutOfBounds.
+    static double[] normalizeBatchScores(Object raw, int n) {
+        double[] out = new double[n];
+        if (raw instanceof float[][] s) {
+            for (int i = 0; i < n && i < s.length; i++) out[i] = s[i].length > 0 ? s[i][0] : 0.0;
             return out;
         }
-        if (raw instanceof float[] scores) {
-            double[] out = new double[n];
-            for (int i = 0; i < n; i++) out[i] = scores[i];
+        if (raw instanceof float[] s) {
+            for (int i = 0; i < n && i < s.length; i++) out[i] = s[i];
             return out;
         }
-        if (raw instanceof double[][] scores) {
-            double[] out = new double[n];
-            for (int i = 0; i < n; i++) out[i] = scores[i][0];
+        if (raw instanceof double[][] s) {
+            for (int i = 0; i < n && i < s.length; i++) out[i] = s[i].length > 0 ? s[i][0] : 0.0;
             return out;
         }
-        if (raw instanceof double[] scores) {
-            return scores;
+        if (raw instanceof double[] s) {
+            for (int i = 0; i < n && i < s.length; i++) out[i] = s[i];
+            return out;
         }
-        throw new IllegalStateException("Unsupported batch prediction output shape: " + raw.getClass().getName());
+        throw new IllegalStateException("Unsupported batch prediction output shape: "
+            + (raw == null ? "null" : raw.getClass().getName()));
     }
 
     private LookupTables readLookups(ObjectMapper objectMapper) throws IOException {
