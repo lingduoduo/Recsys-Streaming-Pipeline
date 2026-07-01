@@ -32,3 +32,27 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
         df["genres"] = df["item_id"].astype(str).map(lambda i: meta.get(i, []))
     df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
     return df
+
+
+def compute_relevance(df) -> dict:
+    n = len(df)
+    clicks = int((df["label"] >= 1).sum())
+    orders = int((df["label"] >= 2).sum())
+    ctr = round(clicks / n, 4) if n else 0.0
+    cvr = round(orders / n, 4) if n else 0.0
+    q = df.assign(query=df["genres"].apply(query_of))
+    by_query = (q.groupby("query")
+                 .agg(impressions=("label", "size"), mean_score=("label", "mean"))
+                 .reset_index()
+                 .sort_values(["mean_score", "impressions"], ascending=[False, False]))
+    ex = df.explode("genres").dropna(subset=["genres"])
+    by_genre = (ex.groupby("genres")
+                  .agg(impressions=("label", "size"), mean_score=("label", "mean"))
+                  .reset_index().rename(columns={"genres": "genre"})
+                  .sort_values(["mean_score", "impressions"], ascending=[False, False]))
+    return {
+        "headline": f"impressions {n} · CTR {ctr:.0%} · CVR {cvr:.0%}",
+        "ctr": ctr, "cvr": cvr,
+        "funnel": {"impression": n, "click": clicks, "order": orders},
+        "by_query": by_query, "by_genre": by_genre,
+    }

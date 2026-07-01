@@ -30,3 +30,19 @@ def test_load_samples_normalizes_columns(tmp_path):
     assert out["genres"].apply(type).eq(list).all()
     assert dash.query_of(["Sci-Fi", "Action"]) == "Sci-Fi Action"
     assert dash.query_of([]) == "unknown"
+
+
+def test_compute_relevance_funnel_and_means(tmp_path):
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    frame = pd.DataFrame({
+        "user_id": ["u1", "u2", "u1"], "session_id": ["s1", "s2", "s1"],
+        "item_id": ["item_2", "item_2", "item_1"], "label": [1.0, 0.0, 2.0],
+        "clicked": [1, 0, 1], "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
+    })
+    r = dash.compute_relevance(frame)
+    assert r["funnel"] == {"impression": 3, "click": 2, "order": 1}
+    assert r["ctr"] == round(2 / 3, 4) and r["cvr"] == round(1 / 3, 4)
+    bq = {row["query"]: row["mean_score"] for _, row in r["by_query"].iterrows()}
+    assert bq["Sci-Fi Action"] == 2.0            # single ordered impression
+    assert bq["Drama"] == 0.5                     # labels 1.0 and 0.0
