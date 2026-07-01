@@ -48,7 +48,7 @@ Recsys-Streaming-Pipeline/
 
 ## spark-analysis
 
-Learning and production-grade stream-processing notes and Spark code covering core APIs, Flink comparisons, user behavior analysis, and binary classification.
+Stream-processing notes and Spark code — from learning fundamentals to production-grade jobs — covering core APIs, Flink comparisons, user-behavior analysis, and binary classification.
 
 ### Files
 
@@ -94,20 +94,54 @@ A streaming recommendation platform: a real-time Kafka→Spark Streaming→Redis
 ### Architecture
 
 ```
-Real-time path
-──────────────
-services/python-modeling/producer.py  ──Kafka──►  UserEventStreamingJob  ──Redis──►  services/java-retrieval-service
-(user events)            (Structured Streaming)              (Spring Boot)
-
-Training-data path
-──────────────────
-recsys_events    ──Kafka──► OnlineJoinerStreamingJob       ──Kafka/HDFS──► training_samples
-training_samples ──Kafka──► ExperienceCollectorStreamingJob ──Kafka──►    training_experiences (slates)
-
-Offline path
+Serving path
 ────────────
-ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainingJob
-                  (item sequences per user)           (Word2Vec embeddings → Redis / file)
+Producer (Python)                      producer.py → synthetic user–item events
+    │
+    ▼
+Kafka: recsys_events                   one stream, two consumers ↓ (serving) + ↓ (training, below)
+    │
+    ▼
+UserEventStreamingJob (Spark)
+    │  click events → Redis
+    │    user:{id}:recent         (LPUSH + LTRIM)
+    │    global:item_popularity   (ZINCRBY)
+    ▼
+Redis :6379                            three-tier feature store — also holds offline embeddings + reward stats
+    │  history · popularity · embeddings · reward stats
+    ▼
+Java Retrieval Service (Spring Boot :8080)
+    GET /recommend/{user}   ·   POST /feedback → reward update (→ Redis)
+    │
+    ├── HybridRecommendationService    embedding cosine + content overlap + popularity + bandit
+    ├── OnlineLearningService          Redis reward stats · UCB / Thompson / Q-learning / SARSA
+    ├── DeepLearningPredictionService  mlp_embedding_model.onnx (classpath; blend weight 0.0 by default)
+    └── TwoTowerPredictionService      movielens_*_tower.onnx (opt-in: set ONNX_*_TOWER_PATH)
+
+Offline modeling (Spark — manually triggered)          writes embeddings → Redis (read by the serving path above)
+──────────────────────────────────────────────
+ratings.csv
+    ├── Item2VecTrainingJob        → Redis i2vEmb:{movieId} (optional) + sampledata/item_embedding.txt
+    ├── AlsEmbeddingTrainingJob    → Redis alsItemEmb:{movieId}, alsUserEmb:{userId}
+    └── UserEmbeddingTrainingJob   → Redis uEmb:{userId}   (needs item_embedding.txt)
+
+ratings.csv (+ replay CSV)
+    └── movielens_pipeline.py      train_two_tower() + train_ranking()
+            → sampledata/movielens_{user,item}_tower.onnx, movielens_ranking.onnx
+            → Redis embeddings (--save-embeddings-to-redis)
+
+Training-data pipeline (Spark streaming)               second consumer of recsys_events (above)
+────────────────────────────────────────
+Kafka: recsys_events
+    └── OnlineJoinerStreamingJob
+            → Kafka: training_samples                     (feature+label rows)
+            → HDFS: /tmp/spark-recsys/training-samples/   (parquet archive)
+
+Kafka: training_samples
+    ├── ExperienceCollectorStreamingJob → Kafka: training_experiences (request slates)
+    ├── RecallSampleStreamingJob        → Kafka: recall_samples
+    ├── RankingSampleStreamingJob       → Kafka: ranking_samples
+    └── RelevanceSampleStreamingJob     → Kafka: relevance_samples
 ```
 
 ### Components
@@ -122,7 +156,7 @@ ratings CSV  ──►  ItemSequencePreprocessingJob  ──►  Item2VecTrainin
 | `services/python-modeling/movielens_pipeline.py` | Python | Modeling | Two-tower training + ONNX export |
 | `services/java-retrieval-service` | Java / Spring Boot | Experiment | REST API serving hybrid recommendations + bandit RL |
 
-The platform runs as **three pipelines**. On first setup run them top to bottom; each section is headed by the **service and port** it owns. Unless noted, commands run from `recsys-pipeline/`.
+The platform runs as **three pipelines**. On first setup, run them top to bottom; each section below is titled with the **service and port** it owns. Unless noted, commands run from `recsys-pipeline/`.
 
 ---
 
