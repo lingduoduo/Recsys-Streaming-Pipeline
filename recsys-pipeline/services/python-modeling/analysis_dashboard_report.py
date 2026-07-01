@@ -151,10 +151,11 @@ def compute_recall(df, host: str, port: int, ks=(5, 10, 20)):
     clicks_by_user = (rel.assign(item_id=rel["item_id"].astype(str))
                          .groupby(rel["user_id"].astype(str))["item_id"].apply(list).to_dict())
     rows = evaluate(clicks_by_user, corpus, vecs, list(ks))
-    hy = next((r for r in rows if r["method"] == "hybrid" and r["k"] == 10), None)
-    bm = next((r for r in rows if r["method"] == "bm25" and r["k"] == 10), None)
+    k10 = 10 if 10 in ks else max(ks)
+    hy = next((r for r in rows if r["method"] == "hybrid" and r["k"] == k10), None)
+    bm = next((r for r in rows if r["method"] == "bm25" and r["k"] == k10), None)
     headline = ("no evaluable users" if not hy else
-                f"hybrid recall@10 {hy['recall_at_k']:.3f} vs BM25 {bm['recall_at_k']:.3f}")
+                f"hybrid recall@{k10} {hy['recall_at_k']:.3f} vs BM25 {bm['recall_at_k']:.3f}")
     return {"headline": headline, "rows": rows}
 
 
@@ -174,8 +175,8 @@ def compute_ranking(df, host: str, port: int):
     signal_scores = {
         "popularity": [(float(pop.get(it, 0.0)), True) for it in items],
         "position": [(-float(p), True) for p in positions],
-        "embedding": [((_dot(uemb.get(u), iemb.get(it)), _dot(uemb.get(u), iemb.get(it)) is not None))
-                      for u, it in zip(users, items)],
+        "embedding": [(d, d is not None)
+                      for d in (_dot(uemb.get(u), iemb.get(it)) for u, it in zip(users, items))],
     }
     rows, total = [], len(labels_all)
     for name in SIGNALS:
