@@ -1184,6 +1184,7 @@ genres/embeddings from Redis where needed). The first three are PySpark (run via
 | **Relevance Analysis** | `relevance_analysis_report.py` | Relevance-state (impression/click/order) distribution + mean score by query and by movie genre | `by_state`, `by_query`, `by_genre` |
 | **Recall-Task Performance** | `recall_eval_report.py` | BM25 vs embedding vs hybrid (RRF) retrieval, leave-one-out per user | `recall_eval.csv` (recall@k, hitrate@k) |
 | **Ranking Performance** | `ranking_eval_report.py` | logloss + ROC-AUC of ranking signals (popularity / position / embedding) vs the click label | `ranking_eval.csv` |
+| **Consolidated Dashboard** | `analysis_dashboard_report.py` | All five analyses as one self-contained HTML page (funnel → keyword → query → recall → ranking) | `report-dashboard/index.html` |
 
 Definitions shared across reports: a **query** = a recommended impression's genre-combo intent
 (`concat_ws(" ", genres)`); engagement label `0.0/1.0/2.0` = impression-only / clicked / ordered;
@@ -1200,6 +1201,9 @@ REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/rel
 # Retrieval-eval reports (plain Python; need movie:{id}:features, i2vEmb/uEmb in Redis)
 REDIS_HOST=localhost python services/python-modeling/recall_eval_report.py  --input "$IN"
 REDIS_HOST=localhost python services/python-modeling/ranking_eval_report.py --input "$IN"
+
+# Consolidated HTML dashboard (plain python; recall/ranking sections need Redis corpus)
+REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input "$IN"
 ```
 
 See `docs/specs/` and `docs/plans/` for each report's full spec/plan.
@@ -1210,7 +1214,7 @@ See `docs/specs/` and `docs/plans/` for each report's full spec/plan.
 |---|---|---|
 | Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
 | Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, two-tower, catalog loader, model reload |
-| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, `session_report`, and the analysis reports (keyword / query / relevance / recall-eval / ranking-eval) |
+| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, `session_report`, and the analysis reports (keyword / query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
 
 The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform
 (no Kafka/Redis needed). Some Python integration tests shell out to `"$SPARK_HOME/bin/spark-submit"`
