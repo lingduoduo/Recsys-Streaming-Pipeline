@@ -49,6 +49,7 @@ recsys:
   replay-buffer:
     max-size: ${RECSYS_REPLAY_BUFFER_MAX_SIZE:10000}
     candidate-snapshot-size: ${RECSYS_REPLAY_CANDIDATE_SNAPSHOT_SIZE:20}
+    pending-ttl: ${RECSYS_REPLAY_PENDING_TTL:1h}
   reward-model:
     weight: ${RECSYS_REWARD_MODEL_WEIGHT:0.25}
     global-weight: ${RECSYS_REWARD_GLOBAL_WEIGHT:0.15}

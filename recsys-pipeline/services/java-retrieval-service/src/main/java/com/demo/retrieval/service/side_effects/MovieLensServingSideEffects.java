@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -27,10 +28,12 @@ public class MovieLensServingSideEffects {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final Duration pendingTtl;
 
-    public MovieLensServingSideEffects(StringRedisTemplate redis, ObjectMapper objectMapper) {
+    public MovieLensServingSideEffects(StringRedisTemplate redis, ObjectMapper objectMapper, Duration pendingTtl) {
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.pendingTtl = pendingTtl;
     }
 
     public void recordServed(ServingSideEffectRequest request) {
@@ -57,7 +60,7 @@ public class MovieLensServingSideEffects {
                     operations.opsForSet().add(EXPOSED_ITEMS_KEY, movie.movieId());
                     operations.opsForValue().set("bandit:last_served:" + movie.movieId(), String.valueOf(now));
                     serializeReplayContext(request, movie, i, request.selected().size(), now)
-                        .ifPresent(payload -> operations.opsForValue().set(pendingReplayKey(request.userId(), movie.movieId()), payload));
+                        .ifPresent(payload -> operations.opsForValue().set(pendingReplayKey(request.userId(), movie.movieId()), payload, pendingTtl));
                 }
 
                 operations.opsForHash().put(servedHistoryKey, "movieIds", String.join(",", servedHistory));

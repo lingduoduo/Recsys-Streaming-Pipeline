@@ -2,6 +2,7 @@ package com.demo.retrieval.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -324,6 +325,15 @@ public class RecommendationProperties {
     public static class ReplayBuffer {
         private int maxSize = 10000;
         private int candidateSnapshotSize = 20;
+        private Duration pendingTtl = Duration.ofHours(1);
+
+        public Duration getPendingTtl() {
+            return pendingTtl;
+        }
+
+        public void setPendingTtl(Duration pendingTtl) {
+            this.pendingTtl = pendingTtl;
+        }
 
         public int getMaxSize() {
             return maxSize;

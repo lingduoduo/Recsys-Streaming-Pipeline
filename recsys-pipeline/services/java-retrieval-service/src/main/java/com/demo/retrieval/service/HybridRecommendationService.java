@@ -37,9 +37,12 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -64,8 +67,16 @@ public class HybridRecommendationService {
     private static final String METRICS_HASH_KEY = "bandit:metrics";
     private static final String REPLAY_BUFFER_KEY = "replay:recommendations";
     private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning", "sarsa");
-    private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = RecommendationConstants.WARM_PRIOR_STRENGTH;
+    // Atomic tabular-RL update: q = HGET; updated = q + alpha*(reward + gamma*nextValue - q); HSET.
+    // ARGV = [action, reward, alpha, gamma, nextValue]; returns {updated, tdError} as strings.
+    private static final RedisScript<List> Q_UPDATE_SCRIPT = new DefaultRedisScript<>(
+        "local q = tonumber(redis.call('HGET', KEYS[1], ARGV[1]) or '0')\n"
+      + "local tdError = (tonumber(ARGV[2]) + tonumber(ARGV[4]) * tonumber(ARGV[5])) - q\n"
+      + "local updated = q + tonumber(ARGV[3]) * tdError\n"
+      + "redis.call('HSET', KEYS[1], ARGV[1], tostring(updated))\n"
+      + "return {tostring(updated), tostring(tdError)}",
+        List.class);
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
@@ -116,7 +127,7 @@ public class HybridRecommendationService {
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
-        this.servingSideEffects = new MovieLensServingSideEffects(redis, objectMapper);
+        this.servingSideEffects = new MovieLensServingSideEffects(redis, objectMapper, properties.getReplayBuffer().getPendingTtl());
         this.candidatePipeline = buildCandidatePipeline();
     }
 
@@ -160,27 +171,9 @@ public class HybridRecommendationService {
         historySet.addAll(userFeatures.actionSequenceMovieIds());
         historySet.addAll(userFeatures.servedMovieIds());
         historySet.addAll(userFeatures.impressedMovieIds());
-        List<String> seedItems = firstNonEmpty(
-            recent,
-            userFeatures.cachedMovieIds(),
-            userFeatures.actionSequenceMovieIds(),
-            userFeatures.retrievalSequenceMovieIds(),
-            userFeatures.scoringSequenceMovieIds(),
-            rated,
-            List.copyOf(popular)
-        );
-
-        Set<String> userGenres = seedItems.stream()
-            .map(properties.getCatalog()::get)
-            .filter(p -> p != null)
-            .flatMap(p -> normalize(p.getGenres()).stream())
-            .collect(Collectors.toCollection(LinkedHashSet::new));
-        userGenres.addAll(normalize(userFeatures.favoriteGenres()));
-        Set<String> userTags = seedItems.stream()
-            .map(properties.getCatalog()::get)
-            .filter(p -> p != null)
-            .flatMap(p -> normalize(p.getTags()).stream())
-            .collect(Collectors.toSet());
+        TasteProfile tasteProfile = deriveTasteProfile(recent, rated, userFeatures, popular);
+        Set<String> userGenres = tasteProfile.genres();
+        Set<String> userTags = tasteProfile.tags();
         Map<String, Object> state = buildState(recent, userGenres, userTags);
         String stateKey = stateKey(state);
 
@@ -335,6 +328,9 @@ public class HybridRecommendationService {
         TabularRlUpdate tabularRlUpdate = isTabularRl()
             ? buildTabularRlUpdate(request, replayEvent)
             : null;
+        // Apply the Q-update atomically (Lua) before the pipeline; the returned tdError feeds metrics.
+        final boolean qApplied = tabularRlUpdate != null;
+        final double qTdError = qApplied ? applyAtomicQUpdate(tabularRlUpdate)[1] : 0.0;
         String replayPayload = buildReplayPayload(request, replayEvent);
 
         // Collect keys invalidated by the pipeline so the in-memory cache is purged after the flush.
@@ -344,6 +340,7 @@ public class HybridRecommendationService {
         redis.executePipelined(new SessionCallback<Object>() {
             @Override
             public Object execute(RedisOperations operations) {
+                operations.delete(pendingReplayKey(request.user(), request.item()));
                 if (request.clicked()) {
                     operations.opsForHash().increment(METRICS_HASH_KEY, "clicks", 1L);
                     operations.opsForHash().increment(metricsHashKey(algorithm), "clicks", 1L);
@@ -352,10 +349,9 @@ public class HybridRecommendationService {
                 operations.opsForHash().increment(METRICS_HASH_KEY, "reward_total", reward);
                 operations.opsForHash().increment(metricsHashKey(algorithm), "reward_total", reward);
                 onlineLearningService.pipelineUpdate(operations, itemId, reward, profile, cacheKeysToInvalidate);
-                if (tabularRlUpdate != null) {
-                    operations.opsForHash().put(tabularRlUpdate.qKey(), tabularRlUpdate.action(), String.valueOf(tabularRlUpdate.updatedValue()));
+                if (qApplied) {
                     operations.opsForHash().increment(metricsHashKey(algorithm), "q_updates", 1L);
-                    operations.opsForHash().increment(metricsHashKey(algorithm), "q_td_error_total", tabularRlUpdate.tdError());
+                    operations.opsForHash().increment(metricsHashKey(algorithm), "q_td_error_total", qTdError);
                 }
                 if (replayPayload != null) {
                     operations.opsForList().rightPush(REPLAY_BUFFER_KEY, replayPayload);
@@ -768,20 +764,44 @@ public class HybridRecommendationService {
         }
     }
 
+    // Feedback-time state (s') must derive genres/tags the SAME way serve-time does, or the Bellman
+    // bootstrap lands in a different Q-bucket than the serving path ever writes. Hydrate the user's
+    // features and reuse deriveTasteProfile (empty popular fallback: only reachable for a fully-cold
+    // user, who by definition has feedback history so `recent` is non-empty).
     private Map<String, Object> buildCurrentState(String user) {
-        List<String> recent = Optional.ofNullable(redis.opsForList().range("user:" + user + ":recent", 0, RECENT_HISTORY_SIZE - 1L))
-            .orElseGet(List::of);
-        Set<String> genres = recent.stream()
+        ScoredMoviesQuery hydrated = hydrateQuery(ScoredMoviesQuery.forUser(user));
+        List<String> recent = hydrated.watchedMovieIds();
+        TasteProfile profile = deriveTasteProfile(
+            recent, hydrated.ratedMovieIds(), hydrated.userFeatures(), List.of());
+        return buildState(recent, profile.genres(), profile.tags());
+    }
+
+    record TasteProfile(Set<String> genres, Set<String> tags) {
+    }
+
+    TasteProfile deriveTasteProfile(List<String> recent, List<String> rated,
+                                    MovieLensUserFeatures features, Collection<String> popular) {
+        List<String> seedItems = firstNonEmpty(
+            recent,
+            features.cachedMovieIds(),
+            features.actionSequenceMovieIds(),
+            features.retrievalSequenceMovieIds(),
+            features.scoringSequenceMovieIds(),
+            rated,
+            List.copyOf(popular)
+        );
+        Set<String> genres = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
             .flatMap(p -> normalize(p.getGenres()).stream())
             .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<String> tags = recent.stream()
+        genres.addAll(normalize(features.favoriteGenres()));
+        Set<String> tags = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
             .flatMap(p -> normalize(p.getTags()).stream())
             .collect(Collectors.toCollection(LinkedHashSet::new));
-        return buildState(recent, genres, tags);
+        return new TasteProfile(genres, tags);
     }
 
     private Map<String, Object> buildState(List<String> recent, Set<String> userGenres, Set<String> userTags) {
@@ -831,16 +851,29 @@ public class HybridRecommendationService {
 
         String action = request.item();
         String qKey = qKeyForStateMap(state);
-        double currentQ = readDouble(redis.opsForHash().get(qKey, action));
         Map<String, Object> nextState = buildCurrentState(request.user());
         NextActionValue nextActionValue = nextActionValue(nextState);
         double alpha = clamp(properties.getBandit().getQLearningAlpha());
         double gamma = clamp(properties.getBandit().getQLearningGamma());
-        double tdTarget = request.reward() + (gamma * nextActionValue.value());
-        double tdError = tdTarget - currentQ;
-        double updated = currentQ + (alpha * tdError);
         replayEvent.put("nextAction", nextActionValue.action());
-        return new TabularRlUpdate(qKey, action, updated, tdError);
+        return new TabularRlUpdate(qKey, action, request.reward(), alpha, gamma, nextActionValue.value());
+    }
+
+    // Atomic GET+compute+HSET so concurrent feedback for the same (state, action) cannot lose an
+    // update. Returns [updatedQ, tdError]. nextValue is a bootstrap estimate read before the call.
+    private double[] applyAtomicQUpdate(TabularRlUpdate u) {
+        @SuppressWarnings("unchecked")
+        List<Object> result = (List<Object>) redis.execute(
+            Q_UPDATE_SCRIPT, List.of(u.qKey()),
+            u.action(),
+            String.valueOf(u.reward()),
+            String.valueOf(u.alpha()),
+            String.valueOf(u.gamma()),
+            String.valueOf(u.nextValue()));
+        if (result == null || result.size() < 2) {
+            return new double[]{0.0, 0.0};
+        }
+        return new double[]{readDouble(result.get(0)), readDouble(result.get(1))};
     }
 
     private Map<String, Double> batchFetchQValues(String stateKey, List<String> itemIds) {
@@ -1401,8 +1434,10 @@ public class HybridRecommendationService {
     private record TabularRlUpdate(
         String qKey,
         String action,
-        double updatedValue,
-        double tdError
+        double reward,
+        double alpha,
+        double gamma,
+        double nextValue
     ) {
     }
 

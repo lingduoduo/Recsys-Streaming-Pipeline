@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +43,7 @@ class MovieLensServingSideEffectsTest {
             cb.execute(redis);
             return List.of();
         });
-        sideEffects = new MovieLensServingSideEffects(redis, new ObjectMapper());
+        sideEffects = new MovieLensServingSideEffects(redis, new ObjectMapper(), Duration.ofHours(1));
     }
 
     @Test
@@ -74,7 +75,7 @@ class MovieLensServingSideEffectsTest {
         verify(hashOps).putAll(eq("recommendation:request:req-1"), any(Map.class));
         verify(hashOps).increment(MovieLensServingSideEffects.METRICS_HASH_KEY, "requests", 1L);
         verify(hashOps).increment(MovieLensServingSideEffects.metricsHashKey("ucb"), "recommendations_served", 1L);
-        verify(valueOps).set(eq(MovieLensServingSideEffects.pendingReplayKey("u1", "m1")), org.mockito.ArgumentMatchers.contains("\"action\":\"m1\""));
+        verify(valueOps).set(eq(MovieLensServingSideEffects.pendingReplayKey("u1", "m1")), org.mockito.ArgumentMatchers.contains("\"action\":\"m1\""), eq(Duration.ofHours(1)));
     }
 
     @Test
