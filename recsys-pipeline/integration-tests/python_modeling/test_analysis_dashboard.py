@@ -93,3 +93,17 @@ def test_recall_ranking_return_none_without_redis():
     # port 6399: no Redis listening → empty corpus / no signals → None
     assert dash.compute_recall(frame, "localhost", 6399) is None
     assert dash.compute_ranking(frame, "localhost", 6399) is None
+
+
+def test_renderers_emit_svg_and_tables():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    bar = dash.svg_bar(["A", "B"], [1.0, 3.0], title="t")
+    assert "<svg" in bar and "<rect" in bar and "<title>" in bar
+    line = dash.svg_line([5, 10], {"bm25": [0.1, 0.2]}, title="recall")
+    assert "<svg" in line and "<polyline" in line
+    tbl = dash.html_table(pd.DataFrame({"k": [1], "v": [2]}))
+    assert "<table" in tbl and "<th>k</th>" in tbl and "<td>2</td>" in tbl
+    page = dash.render_html("Dashboard", [dash.section("S", "head", "body"),
+                                          dash.na_card("Recall", "no corpus")])
+    assert "<html" in page and "Dashboard" in page and "no corpus" in page

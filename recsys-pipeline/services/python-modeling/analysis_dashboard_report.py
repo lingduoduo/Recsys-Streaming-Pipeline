@@ -191,3 +191,80 @@ def compute_ranking(df, host: str, port: int):
     headline = ("no scorable signal" if best is None else
                 f"best signal '{best['signal']}' AUC {best['auc']:.3f}")
     return {"headline": headline, "rows": rows}
+
+
+import html as _html
+
+
+def _esc(x) -> str:
+    return _html.escape(str(x))
+
+
+def svg_bar(labels, values, title="", width=520, bar_h=22, gap=6) -> str:
+    vmax = max(values) if values else 1.0
+    vmax = vmax or 1.0
+    rows = []
+    for i, (lab, v) in enumerate(zip(labels, values)):
+        y = i * (bar_h + gap)
+        w = int((v / vmax) * (width - 160))
+        rows.append(
+            f'<g><title>{_esc(lab)}: {_esc(round(v, 4))}</title>'
+            f'<text x="0" y="{y + bar_h - 6}" font-size="12">{_esc(lab)}</text>'
+            f'<rect x="150" y="{y}" width="{w}" height="{bar_h}" fill="#4c78a8"/>'
+            f'<text x="{155 + w}" y="{y + bar_h - 6}" font-size="11">{_esc(round(v, 4))}</text></g>')
+    h = max(len(labels), 1) * (bar_h + gap)
+    cap = f'<text x="0" y="-6" font-size="13" font-weight="bold">{_esc(title)}</text>' if title else ""
+    return (f'<svg viewBox="0 -20 {width} {h + 24}" width="{width}" '
+            f'font-family="sans-serif">{cap}{"".join(rows)}</svg>')
+
+
+def svg_line(xs, series, title="", width=520, height=220) -> str:
+    colors = ["#4c78a8", "#f58518", "#54a24b", "#e45756"]
+    allv = [v for vals in series.values() for v in vals] or [0.0, 1.0]
+    vmin, vmax = min(allv), max(allv)
+    span = (vmax - vmin) or 1.0
+    xspan = (max(xs) - min(xs)) or 1
+    def px(x): return 40 + (x - min(xs)) / xspan * (width - 60)
+    def py(v): return height - 30 - (v - vmin) / span * (height - 50)
+    lines, legend = [], []
+    for idx, (name, vals) in enumerate(series.items()):
+        c = colors[idx % len(colors)]
+        pts = " ".join(f"{px(x):.1f},{py(v):.1f}" for x, v in zip(xs, vals))
+        lines.append(f'<polyline fill="none" stroke="{c}" stroke-width="2" points="{pts}">'
+                     f'<title>{_esc(name)}</title></polyline>')
+        legend.append(f'<text x="{60 + idx * 110}" y="16" fill="{c}" font-size="12">{_esc(name)}</text>')
+    cap = f'<text x="0" y="16" font-size="13" font-weight="bold">{_esc(title)}</text>' if title else ""
+    xlab = "".join(f'<text x="{px(x):.1f}" y="{height - 10}" font-size="10" '
+                   f'text-anchor="middle">{_esc(x)}</text>' for x in xs)
+    return (f'<svg viewBox="0 0 {width} {height}" width="{width}" font-family="sans-serif">'
+            f'{cap}{"".join(legend)}{"".join(lines)}{xlab}</svg>')
+
+
+def html_table(df, columns=None) -> str:
+    cols = columns or list(df.columns)
+    head = "".join(f"<th>{_esc(c)}</th>" for c in cols)
+    body = "".join("<tr>" + "".join(f"<td>{_esc(r[c])}</td>" for c in cols) + "</tr>"
+                   for _, r in df.iterrows())
+    return f'<table class="rpt"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+
+
+def section(title, headline, body_html) -> str:
+    return (f'<section><h2>{_esc(title)}</h2>'
+            f'<p class="headline">{_esc(headline)}</p>{body_html}</section>')
+
+
+def na_card(title, reason) -> str:
+    return f'<section><h2>{_esc(title)}</h2><p class="na">N/A — {_esc(reason)}</p></section>'
+
+
+def render_html(title, sections) -> str:
+    style = ("body{font-family:sans-serif;margin:2rem;max-width:900px}"
+             "h2{border-bottom:2px solid #4c78a8;padding-bottom:4px}"
+             ".headline{font-size:1.1rem;font-weight:bold;color:#333}"
+             ".na{color:#999;font-style:italic}"
+             "table.rpt{border-collapse:collapse;margin:8px 0}"
+             "table.rpt th,table.rpt td{border:1px solid #ddd;padding:4px 8px;font-size:13px}"
+             "table.rpt th{background:#f4f4f4;text-align:left}")
+    return (f"<!doctype html><html><head><meta charset='utf-8'>"
+            f"<title>{_esc(title)}</title><style>{style}</style></head>"
+            f"<body><h1>{_esc(title)}</h1>{''.join(sections)}</body></html>")
