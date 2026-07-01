@@ -268,3 +268,87 @@ def render_html(title, sections) -> str:
     return (f"<!doctype html><html><head><meta charset='utf-8'>"
             f"<title>{_esc(title)}</title><style>{style}</style></head>"
             f"<body><h1>{_esc(title)}</h1>{''.join(sections)}</body></html>")
+
+
+def _relevance_section(r) -> str:
+    labels = ["impression", "click", "order"]
+    body = svg_bar(labels, [r["funnel"][k] for k in labels], title="Funnel")
+    body += html_table(r["by_query"].head(10), ["query", "impressions", "mean_score"])
+    body += html_table(r["by_genre"].head(10), ["genre", "impressions", "mean_score"])
+    return section("Engagement funnel", r["headline"], body)
+
+
+def _keyword_section(r) -> str:
+    bk = r["by_keyword"].head(10)
+    body = svg_bar(list(bk["keyword"]), list(bk["movie_impressions"]), title="Impressions by keyword")
+    body += html_table(bk, ["keyword", "movie_impressions", "query_clicks", "divergence"])
+    for lvl in ("l1", "l2", "l3"):
+        body += html_table(r["tops"][lvl].head(10), [lvl, "keyword", "movie_impressions", "query_clicks"])
+    return section("Keyword gap", r["headline"], body)
+
+
+def _query_section(r) -> str:
+    tq = r["top_queries"].head(10)
+    body = svg_bar(list(tq["query"]), list(tq["impressions"]), title="Top queries")
+    body += html_table(tq, ["query", "impressions", "clicks", "orders", "query_len", "ctr", "cvr"])
+    body += html_table(r["by_length"], ["bucket", "impressions", "clicks", "orders", "ctr", "cvr"])
+    return section("Query intent", r["headline"], body)
+
+
+def _recall_section(r) -> str:
+    import pandas as pd
+    rows = pd.DataFrame(r["rows"])
+    ks = sorted(rows["k"].unique())
+    series = {m: [float(rows[(rows.method == m) & (rows.k == k)]["recall_at_k"].iloc[0]) for k in ks]
+              for m in rows["method"].unique()}
+    body = svg_line(list(ks), series, title="recall@k")
+    body += html_table(rows, ["method", "k", "recall_at_k", "hitrate_at_k", "users_evaluated"])
+    return section("Recall", r["headline"], body)
+
+
+def _ranking_section(r) -> str:
+    import pandas as pd
+    rows = pd.DataFrame(r["rows"])
+    scored = rows[rows["auc"].notna()]
+    body = svg_bar(list(scored["signal"]), list(scored["auc"]), title="AUC by signal") if len(scored) else ""
+    body += html_table(rows, ["signal", "n", "positives", "coverage", "auc", "logloss"])
+    return section("Ranking", r["headline"], body)
+
+
+def main(argv=None) -> str:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--input", default="/tmp/spark-recsys/movie-category-sim/training-samples")
+    ap.add_argument("--outdir", default=None)
+    ap.add_argument("--ks", default="5,10,20")
+    args = ap.parse_args(argv)
+    host = os.environ.get("REDIS_HOST", "localhost")
+    port = int(os.environ.get("REDIS_PORT", "6379"))
+    ks = tuple(int(x) for x in args.ks.split(","))
+    outdir = args.outdir or f"{args.input}/../report-dashboard"
+
+    df = load_samples(args.input, host, port)
+    if len(df) == 0:
+        raise SystemExit(f"no rows in {args.input} — nothing to report")
+
+    sections = [
+        _relevance_section(compute_relevance(df)),
+        _keyword_section(compute_keyword(df)),
+        _query_section(compute_query(df)),
+    ]
+    recall = compute_recall(df, host, port, ks)
+    sections.append(_recall_section(recall) if recall
+                    else na_card("Recall", "no movie:*:features in Redis"))
+    ranking = compute_ranking(df, host, port)
+    sections.append(_ranking_section(ranking) if ranking
+                    else na_card("Ranking", "no movie:*:features in Redis"))
+
+    os.makedirs(outdir, exist_ok=True)
+    out = os.path.join(outdir, "index.html")
+    with open(out, "w") as fh:
+        fh.write(render_html("Analysis Dashboard", sections))
+    print(f"wrote {out}")
+    return out
+
+
+if __name__ == "__main__":
+    main()

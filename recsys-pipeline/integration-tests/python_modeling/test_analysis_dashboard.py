@@ -1,3 +1,5 @@
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -107,3 +109,24 @@ def test_renderers_emit_svg_and_tables():
     page = dash.render_html("Dashboard", [dash.section("S", "head", "body"),
                                           dash.na_card("Recall", "no corpus")])
     assert "<html" in page and "Dashboard" in page and "no corpus" in page
+
+
+def test_main_writes_html_with_sections_and_na_cards(tmp_path):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1", "u2", "u1"], "session_id": ["s1", "s2", "s1"],
+        "item_id": ["item_2", "item_2", "item_1"], "label": [1.0, 0.0, 2.0],
+        "clicked": [1, 0, 1], "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
+    }).to_parquet(parquet, index=False)
+
+    out = tmp_path / "report-dashboard"
+    script = Path(__file__).parents[2] / "services/python-modeling/analysis_dashboard_report.py"
+    subprocess.run([sys.executable, str(script), "--input", str(parquet), "--outdir", str(out)],
+                   check=True, capture_output=True, timeout=120,
+                   env={**os.environ, "REDIS_PORT": "6399"})
+
+    page = (out / "index.html").read_text()
+    assert "Engagement funnel" in page and "Keyword gap" in page and "Query intent" in page
+    assert "N/A — no movie:*:features in Redis" in page   # recall + ranking, Redis unreachable
