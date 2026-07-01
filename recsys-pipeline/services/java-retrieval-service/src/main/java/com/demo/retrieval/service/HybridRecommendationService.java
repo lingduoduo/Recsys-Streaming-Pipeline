@@ -69,7 +69,7 @@ public class HybridRecommendationService {
     private static final String REPLAY_BUFFER_KEY = "replay:recommendations";
     private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning", "sarsa");
     private static final int RECENT_HISTORY_SIZE = 50;
-    private static final double WARM_PRIOR_STRENGTH = 2.0;
+    private static final double WARM_PRIOR_STRENGTH = RecommendationConstants.WARM_PRIOR_STRENGTH;
     private static final ThreadLocal<MessageDigest> SHA256_DIGEST = ThreadLocal.withInitial(() -> {
         try {
             return MessageDigest.getInstance("SHA-256");
@@ -705,10 +705,11 @@ public class HybridRecommendationService {
         double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
 
-        double offlineScore = (properties.getBandit().getRelevanceWeight() * normalizeScore(relevance))
-            + (properties.getBandit().getContentWeight() * content)
-            + (properties.getBandit().getPopularityWeight() * popularity)
-            + (properties.getBandit().getDeepLearningWeight() * dlScore);
+        double offlineScore = RecommendationConstants.blendOfflineScore(
+            properties.getBandit().getRelevanceWeight(), normalizeScore(relevance),
+            properties.getBandit().getContentWeight(), content,
+            properties.getBandit().getPopularityWeight(), popularity,
+            properties.getBandit().getDeepLearningWeight(), dlScore);
         double onlineScore = onlineLearningService.score(itemId, movieProfile, offlineScore);
         double onlineWeight = clamp(properties.getRewardModel().getWeight());
         double learnedPrior = (offlineScore * (1.0 - onlineWeight)) + (onlineScore * onlineWeight);
@@ -1182,7 +1183,8 @@ public class HybridRecommendationService {
         String algorithm = currentAlgorithm();
         long failures = Math.max(itemImpressions - clicks, 0L);
         double priorStrength = coldStart
-            ? Math.max(WARM_PRIOR_STRENGTH, properties.getBandit().getColdStartBoost() * 4.0)
+            ? Math.max(WARM_PRIOR_STRENGTH,
+                properties.getBandit().getColdStartBoost() * RecommendationConstants.COLD_START_PRIOR_STRENGTH_MULTIPLIER)
             : WARM_PRIOR_STRENGTH;
         double priorAlpha = 1.0 + (clamp(baseScore) * priorStrength);
         double priorBeta = 1.0 + ((1.0 - clamp(baseScore)) * priorStrength);
@@ -1213,12 +1215,12 @@ public class HybridRecommendationService {
         if (ThreadLocalRandom.current().nextDouble() < clamp(properties.getBandit().getQLearningEpsilon())) {
             return ThreadLocalRandom.current().nextDouble();
         }
-        return qValue == null ? learnedPrior : qValue;
+        return qValue == null ? clamp(learnedPrior) : clamp(qValue);
     }
 
     private double contentScore(NormalizedProfile profile, Set<String> userGenres, Set<String> userTags) {
-        return clamp((overlapRatio(userGenres, profile.genres()) * 0.7)
-            + (overlapRatio(userTags, profile.tags()) * 0.3));
+        return clamp((overlapRatio(userGenres, profile.genres()) * RecommendationConstants.CONTENT_GENRE_WEIGHT)
+            + (overlapRatio(userTags, profile.tags()) * RecommendationConstants.CONTENT_TAG_WEIGHT));
     }
 
     private double contentScore(MovieProfile profile, Set<String> userGenres, Set<String> userTags) {
@@ -1226,7 +1228,8 @@ public class HybridRecommendationService {
         Set<String> tags = normalize(profile.getTags());
         double genreOverlap = overlapRatio(userGenres, genres);
         double tagOverlap = overlapRatio(userTags, tags);
-        return clamp((genreOverlap * 0.7) + (tagOverlap * 0.3));
+        return clamp((genreOverlap * RecommendationConstants.CONTENT_GENRE_WEIGHT)
+            + (tagOverlap * RecommendationConstants.CONTENT_TAG_WEIGHT));
     }
 
     private Set<String> normalize(List<String> values) {
