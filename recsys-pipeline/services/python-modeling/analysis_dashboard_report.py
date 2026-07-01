@@ -103,3 +103,37 @@ def compute_keyword(df) -> dict:
                 f"'{lead['keyword']}' diverges most: shown {lead['movie_share']:.0%} vs clicked {lead['query_share']:.0%}")
     return {"headline": headline, "by_keyword": by_keyword,
             "by_subkeyword": by_subkeyword, "tops": tops}
+
+
+SHORT_MAX_CHARS = 10
+
+
+def _rates(g):
+    g["ctr"] = (g["clicks"] / g["impressions"]).round(4)
+    g["cvr"] = (g["orders"] / g["impressions"]).round(4)
+    return g
+
+
+def compute_query(df) -> dict:
+    d = df.assign(query=df["genres"].apply(query_of))
+    d["query_len"] = d["query"].str.len()
+    d["clk"] = (d["label"] >= 1).astype(int)
+    d["ord"] = (d["label"] >= 2).astype(int)
+
+    top = (d.groupby("query")
+             .agg(impressions=("label", "size"), clicks=("clk", "sum"),
+                  orders=("ord", "sum"), query_len=("query_len", "first"))
+             .reset_index())
+    top = _rates(top).sort_values("impressions", ascending=False)
+
+    d["bucket"] = d["query_len"].apply(
+        lambda n: "short (<=10)" if n <= SHORT_MAX_CHARS else "long (>10)")
+    bylen = (d.groupby("bucket")
+               .agg(impressions=("label", "size"), clicks=("clk", "sum"), orders=("ord", "sum"))
+               .reset_index())
+    bylen = _rates(bylen).sort_values("bucket")
+
+    lead = top.iloc[0] if len(top) else None
+    headline = ("no queries" if lead is None else
+                f"top query '{lead['query']}' ({int(lead['impressions'])} impr, CTR {lead['ctr']:.0%})")
+    return {"headline": headline, "top_queries": top, "by_length": bylen}

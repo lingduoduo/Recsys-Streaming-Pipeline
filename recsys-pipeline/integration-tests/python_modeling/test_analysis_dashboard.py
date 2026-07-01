@@ -63,3 +63,20 @@ def test_compute_keyword_distribution_and_divergence():
     assert bk["Sci-Fi"]["query_clicks"] == 1         # item_1 clicked
     assert set(r["tops"]) == {"l1", "l2", "l3"}
     assert (r["tops"]["l2"]["rank"] >= 1).all()
+
+
+def test_compute_query_top_and_length_buckets():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    frame = pd.DataFrame({
+        "user_id": ["u1", "u2", "u1"], "session_id": ["s1", "s2", "s1"],
+        "item_id": ["item_2", "item_2", "item_1"], "label": [1.0, 0.0, 2.0],
+        "clicked": [1, 0, 1], "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
+    })
+    r = dash.compute_query(frame)
+    tq = {row["query"]: row for _, row in r["top_queries"].iterrows()}
+    assert tq["Drama"]["impressions"] == 2 and tq["Drama"]["ctr"] == 0.5
+    assert tq["Sci-Fi Action"]["query_len"] == 13
+    buckets = {row["bucket"]: row for _, row in r["by_length"].iterrows()}
+    assert buckets["short (<=10)"]["impressions"] == 2   # "Drama" is 5 chars
+    assert buckets["long (>10)"]["impressions"] == 1     # "Sci-Fi Action" is 13 chars
