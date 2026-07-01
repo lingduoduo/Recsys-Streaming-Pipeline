@@ -210,6 +210,19 @@ SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./run-streaming-jo
 > `./run-engagement-sim.sh`, `./run-movielens-segment-sim.sh`, `./run-movie-category-sim.sh`
 > (see the recsys-pipeline README → *Simulation Harnesses*).
 
+**Analytics dashboard** — turn any run's `training_samples` Parquet (from a sim or the joiner) into
+one self-contained HTML page covering keyword / query / relevance / recall / ranking:
+
+```bash
+IN=/tmp/spark-recsys/movie-category-sim/training-samples   # any run's training_samples
+REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input "$IN"
+# → writes $IN/../report-dashboard/index.html   (open in a browser)
+```
+
+The recall/ranking sections need Redis embeddings (`movie:*:features`, `i2vEmb` / `uEmb`); without
+them they render an explicit N/A card. See the recsys-pipeline README → *Analysis Reports* for the
+five individual per-report scripts.
+
 ---
 
 ### 2. Modeling Pipeline — Spark embeddings + Python two-tower → ONNX
