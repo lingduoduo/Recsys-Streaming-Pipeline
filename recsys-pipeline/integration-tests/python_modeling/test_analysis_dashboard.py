@@ -80,3 +80,16 @@ def test_compute_query_top_and_length_buckets():
     buckets = {row["bucket"]: row for _, row in r["by_length"].iterrows()}
     assert buckets["short (<=10)"]["impressions"] == 2   # "Drama" is 5 chars
     assert buckets["long (>10)"]["impressions"] == 1     # "Sci-Fi Action" is 13 chars
+
+
+def test_recall_ranking_return_none_without_redis():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    frame = pd.DataFrame({
+        "user_id": ["u1", "u1"], "session_id": ["s1", "s1"],
+        "item_id": ["item_1", "item_2"], "label": [2.0, 1.0],
+        "clicked": [1, 1], "genres": [["Drama"], ["Comedy"]],
+    })
+    # port 6399: no Redis listening → empty corpus / no signals → None
+    assert dash.compute_recall(frame, "localhost", 6399) is None
+    assert dash.compute_ranking(frame, "localhost", 6399) is None

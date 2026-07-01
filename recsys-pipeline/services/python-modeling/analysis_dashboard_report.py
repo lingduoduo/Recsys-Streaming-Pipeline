@@ -137,3 +137,57 @@ def compute_query(df) -> dict:
     headline = ("no queries" if lead is None else
                 f"top query '{lead['query']}' ({int(lead['impressions'])} impr, CTR {lead['ctr']:.0%})")
     return {"headline": headline, "top_queries": top, "by_length": bylen}
+
+
+def compute_recall(df, host: str, port: int, ks=(5, 10, 20)):
+    from recall_eval_report import evaluate, fetch_corpus_and_vecs
+    try:
+        corpus, vecs = fetch_corpus_and_vecs(host, port)
+    except Exception:  # noqa: BLE001 — Redis unreachable
+        corpus, vecs = {}, {}
+    if not corpus:
+        return None
+    rel = df[df["clicked"] == 1] if "clicked" in df.columns else df[df["label"] > 0]
+    clicks_by_user = (rel.assign(item_id=rel["item_id"].astype(str))
+                         .groupby(rel["user_id"].astype(str))["item_id"].apply(list).to_dict())
+    rows = evaluate(clicks_by_user, corpus, vecs, list(ks))
+    hy = next((r for r in rows if r["method"] == "hybrid" and r["k"] == 10), None)
+    bm = next((r for r in rows if r["method"] == "bm25" and r["k"] == 10), None)
+    headline = ("no evaluable users" if not hy else
+                f"hybrid recall@10 {hy['recall_at_k']:.3f} vs BM25 {bm['recall_at_k']:.3f}")
+    return {"headline": headline, "rows": rows}
+
+
+def compute_ranking(df, host: str, port: int):
+    from ranking_eval_report import (SIGNALS, _dot, evaluate_signal,
+                                     fetch_embeddings, fetch_popularity)
+    pop = fetch_popularity(host, port)
+    uemb, iemb = fetch_embeddings(host, port)
+    if not pop and not iemb:
+        return None
+
+    items = df["item_id"].astype(str).tolist()
+    users = df["user_id"].astype(str).tolist() if "user_id" in df.columns else [None] * len(items)
+    positions = df["position"].tolist() if "position" in df.columns else [0] * len(items)
+    labels_all = (df["label"] >= 1).astype(int).tolist()
+
+    signal_scores = {
+        "popularity": [(float(pop.get(it, 0.0)), True) for it in items],
+        "position": [(-float(p), True) for p in positions],
+        "embedding": [((_dot(uemb.get(u), iemb.get(it)), _dot(uemb.get(u), iemb.get(it)) is not None))
+                      for u, it in zip(users, items)],
+    }
+    rows, total = [], len(labels_all)
+    for name in SIGNALS:
+        sl = [(s, labels_all[i]) for i, (s, ok) in enumerate(signal_scores[name]) if ok and s is not None]
+        coverage = round(len(sl) / total, 4) if total else 0.0
+        if not sl:
+            rows.append({"signal": name, "n": 0, "positives": 0, "coverage": coverage,
+                         "auc": None, "logloss": None})
+            continue
+        m = evaluate_signal([s for s, _ in sl], [y for _, y in sl])
+        rows.append({"signal": name, "coverage": coverage, **m})
+    best = max((r for r in rows if r["auc"] is not None), key=lambda r: r["auc"], default=None)
+    headline = ("no scorable signal" if best is None else
+                f"best signal '{best['signal']}' AUC {best['auc']:.3f}")
+    return {"headline": headline, "rows": rows}
