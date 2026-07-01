@@ -39,11 +39,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -70,13 +66,6 @@ public class HybridRecommendationService {
     private static final List<String> SUPPORTED_ALGORITHMS = List.of("ucb", "thompson", "q-learning", "sarsa");
     private static final int RECENT_HISTORY_SIZE = 50;
     private static final double WARM_PRIOR_STRENGTH = RecommendationConstants.WARM_PRIOR_STRENGTH;
-    private static final ThreadLocal<MessageDigest> SHA256_DIGEST = ThreadLocal.withInitial(() -> {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
-    });
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
@@ -1153,15 +1142,13 @@ public class HybridRecommendationService {
         return currentAlgorithm() + ":q:" + stateKey;
     }
 
+    // Q-table identity keys on the coarse genre/tag signature only (see TabularStateKey);
+    // raw recent item-IDs stay in the state payload for nextActionSpace but are excluded here.
     private String stateKey(Object state) {
-        try {
-            String canonical = objectMapper.writeValueAsString(state);
-            byte[] hash = SHA256_DIGEST.get().digest(canonical.getBytes(StandardCharsets.UTF_8));
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to build Q-learning state key; falling back to hashCode", e);
-            return Integer.toHexString(String.valueOf(state).hashCode());
+        if (state instanceof Map<?, ?> map) {
+            return TabularStateKey.hash(map.get("genres"), map.get("tags"));
         }
+        return TabularStateKey.hash(null, null);
     }
 
     private double resolveCatalogCoverage() {
@@ -1192,6 +1179,10 @@ public class HybridRecommendationService {
         double posteriorBeta = priorBeta + failures;
         double posteriorMean = clamp(posteriorAlpha / (posteriorAlpha + posteriorBeta));
 
+        // Thompson: the ranking score IS the posterior sample drawn below, not
+        // posteriorMean + bonus. The explorationMagnitude (|sample - mean|) is a
+        // reported diagnostic only. The additive "mean + explorationBonus" form is
+        // literal for UCB (below), not for Thompson.
         if ("thompson".equals(algorithm)) {
             double sampledPosterior = clamp(sampleBeta(posteriorAlpha, posteriorBeta));
             double explorationMagnitude = Math.min(
