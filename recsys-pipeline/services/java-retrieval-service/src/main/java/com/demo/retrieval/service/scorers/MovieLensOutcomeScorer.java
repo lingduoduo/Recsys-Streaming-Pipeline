@@ -10,15 +10,35 @@ public class MovieLensOutcomeScorer {
     private static final double DIVERSITY_DECAY = 0.72;
     private static final double DIVERSITY_FLOOR = 0.55;
 
+    // Exploitation blend applied to the ranking score in score() (weights sum to 1.0).
+    static final double EXPLOITATION_BANDIT_WEIGHT = 0.55;
+    static final double EXPLOITATION_OUTCOME_WEIGHT = 0.25;
+    static final double EXPLOITATION_DL_WEIGHT = 0.15;
+    static final double EXPLOITATION_Q_WEIGHT = 0.05;
+
+    // Estimated-reward blend in score() (weights sum to 1.0).
+    static final double ESTIMATED_REWARD_POSTERIOR_WEIGHT = 0.65;
+    static final double ESTIMATED_REWARD_OUTCOME_WEIGHT = 0.35;
+
+    // Weighted-outcome blend in weightedOutcome(): positive weights sum to 1.0;
+    // negative feedback is a subtractive penalty, not part of the convex sum.
+    static final double OUTCOME_POSITIVE_RATING_WEIGHT = 0.30;
+    static final double OUTCOME_PREFERENCE_WEIGHT = 0.22;
+    static final double OUTCOME_CLICK_WEIGHT = 0.18;
+    static final double OUTCOME_WATCH_WEIGHT = 0.22;
+    static final double OUTCOME_NOVEL_DISCOVERY_WEIGHT = 0.08;
+    static final double OUTCOME_NEGATIVE_FEEDBACK_PENALTY = 0.35;
+
     public ScoringResult score(ScoringInput input) {
         MovieLensOutcomeProbabilities probabilities = movieLensOutcomeProbabilities(input);
         double weightedOutcome = weightedOutcome(probabilities);
-        double exploitation = 0.55 * input.banditRankingScore()
-            + 0.25 * weightedOutcome
-            + 0.15 * clamp(input.dlScore())
-            + 0.05 * clamp(input.qValue());
+        double exploitation = EXPLOITATION_BANDIT_WEIGHT * input.banditRankingScore()
+            + EXPLOITATION_OUTCOME_WEIGHT * weightedOutcome
+            + EXPLOITATION_DL_WEIGHT * clamp(input.dlScore())
+            + EXPLOITATION_Q_WEIGHT * clamp(input.qValue());
         double predictionScore = clamp(exploitation + input.explorationBonus());
-        double estimatedReward = clamp(0.65 * input.posteriorMean() + 0.35 * weightedOutcome);
+        double estimatedReward = clamp(ESTIMATED_REWARD_POSTERIOR_WEIGHT * input.posteriorMean()
+            + ESTIMATED_REWARD_OUTCOME_WEIGHT * weightedOutcome);
         return new ScoringResult(
             estimatedReward,
             weightedOutcome,
@@ -85,12 +105,12 @@ public class MovieLensOutcomeScorer {
     }
 
     private double weightedOutcome(MovieLensOutcomeProbabilities p) {
-        double positive = 0.30 * p.positiveRating()
-            + 0.22 * p.preference()
-            + 0.18 * p.click()
-            + 0.22 * p.watch()
-            + 0.08 * p.novelDiscovery();
-        return clamp(positive - 0.35 * p.negativeFeedback());
+        double positive = OUTCOME_POSITIVE_RATING_WEIGHT * p.positiveRating()
+            + OUTCOME_PREFERENCE_WEIGHT * p.preference()
+            + OUTCOME_CLICK_WEIGHT * p.click()
+            + OUTCOME_WATCH_WEIGHT * p.watch()
+            + OUTCOME_NOVEL_DISCOVERY_WEIGHT * p.novelDiscovery();
+        return clamp(positive - OUTCOME_NEGATIVE_FEEDBACK_PENALTY * p.negativeFeedback());
     }
 
     private String diversityKey(DiversityCandidate candidate) {

@@ -115,7 +115,7 @@ Java Retrieval Service (Spring Boot :8080)
     │
     ├── HybridRecommendationService    embedding cosine + content overlap + popularity + bandit
     ├── OnlineLearningService          Redis reward stats · UCB / Thompson / Q-learning / SARSA
-    ├── DeepLearningPredictionService  mlp_embedding_model.onnx (classpath; blend weight 0.0 by default)
+    ├── DeepLearningPredictionService  mlp_embedding_model.onnx (classpath; blend weight 0.15 by default)
     └── TwoTowerPredictionService      movielens_*_tower.onnx (opt-in: set ONNX_*_TOWER_PATH)
 
 Offline modeling (Spark — manually triggered)          writes embeddings → Redis (read by the serving path above)
