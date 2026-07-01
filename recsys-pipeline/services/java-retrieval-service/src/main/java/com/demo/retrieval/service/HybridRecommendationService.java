@@ -209,9 +209,10 @@ public class HybridRecommendationService {
         if (twoTowerPredictionService.isEnabled()) {
             Map<String, Double> twoTowerScores = twoTowerPredictionService.predictBatch(user, eligibleList);
             if (!twoTowerScores.isEmpty()) {
-                Map<String, Double> merged = new HashMap<>(dlScoresRaw);
+                Map<String, Double> merged = new HashMap<>();
+                dlScoresRaw.forEach((item, score) -> merged.put(item, RecommendationConstants.clamp(score)));
                 twoTowerScores.forEach((item, score) ->
-                    merged.merge(item, score, Math::max));
+                    merged.merge(item, RecommendationConstants.clamp(score), Math::max));
                 dlScoresRaw = Map.copyOf(merged);
             }
         }
@@ -1308,9 +1309,6 @@ public class HybridRecommendationService {
         }
     }
 
-    private long readCount(Long value) {
-        return value == null ? 0L : Math.max(0L, value);
-    }
 
     private double readDouble(Object raw) {
         if (raw == null) {
