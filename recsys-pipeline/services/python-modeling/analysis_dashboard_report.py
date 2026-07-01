@@ -56,3 +56,50 @@ def compute_relevance(df) -> dict:
         "funnel": {"impression": n, "click": clicks, "order": orders},
         "by_query": by_query, "by_genre": by_genre,
     }
+
+
+def compute_keyword(df) -> dict:
+    import movie_categories as mc
+    import pandas as pd
+
+    d = df.assign(keyword=df["genres"].apply(mc.primary_genre),
+                  subkeyword=df["genres"].apply(mc.secondary_genre))
+
+    def dist(col):
+        movie = d.groupby(col).size().rename("movie_impressions")
+        query = d[d["clicked"] == 1].groupby(col).size().rename("query_clicks")
+        out = pd.concat([movie, query], axis=1).fillna(0).reset_index()
+        out[["movie_impressions", "query_clicks"]] = out[["movie_impressions", "query_clicks"]].astype(int)
+        tot_m = out["movie_impressions"].sum() or 1
+        tot_q = out["query_clicks"].sum() or 1
+        out["movie_share"] = (out["movie_impressions"] / tot_m).round(4)
+        out["query_share"] = (out["query_clicks"] / tot_q).round(4)
+        out["divergence"] = (out["query_share"] - out["movie_share"]).round(4)
+        return out.sort_values("movie_impressions", ascending=False)
+
+    by_keyword = dist("keyword")
+    by_subkeyword = dist("subkeyword")
+
+    year = df["release_year"] if "release_year" in df.columns else [None] * len(df)
+    lv = df.assign(
+        l1=df["genres"].apply(mc.l1),
+        l2=df["genres"].apply(mc.l2),
+        l3=[mc.l3(g, y) for g, y in zip(df["genres"], year)],
+    )
+
+    def top_keywords(level):
+        ex = lv[[level, "genres", "clicked"]].explode("genres").dropna(subset=["genres"])
+        g = (ex.groupby([level, "genres"])
+               .agg(movie_impressions=("clicked", "size"), query_clicks=("clicked", "sum"))
+               .reset_index().rename(columns={"genres": "keyword"}))
+        g["rank"] = (g.groupby(level)["movie_impressions"]
+                       .rank(method="first", ascending=False).astype(int))
+        return g[g["rank"] <= 10].sort_values([level, "rank"])
+
+    tops = {lvl: top_keywords(lvl) for lvl in ("l1", "l2", "l3")}
+    top_div = by_keyword.reindex(by_keyword["divergence"].abs().sort_values(ascending=False).index)
+    lead = top_div.iloc[0] if len(top_div) else None
+    headline = ("no keywords" if lead is None else
+                f"'{lead['keyword']}' diverges most: shown {lead['movie_share']:.0%} vs clicked {lead['query_share']:.0%}")
+    return {"headline": headline, "by_keyword": by_keyword,
+            "by_subkeyword": by_subkeyword, "tops": tops}
