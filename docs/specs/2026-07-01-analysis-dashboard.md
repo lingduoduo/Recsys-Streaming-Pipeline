@@ -19,8 +19,13 @@ change the five existing report scripts, and it accepts that its metric logic du
 - **Data layer:** plain `python` — pandas + pyarrow read the Parquet, `redis-py` reads Redis. **Not**
   PySpark: sim `training_samples` is small, and requiring `SPARK_HOME` to view a report would kill
   its use. Matches the existing `recall_eval_report.py` / `ranking_eval_report.py` idiom.
-- **Standalone recompute:** the script re-reads Parquet + Redis and recomputes all five reports'
-  metrics itself. No import of the five scripts; duplication is accepted.
+- **Recompute, reusing pure functions where they exist:** the script re-reads Parquet + Redis and
+  recomputes the metrics. Keyword/query/relevance are reimplemented in pandas (their originals are
+  PySpark and not importable without a Spark session). Recall/ranking **import** the already-pure,
+  module-level functions from `recall_eval_report.py` / `ranking_eval_report.py` (`evaluate`,
+  `fetch_corpus_and_vecs`, `evaluate_signal`, `fetch_popularity`, `fetch_embeddings`, `SIGNALS`) so
+  numbers match by construction and BM25/AUC/logloss are not duplicated. Importing does **not**
+  modify those files. Genres come via the existing `genre_meta.fetch_movie_meta` helper.
 - **Manual invocation:** run by hand, same as the five reports. Not auto-wired into the sim
   harnesses.
 
@@ -56,8 +61,8 @@ load_samples(input)          -> DataFrame     # parquet part-*.parquet glob → 
 compute_relevance(df)        -> dict          # funnel counts, CTR/CVR, mean score by query & genre
 compute_keyword(df)          -> dict          # movies-vs-queries distribution, top keywords l1/l2/l3
 compute_query(df)            -> dict          # top queries, short (<=10) vs long (>10) engagement
-compute_recall(df, redis)    -> dict | None   # BM25 / embedding / hybrid (RRF) recall@k, hitrate@k
-compute_ranking(df, redis)   -> dict | None   # logloss + ROC-AUC per signal (popularity/position/emb)
+compute_recall(df)           -> dict | None   # wraps recall_eval_report.evaluate + fetch_corpus_and_vecs
+compute_ranking(df)          -> dict | None   # wraps ranking_eval_report.evaluate_signal + fetchers
 
 svg_bar(series) / svg_line(series) / html_table(df)       # pure renderers, inline SVG + HTML
 section(title, headline, body)                             # one card
