@@ -17,7 +17,6 @@ class MovieLensOutcomeScorerTest {
         ScoringResult strong = scorer.score(input(0.9, 0.9, 0.8, 100, 40, 0.8));
 
         assertTrue(strong.weightedOutcomeScore() > weak.weightedOutcomeScore());
-        assertTrue(strong.outcomeProbability() > weak.outcomeProbability());
         assertTrue(strong.finalScore() > weak.finalScore());
     }
 
@@ -28,7 +27,6 @@ class MovieLensOutcomeScorerTest {
 
         assertTrue(outcomes.positiveRating() > outcomes.negativeFeedback());
         assertTrue(outcomes.watch() > outcomes.click());
-        assertTrue(outcomes.overall() > 0.0);
     }
 
     @Test

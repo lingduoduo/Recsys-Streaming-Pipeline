@@ -267,7 +267,6 @@ public class HybridRecommendationService {
                 row.put("dlScore", round(candidate.dlScore()));
                 row.put("qValue", round(candidate.qValue()));
                 row.put("rewardModelScore", round(candidate.onlineScore()));
-                row.put("outcomeProbability", round(candidate.outcomeProbability()));
                 row.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
                 row.put("predictionScore", round(candidate.predictionScore()));
                 row.put("diversityScore", round(candidate.diversityScore()));
@@ -480,7 +479,6 @@ public class HybridRecommendationService {
             dlScore,
             qValue == null ? 0.0 : qValue,
             scoring.weightedOutcomeScore(),
-            scoring.outcomeProbability(),
             scoring.predictionScore(),
             scoring.diversityScore(),
             diversityGroupId,
@@ -560,7 +558,6 @@ public class HybridRecommendationService {
         predictions.put("qValue", round(candidate.qValue()));
         predictions.put("rewardModelScore", round(candidate.onlineScore()));
         predictions.put("estimatedReward", round(candidate.estimatedReward()));
-        predictions.put("outcomeProbability", round(candidate.outcomeProbability()));
         predictions.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
         predictions.put("predictionScore", round(candidate.predictionScore()));
         predictions.put("diversityScore", round(candidate.diversityScore()));
@@ -1092,7 +1089,6 @@ public class HybridRecommendationService {
         double dlScore,
         double qValue,
         double weightedOutcomeScore,
-        double outcomeProbability,
         double predictionScore,
         double diversityScore,
         String diversityGroupId,
@@ -1126,7 +1122,6 @@ public class HybridRecommendationService {
                 dlScore,
                 qValue,
                 weightedOutcomeScore,
-                outcomeProbability,
                 predictionScore,
                 diversityScore,
                 diversityGroupId,

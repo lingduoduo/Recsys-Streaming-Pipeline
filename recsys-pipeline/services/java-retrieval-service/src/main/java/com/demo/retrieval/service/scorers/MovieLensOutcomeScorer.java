@@ -9,6 +9,7 @@ import java.util.Map;
 public class MovieLensOutcomeScorer {
     private static final double DIVERSITY_DECAY = 0.72;
     private static final double DIVERSITY_FLOOR = 0.55;
+    private static final double NO_DIVERSITY_MULTIPLIER = 1.0;
 
     // Exploitation blend applied to the ranking score in score() (weights sum to 1.0).
     static final double EXPLOITATION_BANDIT_WEIGHT = 0.55;
@@ -42,9 +43,8 @@ public class MovieLensOutcomeScorer {
         return new ScoringResult(
             estimatedReward,
             weightedOutcome,
-            probabilities.overall(),
             predictionScore,
-            1.0,
+            NO_DIVERSITY_MULTIPLIER,
             predictionScore
         );
     }
@@ -164,16 +164,11 @@ public class MovieLensOutcomeScorer {
         double novelDiscovery,
         double negativeFeedback
     ) {
-        public double overall() {
-            return clamp((positiveRating + preference + click + watch + novelDiscovery) / 5.0
-                - 0.25 * negativeFeedback);
-        }
     }
 
     public record ScoringResult(
         double estimatedReward,
         double weightedOutcomeScore,
-        double outcomeProbability,
         double predictionScore,
         double diversityScore,
         double finalScore
