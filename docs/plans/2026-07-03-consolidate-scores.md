@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Spec: [docs/specs/2026-07-02-consolidate-scores.md](../specs/2026-07-02-consolidate-scores.md).
+- Spec: [docs/specs/2026-07-03-consolidate-scores.md](../specs/2026-07-03-consolidate-scores.md).
 - Ranking output unchanged: `predictionScore` and `finalScore` are identical for the same inputs (they use `weightedOutcome`, never `outcomeProbability`).
 - Module dir for `mvn`: `recsys-pipeline/services/java-retrieval-service`. Path prefix: `src/{main,test}/java/com/demo/retrieval`.
 - Base a new branch on `master`; PR targets `master`.
@@ -172,7 +172,7 @@ git commit -m "refactor(scoring): drop redundant outcomeProbability blend; name 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git checkout -b refactor/consolidate-scores
-git add docs/specs/2026-07-02-consolidate-scores.md docs/plans/2026-07-02-consolidate-scores.md
+git add docs/specs/2026-07-03-consolidate-scores.md docs/plans/2026-07-03-consolidate-scores.md
 git commit -m "docs(scoring): spec + plan for ranking-score consolidation"
 ```
 
@@ -186,7 +186,7 @@ Expected: `BUILD SUCCESS`, 0 failures.
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git push -u origin refactor/consolidate-scores
-gh pr create --base master --title "Consolidate ranking scores: remove redundant outcomeProbability blend" --body "See docs/specs/2026-07-02-consolidate-scores.md. Removes the outcomeProbability (overall()) blend — a redundant sibling of weightedOutcome that was computed and surfaced but never ranked — from the scorer, ScoredCandidate, and the response. Names the 1.0 diversity default. Ranking-preserving (predictionScore/finalScore use weightedOutcome); the outcomeProbability response field is removed. mvn test green.
+gh pr create --base master --title "Consolidate ranking scores: remove redundant outcomeProbability blend" --body "See docs/specs/2026-07-03-consolidate-scores.md. Removes the outcomeProbability (overall()) blend — a redundant sibling of weightedOutcome that was computed and surfaced but never ranked — from the scorer, ScoredCandidate, and the response. Names the 1.0 diversity default. Ranking-preserving (predictionScore/finalScore use weightedOutcome); the outcomeProbability response field is removed. mvn test green.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
