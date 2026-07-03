@@ -1,4 +1,4 @@
-package com.demo.retrieval.service.candidate_pipeline;
+package com.demo.retrieval.service.filters;
 
 import java.util.Set;
 

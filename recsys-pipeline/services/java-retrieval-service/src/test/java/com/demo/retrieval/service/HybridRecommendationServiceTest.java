@@ -65,7 +65,6 @@ class HybridRecommendationServiceTest {
         });
 
         RecommendationProperties properties = new RecommendationProperties();
-        properties.getCandidateGeneration().setTopNRandomizationPool(1);
         properties.getCandidateGeneration().setColdStartPoolSize(1);
         Map<String, MovieProfile> catalog = new LinkedHashMap<>();
         catalog.put("watched", movie("drama"));
