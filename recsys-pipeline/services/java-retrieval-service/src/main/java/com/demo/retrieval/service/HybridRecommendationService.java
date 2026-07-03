@@ -1209,15 +1209,6 @@ public class HybridRecommendationService {
             + (overlapRatio(userTags, profile.tags()) * RecommendationConstants.CONTENT_TAG_WEIGHT));
     }
 
-    private double contentScore(MovieProfile profile, Set<String> userGenres, Set<String> userTags) {
-        Set<String> genres = normalize(profile.getGenres());
-        Set<String> tags = normalize(profile.getTags());
-        double genreOverlap = overlapRatio(userGenres, genres);
-        double tagOverlap = overlapRatio(userTags, tags);
-        return clamp((genreOverlap * RecommendationConstants.CONTENT_GENRE_WEIGHT)
-            + (tagOverlap * RecommendationConstants.CONTENT_TAG_WEIGHT));
-    }
-
     private Set<String> normalize(List<String> values) {
         return values == null ? Set.of() : values.stream()
             .map(this::normalizeValue)
