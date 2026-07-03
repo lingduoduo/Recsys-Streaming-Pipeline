@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 import java.util.List;
@@ -17,6 +18,8 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -75,7 +78,12 @@ class MovieLensServingSideEffectsTest {
         verify(hashOps).putAll(eq("recommendation:request:req-1"), any(Map.class));
         verify(hashOps).increment(MovieLensServingSideEffects.METRICS_HASH_KEY, "requests", 1L);
         verify(hashOps).increment(MovieLensServingSideEffects.metricsHashKey("ucb"), "recommendations_served", 1L);
-        verify(valueOps).set(eq(MovieLensServingSideEffects.pendingReplayKey("u1", "m1")), org.mockito.ArgumentMatchers.contains("\"action\":\"m1\""), eq(Duration.ofHours(1)));
+        ArgumentCaptor<String> pendingPayload = ArgumentCaptor.forClass(String.class);
+        verify(valueOps).set(eq(MovieLensServingSideEffects.pendingReplayKey("u1", "m1")), pendingPayload.capture(), eq(Duration.ofHours(1)));
+        String payload = pendingPayload.getValue();
+        assertTrue(payload.contains("\"action\":\"m1\""));
+        assertTrue(payload.contains("\"state\""));
+        assertFalse(payload.contains("\"context\""), "context is a removed duplicate of state");
     }
 
     @Test

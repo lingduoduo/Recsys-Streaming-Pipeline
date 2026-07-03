@@ -16,6 +16,7 @@ import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
 import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
 import com.demo.retrieval.service.retrieval.MovieCandidate;
+import com.demo.retrieval.service.replay.ReplayEvent;
 import com.demo.retrieval.service.retrieval.RetrievalOutcome;
 import com.demo.retrieval.service.text.TextNormalization;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
@@ -491,14 +492,8 @@ public class HybridRecommendationService {
 
     // Must run before the write pipeline: reads cannot be issued inside executePipelined.
     private String buildReplayPayload(FeedbackRequest request, Map<String, Object> event) {
-        event.putIfAbsent("type", "rl_experience");
-        event.putIfAbsent("schemaVersion", 1);
-        event.putIfAbsent("user", request.user());
-        event.putIfAbsent("action", request.item());
-        event.put("clicked", request.clicked());
-        event.put("reward", request.reward());
-        event.put("feedbackTimestamp", System.currentTimeMillis());
-        event.put("nextState", buildCurrentState(request.user()));
+        ReplayEvent.applyFeedback(event, request.user(), request.item(), request.clicked(),
+            request.reward(), System.currentTimeMillis(), buildCurrentState(request.user()));
         try {
             return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {

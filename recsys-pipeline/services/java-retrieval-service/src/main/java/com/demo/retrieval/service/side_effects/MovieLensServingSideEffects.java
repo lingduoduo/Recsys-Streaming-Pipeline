@@ -9,6 +9,8 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import com.demo.retrieval.service.replay.ReplayEvent;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -111,29 +113,28 @@ public class MovieLensServingSideEffects {
         long timestamp
     ) {
         Map<String, Object> event = new LinkedHashMap<>();
-        event.put("type", "rl_experience");
-        event.put("schemaVersion", 1);
-        event.put("requestId", request.requestId());
-        event.put("user", request.userId());
-        event.put("state", request.state());
-        event.put("context", request.state());
-        event.put("actionSpace", request.candidateSnapshot().stream().map(this::candidateFeatures).toList());
-        event.put("candidates", request.candidateSnapshot().stream().map(ServedMovie::movieId).toList());
-        event.put("action", selected.movieId());
-        event.put("actionPosition", actionPosition);
-        event.put("slateSize", slateSize);
-        event.put("policy", Map.of(
+        event.put(ReplayEvent.TYPE, ReplayEvent.EVENT_TYPE);
+        event.put(ReplayEvent.SCHEMA_VERSION, ReplayEvent.SCHEMA_VERSION_VALUE);
+        event.put(ReplayEvent.REQUEST_ID, request.requestId());
+        event.put(ReplayEvent.USER, request.userId());
+        event.put(ReplayEvent.STATE, request.state());
+        event.put(ReplayEvent.ACTION_SPACE, request.candidateSnapshot().stream().map(this::candidateFeatures).toList());
+        event.put(ReplayEvent.CANDIDATES, request.candidateSnapshot().stream().map(ServedMovie::movieId).toList());
+        event.put(ReplayEvent.ACTION, selected.movieId());
+        event.put(ReplayEvent.ACTION_POSITION, actionPosition);
+        event.put(ReplayEvent.SLATE_SIZE, slateSize);
+        event.put(ReplayEvent.POLICY, Map.of(
             "name", request.algorithm(),
             "rankingScore", selected.banditScore(),
             "explorationBonus", selected.explorationBonus(),
             "propensity", slateSize <= 0 ? 0.0 : 1.0 / slateSize
         ));
-        event.put("modelPredictions", selected.modelPredictions());
-        event.put("estimatedReward", selected.estimatedReward());
-        event.put("onlineScore", selected.onlineScore());
-        event.put("banditScore", selected.banditScore());
-        event.put("coldStart", selected.coldStart());
-        event.put("timestamp", timestamp);
+        event.put(ReplayEvent.MODEL_PREDICTIONS, selected.modelPredictions());
+        event.put(ReplayEvent.ESTIMATED_REWARD, selected.estimatedReward());
+        event.put(ReplayEvent.ONLINE_SCORE, selected.onlineScore());
+        event.put(ReplayEvent.BANDIT_SCORE, selected.banditScore());
+        event.put(ReplayEvent.COLD_START, selected.coldStart());
+        event.put(ReplayEvent.TIMESTAMP, timestamp);
         try {
             return Optional.of(objectMapper.writeValueAsString(event));
         } catch (JsonProcessingException e) {
