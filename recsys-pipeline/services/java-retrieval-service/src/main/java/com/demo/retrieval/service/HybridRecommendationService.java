@@ -188,8 +188,11 @@ public class HybridRecommendationService {
         Map<String, Double> qValues = tabularRl
             ? batchFetchQValues(stateKey, eligibleList)
             : Map.of();
-        Map<String, Double> dlScoresRaw = predictionService.predictBatch(user, eligibleList);
-        if (twoTowerPredictionService.isEnabled()) {
+        boolean deepLearningEnabled = properties.getBandit().getDeepLearningWeight() > 0.0;
+        Map<String, Double> dlScoresRaw = deepLearningEnabled
+            ? predictionService.predictBatch(user, eligibleList)
+            : Map.of();
+        if (deepLearningEnabled && twoTowerPredictionService.isEnabled()) {
             Map<String, Double> twoTowerScores = twoTowerPredictionService.predictBatch(user, eligibleList);
             if (!twoTowerScores.isEmpty()) {
                 Map<String, Double> merged = new HashMap<>();
