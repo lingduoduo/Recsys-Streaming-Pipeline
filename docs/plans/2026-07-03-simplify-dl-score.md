@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Spec: [docs/specs/2026-07-02-simplify-dl-score.md](../specs/2026-07-02-simplify-dl-score.md).
+- Spec: [docs/specs/2026-07-03-simplify-dl-score.md](../specs/2026-07-03-simplify-dl-score.md).
 - No ranking change; the end-to-end tests are the oracle.
 - Module dir for `mvn`: `recsys-pipeline/services/java-retrieval-service`. Path prefix: `src/{main,test}/java/com/demo/retrieval`.
 - Base a new branch on `master`; PR targets `master`.
@@ -159,7 +159,7 @@ git commit -m "perf(dl): skip ONNX inference when deep-learning-weight is 0"
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git checkout -b refactor/simplify-dl-score
-git add docs/specs/2026-07-02-simplify-dl-score.md docs/plans/2026-07-02-simplify-dl-score.md
+git add docs/specs/2026-07-03-simplify-dl-score.md docs/plans/2026-07-03-simplify-dl-score.md
 git commit -m "docs(dl): spec + plan for DL-score simplification"
 ```
 
@@ -173,7 +173,7 @@ Expected: `BUILD SUCCESS`, 0 failures.
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git push -u origin refactor/simplify-dl-score
-gh pr create --base master --title "Simplify DL MLP score: unify ONNX decoder + skip inference when disabled" --body "See docs/specs/2026-07-02-simplify-dl-score.md. D1: readScore delegates to normalizeBatchScores (one ONNX decoder). D2: skip predictBatch + two-tower fusion when deep-learning-weight is 0 (the default) so the model does not run for a 0-weighted result. Ranking unchanged; disabled-path diagnostic deepLearningScore reads 0.0. mvn test green.
+gh pr create --base master --title "Simplify DL MLP score: unify ONNX decoder + skip inference when disabled" --body "See docs/specs/2026-07-03-simplify-dl-score.md. D1: readScore delegates to normalizeBatchScores (one ONNX decoder). D2: skip predictBatch + two-tower fusion when deep-learning-weight is 0 (the default) so the model does not run for a 0-weighted result. Ranking unchanged; disabled-path diagnostic deepLearningScore reads 0.0. mvn test green.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```

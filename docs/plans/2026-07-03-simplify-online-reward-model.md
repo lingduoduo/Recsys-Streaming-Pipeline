@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Spec: [docs/specs/2026-07-02-simplify-online-reward-model.md](../specs/2026-07-02-simplify-online-reward-model.md).
+- Spec: [docs/specs/2026-07-03-simplify-online-reward-model.md](../specs/2026-07-03-simplify-online-reward-model.md).
 - Behavior-preserving: `score()` output byte-identical; `reward-model:*` keys and `normalize` untouched (cross-language contract with the Python pipeline).
 - Module dir for `mvn`: `recsys-pipeline/services/java-retrieval-service`. Path prefix: `src/{main,test}/java/com/demo/retrieval`.
 - Base a new branch on `master`; PR targets `master`.
@@ -284,7 +284,7 @@ git commit -m "test(online): pin confidence-weighted reward blend + fallback"
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git checkout -b refactor/simplify-online-reward-model
-git add docs/specs/2026-07-02-simplify-online-reward-model.md docs/plans/2026-07-02-simplify-online-reward-model.md
+git add docs/specs/2026-07-03-simplify-online-reward-model.md docs/plans/2026-07-03-simplify-online-reward-model.md
 git commit -m "docs(online): spec + plan for reward-model simplification"
 ```
 
@@ -298,7 +298,7 @@ Expected: `BUILD SUCCESS`, 0 failures.
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git push -u origin refactor/simplify-online-reward-model
-gh pr create --base master --title "Simplify OnlineLearningService: fold reward blend, share helpers, add test" --body "See docs/specs/2026-07-02-simplify-online-reward-model.md. Folds score()'s four identical blend blocks into one loop, extracts a shared parseStats helper (batchWarm + readRewardEstimate), reuses RecommendationConstants.clamp, and adds the missing OnlineLearningServiceTest. Behavior-preserving; reward-model:* keys and normalization untouched. mvn test green."
+gh pr create --base master --title "Simplify OnlineLearningService: fold reward blend, share helpers, add test" --body "See docs/specs/2026-07-03-simplify-online-reward-model.md. Folds score()'s four identical blend blocks into one loop, extracts a shared parseStats helper (batchWarm + readRewardEstimate), reuses RecommendationConstants.clamp, and adds the missing OnlineLearningServiceTest. Behavior-preserving; reward-model:* keys and normalization untouched. mvn test green."
 ```
 
 ---

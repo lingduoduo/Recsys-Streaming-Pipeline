@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Spec: [docs/specs/2026-07-02-simplify-bandit-exploration.md](../specs/2026-07-02-simplify-bandit-exploration.md).
+- Spec: [docs/specs/2026-07-03-simplify-bandit-exploration.md](../specs/2026-07-03-simplify-bandit-exploration.md).
 - Behavior-preserving: UCB/Thompson output identical for the same inputs.
 - Module dir for `mvn`: `recsys-pipeline/services/java-retrieval-service`. Path prefix: `src/{main,test}/java/com/demo/retrieval`.
 - Base a new branch on `master`; PR targets `master`.
@@ -248,7 +248,7 @@ git commit -m "test(bandit): pin UCB confidence bonus + cap and Thompson sample 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git checkout -b refactor/simplify-bandit-exploration
-git add docs/specs/2026-07-02-simplify-bandit-exploration.md docs/plans/2026-07-02-simplify-bandit-exploration.md
+git add docs/specs/2026-07-03-simplify-bandit-exploration.md docs/plans/2026-07-03-simplify-bandit-exploration.md
 git commit -m "docs(bandit): spec + plan for exploration tidy"
 ```
 
@@ -262,7 +262,7 @@ Expected: `BUILD SUCCESS`, 0 failures.
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git push -u origin refactor/simplify-bandit-exploration
-gh pr create --base master --title "Tidy UCB/Thompson bandit exploration + pin test" --body "See docs/specs/2026-07-02-simplify-bandit-exploration.md. Extracts ucbExplorationBonus + thompsonArmScore from computeBanditArmScore, de-dupes clamp(baseScore), and documents the cold-start double-boost near-cancellation (left in place). Adds BanditExplorationTest pinning UCB (uncapped + capped) and Thompson bounds. Behavior-preserving; oracle green. mvn test: 56 passing."
+gh pr create --base master --title "Tidy UCB/Thompson bandit exploration + pin test" --body "See docs/specs/2026-07-03-simplify-bandit-exploration.md. Extracts ucbExplorationBonus + thompsonArmScore from computeBanditArmScore, de-dupes clamp(baseScore), and documents the cold-start double-boost near-cancellation (left in place). Adds BanditExplorationTest pinning UCB (uncapped + capped) and Thompson bounds. Behavior-preserving; oracle green. mvn test: 56 passing."
 ```
 
 ---

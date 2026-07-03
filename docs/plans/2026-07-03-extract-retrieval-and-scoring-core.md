@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Spec: [docs/specs/2026-07-02-extract-retrieval-and-scoring-core.md](../specs/2026-07-02-extract-retrieval-and-scoring-core.md).
+- Spec: [docs/specs/2026-07-03-extract-retrieval-and-scoring-core.md](../specs/2026-07-03-extract-retrieval-and-scoring-core.md).
 - Behavior-preserving, incl. the scoring path; end-to-end tests are the oracle.
 - Base a new branch on `master` (PR #114 merged); PR targets `master`.
 - Module dir for `mvn`: `recsys-pipeline/services/java-retrieval-service`. Path prefix: `src/{main,test}/java/com/demo/retrieval`.
@@ -504,7 +504,7 @@ git checkout -b refactor/extract-retrieval-scoring-core
 Then commit the docs:
 
 ```bash
-git add docs/specs/2026-07-02-extract-retrieval-and-scoring-core.md docs/plans/2026-07-02-extract-retrieval-and-scoring-core.md
+git add docs/specs/2026-07-03-extract-retrieval-and-scoring-core.md docs/plans/2026-07-03-extract-retrieval-and-scoring-core.md
 git commit -m "docs(retrieval): spec + plan for retriever + shared scoring-core extraction"
 ```
 
@@ -518,7 +518,7 @@ Expected: `BUILD SUCCESS`, 51 tests, 0 failures.
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
 git push -u origin refactor/extract-retrieval-scoring-core
-gh pr create --base master --title "Extract ContentCandidateRetriever + shared CatalogContentScoring" --body "See docs/specs/2026-07-02-extract-retrieval-and-scoring-core.md. Completes the #114 deferral: extracts retrieval into ContentCandidateRetriever and the shared normalized-catalog + content-score core into CatalogContentScoring (used by both retriever and scorer), plus TextNormalization. Behavior-preserving incl. the scoring path (rewired scoreCandidate); end-to-end oracle green. Adds CatalogContentScoringTest + TextNormalizationTest. mvn test: 51 passing.
+gh pr create --base master --title "Extract ContentCandidateRetriever + shared CatalogContentScoring" --body "See docs/specs/2026-07-03-extract-retrieval-and-scoring-core.md. Completes the #114 deferral: extracts retrieval into ContentCandidateRetriever and the shared normalized-catalog + content-score core into CatalogContentScoring (used by both retriever and scorer), plus TextNormalization. Behavior-preserving incl. the scoring path (rewired scoreCandidate); end-to-end oracle green. Adds CatalogContentScoringTest + TextNormalizationTest. mvn test: 51 passing.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
