@@ -150,20 +150,7 @@ public class DeepLearningPredictionService {
     }
 
     private double readScore(OnnxValue value) throws OrtException {
-        Object raw = value.getValue();
-        if (raw instanceof float[][] scores && scores.length > 0 && scores[0].length > 0) {
-            return scores[0][0];
-        }
-        if (raw instanceof float[] scores && scores.length > 0) {
-            return scores[0];
-        }
-        if (raw instanceof double[][] scores && scores.length > 0 && scores[0].length > 0) {
-            return scores[0][0];
-        }
-        if (raw instanceof double[] scores && scores.length > 0) {
-            return scores[0];
-        }
-        throw new IllegalStateException("Unsupported prediction output shape: " + raw.getClass().getName());
+        return normalizeBatchScores(value.getValue(), 1)[0];
     }
 
     private double[] readBatchScores(OnnxValue value, int n) throws OrtException {
