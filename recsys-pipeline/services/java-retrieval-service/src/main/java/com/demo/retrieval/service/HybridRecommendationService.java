@@ -13,6 +13,7 @@ import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.filters.FilterContext;
+import com.demo.retrieval.service.text.TextNormalization;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
 import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
 import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
@@ -560,15 +561,15 @@ public class HybridRecommendationService {
         }
         Map<String, NormalizedProfile> built = new HashMap<>(catalog.size() * 4 / 3 + 1);
         catalog.forEach((id, p) -> {
-            Set<String> normalizedTags = normalize(p.getTags());
+            Set<String> normalizedTags = TextNormalization.normalize(p.getTags());
             Set<String> allKeywords = new HashSet<>(normalizedTags);
-            allKeywords.addAll(normalize(p.getKeywords()));
+            allKeywords.addAll(TextNormalization.normalize(p.getKeywords()));
             built.put(id, new NormalizedProfile(
-                normalizeValue(p.getProductType()),
-                normalize(p.getGenres()),
+                TextNormalization.normalizeValue(p.getProductType()),
+                TextNormalization.normalize(p.getGenres()),
                 Collections.unmodifiableSet(normalizedTags),
                 Collections.unmodifiableSet(allKeywords),
-                normalizeValue(p.getTitle()),
+                TextNormalization.normalizeValue(p.getTitle()),
                 p.isNewRelease(),
                 p.getExpiresAtEpochMillis()
             ));
@@ -590,9 +591,9 @@ public class HybridRecommendationService {
             return FilterContext.empty();
         }
         return new FilterContext(
-            normalize(f.getMutedProductTypes()),
-            normalize(f.getMutedGenres()),
-            normalize(f.getMutedKeywords())
+            TextNormalization.normalize(f.getMutedProductTypes()),
+            TextNormalization.normalize(f.getMutedGenres()),
+            TextNormalization.normalize(f.getMutedKeywords())
         );
     }
 
@@ -755,13 +756,13 @@ public class HybridRecommendationService {
         Set<String> genres = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
-            .flatMap(p -> normalize(p.getGenres()).stream())
+            .flatMap(p -> TextNormalization.normalize(p.getGenres()).stream())
             .collect(Collectors.toCollection(LinkedHashSet::new));
-        genres.addAll(normalize(features.favoriteGenres()));
+        genres.addAll(TextNormalization.normalize(features.favoriteGenres()));
         Set<String> tags = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
-            .flatMap(p -> normalize(p.getTags()).stream())
+            .flatMap(p -> TextNormalization.normalize(p.getTags()).stream())
             .collect(Collectors.toCollection(LinkedHashSet::new));
         return new TasteProfile(genres, tags);
     }
@@ -1209,13 +1210,6 @@ public class HybridRecommendationService {
             + (overlapRatio(userTags, profile.tags()) * RecommendationConstants.CONTENT_TAG_WEIGHT));
     }
 
-    private Set<String> normalize(List<String> values) {
-        return values == null ? Set.of() : values.stream()
-            .map(this::normalizeValue)
-            .filter(value -> !value.isBlank())
-            .collect(Collectors.toSet());
-    }
-
     @SafeVarargs
     private final <T> List<T> firstNonEmpty(List<T>... candidates) {
         for (List<T> candidate : candidates) {
@@ -1224,10 +1218,6 @@ public class HybridRecommendationService {
             }
         }
         return List.of();
-    }
-
-    private String normalizeValue(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
 
     private double overlapRatio(Set<String> left, Set<String> right) {
