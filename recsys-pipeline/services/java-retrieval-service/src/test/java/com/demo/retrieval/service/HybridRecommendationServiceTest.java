@@ -29,6 +29,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SuppressWarnings({"unchecked", "null"})
@@ -94,6 +96,8 @@ class HybridRecommendationServiceTest {
         assertEquals(List.of("fresh"), result.recommendations());
         assertFalse(result.recommendations().contains("watched"));
         assertFalse(result.recommendations().contains("rated"));
+        // deep-learning-weight defaults to 0.0, so the ONNX model must not run.
+        verify(predictionService, never()).predictBatch(any(), any());
     }
 
     @Test
