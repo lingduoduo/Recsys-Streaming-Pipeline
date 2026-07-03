@@ -1,6 +1,6 @@
 package com.demo.retrieval.service.filters;
 
-import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.retrieval.MovieCandidate;
 
 import java.util.List;
 

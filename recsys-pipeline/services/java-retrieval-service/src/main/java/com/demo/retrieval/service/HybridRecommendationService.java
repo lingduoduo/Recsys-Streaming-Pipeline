@@ -11,12 +11,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
-import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
+import com.demo.retrieval.service.content.CatalogContentScoring;
+import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
-import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
-import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
-import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
-import com.demo.retrieval.service.filters.CandidateFilterResult;
+import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
+import com.demo.retrieval.service.retrieval.MovieCandidate;
+import com.demo.retrieval.service.retrieval.RetrievalOutcome;
+import com.demo.retrieval.service.text.TextNormalization;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer;
 import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringInput;
@@ -77,20 +78,6 @@ public class HybridRecommendationService {
     // Per-item data normalized once per catalog lifetime (productType, title lowercased+trimmed;
     // tags stored separately for content scoring; tags+keywords merged into allKeywords for
     // keyword-mute checks so no per-call set allocation is needed in the hot path).
-    private record NormalizedProfile(
-        String productType,
-        Set<String> genres,
-        Set<String> tags,
-        Set<String> allKeywords,
-        String title,
-        boolean newRelease,
-        long expiresAtEpochMillis) {}
-
-    private record CatalogCache(
-        Map<String, MovieProfile> source,
-        Map<String, NormalizedProfile> normalized) {}
-
-    private volatile CatalogCache catalogCache;
 
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
@@ -103,6 +90,8 @@ public class HybridRecommendationService {
     private final TopKScoreSelector<ScoredCandidate> topKScoreSelector = new TopKScoreSelector<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
+    private final CatalogContentScoring catalogContentScoring;
+    private final ContentCandidateRetriever contentCandidateRetriever;
 
     public HybridRecommendationService(
         StringRedisTemplate redis,
@@ -121,6 +110,8 @@ public class HybridRecommendationService {
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
         this.servingSideEffects = new MovieLensServingSideEffects(redis, objectMapper, properties.getReplayBuffer().getPendingTtl());
+        this.catalogContentScoring = new CatalogContentScoring(properties);
+        this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -179,7 +170,7 @@ public class HybridRecommendationService {
             limit
         );
         Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
-            .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, this::mergeCandidate, LinkedHashMap::new));
+            .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, MovieCandidate::merge, LinkedHashMap::new));
         List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
             .map(MovieCandidate::movieId)
             .toList();
@@ -402,187 +393,10 @@ public class HybridRecommendationService {
         FilterContext filterCtx,
         int limit
     ) {
-        List<MovieCandidate> retrieved = new ArrayList<>();
-        retrieved.addAll(fetchPopularCandidates(popularityMap, userGenres, userTags));
-        retrieved.addAll(fetchColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit));
-
-        List<MovieCandidate> kept = List.copyOf(retrieved);
-        List<MovieCandidate> removed = new ArrayList<>();
-        for (com.demo.retrieval.service.filters.CandidateFilter filter : List.of(
-                new PreviouslySeenMoviesFilter(),
-                new PreviouslySeenMoviesBackupFilter(),
-                new PreviouslyServedMoviesFilter())) {
-            if (filter.enable(query)) {
-                CandidateFilterResult result = filter.filter(query, kept);
-                kept = result.kept();
-                removed.addAll(result.removed());
-            }
-        }
-        CandidateFilterResult eligible = filterEligibleCandidates(kept, excludedItems, filterCtx);
-        kept = eligible.kept();
-        removed.addAll(eligible.removed());
-
-        List<MovieCandidate> scored = preRankCandidates(kept, limit);
-        List<MovieCandidate> selected = selectDistinctCandidates(scored);
-        return new RetrievalOutcome(List.copyOf(retrieved), List.copyOf(removed), scored, selected);
+        return contentCandidateRetriever.retrieve(
+            query, popularityMap, excludedItems, userGenres, userTags, filterCtx, limit);
     }
 
-    private record RetrievalOutcome(
-        List<MovieCandidate> retrievedCandidates,
-        List<MovieCandidate> filteredCandidates,
-        List<MovieCandidate> scoredCandidates,
-        List<MovieCandidate> selectedCandidates
-    ) {
-    }
-
-    private List<MovieCandidate> fetchPopularCandidates(
-        Map<String, Double> popularityMap, Set<String> userGenres, Set<String> userTags) {
-        return popularityMap.entrySet().stream()
-            .map(entry -> new MovieCandidate(
-                entry.getKey(),
-                entry.getValue(),
-                contentScoreForItem(entry.getKey(), userGenres, userTags),
-                false
-            ))
-            .toList();
-    }
-
-    private CandidateFilterResult filterEligibleCandidates(
-        List<MovieCandidate> candidates, Set<String> excludedItems, FilterContext filterCtx) {
-        Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
-            .collect(Collectors.partitioningBy(candidate ->
-                isEligibleCandidate(candidate, excludedItems, filterCtx)));
-        return new CandidateFilterResult(
-            partitioned.getOrDefault(Boolean.TRUE, List.of()),
-            partitioned.getOrDefault(Boolean.FALSE, List.of())
-        );
-    }
-
-    private List<MovieCandidate> selectDistinctCandidates(List<MovieCandidate> candidates) {
-        LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
-        for (MovieCandidate candidate : candidates) {
-            selected.merge(candidate.movieId(), candidate, this::mergeCandidate);
-        }
-        return List.copyOf(selected.values());
-    }
-
-    private MovieCandidate mergeCandidate(MovieCandidate left, MovieCandidate right) {
-        return new MovieCandidate(
-            left.movieId(),
-            Math.max(left.popularityScore(), right.popularityScore()),
-            Math.max(left.contentScore(), right.contentScore()),
-            left.coldStartSource() || right.coldStartSource()
-        );
-    }
-
-    private List<MovieCandidate> fetchColdStartCandidates(
-        Set<String> excludedItems, Set<String> userGenres, Set<String> userTags,
-        FilterContext filterCtx, int resultSize) {
-        Map<String, MovieProfile> catalog = properties.getCatalog();
-        if (catalog.isEmpty()) {
-            return List.of();
-        }
-
-        Map<String, NormalizedProfile> normalizedCatalog = getNormalizedCatalog();
-        int poolSize = Math.max(1, properties.getCandidateGeneration().getColdStartPoolSize());
-        int probeSize = Math.max(poolSize, Math.max(
-            resultSize,
-            poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()
-        ));
-        List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
-            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx))
-            .map(entry -> {
-                NormalizedProfile np = normalizedCatalog.get(entry.getKey());
-                double cs = np == null ? 0.0 : contentScore(np, userGenres, userTags);
-                return new MovieCandidate(entry.getKey(), 0.0, cs, true);
-            })
-            .sorted(
-                Comparator.comparing((MovieCandidate candidate) -> isNewRelease(candidate.movieId())).reversed()
-                    .thenComparing(Comparator.comparingDouble(MovieCandidate::contentScore).reversed())
-            )
-            .limit(probeSize)
-            .toList();
-
-        List<String> impressionKeys = probeCandidates.stream()
-            .map(candidate -> "bandit:item:" + candidate.movieId() + ":impressions")
-            .toList();
-        List<String> impressionValues = Optional.ofNullable(redis.opsForValue().multiGet(impressionKeys))
-            .orElseGet(() -> Collections.nCopies(probeCandidates.size(), null));
-
-        Map<String, Long> impressionMap = new LinkedHashMap<>();
-        for (int i = 0; i < probeCandidates.size(); i++) {
-            impressionMap.put(probeCandidates.get(i).movieId(), readLong(impressionValues.get(i)));
-        }
-
-        int threshold = properties.getBandit().getColdStartExposureThreshold();
-        return probeCandidates.stream()
-            .filter(candidate -> isNewRelease(candidate.movieId()) || impressionMap.getOrDefault(candidate.movieId(), 0L) < threshold)
-            .limit(poolSize)
-            .toList();
-    }
-
-    private boolean isNewRelease(String itemId) {
-        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
-        return profile != null && profile.newRelease();
-    }
-
-    private double contentScoreForItem(String itemId, Set<String> userGenres, Set<String> userTags) {
-        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
-        return profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
-    }
-
-    // Mirrors MovieRankingScorer + TopKMovieSelector from the Scala pipeline:
-    // combines popularity and content signals into a pre-rank score, then bounds
-    // the pool so only the top-N candidates flow into the expensive full-ranking phase.
-    private List<MovieCandidate> preRankCandidates(List<MovieCandidate> candidates, int resultSize) {
-        int configured = properties.getCandidateGeneration().getCandidatePoolSize();
-        int poolSize = configured > 0 ? configured
-            : resultSize * properties.getCandidateGeneration().getPopularityFetchMultiplier();
-        double popWeight = properties.getBandit().getPopularityWeight();
-        double contentWeight = properties.getBandit().getContentWeight();
-        double totalWeight = popWeight + contentWeight;
-        double normPop = totalWeight == 0.0 ? 0.5 : popWeight / totalWeight;
-        double normContent = totalWeight == 0.0 ? 0.5 : contentWeight / totalWeight;
-        return candidates.stream()
-            .sorted(Comparator.comparingDouble(
-                (MovieCandidate c) -> normPop * c.popularityScore()
-                    + normContent * c.contentScore()
-            ).reversed())
-            .limit(poolSize)
-            .toList();
-    }
-
-    private Map<String, NormalizedProfile> getNormalizedCatalog() {
-        Map<String, MovieProfile> catalog = properties.getCatalog();
-        CatalogCache cache = catalogCache;
-        if (cache != null && cache.source() == catalog) {
-            return cache.normalized();
-        }
-        Map<String, NormalizedProfile> built = new HashMap<>(catalog.size() * 4 / 3 + 1);
-        catalog.forEach((id, p) -> {
-            Set<String> normalizedTags = normalize(p.getTags());
-            Set<String> allKeywords = new HashSet<>(normalizedTags);
-            allKeywords.addAll(normalize(p.getKeywords()));
-            built.put(id, new NormalizedProfile(
-                normalizeValue(p.getProductType()),
-                normalize(p.getGenres()),
-                Collections.unmodifiableSet(normalizedTags),
-                Collections.unmodifiableSet(allKeywords),
-                normalizeValue(p.getTitle()),
-                p.isNewRelease(),
-                p.getExpiresAtEpochMillis()
-            ));
-        });
-        synchronized (this) {
-            CatalogCache c2 = catalogCache;
-            if (c2 != null && c2.source() == catalog) {
-                return c2.normalized();
-            }
-            CatalogCache newCache = new CatalogCache(catalog, Collections.unmodifiableMap(built));
-            catalogCache = newCache;
-            return newCache.normalized();
-        }
-    }
 
     private FilterContext buildFilterContext() {
         Filtering f = properties.getFiltering();
@@ -590,46 +404,12 @@ public class HybridRecommendationService {
             return FilterContext.empty();
         }
         return new FilterContext(
-            normalize(f.getMutedProductTypes()),
-            normalize(f.getMutedGenres()),
-            normalize(f.getMutedKeywords())
+            TextNormalization.normalize(f.getMutedProductTypes()),
+            TextNormalization.normalize(f.getMutedGenres()),
+            TextNormalization.normalize(f.getMutedKeywords())
         );
     }
 
-    private boolean isEligibleCandidate(String itemId, Set<String> recentItems, FilterContext filterCtx) {
-        if (recentItems.contains(itemId)) {
-            return false;
-        }
-
-        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
-        if (profile == null) {
-            return true;
-        }
-
-        if (profile.expiresAtEpochMillis() > 0 && profile.expiresAtEpochMillis() <= System.currentTimeMillis()) {
-            return false;
-        }
-
-        if (!filterCtx.mutedProductTypes().isEmpty() && filterCtx.mutedProductTypes().contains(profile.productType())) {
-            return false;
-        }
-
-        if (!filterCtx.mutedGenres().isEmpty() && !Collections.disjoint(filterCtx.mutedGenres(), profile.genres())) {
-            return false;
-        }
-
-        if (filterCtx.mutedKeywords().isEmpty()) {
-            return true;
-        }
-        if (!Collections.disjoint(filterCtx.mutedKeywords(), profile.allKeywords())) {
-            return false;
-        }
-        return filterCtx.mutedKeywords().stream().noneMatch(k -> !k.isBlank() && profile.title().contains(k));
-    }
-
-    private boolean isEligibleCandidate(MovieCandidate candidate, Set<String> recentItems, FilterContext filterCtx) {
-        return isEligibleCandidate(candidate.movieId(), recentItems, filterCtx);
-    }
 
     private ScoredCandidate scoreCandidate(
         MovieCandidate candidate,
@@ -646,10 +426,10 @@ public class HybridRecommendationService {
         Double qValue,
         boolean tabularRl
     ) {
-        NormalizedProfile profile = getNormalizedCatalog().get(itemId);
+        NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
         MovieProfile movieProfile = properties.getCatalog().get(itemId);
 
-        double content = profile == null ? 0.0 : contentScore(profile, userGenres, userTags);
+        double content = profile == null ? 0.0 : catalogContentScoring.contentScore(profile, userGenres, userTags);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
 
         double offlineScore = RecommendationConstants.blendOfflineScore(
@@ -755,13 +535,13 @@ public class HybridRecommendationService {
         Set<String> genres = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
-            .flatMap(p -> normalize(p.getGenres()).stream())
+            .flatMap(p -> TextNormalization.normalize(p.getGenres()).stream())
             .collect(Collectors.toCollection(LinkedHashSet::new));
-        genres.addAll(normalize(features.favoriteGenres()));
+        genres.addAll(TextNormalization.normalize(features.favoriteGenres()));
         Set<String> tags = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
-            .flatMap(p -> normalize(p.getTags()).stream())
+            .flatMap(p -> TextNormalization.normalize(p.getTags()).stream())
             .collect(Collectors.toCollection(LinkedHashSet::new));
         return new TasteProfile(genres, tags);
     }
@@ -1204,17 +984,6 @@ public class HybridRecommendationService {
         return qValue == null ? clamp(learnedPrior) : clamp(qValue);
     }
 
-    private double contentScore(NormalizedProfile profile, Set<String> userGenres, Set<String> userTags) {
-        return clamp((overlapRatio(userGenres, profile.genres()) * RecommendationConstants.CONTENT_GENRE_WEIGHT)
-            + (overlapRatio(userTags, profile.tags()) * RecommendationConstants.CONTENT_TAG_WEIGHT));
-    }
-
-    private Set<String> normalize(List<String> values) {
-        return values == null ? Set.of() : values.stream()
-            .map(this::normalizeValue)
-            .filter(value -> !value.isBlank())
-            .collect(Collectors.toSet());
-    }
 
     @SafeVarargs
     private final <T> List<T> firstNonEmpty(List<T>... candidates) {
@@ -1226,21 +995,6 @@ public class HybridRecommendationService {
         return List.of();
     }
 
-    private String normalizeValue(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
-    }
-
-    private double overlapRatio(Set<String> left, Set<String> right) {
-        if (left.isEmpty() || right.isEmpty()) return 0.0;
-        Set<String> smaller = left.size() <= right.size() ? left : right;
-        Set<String> larger  = left.size() <= right.size() ? right : left;
-        int intersectionSize = 0;
-        for (String s : smaller) {
-            if (larger.contains(s)) intersectionSize++;
-        }
-        int unionSize = left.size() + right.size() - intersectionSize;
-        return unionSize == 0 ? 0.0 : (double) intersectionSize / unionSize;
-    }
 
     private double normalizeScore(double raw) {
         return clamp((raw + 1.0) / 2.0);
