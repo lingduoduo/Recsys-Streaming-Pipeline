@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import org.springframework.lang.NonNull;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -74,49 +75,37 @@ public class OnlineLearningService {
         });
 
         for (int i = 0; i < Math.min(cold.size(), results.size()); i++) {
-            Map<Object, Object> raw = (Map<Object, Object>) results.get(i);
-            long count = raw == null ? 0L : readLong(raw.get("count"));
-            double rewardTotal = raw == null ? 0.0 : readDouble(raw.get("reward_total"));
-            featureCache.putRewardStats(cold.get(i), new FeatureCache.RewardModelStats(count, rewardTotal));
+            featureCache.putRewardStats(cold.get(i), parseStats((Map<Object, Object>) results.get(i)));
         }
     }
 
     /** Score a (item, profile) pair using accumulated reward statistics. Falls back to {@code fallback} when no data exists. */
     public double score(String itemId, MovieProfile profile, double fallback) {
+        RecommendationProperties.RewardModel cfg = properties.getRewardModel();
+        List<WeightedEstimate> contributions = new ArrayList<>();
+        contributions.add(new WeightedEstimate(cfg.getGlobalWeight(), readRewardEstimate(GLOBAL_KEY)));
+        contributions.add(new WeightedEstimate(cfg.getItemWeight(), readRewardEstimate(ITEM_PREFIX + itemId)));
+        if (profile != null) {
+            contributions.add(new WeightedEstimate(cfg.getGenreWeight(),
+                aggregateFeatureEstimates(GENRE_PREFIX, normalize(profile.getGenres()))));
+            contributions.add(new WeightedEstimate(cfg.getTagWeight(),
+                aggregateFeatureEstimates(TAG_PREFIX, normalize(profile.getTags()))));
+        }
+
         double weightedReward = 0.0;
         double totalWeight = 0.0;
-
-        RewardEstimate global = readRewardEstimate(GLOBAL_KEY);
-        if (global.count() > 0) {
-            double weight = properties.getRewardModel().getGlobalWeight() * confidence(global.count());
-            weightedReward += global.mean() * weight;
-            totalWeight += weight;
-        }
-
-        RewardEstimate item = readRewardEstimate(ITEM_PREFIX + itemId);
-        if (item.count() > 0) {
-            double weight = properties.getRewardModel().getItemWeight() * confidence(item.count());
-            weightedReward += item.mean() * weight;
-            totalWeight += weight;
-        }
-
-        if (profile != null) {
-            RewardEstimate genre = aggregateFeatureEstimates(GENRE_PREFIX, normalize(profile.getGenres()));
-            if (genre.count() > 0) {
-                double weight = properties.getRewardModel().getGenreWeight() * confidence(genre.count());
-                weightedReward += genre.mean() * weight;
-                totalWeight += weight;
-            }
-
-            RewardEstimate tag = aggregateFeatureEstimates(TAG_PREFIX, normalize(profile.getTags()));
-            if (tag.count() > 0) {
-                double weight = properties.getRewardModel().getTagWeight() * confidence(tag.count());
-                weightedReward += tag.mean() * weight;
+        for (WeightedEstimate c : contributions) {
+            if (c.estimate().count() > 0) {
+                double weight = c.configWeight() * confidence(c.estimate().count());
+                weightedReward += c.estimate().mean() * weight;
                 totalWeight += weight;
             }
         }
+        return totalWeight == 0.0 ? RecommendationConstants.clamp(fallback)
+            : RecommendationConstants.clamp(weightedReward / totalWeight);
+    }
 
-        return totalWeight == 0.0 ? clamp(fallback) : clamp(weightedReward / totalWeight);
+    private record WeightedEstimate(double configWeight, RewardEstimate estimate) {
     }
 
     /**
@@ -163,13 +152,20 @@ public class OnlineLearningService {
         if (cached != null) {
             return cached.count() == 0L
                 ? new RewardEstimate(0L, 0.0)
-                : new RewardEstimate(cached.count(), clamp(cached.rewardTotal() / cached.count()));
+                : new RewardEstimate(cached.count(), RecommendationConstants.clamp(cached.rewardTotal() / cached.count()));
         }
         Map<Object, Object> raw = Optional.ofNullable(redis.opsForHash().entries(key)).orElseGet(Map::of);
-        long count = readLong(raw.get("count"));
-        double rewardTotal = readDouble(raw.get("reward_total"));
-        featureCache.putRewardStats(key, new FeatureCache.RewardModelStats(count, rewardTotal));
-        return count == 0L ? new RewardEstimate(0L, 0.0) : new RewardEstimate(count, clamp(rewardTotal / count));
+        FeatureCache.RewardModelStats stats = parseStats(raw);
+        featureCache.putRewardStats(key, stats);
+        return stats.count() == 0L
+            ? new RewardEstimate(0L, 0.0)
+            : new RewardEstimate(stats.count(), RecommendationConstants.clamp(stats.rewardTotal() / stats.count()));
+    }
+
+    private FeatureCache.RewardModelStats parseStats(Map<Object, Object> raw) {
+        return new FeatureCache.RewardModelStats(
+            raw == null ? 0L : readLong(raw.get("count")),
+            raw == null ? 0.0 : readDouble(raw.get("reward_total")));
     }
 
     private double confidence(long count) {
@@ -182,10 +178,6 @@ public class OnlineLearningService {
             .filter(v -> v != null && !v.isBlank())
             .map(v -> v.toLowerCase(Locale.ROOT))
             .collect(Collectors.toSet());
-    }
-
-    private double clamp(double value) {
-        return Math.max(0.0, Math.min(1.0, value));
     }
 
     private long readLong(Object raw) {
