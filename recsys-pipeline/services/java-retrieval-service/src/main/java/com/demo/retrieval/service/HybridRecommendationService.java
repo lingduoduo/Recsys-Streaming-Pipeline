@@ -935,46 +935,54 @@ public class HybridRecommendationService {
         return exposed == null ? 0.0 : (double) exposed / catalogSize;
     }
 
-    private BanditArmScore computeBanditArmScore(
+    BanditArmScore computeBanditArmScore(
         double baseScore,
         long itemImpressions,
         long clicks,
         long totalImpressions,
         boolean coldStart
     ) {
-        String algorithm = currentAlgorithm();
         long failures = Math.max(itemImpressions - clicks, 0L);
+        // Cold-start raises priorStrength, which also raises effectivePulls in ucbExplorationBonus and thus
+        // SHRINKS the UCB confidence bonus; coldStartBoost then multiplies that bonus back up, so the two
+        // effects nearly cancel — cold-start's net UCB boost is small. Left as-is (tuning it is behavior-changing).
         double priorStrength = coldStart
             ? Math.max(WARM_PRIOR_STRENGTH,
                 properties.getBandit().getColdStartBoost() * RecommendationConstants.COLD_START_PRIOR_STRENGTH_MULTIPLIER)
             : WARM_PRIOR_STRENGTH;
-        double priorAlpha = 1.0 + (clamp(baseScore) * priorStrength);
-        double priorBeta = 1.0 + ((1.0 - clamp(baseScore)) * priorStrength);
+        double base = clamp(baseScore);
+        double priorAlpha = 1.0 + (base * priorStrength);
+        double priorBeta = 1.0 + ((1.0 - base) * priorStrength);
         double posteriorAlpha = priorAlpha + clicks;
         double posteriorBeta = priorBeta + failures;
         double posteriorMean = clamp(posteriorAlpha / (posteriorAlpha + posteriorBeta));
 
-        // Thompson: the ranking score IS the posterior sample drawn below, not
-        // posteriorMean + bonus. The explorationMagnitude (|sample - mean|) is a
-        // reported diagnostic only. The additive "mean + explorationBonus" form is
-        // literal for UCB (below), not for Thompson.
-        if ("thompson".equals(algorithm)) {
-            double sampledPosterior = clamp(sampleBeta(posteriorAlpha, posteriorBeta));
-            double explorationMagnitude = Math.min(
-                Math.abs(sampledPosterior - posteriorMean),
-                properties.getBandit().getMaxExplorationBonus()
-            );
-            return new BanditArmScore(posteriorMean, explorationMagnitude, sampledPosterior);
+        if ("thompson".equals(currentAlgorithm())) {
+            return thompsonArmScore(posteriorAlpha, posteriorBeta, posteriorMean);
         }
+        double bonus = ucbExplorationBonus(itemImpressions, totalImpressions, priorStrength, coldStart);
+        return new BanditArmScore(posteriorMean, bonus, posteriorMean + bonus);
+    }
 
+    // Thompson: the ranking score IS the posterior sample; the reported explorationBonus
+    // (|sample - mean|, capped) is a diagnostic only. "mean + bonus" is literal for UCB, not Thompson.
+    private BanditArmScore thompsonArmScore(double posteriorAlpha, double posteriorBeta, double posteriorMean) {
+        double sampledPosterior = clamp(sampleBeta(posteriorAlpha, posteriorBeta));
+        double explorationMagnitude = Math.min(
+            Math.abs(sampledPosterior - posteriorMean),
+            properties.getBandit().getMaxExplorationBonus()
+        );
+        return new BanditArmScore(posteriorMean, explorationMagnitude, sampledPosterior);
+    }
+
+    private double ucbExplorationBonus(long itemImpressions, long totalImpressions, double priorStrength, boolean coldStart) {
         double effectivePulls = itemImpressions + priorStrength;
         double confidence = Math.sqrt(Math.log(totalImpressions + 2.0) / (2.0 * (effectivePulls + 1.0)));
         double bonus = properties.getBandit().getExplorationAlpha() * confidence;
         if (coldStart) {
             bonus *= properties.getBandit().getColdStartBoost();
         }
-        bonus = Math.min(bonus, properties.getBandit().getMaxExplorationBonus());
-        return new BanditArmScore(posteriorMean, bonus, posteriorMean + bonus);
+        return Math.min(bonus, properties.getBandit().getMaxExplorationBonus());
     }
 
     private double computeTabularRlRankingScore(double learnedPrior, Double qValue) {
@@ -1149,7 +1157,7 @@ public class HybridRecommendationService {
     ) {
     }
 
-    private record BanditArmScore(
+    record BanditArmScore(
         double posteriorMean,
         double explorationBonus,
         double rankingScore
