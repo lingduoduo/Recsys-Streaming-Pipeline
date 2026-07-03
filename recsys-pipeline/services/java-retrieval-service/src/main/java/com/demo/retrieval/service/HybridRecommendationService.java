@@ -11,15 +11,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.Filtering;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
-import com.demo.retrieval.service.candidate_hydrators.MovieCandidate;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
+import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
+import com.demo.retrieval.service.retrieval.MovieCandidate;
+import com.demo.retrieval.service.retrieval.RetrievalOutcome;
 import com.demo.retrieval.service.text.TextNormalization;
-import com.demo.retrieval.service.filters.PreviouslySeenMoviesBackupFilter;
-import com.demo.retrieval.service.filters.PreviouslySeenMoviesFilter;
-import com.demo.retrieval.service.filters.PreviouslyServedMoviesFilter;
-import com.demo.retrieval.service.filters.CandidateFilterResult;
 import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer;
 import com.demo.retrieval.service.scorers.MovieLensOutcomeScorer.ScoringInput;
@@ -93,6 +91,7 @@ public class HybridRecommendationService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
     private final CatalogContentScoring catalogContentScoring;
+    private final ContentCandidateRetriever contentCandidateRetriever;
 
     public HybridRecommendationService(
         StringRedisTemplate redis,
@@ -112,6 +111,7 @@ public class HybridRecommendationService {
         this.queryHydrators = List.copyOf(queryHydrators);
         this.servingSideEffects = new MovieLensServingSideEffects(redis, objectMapper, properties.getReplayBuffer().getPendingTtl());
         this.catalogContentScoring = new CatalogContentScoring(properties);
+        this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -170,7 +170,7 @@ public class HybridRecommendationService {
             limit
         );
         Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
-            .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, this::mergeCandidate, LinkedHashMap::new));
+            .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, MovieCandidate::merge, LinkedHashMap::new));
         List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
             .map(MovieCandidate::movieId)
             .toList();
@@ -393,150 +393,8 @@ public class HybridRecommendationService {
         FilterContext filterCtx,
         int limit
     ) {
-        List<MovieCandidate> retrieved = new ArrayList<>();
-        retrieved.addAll(fetchPopularCandidates(popularityMap, userGenres, userTags));
-        retrieved.addAll(fetchColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit));
-
-        List<MovieCandidate> kept = List.copyOf(retrieved);
-        List<MovieCandidate> removed = new ArrayList<>();
-        for (com.demo.retrieval.service.filters.CandidateFilter filter : List.of(
-                new PreviouslySeenMoviesFilter(),
-                new PreviouslySeenMoviesBackupFilter(),
-                new PreviouslyServedMoviesFilter())) {
-            if (filter.enable(query)) {
-                CandidateFilterResult result = filter.filter(query, kept);
-                kept = result.kept();
-                removed.addAll(result.removed());
-            }
-        }
-        CandidateFilterResult eligible = filterEligibleCandidates(kept, excludedItems, filterCtx);
-        kept = eligible.kept();
-        removed.addAll(eligible.removed());
-
-        List<MovieCandidate> scored = preRankCandidates(kept, limit);
-        List<MovieCandidate> selected = selectDistinctCandidates(scored);
-        return new RetrievalOutcome(List.copyOf(retrieved), List.copyOf(removed), scored, selected);
-    }
-
-    private record RetrievalOutcome(
-        List<MovieCandidate> retrievedCandidates,
-        List<MovieCandidate> filteredCandidates,
-        List<MovieCandidate> scoredCandidates,
-        List<MovieCandidate> selectedCandidates
-    ) {
-    }
-
-    private List<MovieCandidate> fetchPopularCandidates(
-        Map<String, Double> popularityMap, Set<String> userGenres, Set<String> userTags) {
-        return popularityMap.entrySet().stream()
-            .map(entry -> new MovieCandidate(
-                entry.getKey(),
-                entry.getValue(),
-                contentScoreForItem(entry.getKey(), userGenres, userTags),
-                false
-            ))
-            .toList();
-    }
-
-    private CandidateFilterResult filterEligibleCandidates(
-        List<MovieCandidate> candidates, Set<String> excludedItems, FilterContext filterCtx) {
-        Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
-            .collect(Collectors.partitioningBy(candidate ->
-                isEligibleCandidate(candidate, excludedItems, filterCtx)));
-        return new CandidateFilterResult(
-            partitioned.getOrDefault(Boolean.TRUE, List.of()),
-            partitioned.getOrDefault(Boolean.FALSE, List.of())
-        );
-    }
-
-    private List<MovieCandidate> selectDistinctCandidates(List<MovieCandidate> candidates) {
-        LinkedHashMap<String, MovieCandidate> selected = new LinkedHashMap<>();
-        for (MovieCandidate candidate : candidates) {
-            selected.merge(candidate.movieId(), candidate, this::mergeCandidate);
-        }
-        return List.copyOf(selected.values());
-    }
-
-    private MovieCandidate mergeCandidate(MovieCandidate left, MovieCandidate right) {
-        return new MovieCandidate(
-            left.movieId(),
-            Math.max(left.popularityScore(), right.popularityScore()),
-            Math.max(left.contentScore(), right.contentScore()),
-            left.coldStartSource() || right.coldStartSource()
-        );
-    }
-
-    private List<MovieCandidate> fetchColdStartCandidates(
-        Set<String> excludedItems, Set<String> userGenres, Set<String> userTags,
-        FilterContext filterCtx, int resultSize) {
-        Map<String, MovieProfile> catalog = properties.getCatalog();
-        if (catalog.isEmpty()) {
-            return List.of();
-        }
-
-        Map<String, NormalizedProfile> normalizedCatalog = catalogContentScoring.normalizedCatalog();
-        int poolSize = Math.max(1, properties.getCandidateGeneration().getColdStartPoolSize());
-        int probeSize = Math.max(poolSize, Math.max(
-            resultSize,
-            poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()
-        ));
-        List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
-            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx))
-            .map(entry -> {
-                NormalizedProfile np = normalizedCatalog.get(entry.getKey());
-                double cs = np == null ? 0.0 : catalogContentScoring.contentScore(np, userGenres, userTags);
-                return new MovieCandidate(entry.getKey(), 0.0, cs, true);
-            })
-            .sorted(
-                Comparator.comparing((MovieCandidate candidate) -> catalogContentScoring.isNewRelease(candidate.movieId())).reversed()
-                    .thenComparing(Comparator.comparingDouble(MovieCandidate::contentScore).reversed())
-            )
-            .limit(probeSize)
-            .toList();
-
-        List<String> impressionKeys = probeCandidates.stream()
-            .map(candidate -> "bandit:item:" + candidate.movieId() + ":impressions")
-            .toList();
-        List<String> impressionValues = Optional.ofNullable(redis.opsForValue().multiGet(impressionKeys))
-            .orElseGet(() -> Collections.nCopies(probeCandidates.size(), null));
-
-        Map<String, Long> impressionMap = new LinkedHashMap<>();
-        for (int i = 0; i < probeCandidates.size(); i++) {
-            impressionMap.put(probeCandidates.get(i).movieId(), readLong(impressionValues.get(i)));
-        }
-
-        int threshold = properties.getBandit().getColdStartExposureThreshold();
-        return probeCandidates.stream()
-            .filter(candidate -> catalogContentScoring.isNewRelease(candidate.movieId()) || impressionMap.getOrDefault(candidate.movieId(), 0L) < threshold)
-            .limit(poolSize)
-            .toList();
-    }
-
-
-    private double contentScoreForItem(String itemId, Set<String> userGenres, Set<String> userTags) {
-        NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
-        return profile == null ? 0.0 : catalogContentScoring.contentScore(profile, userGenres, userTags);
-    }
-
-    // Mirrors MovieRankingScorer + TopKMovieSelector from the Scala pipeline:
-    // combines popularity and content signals into a pre-rank score, then bounds
-    // the pool so only the top-N candidates flow into the expensive full-ranking phase.
-    private List<MovieCandidate> preRankCandidates(List<MovieCandidate> candidates, int resultSize) {
-        int configured = properties.getCandidateGeneration().getCandidatePoolSize();
-        int poolSize = configured > 0 ? configured
-            : resultSize * properties.getCandidateGeneration().getPopularityFetchMultiplier();
-        double popWeight = properties.getBandit().getPopularityWeight();
-        double contentWeight = properties.getBandit().getContentWeight();
-        double totalWeight = popWeight + contentWeight;
-        double normPop = totalWeight == 0.0 ? 0.5 : popWeight / totalWeight;
-        double normContent = totalWeight == 0.0 ? 0.5 : contentWeight / totalWeight;
-        return candidates.stream()
-            .sorted(Comparator.comparingDouble(
-                (MovieCandidate c) -> normPop * c.popularityScore()
-                    + normContent * c.contentScore()
-            ).reversed())
-            .limit(poolSize)
-            .toList();
+        return contentCandidateRetriever.retrieve(
+            query, popularityMap, excludedItems, userGenres, userTags, filterCtx, limit);
     }
 
 
@@ -552,40 +410,6 @@ public class HybridRecommendationService {
         );
     }
 
-    private boolean isEligibleCandidate(String itemId, Set<String> recentItems, FilterContext filterCtx) {
-        if (recentItems.contains(itemId)) {
-            return false;
-        }
-
-        NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
-        if (profile == null) {
-            return true;
-        }
-
-        if (profile.expiresAtEpochMillis() > 0 && profile.expiresAtEpochMillis() <= System.currentTimeMillis()) {
-            return false;
-        }
-
-        if (!filterCtx.mutedProductTypes().isEmpty() && filterCtx.mutedProductTypes().contains(profile.productType())) {
-            return false;
-        }
-
-        if (!filterCtx.mutedGenres().isEmpty() && !Collections.disjoint(filterCtx.mutedGenres(), profile.genres())) {
-            return false;
-        }
-
-        if (filterCtx.mutedKeywords().isEmpty()) {
-            return true;
-        }
-        if (!Collections.disjoint(filterCtx.mutedKeywords(), profile.allKeywords())) {
-            return false;
-        }
-        return filterCtx.mutedKeywords().stream().noneMatch(k -> !k.isBlank() && profile.title().contains(k));
-    }
-
-    private boolean isEligibleCandidate(MovieCandidate candidate, Set<String> recentItems, FilterContext filterCtx) {
-        return isEligibleCandidate(candidate.movieId(), recentItems, filterCtx);
-    }
 
     private ScoredCandidate scoreCandidate(
         MovieCandidate candidate,
