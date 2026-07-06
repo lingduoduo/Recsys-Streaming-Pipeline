@@ -389,7 +389,7 @@ def main(argv=None) -> str:
                     else na_card("Recall", "no movie:*:features in Redis"))
     ranking = compute_ranking(df, host, port)
     sections.append(_ranking_section(ranking) if ranking
-                    else na_card("Ranking", "no movie:*:features in Redis"))
+                    else na_card("Ranking", "no popularity or i2vEmb:* signals in Redis"))
 
     os.makedirs(outdir, exist_ok=True)
     out = os.path.join(outdir, "index.html")

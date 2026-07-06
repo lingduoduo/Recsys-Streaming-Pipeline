@@ -161,4 +161,5 @@ def test_main_writes_html_with_sections_and_na_cards(tmp_path):
 
     page = (out / "index.html").read_text()
     assert "Engagement funnel" in page and "Keyword gap" in page and "Query intent" in page
-    assert "N/A — no movie:*:features in Redis" in page   # recall + ranking, Redis unreachable
+    assert "N/A — no movie:*:features in Redis" in page
+    assert "N/A — no popularity or i2vEmb:* signals in Redis" in page
