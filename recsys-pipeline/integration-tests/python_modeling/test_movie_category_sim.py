@@ -62,6 +62,17 @@ def test_movie_event_shape_matches_movieupdated():
     assert ev["genres"] == ["Sci-Fi", "Action"] and isinstance(ev["release_year"], int)
 
 
+def test_ratings_from_events_prefers_order_and_ignores_impressions():
+    base = {"user_id": "user_1", "item_id": "movie_7", "timestamp_ms": 2000}
+    rows = mp.ratings_from_events([
+        {**base, "event_type": "impression"},
+        {**base, "event_type": "click"},
+        {**base, "event_type": "order", "timestamp_ms": 5000},
+    ])
+    assert rows == [{"userId": "user_1", "movieId": "movie_7",
+                     "rating": 5.0, "timestamp": 5}]
+
+
 # ── report: Redis movie-feature parsing (no Spark needed) ────────────────────────
 def test_fetch_movie_features_parses_and_derives():
     import movie_category_report as rep

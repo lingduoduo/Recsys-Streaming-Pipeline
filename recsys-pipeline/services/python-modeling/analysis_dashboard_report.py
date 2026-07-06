@@ -27,10 +27,15 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
         df["clicked"] = (df["label"] >= 1).astype(int)
     df["clicked"] = df["clicked"].astype(int)
     if "genres" not in df.columns:
+        df["genres"] = [[] for _ in range(len(df))]
+    df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
+    missing_genres = ~df["genres"].map(bool)
+    if missing_genres.any():
         from genre_meta import fetch_movie_meta
         meta = {m["item_id"]: m["genres"] for m in fetch_movie_meta(host, port)}
-        df["genres"] = df["item_id"].astype(str).map(lambda i: meta.get(i, []))
-    df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
+        enriched = df.loc[missing_genres, "item_id"].astype(str).map(lambda i: meta.get(i, []))
+        for idx, genres in enriched.items():
+            df.at[idx, "genres"] = list(genres)
     return df
 
 
@@ -164,8 +169,6 @@ def compute_ranking(df, host: str, port: int):
                                      fetch_embeddings, fetch_popularity)
     pop = fetch_popularity(host, port)
     uemb, iemb = fetch_embeddings(host, port)
-    if not pop and not iemb:
-        return None
 
     items = df["item_id"].astype(str).tolist()
     users = df["user_id"].astype(str).tolist() if "user_id" in df.columns else [None] * len(items)
@@ -173,7 +176,8 @@ def compute_ranking(df, host: str, port: int):
     labels_all = (df["label"] >= 1).astype(int).tolist()
 
     signal_scores = {
-        "popularity": [(float(pop.get(it, 0.0)), True) for it in items],
+        "popularity": [(float(pop[it]), True) if it in pop else (None, False)
+                       for it in items],
         "position": [(-float(p), True) for p in positions],
         "embedding": [(d, d is not None)
                       for d in (_dot(uemb.get(u), iemb.get(it)) for u, it in zip(users, items))],
@@ -211,16 +215,16 @@ def svg_bar(labels, values, title="", width=520, bar_h=22, gap=6) -> str:
         rows.append(
             f'<g><title>{_esc(lab)}: {_esc(round(v, 4))}</title>'
             f'<text x="0" y="{y + bar_h - 6}" font-size="12">{_esc(lab)}</text>'
-            f'<rect x="150" y="{y}" width="{w}" height="{bar_h}" fill="#4c78a8"/>'
+            f'<rect x="150" y="{y}" width="{w}" height="{bar_h}" rx="6" fill="#4f46e5"/>'
             f'<text x="{155 + w}" y="{y + bar_h - 6}" font-size="11">{_esc(round(v, 4))}</text></g>')
     h = max(len(labels), 1) * (bar_h + gap)
     cap = f'<text x="0" y="-6" font-size="13" font-weight="bold">{_esc(title)}</text>' if title else ""
-    return (f'<svg viewBox="0 -20 {width} {h + 24}" width="{width}" '
+    return (f'<svg class="chart" role="img" viewBox="0 -20 {width} {h + 24}" width="{width}" '
             f'font-family="sans-serif">{cap}{"".join(rows)}</svg>')
 
 
 def svg_line(xs, series, title="", width=520, height=220) -> str:
-    colors = ["#4c78a8", "#f58518", "#54a24b", "#e45756"]
+    colors = ["#4f46e5", "#0d9488", "#f59e0b", "#e11d48"]
     allv = [v for vals in series.values() for v in vals] or [0.0, 1.0]
     vmin, vmax = min(allv), max(allv)
     span = (vmax - vmin) or 1.0
@@ -231,13 +235,15 @@ def svg_line(xs, series, title="", width=520, height=220) -> str:
     for idx, (name, vals) in enumerate(series.items()):
         c = colors[idx % len(colors)]
         pts = " ".join(f"{px(x):.1f},{py(v):.1f}" for x, v in zip(xs, vals))
-        lines.append(f'<polyline fill="none" stroke="{c}" stroke-width="2" points="{pts}">'
+        lines.append(f'<polyline fill="none" stroke="{c}" stroke-width="3" '
+                     f'stroke-linecap="round" stroke-linejoin="round" points="{pts}">'
                      f'<title>{_esc(name)}</title></polyline>')
         legend.append(f'<text x="{60 + idx * 110}" y="16" fill="{c}" font-size="12">{_esc(name)}</text>')
     cap = f'<text x="0" y="16" font-size="13" font-weight="bold">{_esc(title)}</text>' if title else ""
     xlab = "".join(f'<text x="{px(x):.1f}" y="{height - 10}" font-size="10" '
                    f'text-anchor="middle">{_esc(x)}</text>' for x in xs)
-    return (f'<svg viewBox="0 0 {width} {height}" width="{width}" font-family="sans-serif">'
+    return (f'<svg class="chart" role="img" viewBox="0 0 {width} {height}" '
+            f'width="{width}" font-family="sans-serif">'
             f'{cap}{"".join(legend)}{"".join(lines)}{xlab}</svg>')
 
 
@@ -246,29 +252,75 @@ def html_table(df, columns=None) -> str:
     head = "".join(f"<th>{_esc(c)}</th>" for c in cols)
     body = "".join("<tr>" + "".join(f"<td>{_esc(r[c])}</td>" for c in cols) + "</tr>"
                    for _, r in df.iterrows())
-    return f'<table class="rpt"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+    table = f'<table class="rpt"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+    return f'<div class="table-shell">{table}</div>'
 
 
 def section(title, headline, body_html) -> str:
-    return (f'<section><h2>{_esc(title)}</h2>'
-            f'<p class="headline">{_esc(headline)}</p>{body_html}</section>')
+    return (f'<section class="report-card"><div class="section-heading">'
+            f'<h2>{_esc(title)}</h2><p class="insight">{_esc(headline)}</p>'
+            f'</div><div class="section-body">{body_html}</div></section>')
 
 
 def na_card(title, reason) -> str:
-    return f'<section><h2>{_esc(title)}</h2><p class="na">N/A — {_esc(reason)}</p></section>'
+    return (f'<section class="report-card status-card"><div class="section-heading">'
+            f'<h2>{_esc(title)}</h2><p class="na">N/A — {_esc(reason)}</p>'
+            f'</div></section>')
 
 
 def render_html(title, sections) -> str:
-    style = ("body{font-family:sans-serif;margin:2rem;max-width:900px}"
-             "h2{border-bottom:2px solid #4c78a8;padding-bottom:4px}"
-             ".headline{font-size:1.1rem;font-weight:bold;color:#333}"
-             ".na{color:#999;font-style:italic}"
-             "table.rpt{border-collapse:collapse;margin:8px 0}"
-             "table.rpt th,table.rpt td{border:1px solid #ddd;padding:4px 8px;font-size:13px}"
-             "table.rpt th{background:#f4f4f4;text-align:left}")
-    return (f"<!doctype html><html><head><meta charset='utf-8'>"
-            f"<title>{_esc(title)}</title><style>{style}</style></head>"
-            f"<body><h1>{_esc(title)}</h1>{''.join(sections)}</body></html>")
+    style = (
+        ':root{--canvas:#f5f7fb;--surface:#fff;--ink:#111827;--muted:#64748b;'
+        '--line:#e2e8f0;--indigo:#4f46e5;--indigo-soft:#eef2ff;--amber:#b45309;'
+        '--amber-soft:#fffbeb;--shadow:0 12px 30px rgba(15,23,42,.07)}'
+        '*{box-sizing:border-box}'
+        'body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,'
+        'ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}'
+        '.page-shell{width:min(1180px,calc(100% - 40px));margin:0 auto;padding:40px 0 64px}'
+        '.hero{display:flex;justify-content:space-between;gap:32px;align-items:flex-start;'
+        'padding:36px 40px;margin-bottom:24px;border-radius:24px;color:#fff;'
+        'background:linear-gradient(135deg,#312e81 0%,#4f46e5 58%,#6366f1 100%);'
+        'box-shadow:0 20px 50px rgba(79,70,229,.24)}'
+        '.hero h1{margin:6px 0 8px;font-size:clamp(2rem,5vw,3.5rem);line-height:1.05;'
+        'letter-spacing:-.04em}.hero p{margin:0;color:#e0e7ff;max-width:650px}'
+        '.eyebrow{font-size:.72rem;font-weight:800;letter-spacing:.16em;color:#c7d2fe}'
+        '.report-badge{flex:none;padding:8px 12px;border:1px solid rgba(255,255,255,.3);'
+        'border-radius:999px;background:rgba(255,255,255,.12);font-size:.7rem;'
+        'font-weight:800;letter-spacing:.08em}'
+        '.report-grid{display:grid;gap:20px}'
+        '.report-card{overflow:hidden;background:var(--surface);border:1px solid var(--line);'
+        'border-radius:20px;box-shadow:var(--shadow)}'
+        '.section-heading{padding:24px 28px 18px;border-bottom:1px solid var(--line)}'
+        '.section-heading h2{margin:0 0 10px;font-size:1.3rem;letter-spacing:-.02em}'
+        '.insight{display:inline-block;margin:0;padding:7px 11px;border-radius:9px;'
+        'background:var(--indigo-soft);color:#3730a3;font-size:.92rem;font-weight:700}'
+        '.section-body{display:grid;gap:20px;padding:24px 28px 28px}'
+        '.chart{display:block;width:min(100%,720px);height:auto;overflow:visible}'
+        '.table-shell{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:12px}'
+        'table.rpt{width:100%;border-collapse:separate;border-spacing:0;font-size:.82rem;'
+        'font-variant-numeric:tabular-nums}'
+        'table.rpt th{position:sticky;top:0;padding:11px 13px;background:#f8fafc;color:#475569;'
+        'text-align:left;text-transform:uppercase;letter-spacing:.045em;font-size:.68rem}'
+        'table.rpt td{padding:10px 13px;border-top:1px solid var(--line);white-space:nowrap}'
+        'table.rpt tbody tr:nth-child(even){background:#fafbff}'
+        'table.rpt tbody tr:hover{background:var(--indigo-soft)}'
+        '.status-card{border-color:#fde68a;background:var(--amber-soft)}'
+        '.status-card .section-heading{border:0}.na{margin:0;color:var(--amber);font-weight:700}'
+        '@media (max-width:700px){.page-shell{width:min(100% - 24px,1180px);padding-top:20px}'
+        '.hero{padding:28px 24px;border-radius:18px;flex-direction:column}'
+        '.section-heading,.section-body{padding-left:20px;padding-right:20px}'
+        '.report-badge{align-self:flex-start}}'
+        '@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;'
+        'transition:none!important}}'
+    )
+    return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f'<title>{_esc(title)}</title><style>{style}</style></head><body>'
+            f'<main class="page-shell"><header class="hero"><div>'
+            f'<span class="eyebrow">RECOMMENDER ANALYTICS</span><h1>{_esc(title)}</h1>'
+            f'<p>Engagement, intent, retrieval, and ranking performance in one report.</p>'
+            f'</div><span class="report-badge">OFFLINE REPORT</span></header>'
+            f'<div class="report-grid">{"".join(sections)}</div></main></body></html>')
 
 
 def _relevance_section(r) -> str:
@@ -341,7 +393,7 @@ def main(argv=None) -> str:
                     else na_card("Recall", "no movie:*:features in Redis"))
     ranking = compute_ranking(df, host, port)
     sections.append(_ranking_section(ranking) if ranking
-                    else na_card("Ranking", "no movie:*:features in Redis"))
+                    else na_card("Ranking", "no popularity or i2vEmb:* signals in Redis"))
 
     os.makedirs(outdir, exist_ok=True)
     out = os.path.join(outdir, "index.html")

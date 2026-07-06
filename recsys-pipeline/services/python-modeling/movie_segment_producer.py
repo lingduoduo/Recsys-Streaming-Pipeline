@@ -16,6 +16,7 @@ Env: KAFKA_BOOTSTRAP_SERVERS, RECSYS_TOPIC (recsys_events), MOVIELENS_CONTEXT_TO
 """
 from __future__ import annotations
 
+import csv
 import os
 import random
 import time
@@ -31,6 +32,20 @@ NUM_USERS = max(int(os.getenv("NUM_USERS", "200")), 1)
 NUM_SLATES = max(int(os.getenv("NUM_SLATES", "20000")), 1)
 SLATE_SIZE = max(int(os.getenv("SLATE_SIZE", "5")), 1)
 SEED = int(os.getenv("SEED", "17"))
+
+
+def ratings_from_events(events: list[dict]) -> list[dict]:
+    by_pair = {}
+    for event in events:
+        if event["event_type"] not in ("click", "order"):
+            continue
+        pair = (event["user_id"], event["item_id"])
+        row = {"userId": event["user_id"], "movieId": event["item_id"],
+               "rating": 5.0 if event["event_type"] == "order" else 4.0,
+               "timestamp": event["timestamp_ms"] // 1000}
+        if pair not in by_pair or row["rating"] > by_pair[pair]["rating"]:
+            by_pair[pair] = row
+    return list(by_pair.values())
 
 # Ground-truth additive effects on per-item click prob (base below), keyed by derived buckets so
 # the report can recover them: SciFi&Fantasy/Action top, Other bottom; newer releases higher.
@@ -116,6 +131,15 @@ def main() -> None:
     print(f"movie metadata → {CONTEXT_TOPIC} ({NUM_ITEMS} movies); "
           f"behavior → {RECSYS_TOPIC} ({NUM_SLATES} slates)", flush=True)
     producer = make_producer()
+    ratings_file = None
+    ratings_writer = None
+    ratings_path = os.getenv("RATINGS_OUTPUT_PATH")
+    if ratings_path:
+        os.makedirs(os.path.dirname(ratings_path) or ".", exist_ok=True)
+        ratings_file = open(ratings_path, "w", newline="", encoding="utf-8")
+        ratings_writer = csv.DictWriter(
+            ratings_file, fieldnames=["userId", "movieId", "rating", "timestamp"])
+        ratings_writer.writeheader()
     sent = 0
     try:
         for item in items:
@@ -123,12 +147,17 @@ def main() -> None:
             sent += 1
         for s in range(NUM_SLATES):
             user = rng.choice(users)
-            for event in make_slate(user, items, movies, rng):
+            events = make_slate(user, items, movies, rng)
+            if ratings_writer:
+                ratings_writer.writerows(ratings_from_events(events))
+            for event in events:
                 producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
                 sent += 1
             if (s + 1) % 2000 == 0:
                 print(f"  {s + 1}/{NUM_SLATES} slates, {sent} events", flush=True)
     finally:
+        if ratings_file:
+            ratings_file.close()
         producer.flush()
         producer.close()
     print(f"done: {sent} messages ({NUM_ITEMS} movies + behavior)", flush=True)

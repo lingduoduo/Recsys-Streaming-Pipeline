@@ -34,6 +34,30 @@ def test_load_samples_normalizes_columns(tmp_path):
     assert dash.query_of([]) == "unknown"
 
 
+def test_load_samples_enriches_empty_genres_from_redis(tmp_path, monkeypatch):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import genre_meta
+
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "session_id": ["s1", "s2"],
+        "item_id": ["item_1", "item_2"],
+        "label": [1.0, 0.0],
+        "genres": [[], ["Drama"]],
+    }).to_parquet(parquet, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": "item_1", "genres": ["Sci-Fi", "Action"]},
+        {"item_id": "item_2", "genres": ["Comedy"]},
+    ])
+
+    out = dash.load_samples(str(parquet), "redis.test", 6380)
+
+    assert out["genres"].tolist() == [["Sci-Fi", "Action"], ["Drama"]]
+
+
 def test_compute_relevance_funnel_and_means(tmp_path):
     pd = pytest.importorskip("pandas")
     import analysis_dashboard_report as dash
@@ -84,17 +108,23 @@ def test_compute_query_top_and_length_buckets():
     assert buckets["long (>10)"]["impressions"] == 1     # "Sci-Fi Action" is 13 chars
 
 
-def test_recall_ranking_return_none_without_redis():
+def test_ranking_uses_position_without_redis_signals():
     pd = pytest.importorskip("pandas")
     import analysis_dashboard_report as dash
     frame = pd.DataFrame({
         "user_id": ["u1", "u1"], "session_id": ["s1", "s1"],
-        "item_id": ["item_1", "item_2"], "label": [2.0, 1.0],
-        "clicked": [1, 1], "genres": [["Drama"], ["Comedy"]],
+        "item_id": ["item_1", "item_2"], "label": [1.0, 0.0],
+        "clicked": [1, 0], "position": [0, 1],
+        "genres": [["Drama"], ["Comedy"]],
     })
-    # port 6399: no Redis listening → empty corpus / no signals → None
+    # Recall still needs a Redis corpus, but ranking can evaluate position from Parquet.
     assert dash.compute_recall(frame, "localhost", 6399) is None
-    assert dash.compute_ranking(frame, "localhost", 6399) is None
+    ranking = dash.compute_ranking(frame, "localhost", 6399)
+    rows = {row["signal"]: row for row in ranking["rows"]}
+    assert rows["position"]["coverage"] == 1.0
+    assert rows["position"]["n"] == 2
+    assert rows["popularity"]["coverage"] == 0.0
+    assert rows["embedding"]["coverage"] == 0.0
 
 
 def test_renderers_emit_svg_and_tables():
@@ -111,7 +141,39 @@ def test_renderers_emit_svg_and_tables():
     assert "<html" in page and "Dashboard" in page and "no corpus" in page
 
 
-def test_main_writes_html_with_sections_and_na_cards(tmp_path):
+def test_render_html_uses_modern_product_analytics_structure():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    table = dash.html_table(pd.DataFrame([{"metric": "ctr", "value": 0.42}]))
+    page = dash.render_html("Analysis Dashboard", [
+        dash.section("Engagement", "CTR 42%", table),
+        dash.na_card("Ranking", "no embeddings"),
+    ])
+
+    for marker in ('<meta name="viewport"', 'class="page-shell"',
+                   'class="hero"', 'class="report-card"',
+                   'class="insight"', 'class="table-shell"',
+                   'class="report-card status-card"'):
+        assert marker in page
+
+
+def test_render_html_embeds_responsive_visual_system():
+    import analysis_dashboard_report as dash
+
+    page = dash.render_html("Dashboard", [dash.section("S", "H", "B")])
+    bar = dash.svg_bar(["click"], [12], title="Funnel")
+    line = dash.svg_line([5, 10], {"hybrid": [0.2, 0.4]}, title="Recall")
+
+    assert "--canvas:#f5f7fb" in page
+    assert "--indigo:#4f46e5" in page
+    assert "@media (max-width:700px)" in page
+    assert "prefers-reduced-motion:reduce" in page
+    assert 'class="chart"' in bar and 'rx="6"' in bar
+    assert 'class="chart"' in line and "#4f46e5" in line
+
+
+def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     parquet = tmp_path / "samples"
@@ -129,4 +191,6 @@ def test_main_writes_html_with_sections_and_na_cards(tmp_path):
 
     page = (out / "index.html").read_text()
     assert "Engagement funnel" in page and "Keyword gap" in page and "Query intent" in page
-    assert "N/A — no movie:*:features in Redis" in page   # recall + ranking, Redis unreachable
+    assert "N/A — no movie:*:features in Redis" in page
+    assert "<h2>Ranking</h2>" in page
+    assert "<td>position</td>" in page
