@@ -27,10 +27,15 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
         df["clicked"] = (df["label"] >= 1).astype(int)
     df["clicked"] = df["clicked"].astype(int)
     if "genres" not in df.columns:
+        df["genres"] = [[] for _ in range(len(df))]
+    df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
+    missing_genres = ~df["genres"].map(bool)
+    if missing_genres.any():
         from genre_meta import fetch_movie_meta
         meta = {m["item_id"]: m["genres"] for m in fetch_movie_meta(host, port)}
-        df["genres"] = df["item_id"].astype(str).map(lambda i: meta.get(i, []))
-    df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
+        enriched = df.loc[missing_genres, "item_id"].astype(str).map(lambda i: meta.get(i, []))
+        for idx, genres in enriched.items():
+            df.at[idx, "genres"] = list(genres)
     return df
 
 

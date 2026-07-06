@@ -34,6 +34,30 @@ def test_load_samples_normalizes_columns(tmp_path):
     assert dash.query_of([]) == "unknown"
 
 
+def test_load_samples_enriches_empty_genres_from_redis(tmp_path, monkeypatch):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import genre_meta
+
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "session_id": ["s1", "s2"],
+        "item_id": ["item_1", "item_2"],
+        "label": [1.0, 0.0],
+        "genres": [[], ["Drama"]],
+    }).to_parquet(parquet, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": "item_1", "genres": ["Sci-Fi", "Action"]},
+        {"item_id": "item_2", "genres": ["Comedy"]},
+    ])
+
+    out = dash.load_samples(str(parquet), "redis.test", 6380)
+
+    assert out["genres"].tolist() == [["Sci-Fi", "Action"], ["Drama"]]
+
+
 def test_compute_relevance_funnel_and_means(tmp_path):
     pd = pytest.importorskip("pandas")
     import analysis_dashboard_report as dash
