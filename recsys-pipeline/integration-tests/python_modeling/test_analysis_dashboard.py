@@ -84,17 +84,23 @@ def test_compute_query_top_and_length_buckets():
     assert buckets["long (>10)"]["impressions"] == 1     # "Sci-Fi Action" is 13 chars
 
 
-def test_recall_ranking_return_none_without_redis():
+def test_ranking_uses_position_without_redis_signals():
     pd = pytest.importorskip("pandas")
     import analysis_dashboard_report as dash
     frame = pd.DataFrame({
         "user_id": ["u1", "u1"], "session_id": ["s1", "s1"],
-        "item_id": ["item_1", "item_2"], "label": [2.0, 1.0],
-        "clicked": [1, 1], "genres": [["Drama"], ["Comedy"]],
+        "item_id": ["item_1", "item_2"], "label": [1.0, 0.0],
+        "clicked": [1, 0], "position": [0, 1],
+        "genres": [["Drama"], ["Comedy"]],
     })
-    # port 6399: no Redis listening → empty corpus / no signals → None
+    # Recall still needs a Redis corpus, but ranking can evaluate position from Parquet.
     assert dash.compute_recall(frame, "localhost", 6399) is None
-    assert dash.compute_ranking(frame, "localhost", 6399) is None
+    ranking = dash.compute_ranking(frame, "localhost", 6399)
+    rows = {row["signal"]: row for row in ranking["rows"]}
+    assert rows["position"]["coverage"] == 1.0
+    assert rows["position"]["n"] == 2
+    assert rows["popularity"]["coverage"] == 0.0
+    assert rows["embedding"]["coverage"] == 0.0
 
 
 def test_renderers_emit_svg_and_tables():
@@ -143,7 +149,7 @@ def test_render_html_embeds_responsive_visual_system():
     assert 'class="chart"' in line and "#4f46e5" in line
 
 
-def test_main_writes_html_with_sections_and_na_cards(tmp_path):
+def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     parquet = tmp_path / "samples"
@@ -162,4 +168,5 @@ def test_main_writes_html_with_sections_and_na_cards(tmp_path):
     page = (out / "index.html").read_text()
     assert "Engagement funnel" in page and "Keyword gap" in page and "Query intent" in page
     assert "N/A — no movie:*:features in Redis" in page
-    assert "N/A — no popularity or i2vEmb:* signals in Redis" in page
+    assert "<h2>Ranking</h2>" in page
+    assert "<td>position</td>" in page

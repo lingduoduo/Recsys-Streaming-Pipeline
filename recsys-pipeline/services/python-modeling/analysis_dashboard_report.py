@@ -164,8 +164,6 @@ def compute_ranking(df, host: str, port: int):
                                      fetch_embeddings, fetch_popularity)
     pop = fetch_popularity(host, port)
     uemb, iemb = fetch_embeddings(host, port)
-    if not pop and not iemb:
-        return None
 
     items = df["item_id"].astype(str).tolist()
     users = df["user_id"].astype(str).tolist() if "user_id" in df.columns else [None] * len(items)
@@ -173,7 +171,8 @@ def compute_ranking(df, host: str, port: int):
     labels_all = (df["label"] >= 1).astype(int).tolist()
 
     signal_scores = {
-        "popularity": [(float(pop.get(it, 0.0)), True) for it in items],
+        "popularity": [(float(pop[it]), True) if it in pop else (None, False)
+                       for it in items],
         "position": [(-float(p), True) for p in positions],
         "embedding": [(d, d is not None)
                       for d in (_dot(uemb.get(u), iemb.get(it)) for u, it in zip(users, items))],
