@@ -111,6 +111,38 @@ def test_renderers_emit_svg_and_tables():
     assert "<html" in page and "Dashboard" in page and "no corpus" in page
 
 
+def test_render_html_uses_modern_product_analytics_structure():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    table = dash.html_table(pd.DataFrame([{"metric": "ctr", "value": 0.42}]))
+    page = dash.render_html("Analysis Dashboard", [
+        dash.section("Engagement", "CTR 42%", table),
+        dash.na_card("Ranking", "no embeddings"),
+    ])
+
+    for marker in ('<meta name="viewport"', 'class="page-shell"',
+                   'class="hero"', 'class="report-card"',
+                   'class="insight"', 'class="table-shell"',
+                   'class="report-card status-card"'):
+        assert marker in page
+
+
+def test_render_html_embeds_responsive_visual_system():
+    import analysis_dashboard_report as dash
+
+    page = dash.render_html("Dashboard", [dash.section("S", "H", "B")])
+    bar = dash.svg_bar(["click"], [12], title="Funnel")
+    line = dash.svg_line([5, 10], {"hybrid": [0.2, 0.4]}, title="Recall")
+
+    assert "--canvas:#f5f7fb" in page
+    assert "--indigo:#4f46e5" in page
+    assert "@media (max-width:700px)" in page
+    assert "prefers-reduced-motion:reduce" in page
+    assert 'class="chart"' in bar and 'rx="6"' in bar
+    assert 'class="chart"' in line and "#4f46e5" in line
+
+
 def test_main_writes_html_with_sections_and_na_cards(tmp_path):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
