@@ -15,6 +15,13 @@ RECSYS_TOPIC="recsys_events_${RUN_ID}"
 CONTEXT_TOPIC="movielens_context_${RUN_ID}"
 NUM_ITEMS="${NUM_ITEMS:-400}"
 NUM_SLATES="${NUM_SLATES:-20000}"
+# Embeddings (Item2Vec + user) share the sim's movie_*/user_* ids so Recall/Ranking can score them.
+# Set GENERATE_EMBEDDINGS=false for a faster category-only run.
+GENERATE_EMBEDDINGS="${GENERATE_EMBEDDINGS:-true}"
+RATINGS_CSV="$SIM_ROOT/ratings.csv"
+ITEM_EMB_FILE="$SIM_ROOT/item-embedding.txt"
+USER_EMB_OUT="$SIM_ROOT/user-embedding"
+QUERY_ITEM="${ITEM2VEC_QUERY_ITEM:-movie_1}"
 
 # Drain until a probe reaches `target` (>0), or — when target=0 — until it is >0 and unchanged for
 # 3 reads. Target form is needed for the collector (writes ~NUM_ITEMS keys in one batch with gaps).
@@ -52,6 +59,7 @@ redis_cli() { docker compose exec -T redis redis-cli "$@"; }
 
 echo "==> fresh sim dirs under $SIM_ROOT"; rm -rf "$SIM_ROOT"; mkdir -p "$OUT_DIR"
 
+echo "==> resetting infra volumes (avoids stale ZooKeeper broker registration)"; docker compose down -v >/dev/null 2>&1 || true
 echo "==> starting Kafka + Redis"; docker compose up -d zookeeper kafka redis
 echo "==> waiting for Kafka to be healthy"
 for _ in $(seq 1 60); do
@@ -68,6 +76,7 @@ echo "==> building Spark job jar"
 echo "==> producing movie metadata ($CONTEXT_TOPIC) + behavior ($RECSYS_TOPIC)"
 NUM_ITEMS="$NUM_ITEMS" NUM_SLATES="$NUM_SLATES" \
 RECSYS_TOPIC="$RECSYS_TOPIC" MOVIELENS_CONTEXT_TOPIC="$CONTEXT_TOPIC" \
+RATINGS_OUTPUT_PATH="$RATINGS_CSV" \
   python services/python-modeling/movie_segment_producer.py
 
 # Movie metadata → Redis movie:{id}:features  (wait until all NUM_ITEMS keys are written)
@@ -78,6 +87,10 @@ run_and_drain com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt re
 run_and_drain com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
   "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 \
   "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC"
+# Clicks → Redis global:item_popularity  (ranking popularity signal; stable member count)
+run_and_drain com.demo.task.UserEventStreamingJob pop-ckpt popularity \
+  "redis_cli ZCARD global:item_popularity" 0 \
+  "KAFKA_TOPIC=$RECSYS_TOPIC"
 
 echo
 echo "==> CATEGORY REPORT (Parquet engagement ⨝ Redis movie categories)"
@@ -85,5 +98,32 @@ REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" \
   services/python-modeling/movie_category_report.py --input "$OUT_DIR" 2>&1 \
   | grep -vE "INFO|WARN|^[0-9]{2}/"
 
+if [[ "$GENERATE_EMBEDDINGS" == "true" ]]; then
+  if [[ ! -s "$RATINGS_CSV" || "$(wc -l < "$RATINGS_CSV")" -le 1 ]]; then
+    echo "ERROR: no usable positive interactions in $RATINGS_CSV — cannot train embeddings" >&2
+    exit 1
+  fi
+  echo
+  echo "==> ITEM2VEC embeddings (i2vEmb:{movieId}) from $RATINGS_CSV"
+  RATINGS_INPUT_PATH="$RATINGS_CSV" ITEM2VEC_EMBEDDING_PATH="$ITEM_EMB_FILE" \
+  ITEM2VEC_QUERY_ITEM="$QUERY_ITEM" ITEM2VEC_SAVE_TO_REDIS=true \
+  REDIS_HOST=localhost REDIS_PORT=6379 \
+    ./run-offline-pipeline.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
+
+  echo
+  echo "==> USER embeddings (uEmb:{userId})"
+  RATINGS_INPUT_PATH="$RATINGS_CSV" ITEM2VEC_EMBEDDING_PATH="$ITEM_EMB_FILE" \
+  USER_EMBEDDING_OUTPUT_PATH="$USER_EMB_OUT" USER_EMBEDDING_SAVE_TO_REDIS=true \
+  REDIS_HOST=localhost REDIS_PORT=6379 \
+    ./run-user-embedding-pipeline.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
+fi
+
 echo
-echo "==> done. CSVs under $SIM_ROOT/report-categories ; stop infra with: docker compose down"
+echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
+REDIS_HOST=localhost REDIS_PORT=6379 \
+  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" 2>&1 \
+  | grep -vE "INFO|WARN|^[0-9]{2}/"
+
+echo
+echo "==> done. CSVs under $SIM_ROOT/report-categories ; dashboard at $SIM_ROOT/report-dashboard/index.html"
+echo "    stop infra with: docker compose down"
