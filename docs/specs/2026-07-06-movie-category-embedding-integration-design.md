@@ -13,9 +13,12 @@ The simulation emits `movie_*` items and `user_*` users, but the bundled ratings
 1. `movie_segment_producer.py` continues producing movie metadata and behavior events.
 2. The producer additionally writes a ratings CSV when `RATINGS_OUTPUT_PATH` is set. Rows use the same simulated `user_*` and `movie_*` identifiers. Clicks map to rating `4.0`; orders map to `5.0`; timestamps come from the corresponding feedback event. Within one slate, an order supersedes its click so a user/item interaction is written once.
 3. `run-movie-category-sim.sh` sets `RATINGS_OUTPUT_PATH=$SIM_ROOT/ratings.csv`.
-4. After producing Parquet and movie metadata, the script invokes the existing `Item2VecTrainingJob` through `run-offline-pipeline.sh`, with Redis publishing enabled under `i2vEmb`.
-5. The script invokes the existing `UserEmbeddingTrainingJob` through `run-user-embedding-pipeline.sh`, with Redis publishing enabled under `uEmb`.
-6. The consolidated dashboard runs after embeddings are published and writes `$SIM_ROOT/report-dashboard/index.html`.
+4. Between the collector and joiner drains, the script also drains the existing `UserEventStreamingJob` over the same behavior topic, aggregating clicks into the Redis ZSET `global:item_popularity`. This makes the dashboard's ranking `popularity` signal evaluable with `movie_*` identifiers (previously empty). Beyond the original embedding scope, but required for a fully-populated ranking section.
+5. After producing Parquet and movie metadata, the script invokes the existing `Item2VecTrainingJob` through `run-offline-pipeline.sh`, with Redis publishing enabled under `i2vEmb`.
+6. The script invokes the existing `UserEmbeddingTrainingJob` through `run-user-embedding-pipeline.sh`, with Redis publishing enabled under `uEmb`.
+7. The consolidated dashboard runs after embeddings are published and writes `$SIM_ROOT/report-dashboard/index.html`.
+
+Infra note: the script runs `docker compose down -v` before `up -d` so a stale ZooKeeper broker registration cannot fail Kafka startup with `NodeExistsException`.
 
 ## Simulation controls
 
