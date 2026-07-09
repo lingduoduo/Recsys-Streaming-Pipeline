@@ -20,7 +20,11 @@ import redis
 import logistic
 from ranking_eval_report import auc
 
-BASE_FEATURES = ["coldStart", "actionPosition", "impressions", "clicks"]
+# Features are sourced from actionSpace candidate dicts (item, coldStart, impressions,
+# clicks, modelPredictions) so training (the taken action) and scoring (policy picks)
+# read the identical feature schema. actionPosition/top-level-only fields are excluded
+# because they are not present per-candidate and would be dead weight at scoring time.
+BASE_FEATURES = ["coldStart", "impressions", "clicks"]
 
 
 def _model_pred_keys(events) -> list[str]:
@@ -44,15 +48,25 @@ def _vec(cand_like: dict, names: list[str]) -> list[float]:
     for n in names:
         if n == "coldStart":
             out.append(1.0 if cand_like.get("coldStart") else 0.0)
-        elif n in ("actionPosition", "impressions", "clicks"):
+        elif n in ("impressions", "clicks"):
             out.append(float(cand_like.get(n, 0) or 0))
         else:
             out.append(float(mp.get(n, 0.0) or 0.0))
     return out
 
 
+def _taken_candidate(event: dict) -> dict:
+    """The taken action's own actionSpace entry (which carries impressions/clicks);
+    falls back to the event itself if the action is absent from the snapshot."""
+    action = event.get("action")
+    for c in event.get("actionSpace", []):
+        if c.get("item") == action:
+            return c
+    return event
+
+
 def taken_features(event: dict, names: list[str]) -> list[float]:
-    return _vec(event, names)
+    return _vec(_taken_candidate(event), names)
 
 
 def is_test(request_id: str) -> bool:
@@ -84,15 +98,17 @@ def fit_reward_model(events: list[dict]) -> RewardModel:
     Xs, mean, std = logistic.standardize(Xtr)
     w = logistic.fit(Xs, ytr, l2=1.0, lr=0.5, iters=500)
 
-    Xte = np.array([taken_features(e, names) for e in test], dtype=float)
-    pte = logistic.predict_proba(logistic.apply_standardize(Xte, mean, std), w)
-    rte = np.array([float(e.get("reward", 0.0)) for e in test], dtype=float)
-    clicked = [int(e.get("clicked", e.get("reward", 0.0) > 0)) for e in test]
-    calibration = {
-        "n_test": len(test),
-        "mse": round(float(np.mean((pte - rte) ** 2)), 4) if len(test) else None,
-        "auc": auc(list(pte), clicked) if len(test) else None,
-    }
+    if test:
+        Xte = np.array([taken_features(e, names) for e in test], dtype=float)
+        pte = logistic.predict_proba(logistic.apply_standardize(Xte, mean, std), w)
+        rte = np.array([float(e.get("reward", 0.0)) for e in test], dtype=float)
+        clicked = [int(e.get("clicked", e.get("reward", 0.0) > 0)) for e in test]
+        mse = round(float(np.mean((pte - rte) ** 2)), 4)
+        auc_value = auc(list(pte), clicked)
+    else:
+        mse = None
+        auc_value = None
+    calibration = {"n_test": len(test), "mse": mse, "auc": auc_value}
     return RewardModel(names, mean, std, w, calibration)
 
 
@@ -137,16 +153,18 @@ def evaluate(events: list[dict], model: RewardModel) -> list[dict]:
     for name in policy_names(events):
         if name == "logging":
             value = logging_value
+            count = n
         else:
             picks = [pick(name, e) for e in events]
             scored = [model.predict_one(c) for c in picks if c is not None]
-            value = sum(scored) / len(scored) if scored else 0.0
+            count = len(scored)
+            value = sum(scored) / count if scored else 0.0
         lift = (value / logging_value - 1.0) if logging_value else 0.0
         rows.append({
             "policy": name,
             "value": round(value, 4),
             "lift_vs_logging": round(lift, 4),
-            "n_events": n,
+            "n_events": count,
             "estimator_auc": model.calibration["auc"],
             "estimator_mse": model.calibration["mse"],
         })

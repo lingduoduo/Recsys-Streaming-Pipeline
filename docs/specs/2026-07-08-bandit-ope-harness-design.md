@@ -71,8 +71,11 @@ a CLI, structured like `ranking_eval_report.py`.
 - **Training set:** one row per replay event = features of the *taken* action. The
   regression **target is the observed `reward`** (continuous in [0,1]); logistic
   cross-entropy handles soft targets. `q(features) ∈ [0,1]` is the estimated reward.
-- **Features:** `coldStart`, `actionPosition`, `impressions`, `clicks`, and the numeric
-  entries of `modelPredictions.*` (union of keys, missing→0). Standardized; intercept added.
+- **Features:** sourced from the taken action's own `actionSpace` candidate entry (matched
+  by `item == action`) so training and target-policy scoring read the identical schema —
+  `coldStart`, `impressions`, `clicks`, and the numeric entries of `modelPredictions.*`
+  (union of keys, missing→0). `actionPosition` is excluded because it is top-level-only
+  (absent per-candidate) and would be dead weight at scoring time. Standardized; intercept added.
 - **Model:** pure-numpy logistic regression (batch gradient descent, L2, fixed iters/lr)
   in a small `logistic.py` helper — `fit(X, y) → weights`, `predict_proba(X, w)`.
 - **Calibration report:** deterministic train/test split (hash of `requestId`, no RNG),

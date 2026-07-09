@@ -6,10 +6,11 @@ import ope_eval_report as ope
 
 
 def _event(rid, item, mp_rel, impressions, clicks, cold, reward, clicked, pos=0):
+    # Real Java schema: impressions/clicks live ONLY inside actionSpace candidate dicts,
+    # never at the top level. actionPosition is top-level-only (not a scoring feature).
     return {
         "requestId": rid, "user": "u", "action": item,
         "actionPosition": pos, "coldStart": cold,
-        "impressions": impressions, "clicks": clicks,
         "modelPredictions": {"relevance": mp_rel},
         "reward": reward, "clicked": clicked,
         "actionSpace": [
@@ -33,7 +34,7 @@ def _dataset(n=200):
 
 def test_feature_names_include_model_prediction_keys():
     names = ope.feature_names(_dataset(5))
-    assert names[:4] == ["coldStart", "actionPosition", "impressions", "clicks"]
+    assert names[:3] == ["coldStart", "impressions", "clicks"]
     assert "relevance" in names
 
 
@@ -88,3 +89,34 @@ def test_main_reads_redis_and_writes_csv(tmp_path):
         rows = ope.main(["--output", str(out)])
     assert out.is_file()
     assert any(r["policy"] == "logging" for r in rows)
+
+
+def test_estimator_reads_click_signal_from_actionspace():
+    # Reward is driven ONLY by a click signal that lives inside actionSpace (relevance and
+    # coldStart are constant). If the estimator sourced features from the top-level event
+    # (the schema-skew bug), clicks would read 0 for every training row and AUC ~0.5.
+    events = []
+    for i in range(200):
+        clicked_lot = i % 2 == 0
+        clicks = 9 if clicked_lot else 0
+        reward = 1.0 if clicked_lot else 0.0
+        events.append({
+            "requestId": f"c{i}", "user": "u", "action": f"m{i}",
+            "coldStart": False, "modelPredictions": {"relevance": 0.5},
+            "reward": reward, "clicked": int(reward),
+            "actionSpace": [
+                {"item": f"m{i}", "coldStart": False, "impressions": 10,
+                 "clicks": clicks, "modelPredictions": {"relevance": 0.5}},
+            ],
+        })
+    model = ope.fit_reward_model(events)
+    assert model.calibration["auc"] is None or model.calibration["auc"] >= 0.9
+
+
+def test_empty_test_split_does_not_crash(monkeypatch):
+    # Force every event into the train split -> empty held-out set. Must degrade, not crash.
+    monkeypatch.setattr(ope, "is_test", lambda rid: False)
+    model = ope.fit_reward_model(_dataset(20))
+    assert model.calibration["n_test"] == 0
+    assert model.calibration["mse"] is None
+    assert model.calibration["auc"] is None
