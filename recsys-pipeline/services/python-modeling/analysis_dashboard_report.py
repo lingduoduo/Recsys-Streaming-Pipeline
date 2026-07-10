@@ -3,7 +3,7 @@
 
 Standalone pandas/Python (no Spark). Recomputes the metrics from a run's training_samples Parquet
 + Redis and writes a single self-contained index.html. Recall/ranking reuse the pure functions in
-recall_eval_report.py / ranking_eval_report.py; genres/categories via genre_meta / movie_categories.
+recall_eval_report.py / ranking_eval_report.py; genres/categories via feature_derivations.
 
     REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input <parquet>
 """
@@ -31,7 +31,7 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
     df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
     missing_genres = ~df["genres"].map(bool)
     if missing_genres.any():
-        from genre_meta import fetch_movie_meta
+        from feature_derivations import fetch_movie_meta
         meta = {m["item_id"]: m["genres"] for m in fetch_movie_meta(host, port)}
         enriched = df.loc[missing_genres, "item_id"].astype(str).map(lambda i: meta.get(i, []))
         for idx, genres in enriched.items():
@@ -64,7 +64,7 @@ def compute_relevance(df) -> dict:
 
 
 def compute_keyword(df) -> dict:
-    import movie_categories as mc
+    import feature_derivations as mc
     import pandas as pd
 
     d = df.assign(keyword=df["genres"].apply(mc.primary_genre),

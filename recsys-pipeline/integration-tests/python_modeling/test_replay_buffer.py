@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
-import replay_buffer
+import ope_support as replay_buffer
 
 
 def test_load_from_redis_parses_bytes_and_str():

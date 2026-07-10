@@ -77,7 +77,7 @@ def main(args: Sequence[str] | None = None) -> None:
                         help="Max entries to export (-1 = all, default).")
     cfg = parser.parse_args(args)
 
-    import replay_buffer
+    import ope_support as replay_buffer
     client = redis.Redis(host=cfg.redis_host, port=cfg.redis_port, decode_responses=False)
     entries = replay_buffer.load_from_redis(client, cfg.key, cfg.limit)
     if not entries:

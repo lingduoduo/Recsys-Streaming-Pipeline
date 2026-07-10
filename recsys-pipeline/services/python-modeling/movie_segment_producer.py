@@ -2,7 +2,7 @@
 """Synthetic stream for MOVIE-CATEGORY engagement comparison (aligned to MovieEvent).
 
 Each movie gets metadata (title, genres, releaseYear); the 3-level category (l1 family /
-l2 primary genre / l3 genre×decade) is derived via movie_categories. Metadata rides the real
+l2 primary genre / l3 genre×decade) is derived via feature_derivations. Metadata rides the real
 context path; engagement rides the behavior path:
 
   • per movie: a MovieUpdated-shaped record {item_id, title, genres, release_year, timestamp}
@@ -23,7 +23,7 @@ import time
 import uuid
 
 from producer import make_producer
-from movie_categories import GENRES, l1, decade
+from feature_derivations import GENRES, l1, decade
 
 RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")

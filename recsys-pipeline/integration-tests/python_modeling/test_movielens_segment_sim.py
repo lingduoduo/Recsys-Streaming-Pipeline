@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
-import segment_features as sf  # noqa: E402
+import feature_derivations as sf  # noqa: E402
 import movielens_segment_producer as mp  # noqa: E402
 
 
