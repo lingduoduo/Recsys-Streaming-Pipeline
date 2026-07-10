@@ -3,7 +3,7 @@
 #   docker (Kafka+Redis) → movielens_segment_producer
 #     → movielens_context → MovieLensContextCollectorStreamingJob → Redis user:{id}:features
 #     → recsys_events     → OnlineJoinerStreamingJob              → Parquet (engagement)
-#   → movielens_segment_report.py joins Parquet engagement with Redis demographics.
+#   → SegmentReportJob (Scala) joins Parquet engagement with Redis demographics.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -89,9 +89,9 @@ run_and_drain com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
 
 echo
 echo "==> SEGMENT REPORT (Parquet engagement ⨝ Redis demographics)"
-REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" \
-  services/python-modeling/movielens_segment_report.py --input "$OUT_DIR" 2>&1 \
-  | grep -vE "INFO|WARN|^[0-9]{2}/"
+SPARK_MAIN_CLASS=com.demo.report.SegmentReportJob \
+SEGMENT_REPORT_INPUT_PATH="$OUT_DIR" REDIS_HOST=localhost \
+  ./run-streaming-job.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 echo
 echo "==> done. CSVs under $SIM_ROOT/report-segments ; stop infra with: docker compose down"
