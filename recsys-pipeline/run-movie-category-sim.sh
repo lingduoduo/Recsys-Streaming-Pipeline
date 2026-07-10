@@ -3,7 +3,7 @@
 #   docker (Kafka+Redis) → movie_segment_producer
 #     → movielens_context → MovieLensContextCollectorStreamingJob → Redis movie:{id}:features
 #     → recsys_events     → OnlineJoinerStreamingJob              → Parquet (engagement)
-#   → movie_category_report.py joins Parquet engagement with Redis movie categories (l1/l2/l3).
+#   → MovieCategoryReportJob (Scala) joins Parquet engagement with Redis movie categories (l1/l2/l3).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -94,9 +94,9 @@ run_and_drain com.demo.task.UserEventStreamingJob pop-ckpt popularity \
 
 echo
 echo "==> CATEGORY REPORT (Parquet engagement ⨝ Redis movie categories)"
-REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" \
-  services/python-modeling/movie_category_report.py --input "$OUT_DIR" 2>&1 \
-  | grep -vE "INFO|WARN|^[0-9]{2}/"
+SPARK_MAIN_CLASS=com.demo.report.MovieCategoryReportJob \
+MOVIE_CATEGORY_INPUT_PATH="$OUT_DIR" REDIS_HOST=localhost \
+  ./run-streaming-job.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 if [[ "$GENERATE_EMBEDDINGS" == "true" ]]; then
   if [[ ! -s "$RATINGS_CSV" || "$(wc -l < "$RATINGS_CSV")" -le 1 ]]; then

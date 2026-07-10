@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -71,22 +70,3 @@ def test_ratings_from_events_prefers_order_and_ignores_impressions():
     ])
     assert rows == [{"userId": "user_1", "movieId": "movie_7",
                      "rating": 5.0, "timestamp": 5}]
-
-
-# ── report: Redis movie-feature parsing (no Spark needed) ────────────────────────
-def test_fetch_movie_features_parses_and_derives():
-    import movie_category_report as rep
-
-    fake = MagicMock()
-    fake.scan_iter.return_value = ["movie:movie_1:features"]
-    fake.hgetall.return_value = {"title": "Movie 1", "genres": "Sci-Fi,Action", "releaseYear": "2015"}
-    with patch("redis.Redis", return_value=fake):
-        rows = rep.fetch_movie_features("localhost", 6379)
-
-    assert rows == [{"item_id": "movie_1", "l1": "SciFi&Fantasy",
-                     "l2": "Sci-Fi", "l3": "Sci-Fi·2010s"}]
-
-
-def test_fetch_movie_features_empty_when_redis_down():
-    import movie_category_report as rep
-    assert rep.fetch_movie_features("127.0.0.1", 6399) == []
