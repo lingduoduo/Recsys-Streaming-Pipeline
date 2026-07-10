@@ -13,9 +13,9 @@ import replay_export
 
 
 SAMPLE_ENTRIES = [
-    {"userId": "u1", "itemId": "m001", "score": 0.8, "reward": 0.9, "timestamp": 1718300000000},
-    {"userId": "u1", "itemId": "m002", "score": 0.5, "reward": 0.2, "timestamp": 1718300001000},
-    {"userId": "u2", "itemId": "m001", "score": 0.6, "reward": 1.0, "timestamp": 1718300002000},
+    {"user": "u1", "action": "m001", "banditScore": 0.8, "reward": 0.9, "timestamp": 1718300000000},
+    {"user": "u1", "action": "m002", "banditScore": 0.5, "reward": 0.2, "timestamp": 1718300001000},
+    {"user": "u2", "action": "m001", "banditScore": 0.6, "reward": 1.0, "timestamp": 1718300002000},
 ]
 
 
@@ -29,7 +29,7 @@ def test_convert_entries_to_rows():
 
 
 def test_convert_entries_reward_clipped_to_five():
-    entries = [{"userId": "u1", "itemId": "m1", "score": 0.1, "reward": 1.5, "timestamp": 0}]
+    entries = [{"user": "u1", "action": "m1", "reward": 1.5, "timestamp": 0}]
     rows = replay_export.entries_to_rows(entries)
     assert float(rows[0]["rating"]) == 5.0
 
@@ -52,7 +52,7 @@ def test_write_parquet_roundtrips_raw_tuples(tmp_path):
     df = pd.read_parquet(output)
     assert len(df) == 3
     # raw experience fields preserved (not the CSV rating mapping)
-    assert {"userId", "itemId", "score", "reward", "timestamp"}.issubset(df.columns)
+    assert {"user", "action", "banditScore", "reward", "timestamp"}.issubset(df.columns)
     assert df.iloc[0]["reward"] == pytest.approx(0.9)
 
 

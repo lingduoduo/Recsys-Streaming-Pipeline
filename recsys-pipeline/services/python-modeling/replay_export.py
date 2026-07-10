@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import os
 from pathlib import Path
 from typing import Sequence
@@ -31,8 +30,8 @@ def entries_to_rows(entries: list[dict]) -> list[dict]:
     for e in entries:
         rating = min(float(e.get("reward", 0.0)) * 5.0, 5.0)
         rows.append({
-            "userId": str(e["userId"]),
-            "movieId": str(e["itemId"]),
+            "userId": str(e["user"]),
+            "movieId": str(e["action"]),
             "rating": f"{rating:.1f}",
             "timestamp": str(int(e.get("timestamp", 0))),
         })
@@ -78,12 +77,12 @@ def main(args: Sequence[str] | None = None) -> None:
                         help="Max entries to export (-1 = all, default).")
     cfg = parser.parse_args(args)
 
+    import replay_buffer
     client = redis.Redis(host=cfg.redis_host, port=cfg.redis_port, decode_responses=False)
-    raw = client.lrange(cfg.key, 0, cfg.limit)
-    if not raw:
+    entries = replay_buffer.load_from_redis(client, cfg.key, cfg.limit)
+    if not entries:
         print(f"No entries found at {cfg.key}")
         return
-    entries = [json.loads(b) for b in raw]
     write_csv(entries, cfg.output)
     if cfg.parquet is not None:
         write_parquet(entries, cfg.parquet)
