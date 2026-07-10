@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
-import logistic
+import ope_support as logistic
 
 
 def test_separable_data_learns_perfect_ranking():

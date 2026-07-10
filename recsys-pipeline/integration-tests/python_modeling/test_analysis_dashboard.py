@@ -38,7 +38,7 @@ def test_load_samples_enriches_empty_genres_from_redis(tmp_path, monkeypatch):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     import analysis_dashboard_report as dash
-    import genre_meta
+    import feature_derivations as genre_meta
 
     parquet = tmp_path / "samples"
     pd.DataFrame({

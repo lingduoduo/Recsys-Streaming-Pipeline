@@ -17,7 +17,7 @@ import os
 import numpy as np
 import redis
 
-import logistic
+import ope_support as logistic
 from ranking_eval_report import auc
 
 # Features are sourced from actionSpace candidate dicts (item, coldStart, impressions,
@@ -182,7 +182,7 @@ def main(argv=None) -> list[dict]:
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
 
-    import replay_buffer
+    import ope_support as replay_buffer
     if args.parquet:
         events = replay_buffer.load_from_parquet(args.parquet)
     else:

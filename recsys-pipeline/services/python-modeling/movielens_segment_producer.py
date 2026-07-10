@@ -12,7 +12,7 @@ demographics through the REAL context path and keeps engagement on the behavior 
 
 Engagement probability is modulated by the user's canonical demographics (ground truth, below),
 so the report — which joins Parquet engagement with Redis demographics — recovers the segment
-differences. age→age_band and zip_code→geo are derived via segment_features.
+differences. age→age_band and zip_code→geo are derived via feature_derivations.
 
 Env: KAFKA_BOOTSTRAP_SERVERS, RECSYS_TOPIC (recsys_events), MOVIELENS_CONTEXT_TOPIC
 (movielens_context), NUM_USERS (800), NUM_SLATES (20000), NUM_ITEMS (30), SLATE_SIZE (5), SEED (13).
@@ -25,7 +25,7 @@ import time
 import uuid
 
 from producer import make_producer
-from segment_features import derive_age_band, derive_geo
+from feature_derivations import derive_age_band, derive_geo
 
 RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")

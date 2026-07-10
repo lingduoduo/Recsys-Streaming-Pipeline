@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
-import movie_categories as mc  # noqa: E402
+import feature_derivations as mc  # noqa: E402
 import movie_segment_producer as mp  # noqa: E402
 
 

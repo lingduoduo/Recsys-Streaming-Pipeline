@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
-import movie_categories as mc  # noqa: E402
+import feature_derivations as mc  # noqa: E402
 
 
 def test_secondary_genre():
