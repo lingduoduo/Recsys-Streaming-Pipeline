@@ -1179,7 +1179,7 @@ genres/embeddings from Redis where needed). The first three are PySpark (run via
 
 | Report | Script | What it shows | Outputs |
 |--------|--------|---------------|---------|
-| **Keyword / SubKeyword Distributions** | `keyword_analysis_report.py` | Distribution of keyword (1st genre) & subkeyword (2nd genre) for movies vs queries; per-category (l1/l2/l3) top keywords | `by_keyword`, `by_subkeyword`, `top_keywords_l1/l2/l3` |
+| **Keyword / SubKeyword Distributions** | `KeywordAnalysisReportJob` (Scala) | Distribution of keyword (1st genre) & subkeyword (2nd genre) for movies vs queries; per-category (l1/l2/l3) top keywords | `by_keyword`, `by_subkeyword`, `top_keywords_l1/l2/l3` |
 | **Query Analysis** | `query_analysis_report.py` | Most-common queries (genre-combo intent); short (≤10 chars) vs long (>10) query engagement | `top_queries`, `by_query_length` |
 | **Relevance Analysis** | `relevance_analysis_report.py` | Relevance-state (impression/click/order) distribution + mean score by query and by movie genre | `by_state`, `by_query`, `by_genre` |
 | **Recall-Task Performance** | `recall_eval_report.py` | BM25 vs embedding vs hybrid (RRF) retrieval, leave-one-out per user | `recall_eval.csv` (recall@k, hitrate@k) |
@@ -1193,8 +1193,10 @@ Definitions shared across reports: a **query** = a recommended impression's genr
 ```bash
 IN=/tmp/spark-recsys/movie-category-sim/training-samples   # any sim's training_samples Parquet
 
+# Keyword analysis — pure-Spark Scala job (build once: cd services/spark-streaming-job && sbt assembly)
+SPARK_MAIN_CLASS=com.demo.report.KeywordAnalysisReportJob KEYWORD_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+
 # PySpark reports
-REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/keyword_analysis_report.py   --input "$IN"
 REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/query_analysis_report.py     --input "$IN"
 REDIS_HOST=localhost "$SPARK_HOME/bin/spark-submit" services/python-modeling/relevance_analysis_report.py --input "$IN"
 

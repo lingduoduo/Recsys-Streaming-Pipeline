@@ -16,6 +16,13 @@ class MovieCategoriesSpec extends AnyFlatSpec with Matchers {
     MovieCategories.l2("Comedy,Drama") shouldBe "Comedy"
   }
 
+  it should "return the second genre as subkeyword, or none when only one" in {
+    MovieCategories.secondaryGenre("Sci-Fi,Action") shouldBe "Action"
+    MovieCategories.secondaryGenre("Crime,Thriller") shouldBe "Thriller"
+    MovieCategories.secondaryGenre("Drama") shouldBe "none"
+    MovieCategories.secondaryGenre("") shouldBe "none"
+  }
+
   it should "fall back to unknown for missing/blank genres and years" in {
     MovieCategories.l2("") shouldBe "unknown"
     MovieCategories.l2(null) shouldBe "unknown"
