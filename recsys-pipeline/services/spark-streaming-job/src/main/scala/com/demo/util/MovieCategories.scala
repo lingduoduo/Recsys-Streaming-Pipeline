@@ -27,6 +27,12 @@ object MovieCategories {
 
   def primaryGenre(genres: String): String = asList(genres).headOption.getOrElse("unknown")
 
+  /** Second genre (the "subkeyword"); "none" when a movie has only one genre. */
+  def secondaryGenre(genres: String): String = {
+    val g = asList(genres)
+    if (g.length > 1) g(1) else "none"
+  }
+
   def familyOf(genre: String): String = GenreFamily.getOrElse(genre, "Other")
 
   def decade(year: String): String =
