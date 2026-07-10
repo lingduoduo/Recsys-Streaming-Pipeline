@@ -605,7 +605,7 @@ Environment variables:
 Each behavior slate carries a `session_id` (producers group 1..`SESSION_MAX_SLATES` slates per user
 into a session). `OnlineJoinerStreamingJob` threads it through to `training_samples` (Kafka value +
 Parquet), and `ExperienceCollectorStreamingJob` carries it into `training_experiences`. It is
-additive and nullable. `services/python-modeling/session_report.py` aggregates session-level
+additive and nullable. `SessionReportJob` (Scala) aggregates session-level
 engagement (sessions/user, slates/session, clicks/session, session CTR) from the Parquet.
 
 ### Event de-duplication (Phase 2)
@@ -1163,8 +1163,8 @@ generated.
 | User segments | `run-movielens-segment-sim.sh` | How does engagement differ by cohort / age / sex / education / geo / platform (+ `avg_rating`)? |
 | Movie categories | `run-movie-category-sim.sh` | How does engagement differ by 3-level category (l1 genre family / l2 genre / l3 genre×decade)? |
 
-Reports (`services/python-modeling/*_report*.py`, `session_report.py`) read the resulting Parquet
-(joining Redis demographics/movie features where needed) and write per-segment CSVs.
+Reports (`services/python-modeling/*_report*.py`, plus the Scala `com.demo.report.*` jobs) read the
+resulting Parquet (joining Redis demographics/movie features where needed) and write per-segment CSVs.
 
 > Run PySpark reports through the project's pinned Spark: `"$SPARK_HOME/bin/spark-submit"`. A
 > mismatched pip `pyspark` (vs `$SPARK_HOME`) fails with `JavaPackage object is not callable`. See
@@ -1216,7 +1216,7 @@ See `docs/specs/` and `docs/plans/` for each report's full spec/plan.
 |---|---|---|
 | Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
 | Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, two-tower, catalog loader, model reload |
-| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, `session_report`, and the analysis reports (keyword / query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
+| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, and the analysis reports (query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
 
 The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform
 (no Kafka/Redis needed). Some Python integration tests shell out to `"$SPARK_HOME/bin/spark-submit"`
