@@ -138,13 +138,15 @@ public final class MovieLensPolicyEvaluation {
             List<Double> returns = new ArrayList<>(episodes);
             long stepTotal = 0;
             for (int episode = 0; episode < episodes; episode++) {
-                long episodeSeed = derivedSeed(seed, episode, named.name());
-                Random random = new Random(episodeSeed);
+                Random environmentRandom = new Random(derivedSeed(seed, episode, "environment"));
+                Random policyRandom = new Random(derivedSeed(seed, episode,
+                        named.name() + ":policy"));
                 int userIndex = new Random(derivedSeed(seed, episode, "user"))
                         .nextInt(dataset.userIds().size());
                 int userId = dataset.userIds().get(userIndex);
                 FiniteHorizonEnvironment.Rollout rollout =
-                        environment.rollout(userId, named.policy(), random, discount);
+                        environment.rollout(userId, named.policy(), environmentRandom,
+                                policyRandom, discount);
                 returns.add(rollout.discountedReturn());
                 stepTotal += rollout.steps();
             }

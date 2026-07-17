@@ -41,8 +41,21 @@ class MovieLensPolicyEvaluationTest {
                 List.of(-2.0, 0.0, 4.0, 8.0), 200, 31);
 
         assertThat(first).containsExactly(second);
-        assertThat(first[0]).isLessThanOrEqualTo(2.5);
-        assertThat(first[1]).isGreaterThanOrEqualTo(2.5);
+        assertThat(first).containsExactly(-0.5124999999999997, 6.0);
+    }
+
+    @Test
+    void bootstrapAndPriorEvaluationCannotPerturbLaterPolicyResults() throws Exception {
+        MovieLensDataset data = dataset();
+        FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 3, 2, -1.0);
+        List<MovieLensPolicyEvaluation.Result> baseline =
+                MovieLensPolicyEvaluation.evaluate(data, environment, 20, 0.9, 17, 100);
+
+        MovieLensPolicyEvaluation.evaluate(data, environment, 7, 0.5, 999, 13);
+        MovieLensPolicyEvaluation.bootstrapBounds(List.of(-100.0, 100.0), 1000, 8);
+
+        assertThat(MovieLensPolicyEvaluation.evaluate(data, environment, 20, 0.9, 17, 100))
+                .isEqualTo(baseline);
     }
 
     @Test
@@ -81,6 +94,18 @@ class MovieLensPolicyEvaluationTest {
         assertInvalid(flag("--discount", "NaN"), "--discount must be in [0, 1]");
         assertInvalid(flag("--unrated-reward", "Infinity"), "--unrated-reward must be finite");
         assertInvalid(flag("--episodes", "abc"), "Invalid integer for --episodes: abc");
+        assertInvalid(flag("--seed", "abc"), "Invalid integer for --seed: abc");
+        assertInvalid(flag("--discount", "abc"), "Invalid number for --discount: abc");
+        assertInvalid(flag("--unrated-reward", "abc"),
+                "Invalid number for --unrated-reward: abc");
+    }
+
+    @Test
+    void optionsAcceptInclusiveDiscountBoundaries() {
+        assertThat(MovieLensPolicyEvaluation.Options.parse(flag("--discount", "0")).discount())
+                .isZero();
+        assertThat(MovieLensPolicyEvaluation.Options.parse(flag("--discount", "1")).discount())
+                .isEqualTo(1.0);
     }
 
     @Test

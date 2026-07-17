@@ -134,6 +134,29 @@ class FiniteHorizonEnvironmentTest {
     }
 
     @Test
+    void rolloutKeepsEnvironmentAndPolicyRandomStreamsIndependent() throws Exception {
+        MovieLensDataset data = dataset(popularityWindowCsv());
+        FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 4, 2, -1.0);
+        List<List<Integer>> observedCandidates = new java.util.ArrayList<>();
+        EvaluationPolicy noExtraDraws = (state, random) -> {
+            observedCandidates.add(state.availableActions());
+            return state.availableActions().get(0);
+        };
+        EvaluationPolicy manyExtraDraws = (state, random) -> {
+            observedCandidates.add(state.availableActions());
+            for (int draw = 0; draw < 100; draw++) random.nextLong();
+            return state.availableActions().get(0);
+        };
+
+        environment.rollout(1, noExtraDraws, new Random(19), new Random(23), 0.9);
+        List<List<Integer>> withoutExtraDraws = List.copyOf(observedCandidates);
+        observedCandidates.clear();
+        environment.rollout(1, manyExtraDraws, new Random(19), new Random(23), 0.9);
+
+        assertThat(observedCandidates).isEqualTo(withoutExtraDraws);
+    }
+
+    @Test
     void rejectsInvalidConfigurationAndDiscount() throws Exception {
         MovieLensDataset data = dataset(baseCsv());
         assertThatThrownBy(() -> new FiniteHorizonEnvironment(data, 0, 1, -1.0))

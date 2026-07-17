@@ -83,16 +83,25 @@ public final class FiniteHorizonEnvironment {
     public Rollout rollout(int userId, EvaluationPolicy policy, Random random, double discount) {
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(random, "random");
+        return rollout(userId, policy, new Random(random.nextLong()),
+                new Random(random.nextLong()), discount);
+    }
+
+    public Rollout rollout(int userId, EvaluationPolicy policy, Random environmentRandom,
+                           Random policyRandom, double discount) {
+        Objects.requireNonNull(policy, "policy");
+        Objects.requireNonNull(environmentRandom, "environmentRandom");
+        Objects.requireNonNull(policyRandom, "policyRandom");
         if (!Double.isFinite(discount) || discount < 0.0 || discount > 1.0) {
             throw new IllegalArgumentException("Discount must be in [0, 1]");
         }
 
-        State state = initialState(userId, random);
+        State state = initialState(userId, environmentRandom);
         double discountedReturn = 0.0;
         double discountPower = 1.0;
         int steps = 0;
         while (!state.availableActions().isEmpty() && state.step() < slateSize) {
-            int action = policy.select(state, random);
+            int action = policy.select(state, policyRandom);
             Step transition = step(state, action);
             discountedReturn += discountPower * transition.reward();
             discountPower *= discount;
