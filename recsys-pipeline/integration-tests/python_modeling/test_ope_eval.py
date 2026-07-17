@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 import ope_eval_report as ope
 
@@ -120,3 +122,55 @@ def test_empty_test_split_does_not_crash(monkeypatch):
     assert model.calibration["n_test"] == 0
     assert model.calibration["mse"] is None
     assert model.calibration["auc"] is None
+
+
+def _interval_rows(events, samples=120, seed=17):
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    return ope.bootstrap_intervals(events, model, points, samples=samples, seed=seed)
+
+
+def test_bootstrap_is_deterministic_and_does_not_mutate_points():
+    events = _dataset(80)
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    snapshot = [dict(row) for row in points]
+    assert (ope.bootstrap_intervals(events, model, points, 80, 31)
+            == ope.bootstrap_intervals(events, model, points, 80, 31))
+    assert points == snapshot
+
+
+def test_bootstrap_intervals_contain_stable_points():
+    rows = _interval_rows(_dataset(100), samples=160, seed=7)
+    for row in rows:
+        assert row["value_ci_low"] <= row["value"] <= row["value_ci_high"]
+    logging = next(row for row in rows if row["policy"] == "logging")
+    assert (logging["lift_ci_low"], logging["lift_ci_high"]) == (0.0, 0.0)
+
+
+def test_bootstrap_edge_cases():
+    one = _interval_rows([_dataset(1)[0]], samples=20, seed=3)
+    assert all(row["value_ci_low"] == row["value_ci_high"] for row in one)
+    disabled = _interval_rows(_dataset(20), samples=0)
+    assert all(all(row[field] is None for field in ope.INTERVAL_FIELDS)
+               for row in disabled)
+
+
+def test_zero_reward_has_value_intervals_but_no_lift():
+    events = _dataset(40)
+    for event in events:
+        event["reward"] = 0.0
+        event["clicked"] = 0
+    rows = _interval_rows(events, samples=50, seed=5)
+    for row in rows:
+        assert row["value_ci_low"] is not None
+        assert row["lift_vs_logging"] is None
+        assert row["lift_ci_low"] is None
+        assert row["lift_ci_high"] is None
+
+
+def test_negative_bootstrap_samples_are_rejected():
+    events = _dataset(20)
+    model = ope.fit_reward_model(events)
+    with pytest.raises(ValueError, match="bootstrap samples must be nonnegative"):
+        ope.bootstrap_intervals(events, model, ope.evaluate(events, model), samples=-1)

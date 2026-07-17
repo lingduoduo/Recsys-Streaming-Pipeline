@@ -159,17 +159,50 @@ def evaluate(events: list[dict], model: RewardModel) -> list[dict]:
             scored = [model.predict_one(c) for c in picks if c is not None]
             count = len(scored)
             value = sum(scored) / count if scored else 0.0
-        lift = (value / logging_value - 1.0) if logging_value else 0.0
+        lift = (value / logging_value - 1.0) if logging_value > 0.0 else None
         rows.append({
             "policy": name,
             "value": round(value, 4),
-            "lift_vs_logging": round(lift, 4),
+            "lift_vs_logging": round(lift, 4) if lift is not None else None,
             "n_events": count,
             "estimator_auc": model.calibration["auc"],
             "estimator_mse": model.calibration["mse"],
         })
     rows.sort(key=lambda r: r["value"], reverse=True)
     return rows
+
+
+INTERVAL_FIELDS = ["value_ci_low", "value_ci_high", "lift_ci_low", "lift_ci_high"]
+
+
+def _percentile_bounds(values):
+    if not values:
+        return None, None
+    low, high = np.percentile(np.asarray(values, dtype=float), [2.5, 97.5])
+    return round(float(low), 4), round(float(high), 4)
+
+
+def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
+    if samples < 0:
+        raise ValueError("bootstrap samples must be nonnegative")
+    enriched = [{**row, **{field: None for field in INTERVAL_FIELDS}}
+                for row in point_rows]
+    if samples == 0 or not events:
+        return enriched
+    stats = {row["policy"]: {"value": [], "lift": []} for row in point_rows}
+    rng = np.random.default_rng(seed)
+    for _ in range(samples):
+        indexes = rng.integers(0, len(events), size=len(events))
+        sampled = [events[int(index)] for index in indexes]
+        for row in evaluate(sampled, model):
+            stats[row["policy"]]["value"].append(float(row["value"]))
+            if row["lift_vs_logging"] is not None:
+                stats[row["policy"]]["lift"].append(float(row["lift_vs_logging"]))
+    for row in enriched:
+        policy_stats = stats[row["policy"]]
+        row["value_ci_low"], row["value_ci_high"] = _percentile_bounds(policy_stats["value"])
+        row["lift_ci_low"], row["lift_ci_high"] = _percentile_bounds(policy_stats["lift"])
+    return enriched
 
 
 def main(argv=None) -> list[dict]:
