@@ -7,6 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,6 +36,38 @@ class FiniteHorizonEnvironmentTest {
         assertThat(first.availableActions()).hasSizeLessThanOrEqualTo(3).doesNotHaveDuplicates();
         assertThatThrownBy(() -> first.availableActions().add(99))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void candidatePoolReservesSpaceForBothRatedAndUnseenMovies() throws Exception {
+        MovieLensDataset data = dataset(popularityWindowCsv());
+        FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 4, 2, -1.0);
+
+        List<Integer> actions = environment.initialState(1, new Random(17)).availableActions();
+
+        assertThat(actions).anyMatch(data.ratingsFor(1)::containsKey);
+        assertThat(actions).anyMatch(movieId -> !data.ratingsFor(1).containsKey(movieId));
+    }
+
+    @Test
+    void unseenSamplingIsReproducibleSeedSensitiveAndLimitedToTopPopularityWindow()
+            throws Exception {
+        MovieLensDataset data = dataset(popularityWindowCsv());
+        FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 4, 2, -1.0);
+
+        FiniteHorizonEnvironment.State first = environment.initialState(1, new Random(17));
+        FiniteHorizonEnvironment.State repeated = environment.initialState(1, new Random(17));
+        Set<Set<Integer>> unseenSelections = IntStream.range(0, 30)
+                .mapToObj(seed -> environment.initialState(1, new Random(seed)).availableActions())
+                .map(actions -> actions.stream()
+                        .filter(movieId -> !data.ratingsFor(1).containsKey(movieId))
+                        .collect(Collectors.toSet()))
+                .collect(Collectors.toSet());
+
+        assertThat(first).isEqualTo(repeated);
+        assertThat(unseenSelections).hasSizeGreaterThan(1);
+        assertThat(unseenSelections).allSatisfy(selection ->
+                assertThat(selection).hasSize(2).isSubsetOf(20, 21, 22, 23));
     }
 
     @Test
@@ -82,8 +117,14 @@ class FiniteHorizonEnvironmentTest {
 
     @Test
     void rolloutUsesExactDiscountPowers() throws Exception {
-        FiniteHorizonEnvironment environment = environment(2, 2, -1.0);
-        EvaluationPolicy ordered = (state, random) -> state.availableActions().get(0);
+        MovieLensDataset data = dataset("""
+                userId,movieId,rating,timestamp
+                1,10,5,0
+                1,20,4,0
+                """);
+        FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 2, 2, -1.0);
+        EvaluationPolicy ordered = (state, random) -> state.availableActions().stream()
+                .min(Integer::compareTo).orElseThrow();
 
         FiniteHorizonEnvironment.Rollout result =
                 environment.rollout(1, ordered, new Random(4), 0.5);
@@ -99,8 +140,18 @@ class FiniteHorizonEnvironmentTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new FiniteHorizonEnvironment(data, 1, 0, -1.0))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FiniteHorizonEnvironment(data, -1, 1, -1.0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FiniteHorizonEnvironment(data, 1, -1, -1.0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FiniteHorizonEnvironment(data, 1, 1, Double.NaN))
+                .isInstanceOf(IllegalArgumentException.class);
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 2, 2, -1.0);
         assertThatThrownBy(() -> environment.rollout(1, EvaluationPolicy.uniform(), new Random(), 1.01))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> environment.rollout(1, EvaluationPolicy.uniform(), new Random(), -0.01))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> environment.rollout(1, EvaluationPolicy.uniform(), new Random(), Double.NaN))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -117,6 +168,31 @@ class FiniteHorizonEnvironmentTest {
                 2,10,3,0
                 2,20,2,0
                 2,30,5,0
+                """;
+    }
+
+    private String popularityWindowCsv() {
+        return """
+                userId,movieId,rating,timestamp
+                1,10,5,0
+                1,11,4,0
+                1,12,3,0
+                1,13,2,0
+                2,20,4,0
+                2,21,4,0
+                2,22,4,0
+                2,23,4,0
+                2,24,4,0
+                3,20,4,0
+                3,21,4,0
+                3,22,4,0
+                3,23,4,0
+                4,20,4,0
+                4,21,4,0
+                4,22,4,0
+                5,20,4,0
+                5,21,4,0
+                6,20,4,0
                 """;
     }
 

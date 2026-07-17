@@ -41,19 +41,28 @@ public final class FiniteHorizonEnvironment {
 
         List<Integer> rated = new ArrayList<>(ratings.keySet());
         Collections.shuffle(rated, random);
-        List<Integer> candidates = new ArrayList<>(candidatePoolSize);
-        rated.stream().limit(candidatePoolSize).forEach(candidates::add);
+        List<Integer> unseen = dataset.movieIds().stream()
+                .filter(movieId -> !ratings.containsKey(movieId))
+                .sorted(Comparator
+                        .<Integer>comparingInt(movieId -> dataset.movieCounts().get(movieId))
+                        .reversed()
+                        .thenComparingInt(Integer::intValue))
+                .toList();
+        int targetSize = Math.min(candidatePoolSize, rated.size() + unseen.size());
+        int unseenSlots = unseen.isEmpty() ? 0
+                : Math.min(unseen.size(), Math.max(1, targetSize / 2));
+        int ratedSlots = Math.min(rated.size(), targetSize - unseenSlots);
+        unseenSlots = Math.min(unseen.size(), targetSize - ratedSlots);
 
-        if (candidates.size() < candidatePoolSize) {
-            dataset.movieIds().stream()
-                    .filter(movieId -> !ratings.containsKey(movieId))
-                    .sorted(Comparator
-                            .<Integer>comparingInt(movieId -> dataset.movieCounts().get(movieId))
-                            .reversed()
-                            .thenComparingInt(Integer::intValue))
-                    .limit(candidatePoolSize - candidates.size())
-                    .forEach(candidates::add);
+        List<Integer> candidates = new ArrayList<>(targetSize);
+        rated.stream().limit(ratedSlots).forEach(candidates::add);
+        if (unseenSlots > 0) {
+            int windowSize = Math.min(unseen.size(), unseenSlots * 2);
+            List<Integer> popularityWindow = new ArrayList<>(unseen.subList(0, windowSize));
+            Collections.shuffle(popularityWindow, random);
+            popularityWindow.stream().limit(unseenSlots).forEach(candidates::add);
         }
+        Collections.shuffle(candidates, random);
         return new State(userId, candidates, 0);
     }
 
