@@ -188,8 +188,8 @@ public final class MovieLensPolicyEvaluation {
                     options.candidatePoolSize(), options.slateSize(), options.unratedReward());
             List<Result> results = evaluate(dataset, environment, options.episodes(),
                     options.discount(), options.seed(), options.bootstrapSamples());
-            printConsole(results, out);
             if (options.output() != null) writeCsv(results, options.output());
+            printConsole(results, out);
             return 0;
         } catch (IllegalArgumentException | IOException error) {
             err.println("error: " + error.getMessage());

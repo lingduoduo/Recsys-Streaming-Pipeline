@@ -2,7 +2,6 @@ package com.demo.retrieval.evaluation;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -41,12 +40,8 @@ public final class FiniteHorizonEnvironment {
 
         List<String> rated = new ArrayList<>(ratings.keySet());
         Collections.shuffle(rated, random);
-        List<String> unseen = dataset.movieIds().stream()
+        List<String> unseen = dataset.movieIdsByPopularity().stream()
                 .filter(movieId -> !ratings.containsKey(movieId))
-                .sorted(Comparator
-                        .<String>comparingInt(movieId -> dataset.movieCounts().get(movieId))
-                        .reversed()
-                        .thenComparing(Comparator.naturalOrder()))
                 .toList();
         int targetSize = Math.min(candidatePoolSize, rated.size() + unseen.size());
         int unseenSlots = unseen.isEmpty() ? 0

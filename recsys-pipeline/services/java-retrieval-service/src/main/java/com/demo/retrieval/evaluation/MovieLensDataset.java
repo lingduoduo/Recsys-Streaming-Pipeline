@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ public final class MovieLensDataset {
     private final Map<String, Map<String, Double>> ratingsByUser;
     private final List<String> userIds;
     private final List<String> movieIds;
+    private final List<String> movieIdsByPopularity;
     private final Map<String, Integer> movieCounts;
     private final Map<String, Double> movieSums;
     private final double globalMean;
@@ -40,6 +42,12 @@ public final class MovieLensDataset {
         this.movieIds = List.copyOf(counts.keySet());
         this.movieCounts = Collections.unmodifiableMap(new LinkedHashMap<>(counts));
         this.movieSums = Collections.unmodifiableMap(new LinkedHashMap<>(sums));
+        this.movieIdsByPopularity = movieIds.stream()
+                .sorted(Comparator
+                        .<String>comparingInt(movieId -> movieCounts.get(movieId))
+                        .reversed()
+                        .thenComparing(Comparator.naturalOrder()))
+                .toList();
         double total = sums.values().stream().mapToDouble(Double::doubleValue).sum();
         int count = counts.values().stream().mapToInt(Integer::intValue).sum();
         this.globalMean = total / count;
@@ -123,7 +131,8 @@ public final class MovieLensDataset {
             int beforeRatings = ratings.values().stream().mapToInt(Map::size).sum();
             ratings.values().forEach(userRatings ->
                     removedMovies.forEach(userRatings::remove));
-            ratings.entrySet().removeIf(entry -> entry.getValue().size() < minUserRatings);
+            ratings.entrySet().removeIf(entry -> entry.getValue().isEmpty()
+                    || entry.getValue().size() < minUserRatings);
             int afterRatings = ratings.values().stream().mapToInt(Map::size).sum();
             changed = beforeUsers != ratings.size() || beforeRatings != afterRatings;
         } while (changed);
@@ -142,6 +151,10 @@ public final class MovieLensDataset {
 
     public List<String> movieIds() {
         return movieIds;
+    }
+
+    public List<String> movieIdsByPopularity() {
+        return movieIdsByPopularity;
     }
 
     public Map<String, Double> ratingsFor(String userId) {

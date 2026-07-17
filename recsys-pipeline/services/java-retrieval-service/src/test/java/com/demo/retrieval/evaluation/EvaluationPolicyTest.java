@@ -49,13 +49,13 @@ class EvaluationPolicyTest {
         MovieLensDataset data = dataset("""
                 userId,movieId,rating,timestamp
                 1,10,5,0
-                1,20,5,0
+                1,2,5,0
                 2,10,3,0
-                2,20,3,0
+                2,2,3,0
                 """);
 
         String selected = EvaluationPolicy.greedy(data).select(
-                new FiniteHorizonEnvironment.State("1", List.of("20", "10"), 0), new Random(1));
+                new FiniteHorizonEnvironment.State("1", List.of("2", "10"), 0), new Random(1));
 
         assertThat(selected).isEqualTo("10");
     }

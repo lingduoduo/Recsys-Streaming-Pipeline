@@ -112,6 +112,29 @@ class MovieLensDatasetTest {
         assertThrows(IllegalArgumentException.class, () -> MovieLensDataset.load(csv, 0, 2));
     }
 
+    @Test
+    void removesEmptyUsersAtZeroThresholdWhileRetainingPopulatedUsers() throws IOException {
+        Path csv = csv("userId,movieId,rating\n1,10,5\n"
+                + "2,20,4\n2,30,3\n3,20,2\n3,30,1\n");
+
+        MovieLensDataset data = MovieLensDataset.load(csv, 0, 2);
+
+        assertEquals(List.of("2", "3"), data.userIds());
+        assertEquals(Map.of("20", 4.0, "30", 3.0), data.ratingsFor("2"));
+    }
+
+    @Test
+    void exposesImmutablePopularityOrderingWithNaturalStringTieBreaks() throws IOException {
+        Path csv = csv("userId,movieId,rating\n"
+                + "1,2,5\n1,10,4\n2,2,3\n2,10,2\n2,3,1\n");
+
+        MovieLensDataset data = MovieLensDataset.load(csv, 0, 0);
+
+        assertEquals(List.of("10", "2", "3"), data.movieIdsByPopularity());
+        assertThrows(UnsupportedOperationException.class,
+                () -> data.movieIdsByPopularity().add("4"));
+    }
+
     private void assertMalformed(String content, int line) throws IOException {
         Path csv = csv(content);
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,

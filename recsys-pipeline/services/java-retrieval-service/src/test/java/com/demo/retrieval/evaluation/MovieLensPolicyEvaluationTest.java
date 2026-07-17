@@ -178,6 +178,49 @@ class MovieLensPolicyEvaluationTest {
         assertThat(out.toString(StandardCharsets.UTF_8)).contains("uniform", "greedy");
     }
 
+    @Test
+    void filteringEmptyUserPreventsSeedDependentUnknownUserFailure() throws Exception {
+        Path ratings = tempDir.resolve("mixed-filter.csv");
+        Files.writeString(ratings, """
+                userId,movieId,rating,timestamp
+                empty_after_movie_filter,rare,5,0
+                retained,popular_a,4,0
+                retained,popular_b,3,0
+                also_retained,popular_a,2,0
+                also_retained,popular_b,1,0
+                """);
+
+        for (long seed = 0; seed < 20; seed++) {
+            ByteArrayOutputStream err = new ByteArrayOutputStream();
+            int status = MovieLensPolicyEvaluation.run(new String[] {
+                    "--ratings", ratings.toString(), "--episodes", "5",
+                    "--candidate-pool-size", "2", "--slate-size", "1",
+                    "--min-user-ratings", "0", "--min-movie-ratings", "2",
+                    "--bootstrap-samples", "10", "--seed", Long.toString(seed)
+            }, silent(), stream(err));
+
+            assertThat(status).as("seed %s error: %s", seed, err).isZero();
+        }
+    }
+
+    @Test
+    void outputFailurePrintsNoResultRowsOrDisclaimer() throws Exception {
+        Path outputDirectory = Files.createDirectory(tempDir.resolve("not-a-csv"));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        int status = MovieLensPolicyEvaluation.run(new String[] {
+                "--ratings", datasetPath().toString(), "--episodes", "2",
+                "--candidate-pool-size", "2", "--slate-size", "1",
+                "--min-user-ratings", "0", "--min-movie-ratings", "0",
+                "--bootstrap-samples", "10", "--output", outputDirectory.toString()
+        }, stream(out), stream(err));
+
+        assertThat(status).isEqualTo(2);
+        assertThat(out.toString(StandardCharsets.UTF_8)).isEmpty();
+        assertThat(err.toString(StandardCharsets.UTF_8)).startsWith("error: ");
+    }
+
     private void assertInvalid(String[] arguments, String message) {
         assertThatThrownBy(() -> MovieLensPolicyEvaluation.Options.parse(arguments))
                 .isInstanceOf(IllegalArgumentException.class)
