@@ -146,11 +146,12 @@ def policy_names(events) -> list[str]:
     return ["logging", "popularity", "ctr", "random"] + [f"model:{k}" for k in _model_pred_keys(events)]
 
 
-def evaluate(events: list[dict], model: RewardModel) -> list[dict]:
+def _evaluate_statistics(events: list[dict], model: RewardModel,
+                         policies: list[str]) -> list[dict]:
     n = len(events)
     logging_value = sum(float(e.get("reward", 0.0)) for e in events) / n if n else 0.0
     rows = []
-    for name in policy_names(events):
+    for name in policies:
         if name == "logging":
             value = logging_value
             count = n
@@ -162,14 +163,23 @@ def evaluate(events: list[dict], model: RewardModel) -> list[dict]:
         lift = (value / logging_value - 1.0) if logging_value > 0.0 else None
         rows.append({
             "policy": name,
-            "value": round(value, 4),
-            "lift_vs_logging": round(lift, 4) if lift is not None else None,
+            "value": value,
+            "lift_vs_logging": lift,
             "n_events": count,
             "estimator_auc": model.calibration["auc"],
             "estimator_mse": model.calibration["mse"],
         })
     rows.sort(key=lambda r: r["value"], reverse=True)
     return rows
+
+
+def evaluate(events: list[dict], model: RewardModel) -> list[dict]:
+    rows = _evaluate_statistics(events, model, policy_names(events))
+    return [{**row,
+             "value": round(row["value"], 4),
+             "lift_vs_logging": (round(row["lift_vs_logging"], 4)
+                                 if row["lift_vs_logging"] is not None else None)}
+            for row in rows]
 
 
 INTERVAL_FIELDS = ["value_ci_low", "value_ci_high", "lift_ci_low", "lift_ci_high"]
@@ -193,12 +203,13 @@ def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
                 for row in point_rows]
     if samples == 0 or not events:
         return enriched
-    stats = {row["policy"]: {"value": [], "lift": []} for row in point_rows}
+    policies = [row["policy"] for row in point_rows]
+    stats = {policy: {"value": [], "lift": []} for policy in policies}
     rng = np.random.default_rng(seed)
     for _ in range(samples):
         indexes = rng.integers(0, len(events), size=len(events))
         sampled = [events[int(index)] for index in indexes]
-        for row in evaluate(sampled, model):
+        for row in _evaluate_statistics(sampled, model, policies):
             stats[row["policy"]]["value"].append(float(row["value"]))
             if row["lift_vs_logging"] is not None:
                 stats[row["policy"]]["lift"].append(float(row["lift_vs_logging"]))

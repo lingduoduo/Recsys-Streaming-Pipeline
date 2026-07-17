@@ -100,6 +100,25 @@ def test_main_reads_redis_and_writes_csv(tmp_path, capsys):
     assert any(row["policy"] == "logging" for row in rows)
 
 
+def test_main_zero_bootstrap_prints_na_and_writes_blank_intervals(tmp_path, capsys):
+    import csv
+    import json
+    from unittest.mock import MagicMock, patch
+    events = _dataset(40)
+    client = MagicMock()
+    client.lrange.return_value = [json.dumps(e).encode() for e in events]
+    out = tmp_path / "ope.csv"
+    with patch("ope_eval_report.redis.Redis", return_value=client):
+        ope.main(["--output", str(out), "--bootstrap-samples", "0"])
+    stdout = capsys.readouterr().out
+    assert "95% CI=N/A" in stdout
+    assert "95% lift CI=N/A" in stdout
+    with out.open(newline="") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert csv_rows
+    assert all(row[field] == "" for row in csv_rows for field in ope.INTERVAL_FIELDS)
+
+
 def test_main_rejects_negative_bootstrap_samples():
     with pytest.raises(SystemExit):
         ope.main(["--bootstrap-samples", "-1"])
@@ -166,6 +185,48 @@ def test_bootstrap_is_deterministic_and_does_not_mutate_points():
     assert (ope.bootstrap_intervals(events, model, points, 80, 31)
             == ope.bootstrap_intervals(events, model, points, 80, 31))
     assert points == snapshot
+
+
+def test_evaluate_uses_raw_statistics_before_rounding_report_rows():
+    class ExactModel:
+        calibration = {"auc": None, "mse": None}
+
+        def predict_one(self, candidate):
+            return float(candidate["impressions"]) / 7.0
+
+    events = [_event("a", "a", 0.5, 1, 0, False, 1.0, 1),
+              _event("b", "b", 0.5, 2, 0, False, 1.0, 1)]
+    raw = {row["policy"]: row for row in
+           ope._evaluate_statistics(events, ExactModel(), ope.policy_names(events))}
+    report = {row["policy"]: row for row in ope.evaluate(events, ExactModel())}
+    assert raw["popularity"]["value"] == pytest.approx(3.0 / 14.0)
+    assert report["popularity"]["value"] == round(3.0 / 14.0, 4)
+    assert raw["popularity"]["value"] != report["popularity"]["value"]
+
+
+def test_sparse_model_policy_contributes_to_every_bootstrap_replicate(monkeypatch):
+    events = _dataset(12)
+    events[0]["modelPredictions"]["sparse"] = 0.9
+    events[0]["actionSpace"][0]["modelPredictions"]["sparse"] = 0.9
+    for event in events:
+        event["reward"] = 1.0
+        event["clicked"] = 1
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    sample_count = 40
+    lengths = []
+    original_percentile = ope._percentile_bounds
+
+    def recording_percentile(values):
+        lengths.append(len(values))
+        return original_percentile(values)
+
+    monkeypatch.setattr(ope, "_percentile_bounds", recording_percentile)
+    rows = ope.bootstrap_intervals(events, model, points, samples=sample_count, seed=19)
+    sparse = next(row for row in rows if row["policy"] == "model:sparse")
+    assert sparse["value_ci_low"] is not None
+    assert lengths
+    assert all(length == sample_count for length in lengths)
 
 
 def test_bootstrap_intervals_contain_stable_points():
