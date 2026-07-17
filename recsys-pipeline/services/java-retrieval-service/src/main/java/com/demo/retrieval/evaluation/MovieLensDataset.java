@@ -85,7 +85,7 @@ public final class MovieLensDataset {
         }
 
         filterUntilStable(ratings, minUserRatings, minMovieRatings);
-        if (ratings.isEmpty()) {
+        if (ratings.values().stream().allMatch(Map::isEmpty)) {
             throw new IllegalArgumentException("No ratings remain after filtering " + file);
         }
         return new MovieLensDataset(ratings);

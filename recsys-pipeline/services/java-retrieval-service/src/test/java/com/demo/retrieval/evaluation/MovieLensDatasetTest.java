@@ -92,6 +92,13 @@ class MovieLensDatasetTest {
         assertThrows(IllegalArgumentException.class, () -> MovieLensDataset.load(csv, 2, 2));
     }
 
+    @Test
+    void rejectsPostFilterDatasetWithOnlyEmptyUserMaps() throws IOException {
+        Path csv = csv("userId,movieId,rating\n1,10,5\n");
+
+        assertThrows(IllegalArgumentException.class, () -> MovieLensDataset.load(csv, 0, 2));
+    }
+
     private void assertMalformed(String content, int line) throws IOException {
         Path csv = csv(content);
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
