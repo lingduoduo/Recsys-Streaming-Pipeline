@@ -183,6 +183,10 @@ def _percentile_bounds(values):
 
 
 def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
+    """Bootstrap event-sampling uncertainty conditional on the fixed fitted model.
+
+    These intervals do not include uncertainty from fitting the reward model.
+    """
     if samples < 0:
         raise ValueError("bootstrap samples must be nonnegative")
     enriched = [{**row, **{field: None for field in INTERVAL_FIELDS}}
@@ -232,7 +236,8 @@ def main(argv=None) -> list[dict]:
     cal = model.calibration
     print(f"reward estimator calibration: auc={cal['auc']} mse={cal['mse']} (n_test={cal['n_test']})")
     for r in rows:
-        print(f"  {r['policy']:16s} value={r['value']:.4f}  lift={r['lift_vs_logging']:+.4f}  n={r['n_events']}")
+        lift = f"{r['lift_vs_logging']:+.4f}" if r["lift_vs_logging"] is not None else "N/A"
+        print(f"  {r['policy']:16s} value={r['value']:.4f}  lift={lift}  n={r['n_events']}")
     if args.output:
         with open(args.output, "w", newline="") as fh:
             wr = csv.DictWriter(fh, fieldnames=["policy", "value", "lift_vs_logging",

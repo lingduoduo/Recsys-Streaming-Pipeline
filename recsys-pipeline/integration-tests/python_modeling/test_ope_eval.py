@@ -93,6 +93,22 @@ def test_main_reads_redis_and_writes_csv(tmp_path):
     assert any(r["policy"] == "logging" for r in rows)
 
 
+def test_main_prints_na_lift_for_zero_reward(tmp_path, capsys):
+    import json
+    from unittest.mock import MagicMock, patch
+    events = _dataset(40)
+    for event in events:
+        event["reward"] = 0.0
+        event["clicked"] = 0
+    raw = [json.dumps(e).encode() for e in events]
+    client = MagicMock(); client.lrange.return_value = raw
+    out = tmp_path / "ope.csv"
+    with patch("ope_eval_report.redis.Redis", return_value=client):
+        rows = ope.main(["--output", str(out)])
+    assert "lift=N/A" in capsys.readouterr().out
+    assert all(row["lift_vs_logging"] is None for row in rows)
+
+
 def test_estimator_reads_click_signal_from_actionspace():
     # Reward is driven ONLY by a click signal that lives inside actionSpace (relevance and
     # coldStart are constant). If the estimator sourced features from the top-level event
