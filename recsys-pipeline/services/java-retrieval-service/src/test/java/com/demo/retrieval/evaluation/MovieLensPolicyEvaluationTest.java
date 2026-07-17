@@ -1,0 +1,166 @@
+package com.demo.retrieval.evaluation;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class MovieLensPolicyEvaluationTest {
+    @TempDir Path tempDir;
+
+    @Test
+    void evaluationIsDeterministicOrderedAndUsesZeroErrorForOneEpisode() throws Exception {
+        MovieLensDataset data = dataset();
+        FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 3, 2, -1.0);
+
+        List<MovieLensPolicyEvaluation.Result> first =
+                MovieLensPolicyEvaluation.evaluate(data, environment, 20, 0.9, 17, 100);
+        List<MovieLensPolicyEvaluation.Result> second =
+                MovieLensPolicyEvaluation.evaluate(data, environment, 20, 0.9, 17, 100);
+        List<MovieLensPolicyEvaluation.Result> single =
+                MovieLensPolicyEvaluation.evaluate(data, environment, 1, 0.9, 17, 20);
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).extracting(MovieLensPolicyEvaluation.Result::policy)
+                .containsExactly("uniform", "greedy");
+        assertThat(single).allSatisfy(result -> assertThat(result.standardError()).isZero());
+    }
+
+    @Test
+    void bootstrapBoundsAreDeterministicAndResampleRawReturns() {
+        double[] first = MovieLensPolicyEvaluation.bootstrapBounds(
+                List.of(-2.0, 0.0, 4.0, 8.0), 200, 31);
+        double[] second = MovieLensPolicyEvaluation.bootstrapBounds(
+                List.of(-2.0, 0.0, 4.0, 8.0), 200, 31);
+
+        assertThat(first).containsExactly(second);
+        assertThat(first[0]).isLessThanOrEqualTo(2.5);
+        assertThat(first[1]).isGreaterThanOrEqualTo(2.5);
+    }
+
+    @Test
+    void optionsUseDocumentedDefaults() {
+        MovieLensPolicyEvaluation.Options options =
+                MovieLensPolicyEvaluation.Options.parse(new String[] {"--ratings", "ratings.csv"});
+
+        assertThat(options.ratings()).isEqualTo(Path.of("ratings.csv"));
+        assertThat(options.episodes()).isEqualTo(5000);
+        assertThat(options.candidatePoolSize()).isEqualTo(100);
+        assertThat(options.slateSize()).isEqualTo(10);
+        assertThat(options.minUserRatings()).isEqualTo(20);
+        assertThat(options.minMovieRatings()).isEqualTo(10);
+        assertThat(options.unratedReward()).isEqualTo(-1.0);
+        assertThat(options.discount()).isEqualTo(0.99);
+        assertThat(options.seed()).isEqualTo(42L);
+        assertThat(options.bootstrapSamples()).isEqualTo(1000);
+        assertThat(options.output()).isNull();
+    }
+
+    @Test
+    void optionsRejectMissingDuplicateUnknownAndInvalidValues() {
+        assertInvalid(new String[] {}, "--ratings is required");
+        assertInvalid(new String[] {"--ratings"}, "--ratings requires a value");
+        assertInvalid(new String[] {"--ratings", "a", "--ratings", "b"}, "Duplicate option: --ratings");
+        assertInvalid(new String[] {"--ratings", "a", "--wat", "1"}, "Unknown option: --wat");
+        assertInvalid(new String[] {"ratings.csv"}, "Expected an option, got: ratings.csv");
+        assertInvalid(flag("--episodes", "0"), "--episodes must be positive");
+        assertInvalid(flag("--candidate-pool-size", "0"), "--candidate-pool-size must be positive");
+        assertInvalid(flag("--slate-size", "-1"), "--slate-size must be positive");
+        assertInvalid(flag("--min-user-ratings", "-1"), "--min-user-ratings must be nonnegative");
+        assertInvalid(flag("--min-movie-ratings", "-1"), "--min-movie-ratings must be nonnegative");
+        assertInvalid(flag("--bootstrap-samples", "0"), "--bootstrap-samples must be positive");
+        assertInvalid(flag("--discount", "-0.1"), "--discount must be in [0, 1]");
+        assertInvalid(flag("--discount", "1.1"), "--discount must be in [0, 1]");
+        assertInvalid(flag("--discount", "NaN"), "--discount must be in [0, 1]");
+        assertInvalid(flag("--unrated-reward", "Infinity"), "--unrated-reward must be finite");
+        assertInvalid(flag("--episodes", "abc"), "Invalid integer for --episodes: abc");
+    }
+
+    @Test
+    void runReportsErrorsWithoutExiting() {
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        int missing = MovieLensPolicyEvaluation.run(new String[] {}, silent(), stream(err));
+        assertThat(missing).isEqualTo(2);
+        assertThat(err.toString(StandardCharsets.UTF_8)).isEqualTo("error: --ratings is required\n");
+
+        err.reset();
+        int unreadable = MovieLensPolicyEvaluation.run(
+                new String[] {"--ratings", tempDir.resolve("missing.csv").toString()},
+                silent(), stream(err));
+        assertThat(unreadable).isEqualTo(2);
+        assertThat(err.toString(StandardCharsets.UTF_8)).contains("error: Ratings file is not readable:");
+    }
+
+    @Test
+    void validRunPrintsDisclaimerAndWritesExactCsv() throws Exception {
+        Path ratings = datasetPath();
+        Path output = tempDir.resolve("report.csv");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        int status = MovieLensPolicyEvaluation.run(new String[] {
+                "--ratings", ratings.toString(), "--episodes", "4",
+                "--candidate-pool-size", "3", "--slate-size", "2",
+                "--min-user-ratings", "0", "--min-movie-ratings", "0",
+                "--bootstrap-samples", "20", "--output", output.toString()
+        }, stream(out), stream(err));
+
+        assertThat(status).isZero();
+        assertThat(err.toString(StandardCharsets.UTF_8)).isEmpty();
+        assertThat(out.toString(StandardCharsets.UTF_8))
+                .contains("uniform", "greedy")
+                .contains("Intervals quantify episode-sampling uncertainty for this fixed dataset;")
+                .contains("they do not quantify uncertainty in the MovieLens dataset itself.");
+        List<String> csv = Files.readAllLines(output);
+        assertThat(csv.get(0)).isEqualTo(
+                "policy,episodes,mean_return,mean_steps,standard_error,ci95_low,ci95_high");
+        assertThat(csv).hasSize(3);
+        assertThat(csv.get(1)).startsWith("uniform,4,");
+        assertThat(csv.get(2)).startsWith("greedy,4,");
+        assertThat(csv.subList(1, 3)).allSatisfy(line -> assertThat(line.split(",", -1)).hasSize(7));
+    }
+
+    private void assertInvalid(String[] arguments, String message) {
+        assertThatThrownBy(() -> MovieLensPolicyEvaluation.Options.parse(arguments))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(message);
+    }
+
+    private String[] flag(String name, String value) {
+        return new String[] {"--ratings", "ratings.csv", name, value};
+    }
+
+    private MovieLensDataset dataset() throws Exception {
+        return MovieLensDataset.load(datasetPath(), 0, 0);
+    }
+
+    private Path datasetPath() throws Exception {
+        Path path = tempDir.resolve("ratings.csv");
+        Files.writeString(path, """
+                userId,movieId,rating,timestamp
+                1,10,5,0
+                1,20,4,0
+                2,10,1,0
+                2,30,5,0
+                3,20,2,0
+                3,30,4,0
+                """);
+        return path;
+    }
+
+    private PrintStream silent() {
+        return stream(new ByteArrayOutputStream());
+    }
+
+    private PrintStream stream(ByteArrayOutputStream bytes) {
+        return new PrintStream(bytes, true, StandardCharsets.UTF_8);
+    }
+}
