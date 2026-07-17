@@ -80,17 +80,29 @@ def test_relevance_policy_beats_random_on_learnable_signal():
     assert rows["model:relevance"] > rows["random"]
 
 
-def test_main_reads_redis_and_writes_csv(tmp_path):
+def test_main_reads_redis_and_writes_csv(tmp_path, capsys):
+    import csv
     import json
     from unittest.mock import MagicMock, patch
     events = _dataset(40)
-    raw = [json.dumps(e).encode() for e in events]
-    client = MagicMock(); client.lrange.return_value = raw
+    client = MagicMock()
+    client.lrange.return_value = [json.dumps(e).encode() for e in events]
     out = tmp_path / "ope.csv"
     with patch("ope_eval_report.redis.Redis", return_value=client):
-        rows = ope.main(["--output", str(out)])
-    assert out.is_file()
-    assert any(r["policy"] == "logging" for r in rows)
+        rows = ope.main(["--output", str(out), "--bootstrap-samples", "30",
+                         "--bootstrap-seed", "11"])
+    stdout = capsys.readouterr().out
+    assert "conditional on fixed reward model" in stdout
+    assert "95% CI" in stdout
+    with out.open(newline="") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert set(ope.INTERVAL_FIELDS).issubset(csv_rows[0])
+    assert any(row["policy"] == "logging" for row in rows)
+
+
+def test_main_rejects_negative_bootstrap_samples():
+    with pytest.raises(SystemExit):
+        ope.main(["--bootstrap-samples", "-1"])
 
 
 def test_main_prints_na_lift_for_zero_reward(tmp_path, capsys):

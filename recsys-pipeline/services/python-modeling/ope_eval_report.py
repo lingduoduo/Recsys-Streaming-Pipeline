@@ -209,13 +209,31 @@ def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
     return enriched
 
 
+def _fmt_number(value, signed=False):
+    if value is None:
+        return "N/A"
+    return f"{value:+.4f}" if signed else f"{value:.4f}"
+
+
+def _fmt_interval(low, high, signed=False):
+    if low is None or high is None:
+        return "N/A"
+    return f"[{_fmt_number(low, signed)}, {_fmt_number(high, signed)}]"
+
+
 def main(argv=None) -> list[dict]:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--key", default="replay:recommendations")
     ap.add_argument("--parquet", default=None)
     ap.add_argument("--output", default=None)
     ap.add_argument("--limit", type=int, default=-1)
+    ap.add_argument("--bootstrap-samples", type=int, default=1000,
+                    help="event bootstrap resamples; 0 disables intervals (default: 1000)")
+    ap.add_argument("--bootstrap-seed", type=int, default=20260716,
+                    help="deterministic bootstrap seed (default: 20260716)")
     args = ap.parse_args(argv)
+    if args.bootstrap_samples < 0:
+        ap.error("--bootstrap-samples must be nonnegative")
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
 
@@ -231,17 +249,25 @@ def main(argv=None) -> list[dict]:
         raise SystemExit("no feedback-completed replay events (with reward) — nothing to evaluate")
 
     model = fit_reward_model(events)
-    rows = evaluate(events, model)
+    point_rows = evaluate(events, model)
+    rows = bootstrap_intervals(events, model, point_rows,
+                               samples=args.bootstrap_samples,
+                               seed=args.bootstrap_seed)
 
     cal = model.calibration
     print(f"reward estimator calibration: auc={cal['auc']} mse={cal['mse']} (n_test={cal['n_test']})")
+    print("95% event-bootstrap CIs are conditional on fixed reward model; model-fit uncertainty excluded")
     for r in rows:
-        lift = f"{r['lift_vs_logging']:+.4f}" if r["lift_vs_logging"] is not None else "N/A"
-        print(f"  {r['policy']:16s} value={r['value']:.4f}  lift={lift}  n={r['n_events']}")
+        value_ci = _fmt_interval(r["value_ci_low"], r["value_ci_high"])
+        lift_ci = _fmt_interval(r["lift_ci_low"], r["lift_ci_high"], signed=True)
+        print(f"  {r['policy']:16s} value={_fmt_number(r['value'])}  95% CI={value_ci}  "
+              f"lift={_fmt_number(r['lift_vs_logging'], signed=True)}  "
+              f"95% lift CI={lift_ci}  n={r['n_events']}")
     if args.output:
         with open(args.output, "w", newline="") as fh:
             wr = csv.DictWriter(fh, fieldnames=["policy", "value", "lift_vs_logging",
-                                                "n_events", "estimator_auc", "estimator_mse"])
+                                                "n_events", "estimator_auc", "estimator_mse",
+                                                *INTERVAL_FIELDS])
             wr.writeheader()
             wr.writerows(rows)
         print(f"wrote {args.output}")
