@@ -16,23 +16,23 @@ import java.util.stream.Collectors;
 public final class MovieLensDataset {
     private static final double PRIOR_STRENGTH = 20.0;
 
-    private final Map<Integer, Map<Integer, Double>> ratingsByUser;
-    private final List<Integer> userIds;
-    private final List<Integer> movieIds;
-    private final Map<Integer, Integer> movieCounts;
-    private final Map<Integer, Double> movieSums;
+    private final Map<String, Map<String, Double>> ratingsByUser;
+    private final List<String> userIds;
+    private final List<String> movieIds;
+    private final Map<String, Integer> movieCounts;
+    private final Map<String, Double> movieSums;
     private final double globalMean;
 
-    private MovieLensDataset(Map<Integer, Map<Integer, Double>> ratings) {
-        Map<Integer, Map<Integer, Double>> immutableRatings = new LinkedHashMap<>();
+    private MovieLensDataset(Map<String, Map<String, Double>> ratings) {
+        Map<String, Map<String, Double>> immutableRatings = new LinkedHashMap<>();
         ratings.forEach((userId, userRatings) ->
                 immutableRatings.put(userId,
                         Collections.unmodifiableMap(new LinkedHashMap<>(userRatings))));
         this.ratingsByUser = Collections.unmodifiableMap(immutableRatings);
         this.userIds = List.copyOf(ratingsByUser.keySet());
 
-        TreeMap<Integer, Integer> counts = new TreeMap<>();
-        TreeMap<Integer, Double> sums = new TreeMap<>();
+        TreeMap<String, Integer> counts = new TreeMap<>();
+        TreeMap<String, Double> sums = new TreeMap<>();
         ratingsByUser.values().forEach(userRatings -> userRatings.forEach((movieId, rating) -> {
             counts.merge(movieId, 1, Integer::sum);
             sums.merge(movieId, rating, Double::sum);
@@ -51,7 +51,7 @@ public final class MovieLensDataset {
             throw new IllegalArgumentException("Rating thresholds must be nonnegative");
         }
 
-        TreeMap<Integer, Map<Integer, Double>> ratings = new TreeMap<>();
+        TreeMap<String, Map<String, Double>> ratings = new TreeMap<>();
         try (BufferedReader reader = Files.newBufferedReader(file)) {
             String header = reader.readLine();
             if (header == null || !hasExpectedHeader(header)) {
@@ -67,13 +67,13 @@ public final class MovieLensDataset {
                     throw malformed(file, lineNumber, "expected at least three fields", null);
                 }
                 try {
-                    int userId = Integer.parseInt(fields[0]);
-                    int movieId = Integer.parseInt(fields[1]);
+                    String userId = identifier(fields[0], file, lineNumber, "user ID");
+                    String movieId = identifier(fields[1], file, lineNumber, "movie ID");
                     double rating = Double.parseDouble(fields[2]);
                     if (!Double.isFinite(rating)) {
                         throw malformed(file, lineNumber, "rating must be finite", null);
                     }
-                    Map<Integer, Double> userRatings =
+                    Map<String, Double> userRatings =
                             ratings.computeIfAbsent(userId, ignored -> new TreeMap<>());
                     if (userRatings.putIfAbsent(movieId, rating) != null) {
                         throw malformed(file, lineNumber, "duplicate user/movie pair", null);
@@ -99,15 +99,22 @@ public final class MovieLensDataset {
                 && fields[2].equals("rating");
     }
 
-    private static void filterUntilStable(Map<Integer, Map<Integer, Double>> ratings,
+    private static String identifier(String value, Path file, int lineNumber, String field) {
+        if (value.isBlank()) {
+            throw malformed(file, lineNumber, field + " must be nonblank", null);
+        }
+        return value;
+    }
+
+    private static void filterUntilStable(Map<String, Map<String, Double>> ratings,
                                           int minUserRatings,
                                           int minMovieRatings) {
         boolean changed;
         do {
-            Map<Integer, Long> counts = ratings.values().stream()
+            Map<String, Long> counts = ratings.values().stream()
                     .flatMap(userRatings -> userRatings.keySet().stream())
                     .collect(Collectors.groupingBy(movieId -> movieId, Collectors.counting()));
-            Set<Integer> removedMovies = counts.entrySet().stream()
+            Set<String> removedMovies = counts.entrySet().stream()
                     .filter(entry -> entry.getValue() < minMovieRatings)
                     .map(Map.Entry::getKey)
                     .collect(Collectors.toSet());
@@ -129,23 +136,23 @@ public final class MovieLensDataset {
                 : new IllegalArgumentException(message, cause);
     }
 
-    public List<Integer> userIds() {
+    public List<String> userIds() {
         return userIds;
     }
 
-    public List<Integer> movieIds() {
+    public List<String> movieIds() {
         return movieIds;
     }
 
-    public Map<Integer, Double> ratingsFor(int userId) {
+    public Map<String, Double> ratingsFor(String userId) {
         return ratingsByUser.getOrDefault(userId, Map.of());
     }
 
-    public double rating(int userId, int movieId) {
+    public double rating(String userId, String movieId) {
         return ratingsFor(userId).get(movieId);
     }
 
-    public Map<Integer, Integer> movieCounts() {
+    public Map<String, Integer> movieCounts() {
         return movieCounts;
     }
 
@@ -153,7 +160,7 @@ public final class MovieLensDataset {
         return globalMean;
     }
 
-    public double scoreExcludingUser(int userId, int movieId) {
+    public double scoreExcludingUser(String userId, String movieId) {
         double sum = movieSums.get(movieId);
         int count = movieCounts.get(movieId);
         Double heldOut = ratingsFor(userId).get(movieId);

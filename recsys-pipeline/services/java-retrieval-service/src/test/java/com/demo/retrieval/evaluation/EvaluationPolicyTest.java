@@ -17,12 +17,12 @@ class EvaluationPolicyTest {
     void uniformSelectionIsSeededAndAlwaysAvailable() {
         EvaluationPolicy policy = EvaluationPolicy.uniform();
         FiniteHorizonEnvironment.State state =
-                new FiniteHorizonEnvironment.State(1, List.of(10, 20, 30), 0);
+                new FiniteHorizonEnvironment.State("1", List.of("10", "20", "30"), 0);
         Random first = new Random(83);
         Random second = new Random(83);
 
         for (int i = 0; i < 20; i++) {
-            int selected = policy.select(state, first);
+            String selected = policy.select(state, first);
             assertThat(selected).isEqualTo(policy.select(state, second));
             assertThat(state.availableActions()).contains(selected);
         }
@@ -38,10 +38,10 @@ class EvaluationPolicyTest {
                 2,20,5,0
                 """);
 
-        int selected = EvaluationPolicy.greedy(data).select(
-                new FiniteHorizonEnvironment.State(1, List.of(10, 20), 0), new Random(1));
+        String selected = EvaluationPolicy.greedy(data).select(
+                new FiniteHorizonEnvironment.State("1", List.of("10", "20"), 0), new Random(1));
 
-        assertThat(selected).isEqualTo(20);
+        assertThat(selected).isEqualTo("20");
     }
 
     @Test
@@ -54,10 +54,10 @@ class EvaluationPolicyTest {
                 2,20,3,0
                 """);
 
-        int selected = EvaluationPolicy.greedy(data).select(
-                new FiniteHorizonEnvironment.State(1, List.of(20, 10), 0), new Random(1));
+        String selected = EvaluationPolicy.greedy(data).select(
+                new FiniteHorizonEnvironment.State("1", List.of("20", "10"), 0), new Random(1));
 
-        assertThat(selected).isEqualTo(10);
+        assertThat(selected).isEqualTo("10");
     }
 
     @Test
@@ -67,7 +67,7 @@ class EvaluationPolicyTest {
                 1,10,5,0
                 """);
         FiniteHorizonEnvironment.State empty =
-                new FiniteHorizonEnvironment.State(1, List.of(), 0);
+                new FiniteHorizonEnvironment.State("1", List.of(), 0);
 
         assertThatThrownBy(() -> EvaluationPolicy.uniform().select(empty, new Random()))
                 .isInstanceOf(IllegalArgumentException.class);

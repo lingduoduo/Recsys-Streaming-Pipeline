@@ -7,7 +7,7 @@ import java.util.Random;
 /** Selects one available action for an offline evaluation state. */
 @FunctionalInterface
 public interface EvaluationPolicy {
-    int select(FiniteHorizonEnvironment.State state, Random random);
+    String select(FiniteHorizonEnvironment.State state, Random random);
 
     static EvaluationPolicy uniform() {
         return (state, random) -> {
@@ -29,10 +29,10 @@ public interface EvaluationPolicy {
             }
             return state.availableActions().stream()
                     .min(Comparator
-                            .<Integer>comparingDouble(movieId ->
+                            .<String>comparingDouble(movieId ->
                                     dataset.scoreExcludingUser(state.userId(), movieId))
                             .reversed()
-                            .thenComparingInt(Integer::intValue))
+                            .thenComparing(Comparator.naturalOrder()))
                     .orElseThrow();
         };
     }

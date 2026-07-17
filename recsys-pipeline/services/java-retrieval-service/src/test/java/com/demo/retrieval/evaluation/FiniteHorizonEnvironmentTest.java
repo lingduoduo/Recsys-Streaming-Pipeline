@@ -29,12 +29,12 @@ class FiniteHorizonEnvironmentTest {
                 """);
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 3, 2, -1.0);
 
-        FiniteHorizonEnvironment.State first = environment.initialState(1, new Random(17));
-        FiniteHorizonEnvironment.State second = environment.initialState(1, new Random(17));
+        FiniteHorizonEnvironment.State first = environment.initialState("1", new Random(17));
+        FiniteHorizonEnvironment.State second = environment.initialState("1", new Random(17));
 
         assertThat(first).isEqualTo(second);
         assertThat(first.availableActions()).hasSizeLessThanOrEqualTo(3).doesNotHaveDuplicates();
-        assertThatThrownBy(() -> first.availableActions().add(99))
+        assertThatThrownBy(() -> first.availableActions().add("99"))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -43,10 +43,10 @@ class FiniteHorizonEnvironmentTest {
         MovieLensDataset data = dataset(popularityWindowCsv());
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 4, 2, -1.0);
 
-        List<Integer> actions = environment.initialState(1, new Random(17)).availableActions();
+        List<String> actions = environment.initialState("1", new Random(17)).availableActions();
 
-        assertThat(actions).anyMatch(data.ratingsFor(1)::containsKey);
-        assertThat(actions).anyMatch(movieId -> !data.ratingsFor(1).containsKey(movieId));
+        assertThat(actions).anyMatch(data.ratingsFor("1")::containsKey);
+        assertThat(actions).anyMatch(movieId -> !data.ratingsFor("1").containsKey(movieId));
     }
 
     @Test
@@ -55,30 +55,30 @@ class FiniteHorizonEnvironmentTest {
         MovieLensDataset data = dataset(popularityWindowCsv());
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 4, 2, -1.0);
 
-        FiniteHorizonEnvironment.State first = environment.initialState(1, new Random(17));
-        FiniteHorizonEnvironment.State repeated = environment.initialState(1, new Random(17));
-        Set<Set<Integer>> unseenSelections = IntStream.range(0, 30)
-                .mapToObj(seed -> environment.initialState(1, new Random(seed)).availableActions())
+        FiniteHorizonEnvironment.State first = environment.initialState("1", new Random(17));
+        FiniteHorizonEnvironment.State repeated = environment.initialState("1", new Random(17));
+        Set<Set<String>> unseenSelections = IntStream.range(0, 30)
+                .mapToObj(seed -> environment.initialState("1", new Random(seed)).availableActions())
                 .map(actions -> actions.stream()
-                        .filter(movieId -> !data.ratingsFor(1).containsKey(movieId))
+                        .filter(movieId -> !data.ratingsFor("1").containsKey(movieId))
                         .collect(Collectors.toSet()))
                 .collect(Collectors.toSet());
 
         assertThat(first).isEqualTo(repeated);
         assertThat(unseenSelections).hasSizeGreaterThan(1);
         assertThat(unseenSelections).allSatisfy(selection ->
-                assertThat(selection).hasSize(2).isSubsetOf(20, 21, 22, 23));
+                assertThat(selection).hasSize(2).isSubsetOf("20", "21", "22", "23"));
     }
 
     @Test
     void transitionRemovesOnlySelectedActionAndIncrementsStep() throws Exception {
         FiniteHorizonEnvironment environment = environment(3, 3, -1.0);
         FiniteHorizonEnvironment.State state =
-                new FiniteHorizonEnvironment.State(1, List.of(10, 20, 30), 0);
+                new FiniteHorizonEnvironment.State("1", List.of("10", "20", "30"), 0);
 
-        FiniteHorizonEnvironment.Step result = environment.step(state, 20);
+        FiniteHorizonEnvironment.Step result = environment.step(state, "20");
 
-        assertThat(result.nextState().availableActions()).containsExactly(10, 30);
+        assertThat(result.nextState().availableActions()).containsExactly("10", "30");
         assertThat(result.nextState().step()).isEqualTo(1);
         assertThat(result.done()).isFalse();
     }
@@ -87,9 +87,9 @@ class FiniteHorizonEnvironmentTest {
     void unavailableActionFails() throws Exception {
         FiniteHorizonEnvironment environment = environment(3, 3, -1.0);
         FiniteHorizonEnvironment.State state =
-                new FiniteHorizonEnvironment.State(1, List.of(10), 0);
+                new FiniteHorizonEnvironment.State("1", List.of("10"), 0);
 
-        assertThatThrownBy(() -> environment.step(state, 20))
+        assertThatThrownBy(() -> environment.step(state, "20"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("available");
     }
@@ -98,9 +98,9 @@ class FiniteHorizonEnvironmentTest {
     void ratedRewardIsCenteredAndUnratedRewardRepresentsUnknownFeedback() throws Exception {
         FiniteHorizonEnvironment environment = environment(3, 3, -0.25);
 
-        assertThat(environment.step(new FiniteHorizonEnvironment.State(1, List.of(10), 0), 10)
+        assertThat(environment.step(new FiniteHorizonEnvironment.State("1", List.of("10"), 0), "10")
                 .reward()).isEqualTo(2.0);
-        assertThat(environment.step(new FiniteHorizonEnvironment.State(1, List.of(30), 0), 30)
+        assertThat(environment.step(new FiniteHorizonEnvironment.State("1", List.of("30"), 0), "30")
                 .reward()).isEqualTo(-0.25);
     }
 
@@ -110,9 +110,9 @@ class FiniteHorizonEnvironmentTest {
         FiniteHorizonEnvironment exhausted = environment(3, 3, -1.0);
 
         assertThat(slateLimited.step(
-                new FiniteHorizonEnvironment.State(1, List.of(10, 20), 0), 10).done()).isTrue();
+                new FiniteHorizonEnvironment.State("1", List.of("10", "20"), 0), "10").done()).isTrue();
         assertThat(exhausted.step(
-                new FiniteHorizonEnvironment.State(1, List.of(10), 0), 10).done()).isTrue();
+                new FiniteHorizonEnvironment.State("1", List.of("10"), 0), "10").done()).isTrue();
     }
 
     @Test
@@ -124,10 +124,10 @@ class FiniteHorizonEnvironmentTest {
                 """);
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 2, 2, -1.0);
         EvaluationPolicy ordered = (state, random) -> state.availableActions().stream()
-                .min(Integer::compareTo).orElseThrow();
+                .min(String::compareTo).orElseThrow();
 
         FiniteHorizonEnvironment.Rollout result =
-                environment.rollout(1, ordered, new Random(4), 0.5);
+                environment.rollout("1", ordered, new Random(4), 0.5);
 
         assertThat(result.discountedReturn()).isEqualTo(2.5);
         assertThat(result.steps()).isEqualTo(2);
@@ -137,7 +137,7 @@ class FiniteHorizonEnvironmentTest {
     void rolloutKeepsEnvironmentAndPolicyRandomStreamsIndependent() throws Exception {
         MovieLensDataset data = dataset(popularityWindowCsv());
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 4, 2, -1.0);
-        List<List<Integer>> observedCandidates = new java.util.ArrayList<>();
+        List<List<String>> observedCandidates = new java.util.ArrayList<>();
         EvaluationPolicy noExtraDraws = (state, random) -> {
             observedCandidates.add(state.availableActions());
             return state.availableActions().get(0);
@@ -148,10 +148,10 @@ class FiniteHorizonEnvironmentTest {
             return state.availableActions().get(0);
         };
 
-        environment.rollout(1, noExtraDraws, new Random(19), new Random(23), 0.9);
-        List<List<Integer>> withoutExtraDraws = List.copyOf(observedCandidates);
+        environment.rollout("1", noExtraDraws, new Random(19), new Random(23), 0.9);
+        List<List<String>> withoutExtraDraws = List.copyOf(observedCandidates);
         observedCandidates.clear();
-        environment.rollout(1, manyExtraDraws, new Random(19), new Random(23), 0.9);
+        environment.rollout("1", manyExtraDraws, new Random(19), new Random(23), 0.9);
 
         assertThat(observedCandidates).isEqualTo(withoutExtraDraws);
     }
@@ -170,11 +170,19 @@ class FiniteHorizonEnvironmentTest {
         assertThatThrownBy(() -> new FiniteHorizonEnvironment(data, 1, 1, Double.NaN))
                 .isInstanceOf(IllegalArgumentException.class);
         FiniteHorizonEnvironment environment = new FiniteHorizonEnvironment(data, 2, 2, -1.0);
-        assertThatThrownBy(() -> environment.rollout(1, EvaluationPolicy.uniform(), new Random(), 1.01))
+        assertThatThrownBy(() -> environment.rollout("1", EvaluationPolicy.uniform(), new Random(), 1.01))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> environment.rollout(1, EvaluationPolicy.uniform(), new Random(), -0.01))
+        assertThatThrownBy(() -> environment.rollout("1", EvaluationPolicy.uniform(), new Random(), -0.01))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> environment.rollout(1, EvaluationPolicy.uniform(), new Random(), Double.NaN))
+        assertThatThrownBy(() -> environment.rollout("1", EvaluationPolicy.uniform(), new Random(), Double.NaN))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void stateRejectsBlankIdentifiers() {
+        assertThatThrownBy(() -> new FiniteHorizonEnvironment.State(" ", List.of("10"), 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FiniteHorizonEnvironment.State("1", List.of(" "), 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

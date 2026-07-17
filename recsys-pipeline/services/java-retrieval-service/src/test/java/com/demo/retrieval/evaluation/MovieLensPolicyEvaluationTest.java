@@ -153,6 +153,31 @@ class MovieLensPolicyEvaluationTest {
         assertThat(csv.subList(1, 3)).allSatisfy(line -> assertThat(line.split(",", -1)).hasSize(7));
     }
 
+    @Test
+    void validRunAcceptsRepositoryShapedOpaqueIdentifiers() throws Exception {
+        Path ratings = tempDir.resolve("repository-ratings.csv");
+        Files.writeString(ratings, """
+                userId,movieId,rating,timestamp
+                user_1,item_1,5,0
+                user_1,item_2,4,0
+                user_2,item_1,1,0
+                user_2,item_2,5,0
+                """);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        int status = MovieLensPolicyEvaluation.run(new String[] {
+                "--ratings", ratings.toString(), "--episodes", "20",
+                "--candidate-pool-size", "2", "--slate-size", "2",
+                "--min-user-ratings", "1", "--min-movie-ratings", "1",
+                "--bootstrap-samples", "20"
+        }, stream(out), stream(err));
+
+        assertThat(status).isZero();
+        assertThat(err.toString(StandardCharsets.UTF_8)).isEmpty();
+        assertThat(out.toString(StandardCharsets.UTF_8)).contains("uniform", "greedy");
+    }
+
     private void assertInvalid(String[] arguments, String message) {
         assertThatThrownBy(() -> MovieLensPolicyEvaluation.Options.parse(arguments))
                 .isInstanceOf(IllegalArgumentException.class)

@@ -32,21 +32,21 @@ public final class FiniteHorizonEnvironment {
         this.unratedReward = unratedReward;
     }
 
-    public State initialState(int userId, Random random) {
+    public State initialState(String userId, Random random) {
         Objects.requireNonNull(random, "random");
-        Map<Integer, Double> ratings = dataset.ratingsFor(userId);
+        Map<String, Double> ratings = dataset.ratingsFor(userId);
         if (ratings.isEmpty()) {
             throw new IllegalArgumentException("Unknown user ID: " + userId);
         }
 
-        List<Integer> rated = new ArrayList<>(ratings.keySet());
+        List<String> rated = new ArrayList<>(ratings.keySet());
         Collections.shuffle(rated, random);
-        List<Integer> unseen = dataset.movieIds().stream()
+        List<String> unseen = dataset.movieIds().stream()
                 .filter(movieId -> !ratings.containsKey(movieId))
                 .sorted(Comparator
-                        .<Integer>comparingInt(movieId -> dataset.movieCounts().get(movieId))
+                        .<String>comparingInt(movieId -> dataset.movieCounts().get(movieId))
                         .reversed()
-                        .thenComparingInt(Integer::intValue))
+                        .thenComparing(Comparator.naturalOrder()))
                 .toList();
         int targetSize = Math.min(candidatePoolSize, rated.size() + unseen.size());
         int unseenSlots = unseen.isEmpty() ? 0
@@ -54,11 +54,11 @@ public final class FiniteHorizonEnvironment {
         int ratedSlots = Math.min(rated.size(), targetSize - unseenSlots);
         unseenSlots = Math.min(unseen.size(), targetSize - ratedSlots);
 
-        List<Integer> candidates = new ArrayList<>(targetSize);
+        List<String> candidates = new ArrayList<>(targetSize);
         rated.stream().limit(ratedSlots).forEach(candidates::add);
         if (unseenSlots > 0) {
             int windowSize = Math.min(unseen.size(), unseenSlots * 2);
-            List<Integer> popularityWindow = new ArrayList<>(unseen.subList(0, windowSize));
+            List<String> popularityWindow = new ArrayList<>(unseen.subList(0, windowSize));
             Collections.shuffle(popularityWindow, random);
             popularityWindow.stream().limit(unseenSlots).forEach(candidates::add);
         }
@@ -66,13 +66,14 @@ public final class FiniteHorizonEnvironment {
         return new State(userId, candidates, 0);
     }
 
-    public Step step(State state, int action) {
+    public Step step(State state, String action) {
         Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(action, "action");
         if (!state.availableActions().contains(action)) {
             throw new IllegalArgumentException("Action is not available: " + action);
         }
-        List<Integer> remaining = new ArrayList<>(state.availableActions());
-        remaining.remove(Integer.valueOf(action));
+        List<String> remaining = new ArrayList<>(state.availableActions());
+        remaining.remove(action);
         State next = new State(state.userId(), remaining, state.step() + 1);
         Double rating = dataset.ratingsFor(state.userId()).get(action);
         double reward = rating == null ? unratedReward : rating - 3.0;
@@ -80,14 +81,14 @@ public final class FiniteHorizonEnvironment {
         return new Step(next, reward, done);
     }
 
-    public Rollout rollout(int userId, EvaluationPolicy policy, Random random, double discount) {
+    public Rollout rollout(String userId, EvaluationPolicy policy, Random random, double discount) {
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(random, "random");
         return rollout(userId, policy, new Random(random.nextLong()),
                 new Random(random.nextLong()), discount);
     }
 
-    public Rollout rollout(int userId, EvaluationPolicy policy, Random environmentRandom,
+    public Rollout rollout(String userId, EvaluationPolicy policy, Random environmentRandom,
                            Random policyRandom, double discount) {
         Objects.requireNonNull(policy, "policy");
         Objects.requireNonNull(environmentRandom, "environmentRandom");
@@ -101,7 +102,7 @@ public final class FiniteHorizonEnvironment {
         double discountPower = 1.0;
         int steps = 0;
         while (!state.availableActions().isEmpty() && state.step() < slateSize) {
-            int action = policy.select(state, policyRandom);
+            String action = policy.select(state, policyRandom);
             Step transition = step(state, action);
             discountedReturn += discountPower * transition.reward();
             discountPower *= discount;
@@ -114,9 +115,16 @@ public final class FiniteHorizonEnvironment {
         return new Rollout(discountedReturn, steps);
     }
 
-    public record State(int userId, List<Integer> availableActions, int step) {
+    public record State(String userId, List<String> availableActions, int step) {
         public State {
+            Objects.requireNonNull(userId, "userId");
+            if (userId.isBlank()) {
+                throw new IllegalArgumentException("User ID must be nonblank");
+            }
             availableActions = List.copyOf(availableActions);
+            if (availableActions.stream().anyMatch(String::isBlank)) {
+                throw new IllegalArgumentException("Movie IDs must be nonblank");
+            }
             if (step < 0) {
                 throw new IllegalArgumentException("Step must be nonnegative");
             }

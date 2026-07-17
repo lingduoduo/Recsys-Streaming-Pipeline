@@ -143,7 +143,7 @@ public final class MovieLensPolicyEvaluation {
                         named.name() + ":policy"));
                 int userIndex = new Random(derivedSeed(seed, episode, "user"))
                         .nextInt(dataset.userIds().size());
-                int userId = dataset.userIds().get(userIndex);
+                String userId = dataset.userIds().get(userIndex);
                 FiniteHorizonEnvironment.Rollout rollout =
                         environment.rollout(userId, named.policy(), environmentRandom,
                                 policyRandom, discount);

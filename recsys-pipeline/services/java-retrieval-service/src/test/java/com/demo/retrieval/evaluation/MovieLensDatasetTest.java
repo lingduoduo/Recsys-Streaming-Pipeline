@@ -23,15 +23,27 @@ class MovieLensDatasetTest {
 
         MovieLensDataset data = MovieLensDataset.load(csv, 2, 2);
 
-        assertEquals(List.of(1, 2), data.userIds());
-        assertEquals(List.of(10, 20), data.movieIds());
-        assertEquals(Map.of(10, 5.0, 20, 3.0), data.ratingsFor(1));
-        assertEquals(5.0, data.rating(1, 10));
-        assertEquals(Map.of(10, 2, 20, 2), data.movieCounts());
+        assertEquals(List.of("1", "2"), data.userIds());
+        assertEquals(List.of("10", "20"), data.movieIds());
+        assertEquals(Map.of("10", 5.0, "20", 3.0), data.ratingsFor("1"));
+        assertEquals(5.0, data.rating("1", "10"));
+        assertEquals(Map.of("10", 2, "20", 2), data.movieCounts());
         assertEquals(3.25, data.globalMean());
-        assertThrows(UnsupportedOperationException.class, () -> data.userIds().add(3));
-        assertThrows(UnsupportedOperationException.class, () -> data.ratingsFor(1).put(30, 2.0));
-        assertThrows(UnsupportedOperationException.class, () -> data.movieCounts().put(30, 1));
+        assertThrows(UnsupportedOperationException.class, () -> data.userIds().add("3"));
+        assertThrows(UnsupportedOperationException.class, () -> data.ratingsFor("1").put("30", 2.0));
+        assertThrows(UnsupportedOperationException.class, () -> data.movieCounts().put("30", 1));
+    }
+
+    @Test
+    void loadsOpaqueIdentifiersInNaturalStringOrder() throws IOException {
+        Path csv = csv("userId,movieId,rating,timestamp\n"
+                + "user_2,item_20,4.0,1\nuser_2,item_10,1.0,2\n"
+                + "user_1,item_20,3.0,3\nuser_1,item_10,5.0,4\n");
+
+        MovieLensDataset data = MovieLensDataset.load(csv, 2, 2);
+
+        assertEquals(List.of("user_1", "user_2"), data.userIds());
+        assertEquals(List.of("item_10", "item_20"), data.movieIds());
     }
 
     @Test
@@ -42,9 +54,9 @@ class MovieLensDatasetTest {
 
         MovieLensDataset data = MovieLensDataset.load(csv, 2, 2);
 
-        assertEquals(List.of(1, 2), data.userIds());
-        assertEquals(List.of(10, 20), data.movieIds());
-        assertEquals(Map.of(10, 2, 20, 2), data.movieCounts());
+        assertEquals(List.of("1", "2"), data.userIds());
+        assertEquals(List.of("10", "20"), data.movieIds());
+        assertEquals(Map.of("10", 2, "20", 2), data.movieCounts());
     }
 
     @Test
@@ -53,7 +65,7 @@ class MovieLensDatasetTest {
         MovieLensDataset data = MovieLensDataset.load(csv, 2, 2);
 
         assertEquals((1.0 + 20.0 * data.globalMean()) / 21.0,
-                data.scoreExcludingUser(1, 10), 1e-12);
+                data.scoreExcludingUser("1", "10"), 1e-12);
     }
 
     @Test
@@ -65,7 +77,8 @@ class MovieLensDatasetTest {
     @Test
     void rejectsMalformedRowsWithFileAndLineNumber() throws IOException {
         assertMalformed("userId,movieId,rating\n1,10\n", 2);
-        assertMalformed("userId,movieId,rating\none,10,5\n", 2);
+        assertMalformed("userId,movieId,rating\n,10,5\n", 2);
+        assertMalformed("userId,movieId,rating\n1,,5\n", 2);
         assertMalformed("userId,movieId,rating\n1,10,NaN\n", 2);
         assertMalformed("userId,movieId,rating\n1,10,Infinity\n", 2);
     }
