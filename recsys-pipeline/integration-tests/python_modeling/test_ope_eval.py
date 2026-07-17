@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 import ope_eval_report as ope
 
@@ -78,17 +80,64 @@ def test_relevance_policy_beats_random_on_learnable_signal():
     assert rows["model:relevance"] > rows["random"]
 
 
-def test_main_reads_redis_and_writes_csv(tmp_path):
+def test_main_reads_redis_and_writes_csv(tmp_path, capsys):
+    import csv
     import json
     from unittest.mock import MagicMock, patch
     events = _dataset(40)
+    client = MagicMock()
+    client.lrange.return_value = [json.dumps(e).encode() for e in events]
+    out = tmp_path / "ope.csv"
+    with patch("ope_eval_report.redis.Redis", return_value=client):
+        rows = ope.main(["--output", str(out), "--bootstrap-samples", "30",
+                         "--bootstrap-seed", "11"])
+    stdout = capsys.readouterr().out
+    assert "conditional on fixed reward model" in stdout
+    assert "95% CI" in stdout
+    with out.open(newline="") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert set(ope.INTERVAL_FIELDS).issubset(csv_rows[0])
+    assert any(row["policy"] == "logging" for row in rows)
+
+
+def test_main_zero_bootstrap_prints_na_and_writes_blank_intervals(tmp_path, capsys):
+    import csv
+    import json
+    from unittest.mock import MagicMock, patch
+    events = _dataset(40)
+    client = MagicMock()
+    client.lrange.return_value = [json.dumps(e).encode() for e in events]
+    out = tmp_path / "ope.csv"
+    with patch("ope_eval_report.redis.Redis", return_value=client):
+        ope.main(["--output", str(out), "--bootstrap-samples", "0"])
+    stdout = capsys.readouterr().out
+    assert "95% CI=N/A" in stdout
+    assert "95% lift CI=N/A" in stdout
+    with out.open(newline="") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert csv_rows
+    assert all(row[field] == "" for row in csv_rows for field in ope.INTERVAL_FIELDS)
+
+
+def test_main_rejects_negative_bootstrap_samples():
+    with pytest.raises(SystemExit):
+        ope.main(["--bootstrap-samples", "-1"])
+
+
+def test_main_prints_na_lift_for_zero_reward(tmp_path, capsys):
+    import json
+    from unittest.mock import MagicMock, patch
+    events = _dataset(40)
+    for event in events:
+        event["reward"] = 0.0
+        event["clicked"] = 0
     raw = [json.dumps(e).encode() for e in events]
     client = MagicMock(); client.lrange.return_value = raw
     out = tmp_path / "ope.csv"
     with patch("ope_eval_report.redis.Redis", return_value=client):
         rows = ope.main(["--output", str(out)])
-    assert out.is_file()
-    assert any(r["policy"] == "logging" for r in rows)
+    assert "lift=N/A" in capsys.readouterr().out
+    assert all(row["lift_vs_logging"] is None for row in rows)
 
 
 def test_estimator_reads_click_signal_from_actionspace():
@@ -120,3 +169,97 @@ def test_empty_test_split_does_not_crash(monkeypatch):
     assert model.calibration["n_test"] == 0
     assert model.calibration["mse"] is None
     assert model.calibration["auc"] is None
+
+
+def _interval_rows(events, samples=120, seed=17):
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    return ope.bootstrap_intervals(events, model, points, samples=samples, seed=seed)
+
+
+def test_bootstrap_is_deterministic_and_does_not_mutate_points():
+    events = _dataset(80)
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    snapshot = [dict(row) for row in points]
+    assert (ope.bootstrap_intervals(events, model, points, 80, 31)
+            == ope.bootstrap_intervals(events, model, points, 80, 31))
+    assert points == snapshot
+
+
+def test_evaluate_uses_raw_statistics_before_rounding_report_rows():
+    class ExactModel:
+        calibration = {"auc": None, "mse": None}
+
+        def predict_one(self, candidate):
+            return float(candidate["impressions"]) / 7.0
+
+    events = [_event("a", "a", 0.5, 1, 0, False, 1.0, 1),
+              _event("b", "b", 0.5, 2, 0, False, 1.0, 1)]
+    raw = {row["policy"]: row for row in
+           ope._evaluate_statistics(events, ExactModel(), ope.policy_names(events))}
+    report = {row["policy"]: row for row in ope.evaluate(events, ExactModel())}
+    assert raw["popularity"]["value"] == pytest.approx(3.0 / 14.0)
+    assert report["popularity"]["value"] == round(3.0 / 14.0, 4)
+    assert raw["popularity"]["value"] != report["popularity"]["value"]
+
+
+def test_sparse_model_policy_contributes_to_every_bootstrap_replicate(monkeypatch):
+    events = _dataset(12)
+    events[0]["modelPredictions"]["sparse"] = 0.9
+    events[0]["actionSpace"][0]["modelPredictions"]["sparse"] = 0.9
+    for event in events:
+        event["reward"] = 1.0
+        event["clicked"] = 1
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    sample_count = 40
+    lengths = []
+    original_percentile = ope._percentile_bounds
+
+    def recording_percentile(values):
+        lengths.append(len(values))
+        return original_percentile(values)
+
+    monkeypatch.setattr(ope, "_percentile_bounds", recording_percentile)
+    rows = ope.bootstrap_intervals(events, model, points, samples=sample_count, seed=19)
+    sparse = next(row for row in rows if row["policy"] == "model:sparse")
+    assert sparse["value_ci_low"] is not None
+    assert lengths
+    assert all(length == sample_count for length in lengths)
+
+
+def test_bootstrap_intervals_contain_stable_points():
+    rows = _interval_rows(_dataset(100), samples=160, seed=7)
+    for row in rows:
+        assert row["value_ci_low"] <= row["value"] <= row["value_ci_high"]
+    logging = next(row for row in rows if row["policy"] == "logging")
+    assert (logging["lift_ci_low"], logging["lift_ci_high"]) == (0.0, 0.0)
+
+
+def test_bootstrap_edge_cases():
+    one = _interval_rows([_dataset(1)[0]], samples=20, seed=3)
+    assert all(row["value_ci_low"] == row["value_ci_high"] for row in one)
+    disabled = _interval_rows(_dataset(20), samples=0)
+    assert all(all(row[field] is None for field in ope.INTERVAL_FIELDS)
+               for row in disabled)
+
+
+def test_zero_reward_has_value_intervals_but_no_lift():
+    events = _dataset(40)
+    for event in events:
+        event["reward"] = 0.0
+        event["clicked"] = 0
+    rows = _interval_rows(events, samples=50, seed=5)
+    for row in rows:
+        assert row["value_ci_low"] is not None
+        assert row["lift_vs_logging"] is None
+        assert row["lift_ci_low"] is None
+        assert row["lift_ci_high"] is None
+
+
+def test_negative_bootstrap_samples_are_rejected():
+    events = _dataset(20)
+    model = ope.fit_reward_model(events)
+    with pytest.raises(ValueError, match="bootstrap samples must be nonnegative"):
+        ope.bootstrap_intervals(events, model, ope.evaluate(events, model), samples=-1)

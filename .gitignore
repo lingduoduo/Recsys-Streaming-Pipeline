@@ -30,3 +30,6 @@ recsys-pipeline/**/*.pyc
 /progress.md
 # Subagent-driven-development scratch (briefs, reports, review packages)
 /.superpowers/
+
+# Isolated feature worktrees
+/.worktrees/
