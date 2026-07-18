@@ -211,18 +211,24 @@ SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./run-streaming-jo
 > (see the recsys-pipeline README → *Simulation Harnesses*).
 
 **Analytics dashboard** — turn any run's `training_samples` Parquet (from a sim or the joiner) into
-one self-contained HTML page covering keyword / query / relevance / recall / ranking:
+one self-contained HTML page covering keyword / query / relevance / recall / ranking plus the two
+offline policy evaluations below (off-policy + MDP):
 
 ```bash
 IN=/tmp/spark-recsys/movie-category-sim/training-samples   # any run's training_samples
-REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input "$IN"
+REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input "$IN" \
+  --mdp-csv "$IN/../mdp_eval.csv"          # optional: render the MDP card from the Java CLI's CSV
 # → writes $IN/../report-dashboard/index.html   (open in a browser)
 ```
 
 The recall/ranking sections need Redis embeddings (`movie:*:features`, `i2vEmb` / `uEmb`); without
 them they render an explicit N/A card. The `run-movie-category-sim.sh` harness now generates those
-embeddings + item popularity itself, so its dashboard renders real recall/ranking numbers. See the
-recsys-pipeline README → *Analysis Reports* for the five individual per-report scripts.
+embeddings + item popularity itself, so its dashboard renders real recall/ranking numbers. The
+**off-policy card** is computed live from the Redis replay buffer (same Direct-Method logic as
+`ope_eval_report.py`); the **MDP card** renders from a `mdp_eval.csv` if one is present (default
+`<input>/../mdp_eval.csv`, or `--mdp-csv`). Each falls back to an N/A card when its data is absent.
+See the recsys-pipeline README → *Analysis Reports* for the five individual per-report scripts, and
+*Offline policy evaluation* above for the two evaluators.
 
 ---
 
