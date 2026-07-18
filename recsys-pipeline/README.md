@@ -1184,7 +1184,8 @@ genres/embeddings from Redis where needed). The first three are PySpark (run via
 | **Relevance Analysis** | `RelevanceAnalysisReportJob` (Scala) | Relevance-state (impression/click/order) distribution + mean score by query and by movie genre | `by_state`, `by_query`, `by_genre` |
 | **Recall-Task Performance** | `recall_eval_report.py` | BM25 vs embedding vs hybrid (RRF) retrieval, leave-one-out per user | `recall_eval.csv` (recall@k, hitrate@k) |
 | **Ranking Performance** | `ranking_eval_report.py` | logloss + ROC-AUC of ranking signals (popularity / position / embedding) vs the click label | `ranking_eval.csv` |
-| **Consolidated Dashboard** | `analysis_dashboard_report.py` | All five analyses as one self-contained HTML page (funnel → keyword → query → recall → ranking) | `report-dashboard/index.html` |
+| **Off-policy evaluation** | `ope_eval_report.py` | Direct-Method policy value + lift-vs-logging with 95% bootstrap CIs, over the Redis replay buffer | `ope_eval.csv` |
+| **Consolidated Dashboard** | `analysis_dashboard_report.py` | All five analyses + the off-policy card (live) and MDP card (from `mdp_eval.csv`) as one self-contained HTML page | `report-dashboard/index.html` |
 
 Definitions shared across reports: a **query** = a recommended impression's genre-combo intent
 (`concat_ws(" ", genres)`); engagement label `0.0/1.0/2.0` = impression-only / clicked / ordered;

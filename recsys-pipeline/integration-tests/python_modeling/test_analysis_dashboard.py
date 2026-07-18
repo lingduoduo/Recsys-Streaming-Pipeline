@@ -173,6 +173,82 @@ def test_render_html_embeds_responsive_visual_system():
     assert 'class="chart"' in line and "#4f46e5" in line
 
 
+def test_compute_ope_returns_none_without_redis():
+    import analysis_dashboard_report as dash
+    # Nothing listening on 6399 -> load fails -> None (rendered as an N/A card).
+    assert dash.compute_ope("localhost", 6399) is None
+
+
+def test_compute_ope_evaluates_from_replay_events(monkeypatch):
+    pytest.importorskip("numpy")
+    import analysis_dashboard_report as dash
+    import ope_support
+
+    def _event(i):
+        rel = (i % 10) / 10.0
+        reward = 1.0 if rel >= 0.5 else 0.0
+        return {"requestId": f"r{i}", "user": "u", "action": f"m{i}", "actionPosition": 0,
+                "coldStart": False, "modelPredictions": {"relevance": rel},
+                "reward": reward, "clicked": int(reward),
+                "actionSpace": [{"item": f"m{i}", "coldStart": False, "impressions": i % 50,
+                                 "clicks": int(reward), "modelPredictions": {"relevance": rel}}]}
+
+    events = [_event(i) for i in range(120)]
+    monkeypatch.setattr(ope_support, "load_from_redis", lambda *a, **k: events)
+    r = dash.compute_ope("localhost", 6399, bootstrap_samples=20)
+    policies = {row["policy"] for row in r["rows"]}
+    assert "logging" in policies and "model:relevance" in policies
+    assert "est AUC" in r["headline"] and r["calibration"]["n_test"] > 0
+    # Every row carries bootstrap interval fields the section renderer reads.
+    assert all("value_ci_low" in row and "lift_ci_high" in row for row in r["rows"])
+
+
+def test_compute_mdp_reads_csv_and_missing_is_none(tmp_path):
+    pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    assert dash.compute_mdp(str(tmp_path / "absent.csv")) is None
+
+    csv = tmp_path / "mdp_eval.csv"
+    csv.write_text(
+        "policy,episodes,mean_return,mean_steps,standard_error,ci95_low,ci95_high\n"
+        "uniform,200,-0.4493,3.0,0.1028,-0.6256,-0.2667\n"
+        "greedy,200,-1.3821,3.0,0.0851,-1.5378,-1.2222\n")
+    r = dash.compute_mdp(str(csv))
+    assert "uniform return -0.449" in r["headline"] and "200 episodes" in r["headline"]
+    assert list(r["df"]["policy"]) == ["uniform", "greedy"]
+
+
+def test_ope_and_mdp_section_renderers():
+    pytest.importorskip("pandas")
+    import pandas as pd
+    import analysis_dashboard_report as dash
+
+    ope = {"headline": "best 'popularity' value 0.620", "calibration": {"auc": 0.71, "mse": 0.12, "n_test": 40},
+           "rows": [
+               {"policy": "logging", "value": 0.55, "value_ci_low": 0.50, "value_ci_high": 0.60,
+                "lift_vs_logging": 0.0, "lift_ci_low": 0.0, "lift_ci_high": 0.0, "n_events": 100},
+               {"policy": "popularity", "value": 0.62, "value_ci_low": 0.57, "value_ci_high": 0.67,
+                "lift_vs_logging": 0.127, "lift_ci_low": 0.05, "lift_ci_high": 0.20, "n_events": 100}]}
+    html = dash._ope_section(ope)
+    assert "Off-policy evaluation" in html and "<td>popularity</td>" in html
+    assert "+12.7%" in html and "Direct Method" in html and "AUC 0.71" in html
+
+    mdp = {"headline": "uniform return -0.449", "path": "/tmp/run/mdp_eval.csv",
+           "df": pd.DataFrame({"policy": ["uniform"], "episodes": [200], "mean_return": [-0.4493],
+                               "mean_steps": [3.0], "standard_error": [0.1028],
+                               "ci95_low": [-0.6256], "ci95_high": [-0.2667]})}
+    html = dash._mdp_section(mdp)
+    assert "MDP policy evaluation" in html and "<td>uniform</td>" in html
+    assert "[-0.626, -0.267]" in html and "mdp_eval.csv" in html
+
+
+def test_ci_formats_bounds_and_na():
+    import analysis_dashboard_report as dash
+    assert dash._ci(0.1, 0.2) == "[0.1000, 0.2000]"
+    assert dash._ci(0.05, 0.2, pct=True) == "[+5.0%, +20.0%]"
+    assert dash._ci(None, 0.2) == "N/A"
+
+
 def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
@@ -183,9 +259,15 @@ def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
         "clicked": [1, 0, 1], "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
     }).to_parquet(parquet, index=False)
 
+    mdp_csv = tmp_path / "mdp_eval.csv"
+    mdp_csv.write_text(
+        "policy,episodes,mean_return,mean_steps,standard_error,ci95_low,ci95_high\n"
+        "uniform,200,-0.4493,3.0,0.1028,-0.6256,-0.2667\n")
+
     out = tmp_path / "report-dashboard"
     script = Path(__file__).parents[2] / "services/python-modeling/analysis_dashboard_report.py"
-    subprocess.run([sys.executable, str(script), "--input", str(parquet), "--outdir", str(out)],
+    subprocess.run([sys.executable, str(script), "--input", str(parquet), "--outdir", str(out),
+                    "--mdp-csv", str(mdp_csv)],
                    check=True, capture_output=True, timeout=120,
                    env={**os.environ, "REDIS_PORT": "6399"})
 
@@ -194,3 +276,6 @@ def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
     assert "N/A — no movie:*:features in Redis" in page
     assert "<h2>Ranking</h2>" in page
     assert "<td>position</td>" in page
+    # New offline-evaluation cards: OPE has no Redis buffer (N/A); MDP renders from the CSV.
+    assert "N/A — no replay-buffer events with reward in Redis" in page
+    assert "<h2>MDP policy evaluation</h2>" in page and "<td>uniform</td>" in page

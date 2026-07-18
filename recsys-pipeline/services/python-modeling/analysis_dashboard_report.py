@@ -198,6 +198,50 @@ def compute_ranking(df, host: str, port: int):
     return {"headline": headline, "rows": rows}
 
 
+def compute_ope(host, port, key="replay:recommendations", limit=-1, bootstrap_samples=1000):
+    """Direct-Method off-policy evaluation over the Redis replay buffer (reuses ope_eval_report)."""
+    try:
+        import redis
+        import ope_support as replay_buffer
+        client = redis.Redis(host=host, port=port, decode_responses=False)
+        events = replay_buffer.load_from_redis(client, key, limit)
+    except Exception:  # noqa: BLE001 — Redis unreachable / no buffer
+        return None
+    events = [e for e in events if e.get("reward") is not None]
+    if not events:
+        return None
+    import ope_eval_report as ope
+    try:
+        model = ope.fit_reward_model(events)
+        rows = ope.bootstrap_intervals(events, model, ope.evaluate(events, model),
+                                       samples=bootstrap_samples)
+    except Exception:  # noqa: BLE001 — too few events to fit / evaluate
+        return None
+    cal = model.calibration
+    best = max(rows, key=lambda r: r["value"])
+    log_val = next((r["value"] for r in rows if r["policy"] == "logging"), None)
+    auc = "N/A" if cal["auc"] is None else f"{cal['auc']:.3f}"
+    headline = (f"best '{best['policy']}' value {best['value']:.3f}"
+                + (f" vs logging {log_val:.3f}" if log_val is not None else "")
+                + f" · est AUC {auc}")
+    return {"headline": headline, "rows": rows, "calibration": cal}
+
+
+def compute_mdp(csv_path):
+    """Load a MovieLensPolicyEvaluation CSV (policy,episodes,mean_return,...) if the Java CLI wrote one."""
+    if not csv_path or not os.path.exists(csv_path):
+        return None
+    import pandas as pd
+    df = pd.read_csv(csv_path)
+    if df.empty:
+        return None
+    best = df.loc[df["mean_return"].idxmax()]
+    worst = df.loc[df["mean_return"].idxmin()]
+    headline = (f"{best['policy']} return {best['mean_return']:.3f} vs "
+                f"{worst['policy']} {worst['mean_return']:.3f} over {int(best['episodes'])} episodes")
+    return {"headline": headline, "df": df, "path": csv_path}
+
+
 import html as _html
 
 
@@ -368,11 +412,58 @@ def _ranking_section(r) -> str:
     return section("Ranking", r["headline"], body)
 
 
+def _ci(low, high, pct=False) -> str:
+    if low is None or high is None:
+        return "N/A"
+    return f"[{low:+.1%}, {high:+.1%}]" if pct else f"[{low:.4f}, {high:.4f}]"
+
+
+_FINE_PRINT = 'margin:0;color:#64748b;font-size:.78rem'
+
+
+def _ope_section(r) -> str:
+    import pandas as pd
+    rows = r["rows"]
+    disp = pd.DataFrame([{
+        "policy": x["policy"],
+        "value": round(x["value"], 4),
+        "value_95ci": _ci(x["value_ci_low"], x["value_ci_high"]),
+        "lift_vs_logging": "N/A" if x["lift_vs_logging"] is None else f"{x['lift_vs_logging']:+.1%}",
+        "lift_95ci": _ci(x["lift_ci_low"], x["lift_ci_high"], pct=True),
+        "n": x["n_events"],
+    } for x in rows])
+    body = svg_bar([x["policy"] for x in rows], [x["value"] for x in rows],
+                   title="Estimated policy value")
+    body += html_table(disp, ["policy", "value", "value_95ci", "lift_vs_logging", "lift_95ci", "n"])
+    cal = r["calibration"]
+    auc = "N/A" if cal["auc"] is None else round(cal["auc"], 4)
+    body += (f'<p style="{_FINE_PRINT}">Direct Method · reward estimator AUC {_esc(auc)} '
+             f'MSE {_esc(round(cal["mse"], 4))} (n_test {_esc(cal["n_test"])}). 95% event-bootstrap '
+             f'CIs are conditional on the fixed reward model; model-fit uncertainty excluded.</p>')
+    return section("Off-policy evaluation", r["headline"], body)
+
+
+def _mdp_section(r) -> str:
+    df = r["df"].copy()
+    df["ci95"] = [f"[{lo:.3f}, {hi:.3f}]" for lo, hi in zip(df["ci95_low"], df["ci95_high"])]
+    for c in ("mean_return", "mean_steps", "standard_error"):
+        df[c] = df[c].round(4)
+    body = html_table(df, ["policy", "episodes", "mean_return", "mean_steps", "standard_error", "ci95"])
+    body += (f'<p style="{_FINE_PRINT}">Finite-horizon discounted return over seeded episodes; '
+             f'95% bootstrap CIs quantify episode-sampling uncertainty for this fixed dataset. '
+             f'Source: {_esc(os.path.basename(r["path"]))}.</p>')
+    return section("MDP policy evaluation", r["headline"], body)
+
+
 def main(argv=None) -> str:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", default="/tmp/spark-recsys/movie-category-sim/training-samples")
     ap.add_argument("--outdir", default=None)
     ap.add_argument("--ks", default="5,10,20")
+    ap.add_argument("--ope-key", default="replay:recommendations")
+    ap.add_argument("--ope-bootstrap-samples", type=int, default=1000)
+    ap.add_argument("--mdp-csv", default=None,
+                    help="MovieLensPolicyEvaluation CSV; default <input>/../mdp_eval.csv")
     args = ap.parse_args(argv)
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
@@ -394,6 +485,14 @@ def main(argv=None) -> str:
     ranking = compute_ranking(df, host, port)
     sections.append(_ranking_section(ranking) if ranking
                     else na_card("Ranking", "no popularity or i2vEmb:* signals in Redis"))
+    ope = compute_ope(host, port, args.ope_key, bootstrap_samples=args.ope_bootstrap_samples)
+    sections.append(_ope_section(ope) if ope
+                    else na_card("Off-policy evaluation",
+                                 "no replay-buffer events with reward in Redis"))
+    mdp_csv = args.mdp_csv or os.path.join(args.input, "..", "mdp_eval.csv")
+    mdp = compute_mdp(mdp_csv)
+    sections.append(_mdp_section(mdp) if mdp
+                    else na_card("MDP policy evaluation", f"no mdp_eval.csv at {mdp_csv}"))
 
     os.makedirs(outdir, exist_ok=True)
     out = os.path.join(outdir, "index.html")
