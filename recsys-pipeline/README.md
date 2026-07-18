@@ -372,9 +372,18 @@ DRY_RUN=1 ./run-retrain.sh             # print each step; execute nothing
 The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`. Run `replay_export.py` standalone to inspect or back up the buffer:
 
 ```bash
-python3 services/python-modeling/replay_export.py \
-    --output /tmp/replay_backup.csv \
-    --redis-host localhost
+# 1. start the retrieval service
+cd services/java-retrieval-service && mvn spring-boot:run    # binds :8080
+
+# 2. in another shell — generate recommendations + feedback
+curl 'http://localhost:8080/recommend/u_1?limit=6'
+curl -X POST http://localhost:8080/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"u_1","item":"movie_42","clicked":true,"reward":1.0}'
+
+# 3. now the export has entries
+python3 services/python-modeling/replay_export.py --output /tmp/replay_backup.csv --redis-host localhost
+
 ```
 
 ## API
@@ -382,6 +391,10 @@ python3 services/python-modeling/replay_export.py \
 ### `GET /recommend/{user}?limit=6`
 
 Returns recent interactions, selected recommendations, per-item diagnostics, and request-level metrics.
+
+```bash
+curl 'http://localhost:8080/recommend/user_1?limit=6'
+```
 
 ```json
 {
@@ -424,20 +437,30 @@ Returns recent interactions, selected recommendations, per-item diagnostics, and
 Scores a single (user, item) pair using the offline ONNX model. Returns an error if either ID is not in the model's lookup table.
 
 ```bash
-curl http://localhost:8080/predict/user_1/item_5
+curl http://localhost:8080/predict/user_employee_01/action_benefits
 ```
 
 ```json
-{"model":"mlp_embedding","user":"user_1","item":"item_5","userId":0,"itemId":4,"score":0.742}
+{"model":"mlp_embedding","user":"user_employee_01","item":"action_benefits","userId":0,"itemId":0,"score":0.448}
 ```
+
+The default classpath model (`mlp_embedding`) is an internal employee/action dataset — valid IDs are `user_employee_01`..`user_employee_32` and `action_*` (e.g. `action_benefits`, `action_payroll`). Unknown IDs return `{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
 
 ### `GET /predict/id?userId=0&itemId=4`
 
 Same as above but accepts raw integer lookup IDs directly.
 
+```bash
+curl 'http://localhost:8080/predict/id?userId=0&itemId=4'
+```
+
 ### `GET /predict/metadata`
 
 Returns model name, lookup table sizes, and ONNX input/output names for the loaded offline model.
+
+```bash
+curl http://localhost:8080/predict/metadata
+```
 
 ### `POST /feedback`
 
@@ -459,6 +482,10 @@ curl -X POST http://localhost:8080/feedback \
 ### `GET /metrics`
 
 Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view.
+
+```bash
+curl http://localhost:8080/metrics
+```
 
 | Field | Description |
 |---|---|
@@ -489,6 +516,10 @@ Redis keys:
 ### `GET /embedding/{item}`
 
 Returns an item embedding from Redis using key `i2vEmb:{item}`.
+
+```bash
+curl http://localhost:8080/embedding/item_5
+```
 
 ## Real-Time Path
 
