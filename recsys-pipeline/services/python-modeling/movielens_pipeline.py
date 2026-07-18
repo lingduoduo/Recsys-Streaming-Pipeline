@@ -992,8 +992,8 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--user",
         action="append",
-        choices=USERS,
-        help="User to recommend for. Repeat to select multiple users; defaults to all users.",
+        help="User to recommend for (validated at runtime against the loaded ratings data). "
+             "Repeat to select multiple users; defaults to all users.",
     )
     parser.add_argument("--top-k", type=int, default=10, help="Retrieval candidate count.")
     parser.add_argument(
