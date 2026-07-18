@@ -73,6 +73,13 @@ def test_parse_args_supports_selected_users_and_model_directory(tmp_path):
     assert args.model_dir == tmp_path
 
 
+def test_parse_args_accepts_data_dependent_user_names():
+    # --user is validated at runtime against the loaded ratings data, not by argparse:
+    # a ratings CSV can define users (e.g. user_1) that differ from the built-in demo set.
+    args = pipeline.parse_args(["--user", "user_1"])
+    assert args.user == ["user_1"]
+
+
 def test_train_two_tower_produces_valid_normalised_embeddings():
     user_tower, item_tower = pipeline.train_two_tower(epochs=5, seed=0)
     genre_t = torch.tensor(pipeline.MOVIE_GENRE_FEATS)
