@@ -437,12 +437,14 @@ curl 'http://localhost:8080/recommend/user_1?limit=6'
 Scores a single (user, item) pair using the offline ONNX model. Returns an error if either ID is not in the model's lookup table.
 
 ```bash
-curl http://localhost:8080/predict/user_1/item_5
+curl http://localhost:8080/predict/user_employee_01/action_benefits
 ```
 
 ```json
-{"model":"mlp_embedding","user":"user_1","item":"item_5","userId":0,"itemId":4,"score":0.742}
+{"model":"mlp_embedding","user":"user_employee_01","item":"action_benefits","userId":0,"itemId":0,"score":0.448}
 ```
+
+The default classpath model (`mlp_embedding`) is an internal employee/action dataset — valid IDs are `user_employee_01`..`user_employee_32` and `action_*` (e.g. `action_benefits`, `action_payroll`). Unknown IDs return `{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
 
 ### `GET /predict/id?userId=0&itemId=4`
 
