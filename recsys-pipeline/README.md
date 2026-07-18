@@ -348,6 +348,14 @@ To add the entry manually instead:
 ./run-retrain.sh --skip-reload         # Train without hot-reload (offline mode)
 ```
 
+### Dry Run
+
+Preview the stages without training, writing embeddings, or hitting the service:
+
+```bash
+DRY_RUN=1 ./run-retrain.sh             # print each step; execute nothing
+```
+
 ### Environment Variables
 
 | Variable | Default | Description |
