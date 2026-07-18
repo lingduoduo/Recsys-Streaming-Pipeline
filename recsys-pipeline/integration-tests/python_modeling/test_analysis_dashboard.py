@@ -233,6 +233,12 @@ def test_ope_and_mdp_section_renderers():
     assert "Off-policy evaluation" in html and "<td>popularity</td>" in html
     assert "+12.7%" in html and "Direct Method" in html and "AUC 0.71" in html
 
+    # Degenerate calibration (too few events → empty held-out split) has None auc/mse;
+    # the renderer must show N/A, not crash on round(None).
+    ope_degenerate = {**ope, "calibration": {"auc": None, "mse": None, "n_test": 0}}
+    html_na = dash._ope_section(ope_degenerate)
+    assert "AUC N/A" in html_na and "MSE N/A" in html_na
+
     mdp = {"headline": "uniform return -0.449", "path": "/tmp/run/mdp_eval.csv",
            "df": pd.DataFrame({"policy": ["uniform"], "episodes": [200], "mean_return": [-0.4493],
                                "mean_steps": [3.0], "standard_error": [0.1028],
