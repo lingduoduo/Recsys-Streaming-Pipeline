@@ -145,14 +145,20 @@ def test_get_or_compute_item_embs_caches_result():
     np.testing.assert_array_equal(result1, fake_embs)
 
 
-@pytest.mark.skipif(
-    not pipeline.DEFAULT_ARTIFACTS.all_exist(),
-    reason="checked-in ONNX sample artifacts are unavailable",
-)
-def test_real_onnx_pipeline_returns_sorted_unwatched_recommendations():
+def test_real_onnx_pipeline_returns_sorted_unwatched_recommendations(tmp_path):
+    # Train + export artifacts from the current (built-in demo) catalog into a temp dir,
+    # then score against them. Scoring against whatever is in sampledata/ is unreliable:
+    # those ONNX may have been trained on a different catalog (e.g. ratings.csv), whose
+    # movie count differs from the demo catalog and drives an out-of-bounds item lookup.
+    artifacts = pipeline.ArtifactPaths.from_directory(tmp_path)
+    user_tower, item_tower = pipeline.train_two_tower(epochs=5, seed=0)
+    ranker = pipeline.train_ranking(user_tower, item_tower, epochs=5, seed=0)
+    pipeline.export_onnx(user_tower, item_tower, ranker, artifacts=artifacts)
+
+    pipeline._item_emb_cache = None  # drop any cache left by a prior test's session
     recommendations, _ = pipeline.score_recommendations(
         "alice",
-        pipeline.load_sessions(),
+        pipeline.load_sessions(artifacts),
         top_k=3,
     )
 
