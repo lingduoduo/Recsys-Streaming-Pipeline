@@ -24,8 +24,8 @@ Recsys-Streaming-Pipeline/
     ├── pytest.ini                     # Pytest config for integration tests
     ├── services/
     │   ├── spark-streaming-job/       # Scala/Spark: streaming ingestion, feature joins, offline embeddings
-    │   ├── java-retrieval-service/    # Java/Spring Boot: ONNX scoring, bandit RL, REST API
-    │   └── python-modeling/           # Python: event producer, two-tower training, ONNX export
+    │   ├── java-retrieval-service/    # Java/Spring Boot: ONNX scoring, bandit RL, REST API, offline MDP policy eval
+    │   └── python-modeling/           # Python: event producer, two-tower training, ONNX export, off-policy eval
     ├── integration-tests/             # Cross-service integration tests (pytest + shell)
     ├── scripts/
     │   └── install-cron.sh            # Installs scheduled retraining cron job
@@ -220,8 +220,9 @@ REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.p
 ```
 
 The recall/ranking sections need Redis embeddings (`movie:*:features`, `i2vEmb` / `uEmb`); without
-them they render an explicit N/A card. See the recsys-pipeline README → *Analysis Reports* for the
-five individual per-report scripts.
+them they render an explicit N/A card. The `run-movie-category-sim.sh` harness now generates those
+embeddings + item popularity itself, so its dashboard renders real recall/ranking numbers. See the
+recsys-pipeline README → *Analysis Reports* for the five individual per-report scripts.
 
 ---
 
@@ -289,6 +290,34 @@ curl -X POST http://localhost:8080/feedback \
 # Aggregate bandit metrics (CTR, regret, novelty, coverage) per algorithm
 curl http://localhost:8080/metrics
 ```
+
+---
+
+### Offline policy evaluation
+
+Two standalone, honest offline evaluators that compare policies *without* touching the serving
+path — replacing the service's self-referential vanity metrics.
+
+```bash
+# Bandit off-policy evaluation (Direct Method) from the rl_experience replay buffer.
+# Fits a numpy logistic reward model on logged (taken-action features → observed reward),
+# then re-picks each event's slate under logging / popularity / ctr / model:* / random
+# policies. Reports value, lift-vs-logging, and 95% bootstrap CIs, plus estimator AUC/MSE.
+REDIS_HOST=localhost python services/python-modeling/ope_eval_report.py --output ope_eval.csv
+
+# Offline MovieLens MDP: uniform-random vs greedy leave-one-user-out movie-score policy over
+# seeded finite-horizon episodes. Reports mean discounted return, mean steps, standard error,
+# and reproducible 95% bootstrap CIs. Isolated from live Redis/bandit state.
+# Needs a real MovieLens ratings.csv — the default --min-user-ratings/--min-movie-ratings
+# filters wipe out the tiny bundled sampledata/ratings.csv.
+cd services/java-retrieval-service
+mvn -q compile exec:java \
+  -Dexec.mainClass=com.demo.retrieval.evaluation.MovieLensPolicyEvaluation \
+  -Dexec.args="--ratings /path/to/movielens/ratings.csv --output mdp_eval.csv"
+```
+
+Both intervals quantify *episode/event-sampling* uncertainty only — the OPE CIs are conditional
+on the fitted reward model, and the MDP CIs on the fixed dataset. Neither is a claim of A/B lift.
 
 ---
 
