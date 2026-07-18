@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # run-retrain.sh — Orchestrate a full retraining pass:
 #   1. Export replay buffer from Redis to CSV
-#   2. Regenerate Spark ALS embeddings (writes to Redis)
-#   3. Regenerate Spark UserEmbedding vectors (writes to Redis)
-#   4. Re-train Python two-tower with fine-tuning on replay data
-#   5. Hot-reload ONNX model in running Java service
+#   2. Regenerate Item2Vec item embeddings (file + Redis)
+#   3. Regenerate Spark ALS embeddings (writes to Redis)
+#   4. Regenerate Spark UserEmbedding vectors (writes to Redis)
+#   5. Re-train Python two-tower with fine-tuning on replay data
+#   6. Hot-reload ONNX model in running Java service
 #
 # Usage:
 #   ./run-retrain.sh [--skip-spark] [--skip-python] [--skip-reload]
 #
 # Environment Variables:
-#   REDIS_HOST             Redis host (default: localhost)
-#   REDIS_PORT             Redis port (default: 6379)
-#   RECSYS_SERVICE_URL     Java retrieval service base URL (default: http://localhost:8080)
-#   RATINGS_CSV            Path to base ratings CSV (default: sampledata/ratings.csv)
-#   MODEL_DIR              ONNX output directory (default: sampledata)
-#   DRY_RUN                Set to 1 to print steps without executing (default: 0)
+#   REDIS_HOST                Redis host (default: localhost)
+#   REDIS_PORT                Redis port (default: 6379)
+#   RECSYS_SERVICE_URL        Java retrieval service base URL (default: http://localhost:8080)
+#   RATINGS_CSV               Path to base ratings CSV (default: sampledata/ratings.csv)
+#   MODEL_DIR                 ONNX output directory (default: sampledata)
+#   ITEM2VEC_EMBEDDING_PATH   Item2Vec embedding file (default: <MODEL_DIR>/item_embedding.txt)
+#   DRY_RUN                   Set to 1 to print steps without executing (default: 0)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,8 +28,12 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 RECSYS_SERVICE_URL="${RECSYS_SERVICE_URL:-http://localhost:8080}"
 RATINGS_CSV="${RATINGS_CSV:-${SCRIPT_DIR}/sampledata/ratings.csv}"
 MODEL_DIR="${MODEL_DIR:-${SCRIPT_DIR}/sampledata}"
+ITEM_EMB_PATH="${ITEM2VEC_EMBEDDING_PATH:-${MODEL_DIR}/item_embedding.txt}"
 DRY_RUN="${DRY_RUN:-0}"
 REPLAY_CSV="${SCRIPT_DIR}/sampledata/replay_training.csv"
+
+# Export so child scripts / the Python pipeline pick these up from the environment.
+export REDIS_HOST REDIS_PORT
 
 SKIP_SPARK=0
 SKIP_PYTHON=0
@@ -78,25 +84,36 @@ run python3 "${PYTHON_MODELING}/replay_export.py" \
     --redis-host "${REDIS_HOST}" \
     --redis-port "${REDIS_PORT}"
 
-# Step 2: Spark ALS embeddings
+# Step 2: Item2Vec item embeddings (UserEmbedding depends on this file)
 if [[ "${SKIP_SPARK}" == "0" ]]; then
-  echo "Step 2: Running ALS embedding job"
-  run bash "${SCRIPT_DIR}/run-als-pipeline.sh"
+  echo "Step 2: Running Item2Vec embedding job → ${ITEM_EMB_PATH}"
+  run env RATINGS_INPUT_PATH="${RATINGS_CSV}" ITEM2VEC_EMBEDDING_PATH="${ITEM_EMB_PATH}" \
+      bash "${SCRIPT_DIR}/run-offline-pipeline.sh"
 else
   echo "Step 2: Skipped (--skip-spark)"
 fi
 
-# Step 3: Spark UserEmbedding vectors
+# Step 3: Spark ALS embeddings (ALS_SAVE_TO_REDIS defaults off in the job → enable it here)
 if [[ "${SKIP_SPARK}" == "0" ]]; then
-  echo "Step 3: Running UserEmbedding job"
-  run bash "${SCRIPT_DIR}/run-user-embedding-pipeline.sh"
+  echo "Step 3: Running ALS embedding job"
+  run env RATINGS_INPUT_PATH="${RATINGS_CSV}" ALS_SAVE_TO_REDIS="${ALS_SAVE_TO_REDIS:-true}" \
+      bash "${SCRIPT_DIR}/run-als-pipeline.sh"
 else
   echo "Step 3: Skipped (--skip-spark)"
 fi
 
-# Step 4: Python two-tower fine-tuning
+# Step 4: Spark UserEmbedding vectors (needs ratings + the Item2Vec embedding file)
+if [[ "${SKIP_SPARK}" == "0" ]]; then
+  echo "Step 4: Running UserEmbedding job"
+  run env RATINGS_INPUT_PATH="${RATINGS_CSV}" ITEM2VEC_EMBEDDING_PATH="${ITEM_EMB_PATH}" \
+      bash "${SCRIPT_DIR}/run-user-embedding-pipeline.sh"
+else
+  echo "Step 4: Skipped (--skip-spark)"
+fi
+
+# Step 5: Python two-tower fine-tuning (REDIS_HOST/REDIS_PORT read from the exported env)
 if [[ "${SKIP_PYTHON}" == "0" ]]; then
-  echo "Step 4: Running Python two-tower pipeline with fine-tuning"
+  echo "Step 5: Running Python two-tower pipeline with fine-tuning"
   FINE_TUNE_ARGS=""
   if [[ -f "${REPLAY_CSV}" ]]; then
     FINE_TUNE_ARGS="--fine-tune-csv ${REPLAY_CSV}"
@@ -106,16 +123,14 @@ if [[ "${SKIP_PYTHON}" == "0" ]]; then
       ${FINE_TUNE_ARGS} \
       --model-dir "${MODEL_DIR}" \
       --force-train \
-      --save-embeddings-to-redis \
-      --redis-host "${REDIS_HOST}" \
-      --redis-port "${REDIS_PORT}"
+      --save-embeddings-to-redis
 else
-  echo "Step 4: Skipped (--skip-python)"
+  echo "Step 5: Skipped (--skip-python)"
 fi
 
-# Step 5: Hot-reload ONNX model in running service
+# Step 6: Hot-reload ONNX model in running service
 if [[ "${SKIP_RELOAD}" == "0" ]]; then
-  echo "Step 5: Hot-reloading ONNX model in Java service at ${RECSYS_SERVICE_URL}"
+  echo "Step 6: Hot-reloading ONNX model in Java service at ${RECSYS_SERVICE_URL}"
   HTTP_CODE=$(run curl -s -o /dev/null -w "%{http_code}" \
       -X POST "${RECSYS_SERVICE_URL}/actuator/model-reload" 2>/dev/null || echo "000")
   if [[ "${DRY_RUN}" != "1" && "${HTTP_CODE}" != "200" ]]; then
@@ -124,7 +139,7 @@ if [[ "${SKIP_RELOAD}" == "0" ]]; then
     echo "  model-reload → HTTP ${HTTP_CODE}"
   fi
 else
-  echo "Step 5: Skipped (--skip-reload)"
+  echo "Step 6: Skipped (--skip-reload)"
 fi
 
 echo ""
