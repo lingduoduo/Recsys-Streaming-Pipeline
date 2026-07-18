@@ -437,8 +437,9 @@ def _ope_section(r) -> str:
     body += html_table(disp, ["policy", "value", "value_95ci", "lift_vs_logging", "lift_95ci", "n"])
     cal = r["calibration"]
     auc = "N/A" if cal["auc"] is None else round(cal["auc"], 4)
+    mse = "N/A" if cal["mse"] is None else round(cal["mse"], 4)
     body += (f'<p style="{_FINE_PRINT}">Direct Method · reward estimator AUC {_esc(auc)} '
-             f'MSE {_esc(round(cal["mse"], 4))} (n_test {_esc(cal["n_test"])}). 95% event-bootstrap '
+             f'MSE {_esc(mse)} (n_test {_esc(cal["n_test"])}). 95% event-bootstrap '
              f'CIs are conditional on the fixed reward model; model-fit uncertainty excluded.</p>')
     return section("Off-policy evaluation", r["headline"], body)
 
