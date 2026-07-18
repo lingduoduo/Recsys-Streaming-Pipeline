@@ -14,16 +14,19 @@ CONFIG_PATH = os.path.join(
 )
 
 
-def test_deep_learning_weight_default_is_nonzero():
+def test_deep_learning_weight_default_is_valid_optin_weight():
+    # DeepLearningPredictionService blending is opt-in: the default weight is 0.0
+    # (documented in README as "blend weight 0.0 by default, opt-in"), so the base
+    # hybrid works without the ONNX model. Guard that the default is a valid blend
+    # weight in [0.0, 1.0] rather than forcing it on.
     with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f)
     raw = config["recsys"]["bandit"]["deep-learning-weight"]
     # Extract the default value from the Spring placeholder ${VAR:default}
     default_str = str(raw).split(":")[-1].rstrip("}")
     default_val = float(default_str)
-    assert default_val > 0.0, (
-        f"deep-learning-weight default is {default_val}; must be > 0.0 "
-        "or the ONNX model score is ignored"
+    assert 0.0 <= default_val <= 1.0, (
+        f"deep-learning-weight default is {default_val}; must be a blend weight in [0.0, 1.0]"
     )
 
 
