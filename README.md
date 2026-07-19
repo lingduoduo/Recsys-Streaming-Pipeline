@@ -18,7 +18,7 @@ Recsys-Streaming-Pipeline/
 │   ├── spark_model.scala              # Extended encoder with search-activity features
 │   ├── retention_label.scala          # BigQuery → Spark retention labeling (D1, D2, L7, WAU)
 │   └── Algebird.md                    # Algebird sketch library notes
-└── recsys-pipeline/                   # Streaming recommendation platform
+├── recsys-pipeline/                   # Streaming recommendation platform
     ├── README.md                      # recsys-pipeline overview
     ├── pom.xml                        # Maven build for the Scala/Java services
     ├── pytest.ini                     # Pytest config for integration tests
@@ -42,6 +42,10 @@ Recsys-Streaming-Pipeline/
     ├── recsys-streaming-pipeline.png   # Architecture diagram
     ├── recsys-streaming-pipeline.html  # Interactive architecture diagram
     └── docker-compose.yml              # Local Kafka + Redis
+└── frontend/                          # Next.js app: React rendering of the analysis dashboard
+    ├── app/ · components/             # App-router pages + dashboard section components
+    ├── data/dashboard.json            # Committed snapshot (regenerate via export_dashboard_json.py)
+    └── export_dashboard_json.py       # Dumps compute_* output → dashboard.json
 ```
 
 ---
@@ -343,6 +347,27 @@ See [recsys-pipeline/README.md](recsys-pipeline/README.md) for full configuratio
 
 ---
 
+## frontend
+
+A Next.js (app-router) rendering of the analysis dashboard — the same engagement / keyword /
+query / recall / ranking / off-policy / MDP sections as the Python `analysis_dashboard_report.py`,
+as React components. It reads a committed JSON snapshot, so it runs without Redis or Spark.
+
+```bash
+cd frontend
+npm install
+npm run dev            # http://localhost:3000
+
+# refresh the snapshot from a real run (Redis up; a run's training_samples Parquet):
+REDIS_HOST=localhost python export_dashboard_json.py --input /tmp/spark-recsys/training-samples
+```
+
+[`export_dashboard_json.py`](frontend/export_dashboard_json.py) reuses the pure `compute_*`
+functions from the Python dashboard, so the React UI shows exactly what the HTML dashboard would;
+sections with unavailable inputs render an explicit N/A card. See [frontend/README.md](frontend/README.md).
+
+---
+
 ## Requirements
 
 - Java 17, Scala 2.12
@@ -351,5 +376,6 @@ See [recsys-pipeline/README.md](recsys-pipeline/README.md) for full configuratio
 - Redis 7+
 - Maven 3.8+ (retrieval service)
 - Docker / Docker Compose (local infrastructure)
+- Node.js 18+ / npm (frontend dashboard, optional)
 
 > **Note:** This repository is for learning and demonstration purposes. See individual sub-project READMEs for production configuration guidance.
