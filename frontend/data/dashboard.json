@@ -1,0 +1,163 @@
+{
+  "input": "/tmp/spark-recsys/training-samples",
+  "rows": 53880,
+  "relevance": {
+    "headline": "impressions 53880 \u00b7 CTR 7% \u00b7 CVR 1%",
+    "ctr": 0.0694,
+    "cvr": 0.0081,
+    "funnel": {
+      "impression": 53880,
+      "click": 3739,
+      "order": 436
+    },
+    "by_query": [
+      {
+        "query": "unknown",
+        "impressions": 53880,
+        "mean_score": 0.07748700816629547
+      }
+    ],
+    "by_genre": []
+  },
+  "keyword": {
+    "headline": "'unknown' diverges most: shown 100% vs clicked 100%",
+    "by_keyword": [
+      {
+        "keyword": "unknown",
+        "movie_impressions": 53880,
+        "query_clicks": 3739,
+        "movie_share": 1.0,
+        "query_share": 1.0,
+        "divergence": 0.0
+      }
+    ],
+    "by_subkeyword": [
+      {
+        "subkeyword": "none",
+        "movie_impressions": 53880,
+        "query_clicks": 3739,
+        "movie_share": 1.0,
+        "query_share": 1.0,
+        "divergence": 0.0
+      }
+    ],
+    "tops": {
+      "l1": [],
+      "l2": [],
+      "l3": []
+    }
+  },
+  "query": {
+    "headline": "top query 'unknown' (53880 impr, CTR 7%)",
+    "top_queries": [
+      {
+        "query": "unknown",
+        "impressions": 53880,
+        "clicks": 3739,
+        "orders": 436,
+        "query_len": 7,
+        "ctr": 0.0694,
+        "cvr": 0.0081
+      }
+    ],
+    "by_length": [
+      {
+        "bucket": "short (<=10)",
+        "impressions": 53880,
+        "clicks": 3739,
+        "orders": 436,
+        "ctr": 0.0694,
+        "cvr": 0.0081
+      }
+    ]
+  },
+  "recall": null,
+  "ranking": {
+    "headline": "best signal 'popularity' AUC 0.517",
+    "rows": [
+      {
+        "signal": "popularity",
+        "coverage": 1.0,
+        "n": 53880,
+        "positives": 3739,
+        "auc": 0.5168450751176413,
+        "logloss": 0.8063
+      },
+      {
+        "signal": "position",
+        "coverage": 1.0,
+        "n": 53880,
+        "positives": 3739,
+        "auc": 0.5002873949487585,
+        "logloss": 0.8102
+      },
+      {
+        "signal": "embedding",
+        "n": 0,
+        "positives": 0,
+        "coverage": 0.0,
+        "auc": null,
+        "logloss": null
+      }
+    ]
+  },
+  "ope": {
+    "headline": "best 'logging' value 1.000 vs logging 1.000 \u00b7 est AUC N/A",
+    "rows": [
+      {
+        "policy": "logging",
+        "value": 1.0,
+        "lift_vs_logging": 0.0,
+        "n_events": 2,
+        "estimator_auc": null,
+        "estimator_mse": null,
+        "value_ci_low": 1.0,
+        "value_ci_high": 1.0,
+        "lift_ci_low": 0.0,
+        "lift_ci_high": 0.0
+      },
+      {
+        "policy": "popularity",
+        "value": 0.0,
+        "lift_vs_logging": -1.0,
+        "n_events": 0,
+        "estimator_auc": null,
+        "estimator_mse": null,
+        "value_ci_low": 0.0,
+        "value_ci_high": 0.0,
+        "lift_ci_low": -1.0,
+        "lift_ci_high": -1.0
+      },
+      {
+        "policy": "ctr",
+        "value": 0.0,
+        "lift_vs_logging": -1.0,
+        "n_events": 0,
+        "estimator_auc": null,
+        "estimator_mse": null,
+        "value_ci_low": 0.0,
+        "value_ci_high": 0.0,
+        "lift_ci_low": -1.0,
+        "lift_ci_high": -1.0
+      },
+      {
+        "policy": "random",
+        "value": 0.0,
+        "lift_vs_logging": -1.0,
+        "n_events": 0,
+        "estimator_auc": null,
+        "estimator_mse": null,
+        "value_ci_low": 0.0,
+        "value_ci_high": 0.0,
+        "lift_ci_low": -1.0,
+        "lift_ci_high": -1.0
+      }
+    ],
+    "calibration": {
+      "n_test": 0,
+      "mse": null,
+      "auc": null
+    }
+  },
+  "mdp": null
+}
