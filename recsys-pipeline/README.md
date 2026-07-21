@@ -121,32 +121,7 @@ GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learnin
 
 ## Scoring Model Architecture
 
-Candidate items are scored through three stages, each with a different learning paradigm:
-
-| Model type | Class | Signal | Update cadence |
-|---|---|---|---|
-| **Offline** | `DeepLearningPredictionService` | ONNX MLP score for a (user, item) pair | At training time; static at serve time |
-| **Two-tower** | `TwoTowerPredictionService` | User-tower + item-tower cosine score re-ranked by a transformer; enabled via `ONNX_USER_TOWER_PATH` | At training time; hot-reloaded via `POST /actuator/model-reload` |
-| **Online** | `OnlineLearningService` | Weighted mean reward per item, genre, tag, and global prior | After every `/feedback` call |
-| **Bandit / RL** | `HybridRecommendationService` | UCB, Thompson Sampling, Q-learning, or SARSA score from replay state/action/reward events | After impressions and `/feedback` rewards |
-
-All paths share the same `offlineScore` and `learnedPrior` base. The final `banditScore` diverges by algorithm:
-
-```
-offlineScore  = relevanceWeight × cosine(userEmb, itemEmb)
-              + contentWeight   × genreTagOverlap
-              + popularityWeight × normalizedPopularity
-              + deepLearningWeight × onnxScore
-
-learnedPrior  = offlineScore × (1 − onlineWeight) + onlineScore × onlineWeight
-
-── UCB / Thompson ────────────────────────────────────────────────
-banditScore   = BetaPosteriorMean(learnedPrior, clicks, impressions)
-              + explorationBonus(UCB | Thompson)
-
-── Q-learning / SARSA ───────────────────────────────────────────
-banditScore   = Q(stateKey, item)   ← tabular Q-value in Redis, updated via Bellman equation
-```
+See [6_Predicting_Scoring.md](6_Predicting_Scoring.md) for the three-stage scoring model (offline / two-tower / online / bandit), the `offlineScore` → `learnedPrior` → `banditScore` formulas, and the per-algorithm bandit notes.
 
 ## Storage Architecture
 
@@ -167,16 +142,18 @@ The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-tri
 For each incoming request, the retrieval service executes nine steps in order:
 
 1. **Hydrate query** — 21 `QueryHydrator` implementations populate `ScoredMoviesQuery` with per-user context: watch history, rating sequences, social graph, served history, MinHash, cached candidates, bloom filter, geo, demographics, and inferred signals.
-2. **Fetch popular candidates** — pulls top items from `global:item_popularity`.
-3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history.
-4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates.
-5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags.
-6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [Scoring Model Architecture](#scoring-model-architecture)).
-7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition.
-8. **Store context** — writes pending recommendation context to the replay buffer for downstream training.
-9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage.
+2. **Fetch popular candidates** — pulls top items from `global:item_popularity` (see [2_Fetch_Popular_Stuff.md](2_Fetch_Popular_Stuff.md)).
+3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history (see [3_Cold_Start.md](3_Cold_Start.md)).
+4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates (see [4_Filtering.md](4_Filtering.md)).
+5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags (see [5_Candidate_Hydration.md](5_Candidate_Hydration.md)).
+6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](6_Predicting_Scoring.md)).
+7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition (see [7_Shuffling.md](7_Shuffling.md)).
+8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](8_Store_Context.md)).
+9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](9_Track_Metrics.md)).
 
 Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
+
+---
 
 ## Quick Start
 
@@ -297,6 +274,8 @@ Run the cross-service integration tests:
 ```bash
 pytest -q
 ```
+
+---
 
 ## Automated Retraining
 
@@ -481,37 +460,11 @@ curl -X POST http://localhost:8080/feedback \
 
 ### `GET /metrics`
 
-Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view.
+Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view — see [9_Track_Metrics.md](9_Track_Metrics.md) for the full field and Redis-key tables.
 
 ```bash
 curl http://localhost:8080/metrics
 ```
-
-| Field | Description |
-|---|---|
-| `requests` | Total recommendation requests served |
-| `recommendationsServed` | Total items recommended |
-| `clicks` | Total clicks recorded via `/feedback` |
-| `ctr` | Click-through rate |
-| `avgObservedReward` | Mean reward from `/feedback` calls |
-| `avgEstimatedReward` | Mean predicted reward at serve time |
-| `avgPseudoRegret` | Mean per-request regret estimate |
-| `cumulativePseudoRegret` | Running sum of pseudo-regret |
-| `avgNoveltyScore` | Mean novelty of served items |
-| `coldStartImpressions` | Impressions on cold-start items |
-| `exploratoryImpressions` | Impressions driven by exploration bonus |
-| `catalogCoverage` | Fraction of catalog served at least once |
-| `allAlgorithms.ucb` | Per-metric breakdown for UCB |
-| `allAlgorithms.thompson` | Per-metric breakdown for Thompson Sampling |
-| `global` | Aggregate across all algorithms |
-
-Redis keys:
-
-| Key | Scope |
-|---|---|
-| `bandit:metrics` | All traffic combined |
-| `bandit:metrics:ucb` | UCB only |
-| `bandit:metrics:thompson` | Thompson Sampling only |
 
 ### `GET /embedding/{item}`
 
@@ -756,75 +709,7 @@ Environment variables:
 
 ## Retrieval Pipeline
 
-Before scoring, each request is enriched through two sequential pipelines.
-
-### Query Hydration
-
-`QueryHydrator<ScoredMoviesQuery>` implementations populate per-user context fields on the incoming request. Each hydrator reads one concern and writes one field group; hydrators run independently and can be parallelized.
-
-| Hydrator | Field(s) hydrated | Source |
-|---|---|---|
-| `UserDemographicsQueryHydrator` | `demographics` | `MovieLensFeatureClient` (`user:{id}:features`) |
-| `UserInferredGenderQueryHydrator` | `inferredGender`, `inferredGenderScore` | `MovieLensFeatureClient`; falls back to `demographics.gender` for new users (ratingCount == 0) |
-| `UserMovieFeaturesQueryHydrator` | rating-based features | `MovieLensFeatureClient` |
-| `UserActionSequenceQueryHydrator` | `actionSequenceMovieIds` (dedup + truncate to 50) | `MovieLensFeatureClient` (field: `recentlyRatedMovieIds`) |
-| `RetrievalSequenceQueryHydrator` | `retrievalSequenceMovieIds` (dedup + truncate to 100) | `UserActionAggregationClient` (`user:{id}:features` via dedup pipeline) |
-| `ScoringSequenceQueryHydrator` | `scoringSequenceMovieIds` (dedup + truncate to 20) | `UserActionAggregationClient` |
-| `ServedHistoryQueryHydrator` | `servedMovieIds` | `ServedHistoryClient` (`user:{id}:served_history`) |
-| `IpQueryHydrator` | `ipLocation` (ZIP code proxy) | `GeoLocationClient` (`user:{id}:features`) |
-| `PastRequestTimestampsQueryHydrator` | `pastRequestTimestamps` | `PastRequestTimestampsClient` (`user:{id}:request_history`) |
-| `MutualFollowQueryHydrator` | `mutualFollowMinhash` | `SimilarityMinHashClient` (`user:{id}:minhash`) |
-| `CachedMoviesQueryHydrator` | `cachedMovieIds`, `hasCachedMovies` | `CachedMoviesClient` (`user:{id}:cached_movies`) |
-| `InferredGenresQueryHydrator` | `inferredGenres` (genre preference signal) | `MovieLensFeatureClient` |
-| `FollowedGenresQueryHydrator` | `followedGenres` (followed genre IDs) | `MovieLensFeatureClient` |
-| `SubscribedUserIdsQueryHydrator` | `subscribedUserIds` | `SocialGraphClient` (`user:{id}:social`) |
-| `BlockedUserIdsQueryHydrator` | `blockedUserIds` | `SocialGraphClient` |
-| `MutedUserIdsQueryHydrator` | `mutedUserIds` | `SocialGraphClient` |
-| `FollowedUserIdsQueryHydrator` | `followedUserIds` | `SocialGraphClient` |
-| `ImpressedMoviesQueryHydrator` | `impressedMovieIds` | `ImpressedMoviesClient` (`user:{id}:impressions`) |
-| `ImpressionBloomFilterQueryHydrator` | `impressionBloomFilter` | `ImpressionBloomFilterClient` (`user:{id}:bloom_filter`) |
-| `FollowedCollectionsQueryHydrator` | `followedCollections` | `FollowedStarterPacksClient` (`user:{id}:starter_packs`) |
-| `MovieLensUserHistoryQueryHydrator` | `watchedMovieIds`, `ratedMovieIds` | `UserMovieHistoryClient` (`user:{id}:history`) |
-
-All client classes live under `com.demo.retrieval.service.clients`. `MovieLensFeatureClient` covers the general rating-and-demographics feature store. `SocialGraphClient` covers block/mute/follow/subscribe relationships (different write path); all other clients own a dedicated Redis key namespace.
-
-### Candidate Filters and Hydrators
-
-After initial candidate generation, candidates pass through two more pipelines.
-
-**Filters** (`CandidateFilter`) drop ineligible candidates:
-
-| Filter | Removes |
-|---|---|
-| `PreviouslySeenMoviesFilter` | Movies the user has already watched (via bloom filter) |
-| `PreviouslySeenMoviesBackupFilter` | Watched movies using `impressedMovieIds`; used when bloom filter is unavailable |
-| `PreviouslyServedMoviesFilter` | Recently served movies (`servedMovieIds`) |
-| `SelfMovieFilter` | Movies created by the requesting user (`userId == ownerId`) |
-| `CreatorBlocklistFilter` | Movies from blocked creators |
-| `MutedKeywordFilter` | Movies whose title or tags match muted keywords |
-| `AgeFilter` | Movies outside the user's age-appropriate range |
-| `VideoFilter` | Non-video content (configurable via filter settings) |
-| `ReshareDeduplicationFilter` | Duplicate reshares of the same source movie |
-| `GenreIdsFilter` | Candidates not matching the requested genre IDs |
-| `NewUserGenreFilter` | Candidates outside the genre allowlist for new users |
-
-**Candidate hydrators** (`CandidateHydrator`) enrich surviving candidates with additional signals:
-
-| Hydrator | Adds |
-|---|---|
-| `CoreDataCandidateHydrator` | Title, genres, and release year from the movie feature store |
-| `InNetworkCandidateHydrator` | In-network flag — whether the candidate is from a followed creator |
-| `MutualFollowJaccardCandidateHydrator` | Jaccard similarity score via MinHash |
-| `EngagementCountsCandidateHydrator` | Global rating count and average rating |
-| `GenreMatchCandidateHydrator` | Genre overlap signal against user preferences |
-| `SubscriptionCandidateHydrator` | Subscription-gated content flag |
-| `LanguageCodeCandidateHydrator` | Language code |
-| `HasMediaCandidateHydrator` | Media type flags |
-| `BlockedByCandidateHydrator` | Blocked-by flag — whether the viewer is blocked by the candidate's creator |
-| `VisibilityFilteringCandidateHydrator` | Visibility eligibility flag based on content policy |
-| `FollowingRepliedUsersCandidateHydrator` | Social proximity signal from followed or replied-to creators |
-| `QuoteCandidateHydrator` | Quote and reference metadata |
-| `GizmoduckCandidateHydrator` | External content safety signal |
+Before scoring, each request is enriched through two sequential pipelines — see [1_Query_Hydration.md](1_Query_Hydration.md) for the query-hydration table, [4_Filtering.md](4_Filtering.md) for the candidate filters, and [5_Candidate_Hydration.md](5_Candidate_Hydration.md) for the candidate hydrators.
 
 ## Retrieval Service Configuration
 
@@ -867,24 +752,6 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 | `recsys.embeddings.item-prefix` | `i2vEmb` |
 | `recsys.embeddings.user-prefix` | `uEmb` |
 
-**Candidate generation**
-
-| Property | Default |
-|---|---|
-| `recsys.candidate-generation.popularity-fetch-multiplier` | `5` |
-| `recsys.candidate-generation.cold-start-pool-size` | `25` |
-| `recsys.candidate-generation.top-n-randomization-pool` | `5` |
-
-**Filtering**
-
-| Property | Default |
-|---|---|
-| `recsys.filtering.enabled` | `true` |
-| `recsys.filtering.blocked-users` | *(empty)* |
-| `recsys.filtering.muted-product-types` | *(empty)* |
-| `recsys.filtering.muted-genres` | *(empty)* |
-| `recsys.filtering.muted-keywords` | *(empty)* |
-
 **Bandit**
 
 | Property | Default |
@@ -901,13 +768,6 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 | `recsys.bandit.q-learning-alpha` | `0.1` |
 | `recsys.bandit.q-learning-gamma` | `0.9` |
 | `recsys.bandit.q-learning-epsilon` | `0.1` |
-
-**Replay buffer**
-
-| Property | Default |
-|---|---|
-| `recsys.replay-buffer.max-size` | `10000` |
-| `recsys.replay-buffer.candidate-snapshot-size` | `20` |
 
 **Reward model**
 
@@ -937,14 +797,6 @@ Runtime overrides:
 | `ITEM_EMBEDDING_PREFIX` | `i2vEmb` |
 | `USER_EMBEDDING_PREFIX` | `uEmb` |
 
-**Candidate generation**
-
-| Env var | Default |
-|---|---|
-| `RECSYS_POPULARITY_FETCH_MULTIPLIER` | `5` |
-| `RECSYS_COLD_START_POOL_SIZE` | `25` |
-| `RECSYS_RANDOMIZATION_POOL` | `5` |
-
 **Bandit**
 
 | Env var | Default |
@@ -958,13 +810,6 @@ Runtime overrides:
 | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
 | `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
-
-**Replay buffer**
-
-| Env var | Default |
-|---|---|
-| `RECSYS_REPLAY_BUFFER_MAX_SIZE` | `10000` |
-| `RECSYS_REPLAY_CANDIDATE_SNAPSHOT_SIZE` | `20` |
 
 **Reward model**
 
@@ -995,16 +840,7 @@ Runtime overrides:
 
 ### Bandit algorithm notes
 
-All four algorithms consume the same `learnedPrior` — a blend of `offlineScore` (static signals + ONNX) and `onlineScore` (real-time reward model) — so bandit updates refine rather than replace the base ranker.
-
-- **`ucb`** — builds a Beta-smoothed posterior mean for each item, then adds a confidence term proportional to `sqrt(log(total_impressions) / pulls)`.
-- **`thompson`** — builds the same posterior and ranks items by sampling from the Beta posterior, giving a stochastic arm draw per request.
-- **`q-learning`** — stores tabular Q-values in Redis under `q-learning:q:{stateKey}` and updates from feedback with `Q(s,a) += alpha * (reward + gamma * max_a Q(s',a) - Q(s,a))`.
-- **`sarsa`** — stores tabular Q-values under `sarsa:q:{stateKey}` and updates with the on-policy target `reward + gamma * Q(s', a')`, where `a'` is selected by the same epsilon-greedy policy used for serving.
-
-Set `RECSYS_DEEP_LEARNING_WEIGHT` to a non-zero value to enable the ONNX model's contribution to `offlineScore`. Weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
-
-Switch algorithms by setting `RECSYS_BANDIT_ALGORITHM` to `ucb`, `thompson`, `q-learning`, or `sarsa`.
+Moved to [6_Predicting_Scoring.md](6_Predicting_Scoring.md#bandit-algorithm-notes) alongside the scoring model — covers how each of `ucb` / `thompson` / `q-learning` / `sarsa` turns `learnedPrior` into a `banditScore`.
 
 ### Real-time training write path
 
@@ -1262,34 +1098,7 @@ and are skipped automatically when `SPARK_HOME` is unset.
 
 ## Cold-Start RL Extension Plan
 
-The retrieval service is a natural starting point for a cold-start RL project: it already has content-based retrieval, item embeddings, online feedback, and a bandit exploration layer. The recommended path extends that foundation gradually rather than jumping straight to a full DQN ranker.
-
-1. ✅ **Baseline** *(implemented)*
-   - Content-based retrieval from genres, tags, popularity, and embeddings
-   - Offline ONNX MLP score (`DeepLearningPredictionService`) blended via `deep-learning-weight`
-   - Online reward model (`OnlineLearningService`) updated from the feedback stream
-   - UCB/Thompson bandit exploration for low-exposure and cold-start items
-   - Replay buffer storing `(user, context, candidates, action, reward, timestamp)`
-
-2. **Establish the RL framing**
-   - Model recommendation as contextual Q-learning: state = user/session context, action = recommended item, reward = `/feedback` signal
-   - Keep the UCB ranker as the online-safe policy while the Q-value model trains offline or in shadow mode
-
-3. **Scale with DQN ranking**
-   - Replace tabular Q-values with a neural scorer over user, item, and content embeddings
-   - Rank candidates by predicted Q-value rather than treating the full catalog as the action space
-   - Train from the replay buffer using exposed-but-unclicked items as negatives
-
-4. **Stabilize with Double DQN**
-   - Use the online network to select the next best item; use the target network to evaluate it
-   - Periodically sync the target network to reduce overestimation and ranking churn
-
-5. **Improve cold-start efficiency with Dyna-Q planning**
-   - Train a lightweight reward model from observed feedback
-   - Generate simulated feedback for new or low-exposure items
-   - Mix real and simulated replay at a lower weight for simulated samples
-
-Each step adds one capability: Q-learning frames the loop as RL, DQN makes it scalable with embeddings, Double DQN stabilizes the learned ranker, and Dyna-Q improves cold-start efficiency through simulated experience.
+See [3_Cold_Start.md](3_Cold_Start.md) for the cold-start candidate generation details and the gradual RL extension plan (baseline → RL framing → DQN → Double DQN → Dyna-Q).
 
 ## Notes
 
