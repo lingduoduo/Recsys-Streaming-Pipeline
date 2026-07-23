@@ -37,4 +37,15 @@ class ExecutionEngineSpec extends AnyFlatSpec with Matchers with BeforeAndAfterA
 
     received.toSet shouldBe Set(("a", 5L), ("b", 5L))
   }
+
+  it should "write to every sink in the list" in {
+    val s = spark; import s.implicits._
+    val a = scala.collection.mutable.ArrayBuffer[String]()
+    val b = scala.collection.mutable.ArrayBuffer[String]()
+    val sinkA: Sink = (batch, _) => batch.collect().foreach(r => a += r.getAs[String]("x"))
+    val sinkB: Sink = (batch, _) => batch.collect().foreach(r => b += r.getAs[String]("x"))
+    ExecutionEngine.processBatch(Seq("a", "b").toDF("x"), 0L, Seq.empty, Seq(sinkA, sinkB), maxRetries = 0)
+    a.toSet shouldBe Set("a", "b")
+    b.toSet shouldBe Set("a", "b")
+  }
 }

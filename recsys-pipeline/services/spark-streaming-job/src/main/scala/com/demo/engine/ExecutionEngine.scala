@@ -4,7 +4,11 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.storage.StorageLevel
 
+import scala.util.control.NonFatal
+
 object ExecutionEngine {
+
+  private val RetryBackoffMillis = 200L
 
   /** Run `op`; on failure retry up to `maxRetries` more times, then rethrow. */
   def withRetry(maxRetries: Int)(op: => Unit): Unit = {
@@ -13,9 +17,10 @@ object ExecutionEngine {
     while (!done) {
       try { op; done = true }
       catch {
-        case e: Throwable =>
+        case NonFatal(e) =>
           if (attempt >= maxRetries) throw e
           attempt += 1
+          Thread.sleep(RetryBackoffMillis)
       }
     }
   }
