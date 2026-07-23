@@ -28,8 +28,10 @@ recsys-pipeline/**/*.pyc
 # Local planning scratch (kept out of the repo)
 /task_plan.md
 /progress.md
-# Subagent-driven-development scratch (briefs, reports, review packages)
-/.superpowers/
+# Subagent-driven-development scratch (briefs, reports, review packages).
+# Everything under .superpowers/ is scratch EXCEPT docs/ (versioned specs/plans).
+/.superpowers/*
+!/.superpowers/docs/
 
 # Isolated feature worktrees
 /.worktrees/
