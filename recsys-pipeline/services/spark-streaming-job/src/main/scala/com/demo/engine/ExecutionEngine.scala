@@ -1,5 +1,6 @@
 package com.demo.engine
 
+import com.demo.util.BatchMetricsListener
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.storage.StorageLevel
@@ -44,6 +45,8 @@ object ExecutionEngine {
       spark: SparkSession, cfg: EngineConfig, source: Source,
       streamingStages: Seq[Stage], batchStages: Seq[BatchStage], sinks: Seq[Sink]
   ): Unit = {
+    // Per-batch metrics (rows/rps/batchMs/corrupt) for every engine adopter.
+    BatchMetricsListener.register(spark)
     val streamed = streamingStages.foldLeft(source.read(spark, cfg))((df, s) => s(df))
     streamed.writeStream
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
