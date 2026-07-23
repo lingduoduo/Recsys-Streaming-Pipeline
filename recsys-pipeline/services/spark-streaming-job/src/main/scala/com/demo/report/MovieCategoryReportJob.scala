@@ -1,6 +1,6 @@
 package com.demo.report
 
-import com.demo.task.RedisPool
+import com.demo.engine.RedisPool
 import com.demo.util.{Env, MovieCategories, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._

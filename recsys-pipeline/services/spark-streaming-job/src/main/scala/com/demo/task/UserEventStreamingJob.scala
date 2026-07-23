@@ -1,30 +1,12 @@
 package com.demo.task
 
+import com.demo.engine.RedisPool
 import com.demo.event.{EventParsing, EventSchemas}
 import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.slf4j.LoggerFactory
-import redis.clients.jedis.{JedisPool, JedisPoolConfig}
-
-// One JedisPool per executor JVM — avoids a new TCP connection per partition per micro-batch.
-private[demo] object RedisPool {
-  @volatile private var pool: JedisPool = _
-
-  def get(host: String, port: Int, maxTotal: Int): JedisPool = {
-    if (pool == null) synchronized {
-      if (pool == null) {
-        val cfg = new JedisPoolConfig()
-        cfg.setMaxTotal(maxTotal)
-        cfg.setMaxIdle(maxTotal)
-        cfg.setMinIdle(1)
-        pool = new JedisPool(cfg, host, port)
-      }
-    }
-    pool
-  }
-}
 
 object UserEventStreamingJob {
   private val log = LoggerFactory.getLogger(getClass)

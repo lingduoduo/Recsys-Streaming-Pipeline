@@ -1,6 +1,6 @@
 package com.demo.process
 
-import com.demo.task.RedisPool
+import com.demo.engine.RedisPool
 import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.functions._
