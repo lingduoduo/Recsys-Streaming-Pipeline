@@ -46,4 +46,12 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       s.table("ue_out").count() shouldBe 1
     } finally q.stop()
   }
+
+  "UserEventStreamingJob.itemClickCounts" should "count clicks per item" in {
+    val s = spark; import s.implicits._
+    val batch = Seq("i1", "i1", "i2").toDF("item_id")
+    val counts = UserEventStreamingJob.itemClickCounts(batch)
+      .collect().map(r => r.getString(0) -> r.getAs[Long]("count")).toMap
+    counts shouldBe Map("i1" -> 2L, "i2" -> 1L)
+  }
 }

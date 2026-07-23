@@ -1,15 +1,13 @@
 package com.demo.task
 
-import com.demo.engine.RedisPool
+import com.demo.engine.{RedisPool, RedisSink}
 import com.demo.event.{EventParsing, EventSchemas}
 import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
-import org.slf4j.LoggerFactory
 
 object UserEventStreamingJob {
-  private val log = LoggerFactory.getLogger(getClass)
 
   // Lazy so tests that import spark.implicits don't pay the full SparkSessions.create cost
   // unless they actually need the production session; in tests SparkTestSupport wins.
@@ -31,6 +29,9 @@ object UserEventStreamingJob {
    */
   def parseEvents(raw: DataFrame): DataFrame =
     normalize(EventParsing.fromJson(raw, EventSchemas.userEvent))
+
+  /** Per-item click counts for one micro-batch (columns: item_id, count). */
+  def itemClickCounts(batch: DataFrame): DataFrame = batch.groupBy("item_id").count()
 
   /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
   def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
@@ -70,47 +71,12 @@ object UserEventStreamingJob {
     val watermarkDelay = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes")
     val parsed = dedupedClicks(df, watermarkDelay)
 
-    // Executor-local pool: one pool per JVM (i.e. per executor), shared across micro-batches.
-    val poolHost = redisHost
-    val poolPort = redisPort
-    val poolMax  = redisPoolMaxTotal
-
-    parsed.writeStream.foreachBatch { (batch: DataFrame, _: Long) =>
-      batch.foreachPartition { rows: Iterator[Row] =>
-        // Aggregate per-item counts in a single pass
-        val itemCounts = scala.collection.mutable.Map.empty[String, Int]
-
-        rows.foreach { row =>
-          try {
-            val item = row.getAs[String]("item_id")
-            itemCounts(item) = itemCounts.getOrElse(item, 0) + 1
-          } catch {
-            case e: Exception =>
-              log.warn("Skipping malformed row: {}", e.getMessage)
-          }
-        }
-
-        val pool  = RedisPool.get(poolHost, poolPort, poolMax)
-        val jedis = pool.getResource
-        try {
-          val pipeline       = jedis.pipelined()
-          var pendingCommands = 0
-
-          def flushIfNeeded(): Unit =
-            if (pendingCommands >= redisPipelineSize) { pipeline.sync(); pendingCommands = 0 }
-
-          // One ZINCRBY per unique item using aggregated count
-          itemCounts.foreach { case (item, count) =>
-            pipeline.zincrby("global:item_popularity", count.toDouble, item)
-            pendingCommands += 1
-            flushIfNeeded()
-          }
-
-          if (pendingCommands > 0) pipeline.sync()
-        } finally {
-          jedis.close()
-        }
-      }
+    parsed.writeStream.foreachBatch { (batch: DataFrame, batchId: Long) =>
+      val counts = itemClickCounts(batch)
+      new RedisSink(redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
+        (p, r) => p.zincrby("global:item_popularity",
+                            r.getAs[Long]("count").toDouble, r.getAs[String]("item_id"))
+      ).write(counts, batchId)
     }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
