@@ -71,7 +71,7 @@ SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.
 | Package | Responsibility | Examples |
 |---|---|---|
 | `com.demo.process` | Transform, join, and label stream/batch data into training samples; derive recall/ranking/relevance datasets | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `MovieLensContextCollectorStreamingJob`, `RecallSampleStreamingJob`, `RankingSampleStreamingJob`, `RelevanceSampleStreamingJob`, `ItemSequencePreprocessingJob` |
-| `com.demo.task` | Runnable entry points for streaming ingestion and offline embedding training | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob` |
+| `com.demo.task` | Runnable entry points for streaming ingestion and offline embedding and CTR/ranking model training | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob`, `CtrRankingModelTrainingJob` |
 | `com.demo.recommend` | Offline candidate pre-computation from trained embeddings | `EmbeddingCandidateGenerationJob` |
 | `com.demo.sink` | External write helpers | `RedisWriter` |
 | `com.demo.util` | Shared Spark session and environment utilities | `Env`, `SparkSessions` |
@@ -456,3 +456,29 @@ Key environment variables:
 | `CANDIDATE_SAVE_TO_REDIS` | `false` |
 | `CANDIDATE_REDIS_KEY_PREFIX` | `user` (writes `user:{id}:candidates`) |
 | `CANDIDATE_REDIS_TTL_SECONDS` | `86400` (1 day) |
+
+### `CtrRankingModelTrainingJob`
+
+Offline batch trainer over the Parquet training-samples store (the
+`OnlineJoinerStreamingJob` output). Reads the date-partitioned Parquet, assembles
+features (hashed user/item/context map fields + `item_id` via `FeatureHasher`,
+`genres`/`tags` via `HashingTF`, numeric `position`), does a temporal train/val
+split by `date`, trains a click-probability classifier, and writes the Spark ML
+model plus a `metrics.json` (AUC-ROC, PR-AUC, logloss). Offline only — no serving,
+Redis, or ONNX changes.
+
+```bash
+CTR_INPUT_PATH=/tmp/spark-recsys/training-samples ./run-ctr-training.sh
+```
+
+Key environment variables:
+
+| Env var | Default |
+|---|---|
+| `CTR_INPUT_PATH` | `/tmp/spark-recsys/training-samples` |
+| `CTR_MODEL_OUTPUT_PATH` | `/tmp/spark-recsys/ctr-model` |
+| `CTR_METRICS_OUTPUT_PATH` | `<model>/metrics.json` |
+| `CTR_HOLDOUT_DAYS` | `1` |
+| `CTR_ALGORITHM` | `logreg` (`logreg` \| `gbt`) |
+| `CTR_LABEL_MODE` | `positive` (`positive` \| `click`) |
+| `CTR_NUM_FEATURES` | `262144` |
