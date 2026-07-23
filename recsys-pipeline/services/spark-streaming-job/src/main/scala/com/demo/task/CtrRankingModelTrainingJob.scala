@@ -1,6 +1,8 @@
 package com.demo.task
 
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{FeatureHasher, HashingTF, VectorAssembler}
+import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 
@@ -53,5 +55,25 @@ object CtrRankingModelTrainingJob {
     val train = df.where(!col("date").cast("string").isin(holdout: _*))
     val valid = df.where(col("date").cast("string").isin(holdout: _*))
     (train, valid)
+  }
+
+  def evaluate(predictions: DataFrame): Map[String, Double] = {
+    val auc = new BinaryClassificationEvaluator()
+      .setLabelCol("ctr_label").setRawPredictionCol("probability").setMetricName("areaUnderROC")
+      .evaluate(predictions)
+    val prauc = new BinaryClassificationEvaluator()
+      .setLabelCol("ctr_label").setRawPredictionCol("probability").setMetricName("areaUnderPR")
+      .evaluate(predictions)
+
+    val eps = 1e-15
+    val posProb = udf { v: Vector => math.min(1.0 - eps, math.max(eps, v(1))) }
+    val logloss = predictions
+      .withColumn("p", posProb(col("probability")))
+      .select(mean(-(col("ctr_label") * log(col("p")) +
+        (lit(1.0) - col("ctr_label")) * log(lit(1.0) - col("p")))).as("ll"))
+      .first().getDouble(0)
+    val posRate = predictions.select(mean(col("ctr_label"))).first().getDouble(0)
+
+    Map("auc_roc" -> auc, "pr_auc" -> prauc, "logloss" -> logloss, "positive_rate" -> posRate)
   }
 }

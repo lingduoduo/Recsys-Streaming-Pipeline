@@ -67,4 +67,21 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
     valid.select("date").distinct().collect().map(_.getString(0)) shouldBe
       Array("2026-06-03")
   }
+
+  "evaluate" should "return auc/pr/logloss/positive_rate in valid ranges" in {
+    val s = spark; import s.implicits._
+    val preds = Seq(
+      (1.0, Vectors.dense(0.2, 0.8)),
+      (0.0, Vectors.dense(0.7, 0.3)),
+      (1.0, Vectors.dense(0.4, 0.6)),
+      (0.0, Vectors.dense(0.9, 0.1))
+    ).toDF("ctr_label", "probability")
+
+    val m = CtrRankingModelTrainingJob.evaluate(preds)
+    m.keySet should contain allOf ("auc_roc", "pr_auc", "logloss", "positive_rate")
+    m("auc_roc") should (be >= 0.0 and be <= 1.0)
+    m("pr_auc") should (be >= 0.0 and be <= 1.0)
+    m("positive_rate") shouldBe (0.5 +- 1e-9)
+    m("logloss") should be >= 0.0
+  }
 }
