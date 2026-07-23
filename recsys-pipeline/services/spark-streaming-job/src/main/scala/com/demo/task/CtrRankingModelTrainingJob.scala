@@ -45,4 +45,13 @@ object CtrRankingModelTrainingJob {
     val t = tagsTf.transform(g)
     assembler.transform(t)
   }
+
+  def splitByDate(df: DataFrame, holdoutDays: Int): (DataFrame, DataFrame) = {
+    val dates = df.select(col("date").cast("string")).distinct()
+      .collect().map(_.getString(0)).sorted
+    val holdout = dates.takeRight(math.max(1, holdoutDays)).toSeq
+    val train = df.where(!col("date").cast("string").isin(holdout: _*))
+    val valid = df.where(col("date").cast("string").isin(holdout: _*))
+    (train, valid)
+  }
 }

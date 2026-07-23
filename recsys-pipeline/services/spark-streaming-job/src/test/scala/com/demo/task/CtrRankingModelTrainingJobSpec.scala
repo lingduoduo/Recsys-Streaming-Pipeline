@@ -54,4 +54,17 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
     val v = out.select("features").first().getAs[Vector](0)
     v.size shouldBe (1024 + 2 * CtrRankingModelTrainingJob.HashTfSize)
   }
+
+  "splitByDate" should "hold out the latest date" in {
+    val s = spark; import s.implicits._
+    val df = Seq(
+      ("a", "2026-06-01"), ("b", "2026-06-02"), ("c", "2026-06-03")
+    ).toDF("id", "date")
+
+    val (train, valid) = CtrRankingModelTrainingJob.splitByDate(df, holdoutDays = 1)
+    train.select("date").distinct().collect().map(_.getString(0)).sorted shouldBe
+      Array("2026-06-01", "2026-06-02")
+    valid.select("date").distinct().collect().map(_.getString(0)) shouldBe
+      Array("2026-06-03")
+  }
 }
