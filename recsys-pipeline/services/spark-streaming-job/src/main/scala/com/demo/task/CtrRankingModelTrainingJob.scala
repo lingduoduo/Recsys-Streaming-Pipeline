@@ -103,6 +103,8 @@ object CtrRankingModelTrainingJob {
     val labeled  = labelColumn(raw, labelMode)
     val featured = assembleFeatures(labeled, numFeatures)
     val (training, validation) = splitByDate(featured, holdoutDays)
+    require(!training.take(1).isEmpty && !validation.take(1).isEmpty,
+      s"Not enough distinct dates in $inputPath to form a train/validation split with holdoutDays=$holdoutDays")
 
     val model = trainModel(training, algorithm)
     val metrics = evaluate(model.transform(validation)) ++ Map(
@@ -110,7 +112,10 @@ object CtrRankingModelTrainingJob {
       "val_rows"   -> validation.count().toDouble
     )
 
-    model match { case w: MLWritable => w.write.overwrite().save(modelPath) }
+    model match {
+      case w: MLWritable => w.write.overwrite().save(modelPath)
+      case other => sys.error(s"Model ${other.getClass.getName} is not MLWritable; cannot save")
+    }
     writeMetrics(metricsPath, metrics, algorithm, labelMode, holdoutDays)
     println(s"[CTR] algorithm=$algorithm " + metrics.map { case (k, v) => s"$k=$v" }.mkString(" "))
     metrics
@@ -120,7 +125,10 @@ object CtrRankingModelTrainingJob {
       path: String, metrics: Map[String, Double],
       algorithm: String, labelMode: String, holdoutDays: Int
   ): Unit = {
-    val numeric = metrics.map { case (k, v) => s""""$k": $v""" }
+    val numeric = metrics.map { case (k, v) =>
+      val jv = if (v.isNaN || v.isInfinite) "null" else v.toString
+      s""""$k": $jv"""
+    }
     val meta = Seq(
       s""""algorithm": "$algorithm"""",
       s""""label_mode": "$labelMode"""",

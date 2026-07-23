@@ -117,4 +117,45 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
     Files.exists(Paths.get(metricsP)) shouldBe true
     new java.io.File(modelP).exists() shouldBe true
   }
+
+  it should "run writes parseable metrics.json when a metric is non-finite" in {
+    import java.nio.file.{Files, Paths}
+    val s = spark; import s.implicits._
+
+    // NB: with Spark 3.5.1, BinaryClassificationEvaluator hard-guards away NaN for
+    // single-class holdouts (Precision/Recall/FalsePositiveRate all special-case
+    // zero-denominator to 0.0/1.0 -- see BinaryClassificationMetricComputers.scala),
+    // so a single-class holdout alone no longer reproduces a NaN metric on this
+    // Spark version. A NaN `position` value is a realistic way non-finite doubles
+    // still reach `evaluate`: it flows through `assembleFeatures`'s numeric
+    // `position_d` column into the model's raw prediction, so `probability` (and
+    // therefore this job's own `logloss` computation) comes out NaN.
+    val dir = Files.createTempDirectory("ctr-nan-metric").toFile
+    val input = new java.io.File(dir, "samples").getAbsolutePath
+    val modelP = new java.io.File(dir, "model").getAbsolutePath
+    val metricsP = new java.io.File(dir, "metrics.json").getAbsolutePath
+
+    val rows = Seq(
+      ("user_1", "item_1", 0.0, 1, 1.0, Map("tier" -> "gold"), Map("bucket" -> "b1"),
+        Map("device" -> "ios", "country" -> "US"), Seq("drama"),  Seq("a"), "2026-06-01"),
+      ("user_2", "item_2", 1.0, 0, 0.0, Map("tier" -> "free"), Map("bucket" -> "b2"),
+        Map("device" -> "web", "country" -> "GB"), Seq("comedy"), Seq("b"), "2026-06-01"),
+      ("user_3", "item_1", Double.NaN, 1, 1.0, Map("tier" -> "gold"), Map("bucket" -> "b1"),
+        Map("device" -> "ios", "country" -> "US"), Seq("drama"),  Seq("a"), "2026-06-02"),
+      ("user_4", "item_2", Double.NaN, 0, 0.0, Map("tier" -> "free"), Map("bucket" -> "b2"),
+        Map("device" -> "web", "country" -> "GB"), Seq("comedy"), Seq("b"), "2026-06-02")
+    ).toDF("user_id", "item_id", "position", "clicked", "label", "user_features",
+           "item_features", "context_features", "genres", "tags", "date")
+      .withColumn("impression_time", current_timestamp())
+
+    rows.write.mode("overwrite").partitionBy("date").parquet(input)
+
+    CtrRankingModelTrainingJob.run(
+      spark, input, modelP, metricsP,
+      holdoutDays = 1, algorithm = "logreg", labelMode = "positive", numFeatures = 1024)
+
+    val metricsJson = new String(Files.readAllBytes(Paths.get(metricsP)), java.nio.charset.StandardCharsets.UTF_8)
+    metricsJson should not include "NaN"
+    metricsJson should include (""""logloss": null""")
+  }
 }
