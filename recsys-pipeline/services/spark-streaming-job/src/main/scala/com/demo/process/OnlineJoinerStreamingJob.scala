@@ -2,7 +2,7 @@ package com.demo.process
 
 import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, Sink, Stage}
 import com.demo.event.{EventParsing, EventSchemas}
-import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -11,7 +11,6 @@ object OnlineJoinerStreamingJob {
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
-    BatchMetricsListener.register(spark)
 
     val cfg = EngineConfig(
       bootstrapServers     = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
