@@ -16,11 +16,12 @@ Flink shown above) and uses Redis as the online signal store.*
 ```text
 ── Streaming features ───────────────────────────────────────────────────────────────────────
 
-producer.py ──(user_id key)──► Kafka: user_events ──► UserEventStreamingJob ──► Redis user:{id}:recent  (TTL 7d)
-                                                                              └──► Redis global:item_popularity
+producer.py (clickstream, user_id key) ──► Kafka: recsys_events ──► UserEventStreamingJob ──► Redis global:item_popularity
 
-producer.py ──(request_id key)► Kafka: behavior_logs ──► OnlineJoinerStreamingJob ──► Kafka: training_samples
-                                                                                   └──► Parquet training-samples/date=YYYY-MM-DD/
+producer.py (behavior, request_id key)  ──► Kafka: recsys_events ──► OnlineJoinerStreamingJob ──► Kafka: training_samples
+                                                                                             └──► Parquet training-samples/date=YYYY-MM-DD/
+
+(default topic = recsys_events for producer + both jobs; set KAFKA_TOPIC / ONLINE_JOINER_INPUT_TOPIC to split the two streams)
 
 Kafka: training_samples     ──► ExperienceCollectorStreamingJob  ──► Kafka: training_experiences
 Kafka: training_experiences ──► RecommendationResponseStatsJob   ──► Kafka: recommendation_metrics
@@ -37,6 +38,10 @@ ratings.csv                 ──► AlsEmbeddingTrainingJob  ──► als/use
 user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJob ──► Redis user:{id}:candidates  (top-K cosine)
                                                                              └──► Parquet candidate-generation/
 ```
+
+> Note: `movie:{id}:features` (written by `MovieLensContextCollectorStreamingJob`) and
+> `user:{id}:candidates` (written by `EmbeddingCandidateGenerationJob`) are produced by the
+> pipeline but not currently read by the retrieval service at serve time.
 
 ## Derived ML Datasets
 
@@ -87,7 +92,7 @@ Environment variables:
 | Env var | Default | Description |
 |---|---|---|
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
-| `KAFKA_TOPIC` | `user_events` | Kafka topic to publish to |
+| `KAFKA_TOPIC` | `recsys_events` | Kafka topic to publish to |
 | `PRODUCER_MODE` | `clickstream` | `clickstream` emits single click events keyed by `user_id`; `behavior` emits full impression/click/order slates keyed by `request_id` |
 | `EVENTS_PER_SECOND` | `1` | Target publish rate; the event loop corrects for send latency |
 | `NUM_USERS` | `5` | Synthetic user pool size |
@@ -120,20 +125,17 @@ Environment variables:
 
 ### `UserEventStreamingJob`
 
-Consumes click events from Kafka and writes user click history and item popularity to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than a new TCP connection per partition.
+Consumes click events from Kafka and writes global item popularity to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than a new TCP connection per partition.
 
 For each micro-batch, it:
 
-1. Aggregates clicked items per user in a single pass.
-2. Writes one `LPUSH` + `LTRIM` + `EXPIRE` per user to `user:{id}:recent` (not one write per event).
-3. Aggregates per-item click counts.
-4. Writes one `ZINCRBY` per unique item to `global:item_popularity`.
+1. Filters to click events, then aggregates per-item click counts in a single pass.
+2. Writes one `ZINCRBY` per unique item to `global:item_popularity`.
 
 Redis keys written:
 
 | Key | Type | Contents | TTL |
 |---|---|---|---|
-| `user:{id}:recent` | list | Most recent clicked items, newest first | `RECENT_ITEMS_TTL_SECONDS` (default 7 days) |
 | `global:item_popularity` | sorted set | Global click counts | none |
 
 Environment variables:
@@ -144,11 +146,9 @@ Environment variables:
 | `SPARK_MASTER` | `local[*]` |
 | `SPARK_SQL_SHUFFLE_PARTITIONS` | `4` |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` |
-| `KAFKA_TOPIC` | `user_events` |
+| `KAFKA_TOPIC` | `recsys_events` |
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
-| `RECENT_ITEMS_LIMIT` | `20` |
-| `RECENT_ITEMS_TTL_SECONDS` | `604800` (7 days) |
 | `REDIS_PIPELINE_SIZE` | `500` |
 | `REDIS_POOL_MAX_TOTAL` | `8` |
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
@@ -189,7 +189,7 @@ Environment variables:
 | Env var | Default |
 |---|---|
 | `SPARK_APP_NAME` | `OnlineJoinerStreamingJob` |
-| `ONLINE_JOINER_INPUT_TOPIC` | `behavior_logs` |
+| `ONLINE_JOINER_INPUT_TOPIC` | `recsys_events` |
 | `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |

@@ -174,7 +174,7 @@ python services/python-modeling/producer.py
 ./run-streaming-job.sh
 ```
 
-This populates `user:{id}:recent` and `global:item_popularity` in Redis in real time; the retrieval service uses both for recency and popularity signals.
+This populates `global:item_popularity` in Redis in real time; the retrieval service uses it as a popularity signal. (Per-user recency comes from `user:{id}:features`, written by `MovieLensContextCollectorStreamingJob`.)
 
 ### Step 5 — Query the API
 
