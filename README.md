@@ -108,7 +108,6 @@ Kafka: recsys_events                   one stream, two consumers ↓ (serving) +
     ▼
 UserEventStreamingJob (Spark)
     │  click events → Redis
-    │    user:{id}:recent         (LPUSH + LTRIM)
     │    global:item_popularity   (ZINCRBY)
     ▼
 Redis :6379                            three-tier feature store — also holds offline embeddings + reward stats
