@@ -1,83 +1,52 @@
 package com.demo.process
 
+import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, Sink, Stage}
 import com.demo.event.{EventParsing, EventSchemas}
-import com.demo.util.{BatchMetricsListener, SparkSessions}
+import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
-import org.apache.spark.storage.StorageLevel
 
 object OnlineJoinerStreamingJob {
 
   def main(args: Array[String]): Unit = {
-    val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    val inputTopic = sys.env.getOrElse("ONLINE_JOINER_INPUT_TOPIC", "recsys_events")
-    val outputTopic = sys.env.getOrElse("ONLINE_JOINER_OUTPUT_TOPIC", "training_samples")
-    val outputPath = sys.env.getOrElse("ONLINE_JOINER_HDFS_OUTPUT_PATH", "/tmp/spark-recsys/training-samples")
-    val checkpointLocation = sys.env.getOrElse(
-      "SPARK_CHECKPOINT_LOCATION",
-      "/tmp/spark-recsys/online-joiner"
-    )
-    val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
-    val triggerInterval = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds")
-    val outputFiles = math.max(1, com.demo.util.Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
-    val catalogPath = sys.env.getOrElse("ONLINE_JOINER_CATALOG_PATH", "")
-
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
     BatchMetricsListener.register(spark)
 
-    // Load the shared item catalog once (small → broadcast on each join). Empty path = no
-    // catalog, in which case the Parquet output still carries empty genres/tags columns so the
-    // schema stays stable. Same catalog.json the Java service reads (single source of truth).
+    val cfg = EngineConfig(
+      bootstrapServers     = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
+      inputTopic           = sys.env.getOrElse("ONLINE_JOINER_INPUT_TOPIC", "recsys_events"),
+      startingOffsets      = sys.env.getOrElse("KAFKA_STARTING_OFFSETS", "earliest"),
+      groupId              = sys.env.getOrElse("KAFKA_GROUP_ID", "training-joiner"),
+      maxOffsetsPerTrigger = Env.int("MAX_OFFSETS_PER_TRIGGER", 5000),
+      triggerInterval      = sys.env.getOrElse("TRIGGER_INTERVAL", "10 seconds"),
+      checkpointLocation   = sys.env.getOrElse("SPARK_CHECKPOINT_LOCATION", "/tmp/spark-recsys/online-joiner"),
+      watermarkDelay       = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes"),
+      sinkMaxRetries       = Env.int("SINK_MAX_RETRIES", 0)
+    )
+    EngineConfig.validate(cfg) match {
+      case Left(errors) =>
+        errors.foreach(e => System.err.println(s"[config] $e"))
+        sys.exit(1)
+      case Right(_) => ()
+    }
+
+    val outputTopic = sys.env.getOrElse("ONLINE_JOINER_OUTPUT_TOPIC", "training_samples")
+    val outputPath  = sys.env.getOrElse("ONLINE_JOINER_HDFS_OUTPUT_PATH", "/tmp/spark-recsys/training-samples")
+    val outputFiles = math.max(1, Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
+    val catalogPath = sys.env.getOrElse("ONLINE_JOINER_CATALOG_PATH", "")
     val catalog: Option[DataFrame] = if (catalogPath.nonEmpty) Some(loadCatalog(spark, catalogPath)) else None
 
-    val raw = spark.readStream
-      .format("kafka")
-      .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-      .option("subscribe", inputTopic)
-      .option("startingOffsets", sys.env.getOrElse("KAFKA_STARTING_OFFSETS", "earliest"))
-      .option("kafka.group.id", sys.env.getOrElse("KAFKA_GROUP_ID", "training-joiner"))
-      .option("failOnDataLoss", "false")
-      .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
-      .load()
+    val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedEvents(df, cfg.watermarkDelay))
+    val batchStages: Seq[BatchStage] =
+      Seq((df: DataFrame, id: Long) => buildTrainingSamples(df).withColumn("batch_id", lit(id)))
+    val sinks: Seq[Sink] = Seq(
+      new KafkaSink(cfg.bootstrapServers, outputTopic, "sample_id"),
+      new ParquetSink(outputPath, "date", outputFiles,
+        (df: DataFrame) => withCatalog(df, catalog).withColumn("date", to_date(col("impression_time"))))
+    )
 
-    val watermarkDelay = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes")
-    val events = dedupedEvents(raw, watermarkDelay)
-
-    events.writeStream
-      .foreachBatch { (batch: DataFrame, batchId: Long) =>
-        // buildTrainingSamples now does a single-pass groupBy (one shuffle) instead of
-        // filter+groupBy+join (two shuffles), so events no longer needs to be persisted.
-        val samples = buildTrainingSamples(batch)
-          .withColumn("batch_id", lit(batchId))
-          .persist(StorageLevel.MEMORY_AND_DISK_SER)
-
-        try {
-          samples
-            .select(
-              col("sample_id").as("key"),
-              to_json(struct(samples.columns.map(col): _*)).as("value")
-            )
-            .write
-            .format("kafka")
-            .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-            .option("topic", outputTopic)
-            .save()
-
-          // Catalog genres/tags land in Parquet only; the Kafka training_samples value is left
-          // unchanged so the downstream ExperienceCollector contract is untouched.
-          val parquet = withCatalog(samples, catalog).withColumn("date", to_date(col("impression_time")))
-          writeParquet(parquet, outputPath, outputFiles)
-        } finally {
-          samples.unpersist()
-        }
-        ()
-      }
-      .option("checkpointLocation", checkpointLocation)
-      .trigger(Trigger.ProcessingTime(triggerInterval))
-      .start()
-      .awaitTermination()
+    ExecutionEngine.run(spark, cfg, KafkaSource, streamingStages, batchStages, sinks)
   }
 
   /** Read the shared catalog JSON ({itemId: {genres:[...], tags:[...], ...}}) into a long-form
@@ -116,15 +85,6 @@ object OnlineJoinerStreamingJob {
       .join(broadcast(catalog), Seq("item_id"), "left")
       .withColumn("genres", coalesce(col("genres"), typedLit(Seq.empty[String])))
       .withColumn("tags", coalesce(col("tags"), typedLit(Seq.empty[String])))
-
-  def writeParquet(samples: DataFrame, path: String, outputFiles: Int): Unit =
-    samples
-      .coalesce(math.max(1, outputFiles))   // bound per-batch file count (avoid small-files blowup)
-      .write
-      .mode("append")
-      .partitionBy("date")
-      .format("parquet")
-      .save(path)
 
   def dedupedEvents(raw: DataFrame, watermarkDelay: String): DataFrame =
     EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
