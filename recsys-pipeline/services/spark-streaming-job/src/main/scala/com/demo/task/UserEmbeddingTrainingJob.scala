@@ -1,10 +1,9 @@
 package com.demo.task
 
 import com.demo.sink.RedisWriter
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{Env, RatingsCsv, SparkSessions}
 import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types._
 import scala.util.Try
 
 object UserEmbeddingTrainingJob {
@@ -89,19 +88,8 @@ object UserEmbeddingTrainingJob {
       .select("userId", "userEmbedding", "userEmbeddingStr")
   }
 
-  private val ratingsSchema = StructType(Seq(
-    StructField("userId", StringType),
-    StructField("movieId", StringType),
-    StructField("rating", DoubleType),
-    StructField("timestamp", LongType)
-  ))
-
   private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame =
-    sparkSession.read
-      .format("csv")
-      .option("header", "true")
-      .schema(ratingsSchema)
-      .load(ratingsPath)
+    RatingsCsv.read(sparkSession, ratingsPath)
       .select(col("userId"), col("movieId"), col("rating"))
 
   private def readItemEmbeddings(sparkSession: SparkSession, itemEmbeddingPath: String): DataFrame = {
