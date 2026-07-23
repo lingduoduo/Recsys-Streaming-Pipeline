@@ -37,4 +37,21 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
       .select("ctr_label").collect().map(_.getDouble(0))
     out shouldBe Array(1.0, 0.0)
   }
+
+  "assembleFeatures" should "produce a features vector of the expected size" in {
+    val s = spark; import s.implicits._
+    val df = Seq(
+      ("item_1", 0,
+        Map("tier" -> "gold"),
+        Map("bucket" -> "b1"),
+        Map("device" -> "ios", "country" -> "US"),
+        Seq("drama"), Seq("classic"))
+    ).toDF("item_id", "position", "user_features", "item_features",
+           "context_features", "genres", "tags")
+
+    val out = CtrRankingModelTrainingJob.assembleFeatures(df, numFeatures = 1024)
+    out.columns should contain ("features")
+    val v = out.select("features").first().getAs[Vector](0)
+    v.size shouldBe (1024 + 2 * CtrRankingModelTrainingJob.HashTfSize)
+  }
 }
