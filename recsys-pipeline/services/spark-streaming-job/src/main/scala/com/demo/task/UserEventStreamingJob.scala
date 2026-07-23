@@ -1,6 +1,6 @@
 package com.demo.task
 
-import com.demo.engine.{RedisPool, RedisSink}
+import com.demo.engine.RedisSink
 import com.demo.event.{EventParsing, EventSchemas}
 import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}

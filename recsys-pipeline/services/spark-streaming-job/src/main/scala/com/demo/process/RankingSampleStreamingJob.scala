@@ -1,7 +1,7 @@
 package com.demo.process
 
-import com.demo.event.EventParsing
 import com.demo.engine.RedisPool
+import com.demo.event.EventParsing
 import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
