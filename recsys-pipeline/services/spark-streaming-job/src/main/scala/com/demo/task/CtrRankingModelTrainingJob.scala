@@ -1,9 +1,13 @@
 package com.demo.task
 
+import com.demo.util.{Env, SparkSessions}
+import org.apache.spark.ml.Model
+import org.apache.spark.ml.classification.{GBTClassifier, LogisticRegression}
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{FeatureHasher, HashingTF, VectorAssembler}
 import org.apache.spark.ml.linalg.Vector
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.util.MLWritable
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 object CtrRankingModelTrainingJob {
@@ -75,5 +79,73 @@ object CtrRankingModelTrainingJob {
     val posRate = predictions.select(mean(col("ctr_label"))).first().getDouble(0)
 
     Map("auc_roc" -> auc, "pr_auc" -> prauc, "logloss" -> logloss, "positive_rate" -> posRate)
+  }
+
+  def trainModel(training: DataFrame, algorithm: String): Model[_] = algorithm match {
+    case "gbt" =>
+      new GBTClassifier().setLabelCol("ctr_label").setFeaturesCol("features").setMaxIter(10).fit(training)
+    case _ =>
+      new LogisticRegression().setLabelCol("ctr_label").setFeaturesCol("features").setMaxIter(20).fit(training)
+  }
+
+  def run(
+      spark: SparkSession,
+      inputPath: String,
+      modelPath: String,
+      metricsPath: String,
+      holdoutDays: Int,
+      algorithm: String,
+      labelMode: String,
+      numFeatures: Int
+  ): Map[String, Double] = {
+    val raw = spark.read.parquet(inputPath)
+      .where(col("user_id").isNotNull && col("item_id").isNotNull && col("impression_time").isNotNull)
+    val labeled  = labelColumn(raw, labelMode)
+    val featured = assembleFeatures(labeled, numFeatures)
+    val (training, validation) = splitByDate(featured, holdoutDays)
+
+    val model = trainModel(training, algorithm)
+    val metrics = evaluate(model.transform(validation)) ++ Map(
+      "train_rows" -> training.count().toDouble,
+      "val_rows"   -> validation.count().toDouble
+    )
+
+    model match { case w: MLWritable => w.write.overwrite().save(modelPath) }
+    writeMetrics(metricsPath, metrics, algorithm, labelMode, holdoutDays)
+    println(s"[CTR] algorithm=$algorithm " + metrics.map { case (k, v) => s"$k=$v" }.mkString(" "))
+    metrics
+  }
+
+  private def writeMetrics(
+      path: String, metrics: Map[String, Double],
+      algorithm: String, labelMode: String, holdoutDays: Int
+  ): Unit = {
+    val numeric = metrics.map { case (k, v) => s""""$k": $v""" }
+    val meta = Seq(
+      s""""algorithm": "$algorithm"""",
+      s""""label_mode": "$labelMode"""",
+      s""""holdout_days": $holdoutDays"""
+    )
+    val json = (numeric.toSeq ++ meta).mkString("{\n  ", ",\n  ", "\n}\n")
+    val p = java.nio.file.Paths.get(path)
+    Option(p.getParent).foreach(java.nio.file.Files.createDirectories(_))
+    java.nio.file.Files.write(p, json.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+  }
+
+  def main(args: Array[String]): Unit = {
+    val inputPath   = sys.env.getOrElse("CTR_INPUT_PATH", "/tmp/spark-recsys/training-samples")
+    val modelPath   = sys.env.getOrElse("CTR_MODEL_OUTPUT_PATH", "/tmp/spark-recsys/ctr-model")
+    val metricsPath = sys.env.getOrElse("CTR_METRICS_OUTPUT_PATH", s"$modelPath/metrics.json")
+    val holdoutDays = Env.int("CTR_HOLDOUT_DAYS", 1)
+    val algorithm   = sys.env.getOrElse("CTR_ALGORITHM", "logreg")
+    val labelMode   = sys.env.getOrElse("CTR_LABEL_MODE", "positive")
+    val numFeatures = Env.int("CTR_NUM_FEATURES", 262144)
+
+    val spark = SparkSessions.create("CtrRankingModelTrainingJob")
+    try {
+      run(spark, inputPath, modelPath, metricsPath, holdoutDays, algorithm, labelMode, numFeatures)
+    } finally {
+      spark.stop()
+    }
   }
 }
