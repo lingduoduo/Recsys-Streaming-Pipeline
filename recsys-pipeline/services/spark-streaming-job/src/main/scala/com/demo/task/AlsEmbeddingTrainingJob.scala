@@ -1,7 +1,7 @@
 package com.demo.task
 
 import com.demo.sink.RedisWriter
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{Env, RatingsCsv, SparkSessions}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
@@ -128,19 +128,8 @@ object AlsEmbeddingTrainingJob {
       .text(outputPath)
   }
 
-  private val ratingsSchema = StructType(Seq(
-    StructField("userId", StringType),
-    StructField("movieId", StringType),
-    StructField("rating", DoubleType),
-    StructField("timestamp", LongType)
-  ))
-
   private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame =
-    sparkSession.read
-      .format("csv")
-      .option("header", "true")
-      .schema(ratingsSchema)
-      .load(ratingsPath)
+    RatingsCsv.read(sparkSession, ratingsPath)
       .select(col("userId"), col("movieId"), col("rating"))
       .where(
         col("userId").isNotNull &&
