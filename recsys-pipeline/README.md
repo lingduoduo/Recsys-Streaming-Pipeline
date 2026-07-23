@@ -29,7 +29,7 @@ Infrastructure, shared sample data, and orchestration scripts remain at the `rec
 
 Spark Structured Streaming ingestion, derived ML datasets, the Spark job package layout, the
 real-time job path (producer + streaming jobs), and the offline embedding-training jobs live in
-[Data_Pipeline.md](Data_Pipeline.md).
+[Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md).
 
 ### Model Prediction Pipeline
 
@@ -62,7 +62,7 @@ GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learnin
 
 ## Scoring Model Architecture
 
-See [6_Predicting_Scoring.md](6_Predicting_Scoring.md) for the three-stage scoring model (offline / two-tower / online / bandit), the `offlineScore` → `learnedPrior` → `banditScore` formulas, and the per-algorithm bandit notes.
+See [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md) for the three-stage scoring model (offline / two-tower / online / bandit), the `offlineScore` → `learnedPrior` → `banditScore` formulas, and the per-algorithm bandit notes.
 
 ## Storage Architecture
 
@@ -83,14 +83,14 @@ The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-tri
 For each incoming request, the retrieval service executes nine steps in order:
 
 1. **Hydrate query** — 21 `QueryHydrator` implementations populate `ScoredMoviesQuery` with per-user context: watch history, rating sequences, social graph, served history, MinHash, cached candidates, bloom filter, geo, demographics, and inferred signals.
-2. **Fetch popular candidates** — pulls top items from `global:item_popularity` (see [2_Fetch_Popular_Stuff.md](2_Fetch_Popular_Stuff.md)).
-3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history (see [3_Cold_Start.md](3_Cold_Start.md)).
-4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates (see [4_Filtering.md](4_Filtering.md)).
-5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags (see [5_Candidate_Hydration.md](5_Candidate_Hydration.md)).
-6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](6_Predicting_Scoring.md)).
-7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition (see [7_Shuffling.md](7_Shuffling.md)).
-8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](8_Store_Context.md)).
-9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](9_Track_Metrics.md)).
+2. **Fetch popular candidates** — pulls top items from `global:item_popularity` (see [2_Fetch_Popular_Stuff.md](docs/recommendation_flows/2_Fetch_Popular_Stuff.md)).
+3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history (see [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md)).
+4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates (see [4_Filtering.md](docs/recommendation_flows/4_Filtering.md)).
+5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags (see [5_Candidate_Hydration.md](docs/recommendation_flows/5_Candidate_Hydration.md)).
+6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md)).
+7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition (see [7_Shuffling.md](docs/recommendation_flows/7_Shuffling.md)).
+8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](docs/recommendation_flows/8_Store_Context.md)).
+9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](docs/recommendation_flows/9_Track_Metrics.md)).
 
 Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
 
@@ -309,11 +309,11 @@ python3 services/python-modeling/replay_export.py --output /tmp/replay_backup.cs
 ## API
 
 REST endpoint reference (`/recommend`, `/predict`, `/feedback`, `/metrics`, `/embedding`) lives in
-[API.md](API.md).
+[API.md](docs/recommendation_architecture/API.md).
 
 ## Retrieval Pipeline
 
-Before scoring, each request is enriched through two sequential pipelines — see [1_Query_Hydration.md](1_Query_Hydration.md) for the query-hydration table, [4_Filtering.md](4_Filtering.md) for the candidate filters, and [5_Candidate_Hydration.md](5_Candidate_Hydration.md) for the candidate hydrators.
+Before scoring, each request is enriched through two sequential pipelines — see [1_Query_Hydration.md](docs/recommendation_flows/1_Query_Hydration.md) for the query-hydration table, [4_Filtering.md](docs/recommendation_flows/4_Filtering.md) for the candidate filters, and [5_Candidate_Hydration.md](docs/recommendation_flows/5_Candidate_Hydration.md) for the candidate hydrators.
 
 ## Retrieval Service Configuration
 
@@ -444,7 +444,7 @@ Runtime overrides:
 
 ### Bandit algorithm notes
 
-Moved to [6_Predicting_Scoring.md](6_Predicting_Scoring.md#bandit-algorithm-notes) alongside the scoring model — covers how each of `ucb` / `thompson` / `q-learning` / `sarsa` turns `learnedPrior` into a `banditScore`.
+Moved to [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md#bandit-algorithm-notes) alongside the scoring model — covers how each of `ucb` / `thompson` / `q-learning` / `sarsa` turns `learnedPrior` into a `banditScore`.
 
 ### Real-time training write path
 
@@ -505,7 +505,7 @@ resulting Parquet (joining Redis demographics/movie features where needed) and w
 
 Offline reports over the engagement data (keyword/query/relevance distributions, recall/ranking
 eval, off-policy evaluation, and a consolidated HTML dashboard). See
-[Analysis_Report.md](Analysis_Report.md) for the full report table, shared definitions, and run
+[Analysis_Report.md](docs/recommendation_architecture/Analysis_Report.md) for the full report table, shared definitions, and run
 commands.
 
 ## Tests
@@ -522,7 +522,7 @@ and are skipped automatically when `SPARK_HOME` is unset.
 
 ## Cold-Start RL Extension Plan
 
-See [3_Cold_Start.md](3_Cold_Start.md) for the cold-start candidate generation details and the gradual RL extension plan (baseline → RL framing → DQN → Double DQN → Dyna-Q).
+See [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md) for the cold-start candidate generation details and the gradual RL extension plan (baseline → RL framing → DQN → Double DQN → Dyna-Q).
 
 ## Notes
 

@@ -4,6 +4,13 @@ Spark Structured Streaming and offline embedding jobs: ingest Kafka click and be
 impressions with feedback into feature+label training samples, train Item2Vec and ALS embeddings
 from historical ratings, and keep per-user history and global item popularity fresh in Redis.
 
+![Feature pipeline reference architecture](feature.png)
+
+*Reference feature-store architecture: online events (Kafka) and offline events flow through a
+filter → featurize → enrich → transform job into an online/offline signal store that the serving
+API consumes. This repo implements the realtime path with **Spark Structured Streaming** (not the
+Flink shown above) and uses Redis as the online signal store.*
+
 ## Data Flow
 
 ```text
