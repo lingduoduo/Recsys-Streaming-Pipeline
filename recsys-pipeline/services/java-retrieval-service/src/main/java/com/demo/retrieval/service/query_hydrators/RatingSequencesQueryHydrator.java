@@ -60,8 +60,17 @@ public class RatingSequencesQueryHydrator implements QueryHydrator<ScoredMoviesQ
     ) {
         this.featureClient = featureClient;
         this.sequenceClient = sequenceClient;
-        this.mode = mode == null ? MODE_OFF : mode.trim().toLowerCase();
+        this.mode = resolveMode(mode);
         this.lookback = Duration.ofDays(Math.max(1, lookbackDays));
+    }
+
+    private static String resolveMode(String mode) {
+        String normalized = mode == null ? MODE_OFF : mode.trim().toLowerCase();
+        if (MODE_OFF.equals(normalized) || MODE_SHADOW.equals(normalized) || MODE_ON.equals(normalized)) {
+            return normalized;
+        }
+        log.warn("Unrecognized recsys.sequence.mode '{}', treating as '{}'", mode, MODE_OFF);
+        return MODE_OFF;
     }
 
     @Override

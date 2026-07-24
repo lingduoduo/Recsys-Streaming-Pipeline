@@ -180,6 +180,19 @@ class RatingSequencesQueryHydratorSequenceStoreTest {
     }
 
     @Test
+    void unrecognizedModeFailsSafeToOff() {
+        RecordingSequenceClient sequenceClient = new RecordingSequenceClient(ids("new", 200));
+        RatingSequencesQueryHydrator hydrator = new RatingSequencesQueryHydrator(
+            userId -> Optional.of(legacyFeatures(ids("legacy", 10))), sequenceClient, "enabled", 90
+        );
+
+        MovieLensUserFeatures result = hydrator.hydrate(query()).userFeatures();
+
+        assertEquals(ids("legacy", 10), result.actionSequenceMovieIds());
+        assertNull(sequenceClient.requestedColumns, "sequence store must not be read for an unrecognized mode");
+    }
+
+    @Test
     void offModeReproducesLegacyDedupeAndAllThreeTruncationsExactly() {
         // Recency-ordered duplicates, e.g. m0,m1,m0,m2,m1,m3,... covering 120 distinct ids so
         // dedup exceeds even the 100-item retrieval cap.
