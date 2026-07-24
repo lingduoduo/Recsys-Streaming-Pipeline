@@ -63,4 +63,58 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
     row.getAs[Seq[String]]("genres") shouldBe Seq("Drama", "Sci-Fi")
     row.getAs[Int]("releaseYear") shouldBe 2016
   }
+
+  "buildSequenceEvents" should "project rating events into sequence-store shape with millisecond timestamps" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val events = Seq(
+      ("rating", "u1", "m1", 4.0: java.lang.Double, 105L, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq("Drama"), 1995: java.lang.Integer),
+      ("user_update", "u1", null, null.asInstanceOf[java.lang.Double], 100L, 31: java.lang.Integer, "F", "engineer", "10001", null, Seq.empty[String], null)
+    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+
+    val rows = MovieLensContextCollectorStreamingJob.buildSequenceEvents(events).collect()
+
+    rows.length shouldBe 1
+    rows.head.getAs[String]("user_id") shouldBe "u1"
+    rows.head.getAs[String]("kind") shouldBe "rating"
+    rows.head.getAs[String]("item_id") shouldBe "m1"
+    rows.head.getAs[Long]("ts") shouldBe 105000L
+    rows.head.getAs[String]("action") shouldBe "rate"
+    rows.head.getAs[Double]("rating") shouldBe 4.0
+    rows.head.getAs[Seq[String]]("genres") shouldBe Seq("Drama")
+    rows.head.getAs[Int]("release_year") shouldBe 1995
+  }
+
+  it should "drop rows missing a user, item or timestamp" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val events = Seq(
+      ("rating", null, "m1", 4.0: java.lang.Double, 105L: java.lang.Long, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq.empty[String], null.asInstanceOf[java.lang.Integer]),
+      ("rating", "u1", null, 4.0: java.lang.Double, 105L: java.lang.Long, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq.empty[String], null),
+      ("rating", "u1", "m1", 4.0: java.lang.Double, null.asInstanceOf[java.lang.Long], null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq.empty[String], null)
+    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+
+    MovieLensContextCollectorStreamingJob.buildSequenceEvents(events).count() shouldBe 0L
+  }
+
+  it should "feed SequenceEncoder to produce one chunk per user and day" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val events = Seq(
+      ("rating", "u1", "m1", 4.0: java.lang.Double, 1784764801L, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq("Drama"), 1995: java.lang.Integer),
+      ("rating", "u1", "m2", 5.0: java.lang.Double, 1784764802L, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq("Action"), 1999: java.lang.Integer)
+    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+
+    val chunk = com.demo.sequence.SequenceEncoder
+      .toColumnChunks(MovieLensContextCollectorStreamingJob.buildSequenceEvents(events), "day")
+      .collect()
+
+    chunk.length shouldBe 1
+    chunk.head.getAs[String]("bucket") shouldBe "20260723"
+    chunk.head.getAs[String]("item_id") shouldBe "m1,m2"
+    chunk.head.getAs[Long]("n") shouldBe 2L
+  }
 }

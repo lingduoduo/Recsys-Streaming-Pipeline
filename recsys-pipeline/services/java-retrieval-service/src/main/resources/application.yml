@@ -17,6 +17,11 @@ recsys:
     item-vector-ttl-seconds: ${RECSYS_ITEM_VECTOR_TTL:300}
     reward-max-size: ${RECSYS_REWARD_CACHE_SIZE:50000}
     reward-ttl-seconds: ${RECSYS_REWARD_TTL:30}
+  sequence:
+    # off = legacy CSV blobs only; shadow = read both and log the diff; on = serve the store
+    mode: ${RECSYS_SEQUENCE_MODE:off}
+    lookback-days: ${RECSYS_SEQUENCE_LOOKBACK_DAYS:90}
+    bucket-fetch-chunk: ${RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK:7}
   embeddings:
     # Item2Vec (offline): i2vEmb  — set ITEM_EMBEDDING_PREFIX=i2vEmb
     # ALS      (offline): alsItemEmb — set ITEM_EMBEDDING_PREFIX=alsItemEmb

@@ -17,6 +17,7 @@ public class RecommendationProperties {
     private Bandit bandit = new Bandit();
     private ReplayBuffer replayBuffer = new ReplayBuffer();
     private RewardModel rewardModel = new RewardModel();
+    private Sequence sequence = new Sequence();
     private Map<String, MovieProfile> catalog = new LinkedHashMap<>();
     // Optional path to a catalog JSON file ({itemId: MovieProfile}). When set, its entries are
     // merged on top of the inline `catalog` at startup so the catalog can outgrow application.yml
@@ -69,6 +70,14 @@ public class RecommendationProperties {
 
     public void setRewardModel(RewardModel rewardModel) {
         this.rewardModel = rewardModel;
+    }
+
+    public Sequence getSequence() {
+        return sequence;
+    }
+
+    public void setSequence(Sequence sequence) {
+        this.sequence = sequence;
     }
 
     public Cache getCache() {
@@ -397,6 +406,37 @@ public class RecommendationProperties {
 
         public void setMinFeatureCount(int minFeatureCount) {
             this.minFeatureCount = minFeatureCount;
+        }
+    }
+
+    public static class Sequence {
+        /** off | shadow | on */
+        private String mode = "off";
+        private int lookbackDays = 90;
+        private int bucketFetchChunk = 7;
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
+
+        public int getLookbackDays() {
+            return lookbackDays;
+        }
+
+        public void setLookbackDays(int lookbackDays) {
+            this.lookbackDays = lookbackDays;
+        }
+
+        public int getBucketFetchChunk() {
+            return bucketFetchChunk;
+        }
+
+        public void setBucketFetchChunk(int bucketFetchChunk) {
+            this.bucketFetchChunk = bucketFetchChunk;
         }
     }
 

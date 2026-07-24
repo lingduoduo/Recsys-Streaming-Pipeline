@@ -54,4 +54,46 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       .collect().map(r => r.getString(0) -> r.getAs[Long]("count")).toMap
     counts shouldBe Map("i1" -> 2L, "i2" -> 1L)
   }
+
+  "buildSequenceEvents" should "project click events into sequence-store shape" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val batch = Seq(
+      ("u1", "m1", "click", 1784764801000L),
+      ("u1", "m2", "click", 1784764802000L)
+    ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
+
+    val rows = UserEventStreamingJob.buildSequenceEvents(batch).orderBy("ts").collect()
+
+    rows.length shouldBe 2
+    rows.head.getAs[String]("user_id") shouldBe "u1"
+    rows.head.getAs[String]("kind") shouldBe "click"
+    rows.head.getAs[String]("item_id") shouldBe "m1"
+    rows.head.getAs[Long]("ts") shouldBe 1784764801000L
+    rows.head.getAs[String]("action") shouldBe "click"
+    rows.head.isNullAt(rows.head.fieldIndex("rating")) shouldBe true
+  }
+
+  it should "produce one chunk per user and day through SequenceEncoder" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val batch = Seq(
+      ("u1", "m1", "click", 1784764801000L),
+      ("u1", "m2", "click", 1784764802000L),
+      ("u1", "m3", "click", 1784851201000L)
+    ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
+
+    val chunks = com.demo.sequence.SequenceEncoder
+      .toColumnChunks(UserEventStreamingJob.buildSequenceEvents(batch), "day")
+      .orderBy("bucket")
+      .collect()
+
+    chunks.length shouldBe 2
+    chunks(0).getAs[String]("bucket") shouldBe "20260723"
+    chunks(0).getAs[String]("item_id") shouldBe "m1,m2"
+    chunks(1).getAs[String]("bucket") shouldBe "20260724"
+    chunks(1).getAs[String]("item_id") shouldBe "m3"
+  }
 }
