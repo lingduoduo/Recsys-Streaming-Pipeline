@@ -78,6 +78,7 @@ SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.
 | `com.demo.process` | Transform, join, and label stream/batch data into training samples; derive recall/ranking/relevance datasets | `OnlineJoinerStreamingJob`, `ExperienceCollectorStreamingJob`, `RecommendationResponseStatsJob`, `MovieLensContextCollectorStreamingJob`, `RecallSampleStreamingJob`, `RankingSampleStreamingJob`, `RelevanceSampleStreamingJob`, `ItemSequencePreprocessingJob` |
 | `com.demo.task` | Runnable entry points for streaming ingestion and offline embedding and CTR/ranking model training | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob`, `CtrRankingModelTrainingJob` |
 | `com.demo.recommend` | Offline candidate pre-computation from trained embeddings | `EmbeddingCandidateGenerationJob` |
+| `com.demo.sequence` | Columnar per-user rating/click sequence store: schema, encoder, Redis/Parquet sinks, one-shot backfill | `SequenceSchema`, `SequenceEncoder`, `SequenceRedisSink`, `SequenceParquetSink`, `SequenceBackfillJob` |
 | `com.demo.sink` | External write helpers | `RedisWriter` |
 | `com.demo.util` | Shared Spark session and environment utilities | `Env`, `SparkSessions` |
 
@@ -137,6 +138,7 @@ Redis keys written:
 | Key | Type | Contents | TTL |
 |---|---|---|---|
 | `global:item_popularity` | sorted set | Global click counts | none |
+| `seq:{id}:click:{day}` | hash | Per-user click sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
 
 Environment variables:
 
@@ -292,6 +294,7 @@ Redis keys written:
 |---|---|---|---|
 | `user:{id}:features` | hash | MovieLens user demographics and rating context | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
 | `movie:{id}:features` | hash | Movie title, genres, release year | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+| `seq:{id}:rating:{day}` | hash | Per-user rating sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
 
 Environment variables:
 
@@ -308,6 +311,80 @@ Environment variables:
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `10 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/movielens-context-collector` |
+
+### Columnar sequence store
+
+A per-user, time-partitioned history of rating and click events, shared by the
+streaming producers and a one-shot backfill. It is the successor to the legacy
+`recentlyRatedMovieIds` CSV blob on `user:{id}:features`; the serving side chooses
+between the two at request time (see **Serving** below).
+
+**Partition key:** `seq:{userId}:{kind}:{bucket}`, where `kind ∈ {rating, click}`
+and `bucket` is a UTC day stamp `YYYYMMDD`. Each key is one Redis HASH whose fields
+are positionally aligned — row *i* is element *i* of every field:
+
+| Field | Encoding | Example |
+|---|---|---|
+| `item_id` | `,`-joined | `31,1029,1061` |
+| `ts` | `,`-joined epoch millis, ascending | `1690000001000,...` |
+| `action` | `,`-joined | `click,rate,click` |
+| `rating` | `,`-joined, empty element = null | `,4.0,` |
+| `genres` | `,`-joined rows, `\|` within a row | `Drama\|Comedy,Action,` |
+| `release_year` | `,`-joined, empty element = null | `1995,,1999` |
+| `n` | row count (consistency guard) | `3` |
+
+`genres` uses `|` within a row because genre strings already contain commas; `n` is
+the guard a reader uses to detect and truncate a torn write. Column names, `kind`
+values, and the bucket function all come from one `SequenceSchema` object, mirrored
+by `SequenceSchemaConstants` in the Java retrieval service (a cross-language fixture
+test asserts the two agree).
+
+**Writers:**
+
+- **Streaming (append).** `MovieLensContextCollectorStreamingJob` (rating events)
+  and `UserEventStreamingJob` (click events) call `SequenceSinks.write` each
+  micro-batch. Append mode reads the existing bucket and concatenates, capping each
+  bucket at `SEQ_MAX_ROWS_PER_BUCKET`. Redis infrastructure errors fail the batch so
+  Spark retries from the checkpoint; per-row data errors are skipped and logged.
+- **Backfill (overwrite).** `SequenceBackfillJob` seeds the store from the
+  historical ratings CSV. Overwrite mode replaces each bucket outright, so re-runs
+  are idempotent and skip the read-merge phase.
+
+```bash
+spark-submit \
+  --class com.demo.sequence.SequenceBackfillJob \
+  services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar \
+  /path/to/ratings.csv
+```
+
+Each bucket key gets an `EXPIRE` of `SEQ_LOOKBACK_DAYS` days, so old buckets vanish
+without a compaction job. When `SEQ_PARQUET_PATH` is set, the same chunks are also
+written to a Parquet mirror — exploded back to one row per event and
+`partitionBy("bucket", "kind")` — for offline analysis.
+
+Environment variables (Spark writers):
+
+| Env var | Default |
+|---|---|
+| `SEQ_LOOKBACK_DAYS` | `90` (also the Redis TTL, in days) |
+| `SEQ_MAX_ROWS_PER_BUCKET` | `500` |
+| `SEQ_PARQUET_PATH` | unset (Parquet mirror disabled) |
+| `RATINGS_INPUT_PATH` | backfill only; may be passed as the first positional arg |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` |
+| `REDIS_PIPELINE_SIZE` / `REDIS_POOL_MAX_TOTAL` | `500` / `8` |
+
+**Serving.** `RatingSequencesQueryHydrator` in the Java retrieval service reads the
+store via `RedisSequenceClient`, walking day buckets back over `lookbackDays` in
+chunks of `bucketFetchChunk` keys. The source is selected by `recsys.sequence.mode`:
+`off` serves the legacy CSV blob only, `shadow` reads both and serves legacy while
+logging the diff, `on` serves the sequence store and falls back to legacy only on
+error.
+
+| Config property | Default |
+|---|---|
+| `recsys.sequence.mode` | `off` (`off` \| `shadow` \| `on`) |
+| `recsys.sequence.lookback-days` | `90` |
+| `recsys.sequence.bucket-fetch-chunk` | `7` |
 
 ## Offline Path
 
