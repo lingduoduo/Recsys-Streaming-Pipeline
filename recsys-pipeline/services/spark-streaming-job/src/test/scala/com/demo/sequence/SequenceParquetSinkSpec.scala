@@ -50,6 +50,46 @@ class SequenceParquetSinkSpec extends AnyFlatSpec with Matchers with SparkTestSu
     SequenceParquetSink.explodeChunks(empty).count() shouldBe 0L
   }
 
+  it should "clamp a ragged chunk to the shortest column instead of emitting NULLs" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+    // n=3, but "rating" only has 2 packed elements -- a torn write.
+    val ragged = Seq(
+      ("u1", "rating", "20260723", "m1,m2,m3", "1000,2000,3000", "rate,rate,rate", "3.0,4.0", "a,b,c", "1995,1996,1997", 3L)
+    ).toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+
+    val rows = SequenceParquetSink.explodeChunks(ragged)
+      .orderBy("ts")
+      .collect()
+
+    rows.length shouldBe 2
+
+    rows(0).getAs[String]("item_id") shouldBe "m1"
+    rows(0).getAs[Long]("ts") shouldBe 1000L
+    rows(0).getAs[String]("rating") shouldBe "3.0"
+
+    rows(1).getAs[String]("item_id") shouldBe "m2"
+    rows(1).getAs[Long]("ts") shouldBe 2000L
+    rows(1).getAs[String]("rating") shouldBe "4.0"
+  }
+
+  it should "round-trip a single-event chunk (n = 1)" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+    val single = Seq(
+      ("u1", "rating", "20260723", "m1", "1000", "rate", "4.0", "Drama", "1995", 1L)
+    ).toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+
+    val rows = SequenceParquetSink.explodeChunks(single).collect()
+
+    rows.length shouldBe 1
+    rows(0).getAs[String]("item_id") shouldBe "m1"
+    rows(0).getAs[Long]("ts") shouldBe 1000L
+    rows(0).getAs[String]("rating") shouldBe "4.0"
+    rows(0).getAs[String]("genres") shouldBe "Drama"
+    rows(0).getAs[String]("release_year") shouldBe "1995"
+  }
+
   "write" should "partition the output by bucket and kind" in {
     val path = java.nio.file.Files.createTempDirectory("seq-parquet").toString + "/out"
     new SequenceParquetSink(path, SequenceWriteMode.Overwrite).write(chunks, 0L)
