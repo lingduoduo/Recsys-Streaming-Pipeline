@@ -2,6 +2,7 @@ package com.demo.task
 
 import com.demo.engine.RedisSink
 import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
 import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -33,6 +34,23 @@ object UserEventStreamingJob {
   /** Per-item click counts for one micro-batch (columns: item_id, count). */
   def itemClickCounts(batch: DataFrame): DataFrame = batch.groupBy("item_id").count()
 
+  /** Projects click events into the sequence-store event shape. `timestamp_ms` is already
+    * milliseconds. rating/genres/release_year are null for clicks but still emitted so the
+    * chunk schema is identical across kinds. */
+  def buildSequenceEvents(batch: DataFrame): DataFrame =
+    batch
+      .filter(col("user_id").isNotNull && col("item_id").isNotNull && col("timestamp_ms").isNotNull)
+      .select(
+        col("user_id"),
+        lit(SequenceSchema.KindClick).as("kind"),
+        col("item_id"),
+        col("timestamp_ms").cast("long").as("ts"),
+        lit("click").as("action"),
+        lit(null).cast("double").as("rating"),
+        lit(null).cast("array<string>").as("genres"),
+        lit(null).cast("int").as("release_year")
+      )
+
   /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
   def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
     val parsedAll = EventParsing.observeIngest(EventParsing.fromJson(raw, EventSchemas.userEvent))
@@ -54,6 +72,7 @@ object UserEventStreamingJob {
     val triggerInterval      = sys.env.getOrElse("TRIGGER_INTERVAL", "5 seconds")
     val redisPipelineSize    = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
     val redisPoolMaxTotal    = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
+    val sequenceConfig = SequenceJobConfig.fromEnv()
 
     BatchMetricsListener.register(spark)
 
@@ -77,6 +96,12 @@ object UserEventStreamingJob {
         (p, r) => p.zincrby("global:item_popularity",
                             r.getAs[Long]("count").toDouble, r.getAs[String]("item_id"))
       ).write(counts, batchId)
+
+      SequenceSinks.write(
+        SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceConfig.bucketWidth),
+        sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
+        SequenceWriteMode.Append, batchId
+      )
     }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
