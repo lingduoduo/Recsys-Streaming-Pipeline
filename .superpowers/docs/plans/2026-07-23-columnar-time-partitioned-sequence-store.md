@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-- **Nothing legacy is deleted or modified in place.** `user:{id}:features` CSV fields, `user:{id}:served_history`, and their writers keep working unchanged. Every existing spec/test must stay green **without edits**, except `RatingSequencesQueryHydratorTest`, which is only *added to*.
+- **Nothing legacy is deleted or modified in place.** `user:{id}:features` CSV fields, `user:{id}:served_history`, and their writers keep working unchanged.
+- **Existing tests may be added to, never edited.** Only two existing test files are touched at all — `MovieLensContextCollectorStreamingJobSpec.scala` (Task 7) and `UserEventStreamingJobSpec.scala` (Task 8) — and both only gain new cases; no existing assertion changes. `RatingSequencesQueryHydratorTest` is **not** touched: Task 12 adds a separate `RatingSequencesQueryHydratorSequenceStoreTest`, and the untouched original passing is what proves criterion 2.
 - **Redis key format:** `seq:{userId}:{kind}:{bucket}`. `kind ∈ {rating, click}`. `bucket` is UTC `yyyyMMdd` (or `yyyyMMddHH` when width is `hour`).
 - **Row separator is `,`; within-row (genres) separator is `|`; a null value is an empty element.** Genre values are sanitized at encode time by removing both separators.
 - **Always split with limit `-1`** (`str.split(",", -1)` in Scala and Java). The default drops trailing empty strings, which silently mis-aligns columns whose last value is null. This is the single most likely bug in this plan.
@@ -37,6 +38,7 @@
 | `SequenceEncoder.scala` | Events DataFrame → column-chunk DataFrame. One `groupBy`. |
 | `SequenceRedisSink.scala` | `Sink` impl. Append (read-merge-write) or Overwrite. Owns the two-phase Jedis dance. |
 | `SequenceParquetSink.scala` | `Sink` impl. Explode chunks back to rows, `partitionBy("bucket","kind")`. |
+| `SequenceJobConfig.scala` | The `SEQ_*` knobs read once, plus `SequenceSinks.write` — the persist / two-sink / unpersist fan-out shared by all three writers. |
 | `SequenceBackfillJob.scala` | One-shot `main`. Ratings source → encoder → both sinks in Overwrite mode. |
 
 **Scala — modified:** `process/MovieLensContextCollectorStreamingJob.scala` (add `kind=rating` producer), `task/UserEventStreamingJob.scala` (add `kind=click` producer).
@@ -989,14 +991,178 @@ git commit -m "feat(sequence): add SequenceParquetSink mirroring chunks to parti
 
 ---
 
-### Task 6: `kind=rating` producer in `MovieLensContextCollectorStreamingJob`
+### Task 6: `SequenceJobConfig` + `SequenceSinks` — the shared producer wiring
+
+**Files:**
+- Create: `recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/sequence/SequenceJobConfig.scala`
+- Create: `recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/sequence/SequenceJobConfigSpec.scala`
+
+**Interfaces:**
+- Consumes: `com.demo.util.Env`, `SequenceRedisSink`, `SequenceParquetSink`, `SequenceWriteMode`.
+- Produces:
+  - `final case class SequenceJobConfig(bucketWidth: String, lookbackDays: Int, maxRowsPerBucket: Int, parquetPath: Option[String])`
+  - `SequenceJobConfig.fromEnv(): SequenceJobConfig`
+  - `SequenceJobConfig.ttlSeconds: Int` (instance method — `lookbackDays * 24 * 3600`)
+  - `SequenceSinks.write(chunks: DataFrame, cfg: SequenceJobConfig, redisHost: String, redisPort: Int, poolMax: Int, pipelineSize: Int, mode: SequenceWriteMode, batchId: Long): Unit`
+
+Both producers (Tasks 7 and 8) and the backfill (Task 9) call `SequenceSinks.write`. Without this, the same four config reads and the same persist/try/two-sink/finally block appear verbatim in three places.
+
+`SequenceSinks.write` owns the `persist` / `try` / `finally unpersist` around the two sink writes — `chunks` is consumed twice (Redis and Parquet), so without the persist Spark recomputes the whole `groupBy`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `SequenceJobConfigSpec.scala`:
+
+```scala
+package com.demo.sequence
+
+import com.demo.SparkTestSupport
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers
+
+class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
+
+  "fromEnv" should "apply the documented defaults when nothing is set" in {
+    // The suite does not set SEQ_* env vars, so this exercises the default path.
+    val cfg = SequenceJobConfig.fromEnv()
+    cfg.bucketWidth shouldBe "day"
+    cfg.lookbackDays shouldBe 90
+    cfg.maxRowsPerBucket shouldBe 500
+    cfg.parquetPath shouldBe None
+  }
+
+  "ttlSeconds" should "convert the lookback window into seconds" in {
+    SequenceJobConfig("day", 90, 500, None).ttlSeconds shouldBe 90 * 24 * 3600
+    SequenceJobConfig("day", 1, 500, None).ttlSeconds shouldBe 86400
+  }
+
+  "SequenceSinks.write" should "write Parquet when a path is configured" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val chunks = Seq(("u1", "rating", "20260723", "m1,m2", "1000,2000", "rate,rate", ",4.0", ",", "1995,", 2L))
+      .toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+    val path = java.nio.file.Files.createTempDirectory("seq-sinks").toString + "/out"
+
+    SequenceSinks.write(
+      chunks, SequenceJobConfig("day", 90, 500, Some(path)),
+      redisHost = "unused", redisPort = 0, poolMax = 1, pipelineSize = 10,
+      mode = SequenceWriteMode.Overwrite, batchId = 0L, writeRedis = false
+    )
+
+    spark.read.parquet(path).count() shouldBe 2L
+  }
+
+  it should "skip Parquet entirely when no path is configured" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val chunks = Seq(("u1", "rating", "20260723", "m1", "1000", "rate", "4.0", "", "1995", 1L))
+      .toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+
+    // No Redis, no Parquet path — must be a clean no-op rather than an NPE or a
+    // write to some default location.
+    noException should be thrownBy SequenceSinks.write(
+      chunks, SequenceJobConfig("day", 90, 500, None),
+      redisHost = "unused", redisPort = 0, poolMax = 1, pipelineSize = 10,
+      mode = SequenceWriteMode.Append, batchId = 0L, writeRedis = false
+    )
+  }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd recsys-pipeline/services/spark-streaming-job && sbt "testOnly com.demo.sequence.SequenceJobConfigSpec"`
+Expected: FAIL — compilation error, `not found: value SequenceJobConfig`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `SequenceJobConfig.scala`:
+
+```scala
+package com.demo.sequence
+
+import com.demo.util.Env
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.storage.StorageLevel
+
+/** Shared sequence-store knobs, read once per job. */
+final case class SequenceJobConfig(
+    bucketWidth: String,
+    lookbackDays: Int,
+    maxRowsPerBucket: Int,
+    parquetPath: Option[String]
+) {
+  def ttlSeconds: Int = lookbackDays * 24 * 3600
+}
+
+object SequenceJobConfig {
+  def fromEnv(): SequenceJobConfig = SequenceJobConfig(
+    bucketWidth      = sys.env.getOrElse("SEQ_BUCKET_WIDTH", "day"),
+    lookbackDays     = math.max(1, Env.int("SEQ_LOOKBACK_DAYS", 90)),
+    maxRowsPerBucket = math.max(1, Env.int("SEQ_MAX_ROWS_PER_BUCKET", 500)),
+    parquetPath      = sys.env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
+  )
+}
+
+/** Fans one chunk DataFrame out to the Redis and Parquet sinks. Shared by both
+  * streaming producers and the backfill job. */
+object SequenceSinks {
+
+  def write(
+      chunks: DataFrame,
+      cfg: SequenceJobConfig,
+      redisHost: String,
+      redisPort: Int,
+      poolMax: Int,
+      pipelineSize: Int,
+      mode: SequenceWriteMode,
+      batchId: Long,
+      writeRedis: Boolean = true
+  ): Unit = {
+    // chunks is consumed by up to two sinks; without persist Spark recomputes the groupBy.
+    chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
+    try {
+      if (writeRedis) {
+        new SequenceRedisSink(
+          redisHost, redisPort, poolMax, pipelineSize,
+          cfg.ttlSeconds, cfg.maxRowsPerBucket, mode
+        ).write(chunks, batchId)
+      }
+      cfg.parquetPath.foreach { path =>
+        new SequenceParquetSink(path, mode).write(chunks, batchId)
+      }
+    } finally {
+      chunks.unpersist()
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd recsys-pipeline/services/spark-streaming-job && sbt "testOnly com.demo.sequence.SequenceJobConfigSpec"`
+Expected: PASS — 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/sequence/SequenceJobConfig.scala \
+        recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/sequence/SequenceJobConfigSpec.scala
+git commit -m "feat(sequence): add shared SequenceJobConfig and SequenceSinks fan-out"
+```
+
+---
+
+### Task 7: `kind=rating` producer in `MovieLensContextCollectorStreamingJob`
 
 **Files:**
 - Modify: `recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/process/MovieLensContextCollectorStreamingJob.scala` (add a method; extend `main`'s `foreachBatch`)
 - Modify: `recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/process/MovieLensContextCollectorStreamingJobSpec.scala` (add cases only — do not change existing ones)
 
 **Interfaces:**
-- Consumes: `SequenceEncoder.toColumnChunks`, `SequenceSchema.KindRating`, `SequenceRedisSink`, `SequenceParquetSink`, `SequenceWriteMode.Append`.
+- Consumes: `SequenceEncoder.toColumnChunks`, `SequenceSchema.KindRating`, `SequenceJobConfig.fromEnv`, `SequenceSinks.write`, `SequenceWriteMode.Append`.
 - Produces: `MovieLensContextCollectorStreamingJob.buildSequenceEvents(events: DataFrame): DataFrame` with columns `user_id, kind, item_id, ts, action, rating, genres, release_year`.
 
 **Critical detail:** this job's `timestamp` field is in **seconds** (MovieLens convention). The store is millisecond-based, so `buildSequenceEvents` multiplies by 1000.
@@ -1071,7 +1237,7 @@ Expected: FAIL — compilation error, `value buildSequenceEvents is not a member
 In `MovieLensContextCollectorStreamingJob.scala`, add this import at the top with the others:
 
 ```scala
-import com.demo.sequence.{SequenceEncoder, SequenceParquetSink, SequenceRedisSink, SequenceSchema, SequenceWriteMode}
+import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
 ```
 
 Add this method after `buildMovieFeatureUpdates`:
@@ -1100,13 +1266,10 @@ Add this method after `buildMovieFeatureUpdates`:
       )
 ```
 
-In `main`, add the config reads after `recentRatingsLimit`:
+In `main`, add one config read after `recentRatingsLimit`:
 
 ```scala
-    val sequenceBucketWidth   = sys.env.getOrElse("SEQ_BUCKET_WIDTH", "day")
-    val sequenceLookbackDays  = math.max(1, Env.int("SEQ_LOOKBACK_DAYS", 90))
-    val sequenceMaxRows       = math.max(1, Env.int("SEQ_MAX_ROWS_PER_BUCKET", 500))
-    val sequenceParquetPath   = sys.env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
+    val sequenceConfig = SequenceJobConfig.fromEnv()
 ```
 
 and extend the `foreachBatch` body — the existing two `write*Updates` calls stay exactly as they are:
@@ -1118,19 +1281,11 @@ and extend the `foreachBatch` body — the existing two `write*Updates` calls st
         writeUserUpdates(userUpdates, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize, contextTtlSeconds, recentRatingsLimit)
         writeMovieUpdates(movieUpdates, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize, contextTtlSeconds)
 
-        val chunks = SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceBucketWidth)
-        chunks.persist()
-        try {
-          new SequenceRedisSink(
-            redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
-            sequenceLookbackDays * 24 * 3600, sequenceMaxRows, SequenceWriteMode.Append
-          ).write(chunks, batchId)
-          sequenceParquetPath.foreach { path =>
-            new SequenceParquetSink(path, SequenceWriteMode.Append).write(chunks, batchId)
-          }
-        } finally {
-          chunks.unpersist()
-        }
+        SequenceSinks.write(
+          SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceConfig.bucketWidth),
+          sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
+          SequenceWriteMode.Append, batchId
+        )
       }
 ```
 
@@ -1149,14 +1304,14 @@ git commit -m "feat(sequence): write rating sequences from the context collector
 
 ---
 
-### Task 7: `kind=click` producer in `UserEventStreamingJob`
+### Task 8: `kind=click` producer in `UserEventStreamingJob`
 
 **Files:**
 - Modify: `recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/task/UserEventStreamingJob.scala`
 - Modify: `recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/task/UserEventStreamingJobSpec.scala` (add cases only)
 
 **Interfaces:**
-- Consumes: `SequenceEncoder.toColumnChunks`, `SequenceSchema.KindClick`, `SequenceRedisSink`, `SequenceParquetSink`, `SequenceWriteMode.Append`.
+- Consumes: `SequenceEncoder.toColumnChunks`, `SequenceSchema.KindClick`, `SequenceJobConfig.fromEnv`, `SequenceSinks.write`, `SequenceWriteMode.Append`.
 - Produces: `UserEventStreamingJob.buildSequenceEvents(batch: DataFrame): DataFrame` with columns `user_id, kind, item_id, ts, action, rating, genres, release_year`.
 
 **Note:** this job's parsed events already carry `timestamp_ms`, so no scaling is needed. Per-user click sequences do not exist today — this is new capability, not a migration. `rating`, `genres`, and `release_year` are null for clicks; they are still emitted so the chunk schema is uniform across kinds.
@@ -1226,7 +1381,7 @@ with
 
 ```scala
 import com.demo.engine.RedisSink
-import com.demo.sequence.{SequenceEncoder, SequenceParquetSink, SequenceRedisSink, SequenceSchema, SequenceWriteMode}
+import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
 ```
 
 Add this method after `itemClickCounts`:
@@ -1250,13 +1405,10 @@ Add this method after `itemClickCounts`:
       )
 ```
 
-In `main`, add config reads after `redisPoolMaxTotal`:
+In `main`, add one config read after `redisPoolMaxTotal`:
 
 ```scala
-    val sequenceBucketWidth  = sys.env.getOrElse("SEQ_BUCKET_WIDTH", "day")
-    val sequenceLookbackDays = math.max(1, Env.int("SEQ_LOOKBACK_DAYS", 90))
-    val sequenceMaxRows      = math.max(1, Env.int("SEQ_MAX_ROWS_PER_BUCKET", 500))
-    val sequenceParquetPath  = sys.env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
+    val sequenceConfig = SequenceJobConfig.fromEnv()
 ```
 
 and extend the `foreachBatch` body — the existing popularity sink stays exactly as it is:
@@ -1269,19 +1421,11 @@ and extend the `foreachBatch` body — the existing popularity sink stays exactl
                             r.getAs[Long]("count").toDouble, r.getAs[String]("item_id"))
       ).write(counts, batchId)
 
-      val chunks = SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceBucketWidth)
-      chunks.persist()
-      try {
-        new SequenceRedisSink(
-          redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
-          sequenceLookbackDays * 24 * 3600, sequenceMaxRows, SequenceWriteMode.Append
-        ).write(chunks, batchId)
-        sequenceParquetPath.foreach { path =>
-          new SequenceParquetSink(path, SequenceWriteMode.Append).write(chunks, batchId)
-        }
-      } finally {
-        chunks.unpersist()
-      }
+      SequenceSinks.write(
+        SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceConfig.bucketWidth),
+        sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
+        SequenceWriteMode.Append, batchId
+      )
     }
 ```
 
@@ -1300,14 +1444,14 @@ git commit -m "feat(sequence): write per-user click sequences from UserEventStre
 
 ---
 
-### Task 8: `SequenceBackfillJob`
+### Task 9: `SequenceBackfillJob`
 
 **Files:**
 - Create: `recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/sequence/SequenceBackfillJob.scala`
 - Create: `recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/sequence/SequenceBackfillJobSpec.scala`
 
 **Interfaces:**
-- Consumes: `SequenceEncoder.toColumnChunks`, `SequenceSchema.KindRating`, `SequenceRedisSink`, `SequenceParquetSink`, `SequenceWriteMode.Overwrite`, `com.demo.util.{Env, SparkSessions}`.
+- Consumes: `SequenceEncoder.toColumnChunks`, `SequenceSchema.KindRating`, `SequenceJobConfig.fromEnv`, `SequenceSinks.write`, `SequenceWriteMode.Overwrite`, `com.demo.util.{Env, SparkSessions}`.
 - Produces: `SequenceBackfillJob.readRatings(spark: SparkSession, ratingsPath: String): DataFrame` — sequence-store event shape from the MovieLens ratings CSV (`userId,movieId,rating,timestamp`, timestamp in seconds).
 
 Shadow mode is meaningless against an empty store, so this job exists to make the first diff honest. `Overwrite` makes re-runs idempotent and skips the phase-1 read entirely.
@@ -1415,26 +1559,15 @@ object SequenceBackfillJob {
     val redisPort   = Env.int("REDIS_PORT", 6379)
     val poolMax     = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
     val pipelineSz  = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
-    val bucketWidth = sys.env.getOrElse("SEQ_BUCKET_WIDTH", "day")
-    val lookback    = math.max(1, Env.int("SEQ_LOOKBACK_DAYS", 90))
-    val maxRows     = math.max(1, Env.int("SEQ_MAX_ROWS_PER_BUCKET", 500))
-    val parquetPath = sys.env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
+    val cfg         = SequenceJobConfig.fromEnv()
 
     val spark = SparkSessions.create("SequenceBackfillJob")
     try {
-      val chunks = SequenceEncoder.toColumnChunks(readRatings(spark, ratingsPath), bucketWidth)
-      chunks.persist()
-      try {
-        new SequenceRedisSink(
-          redisHost, redisPort, poolMax, pipelineSz,
-          lookback * 24 * 3600, maxRows, SequenceWriteMode.Overwrite
-        ).write(chunks, 0L)
-        parquetPath.foreach { path =>
-          new SequenceParquetSink(path, SequenceWriteMode.Overwrite).write(chunks, 0L)
-        }
-      } finally {
-        chunks.unpersist()
-      }
+      SequenceSinks.write(
+        SequenceEncoder.toColumnChunks(readRatings(spark, ratingsPath), cfg.bucketWidth),
+        cfg, redisHost, redisPort, poolMax, pipelineSz,
+        SequenceWriteMode.Overwrite, 0L
+      )
     } finally {
       spark.stop()
     }
@@ -1481,7 +1614,7 @@ git commit -m "feat(sequence): add idempotent SequenceBackfillJob"
 
 ---
 
-### Task 9: Java schema constants, codec and slice
+### Task 10: Java schema constants, codec and slice
 
 **Files:**
 - Create: `recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/sequence/SequenceSchemaConstants.java`
@@ -1829,7 +1962,7 @@ git commit -m "feat(sequence): add Java schema constants, codec and columnar sli
 
 ---
 
-### Task 10: `RedisSequenceClient` — chunked bucket walk with early exit
+### Task 11: `RedisSequenceClient` — chunked bucket walk with early exit
 
 **Files:**
 - Create: `recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/sequence/SequenceClient.java`
@@ -2242,7 +2375,7 @@ git commit -m "feat(sequence): add RedisSequenceClient with chunked early-exit b
 
 ---
 
-### Task 11: Wire the hydrator with off / shadow / on
+### Task 12: Wire the hydrator with off / shadow / on
 
 **Files:**
 - Modify: `recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/config/RecommendationProperties.java`
