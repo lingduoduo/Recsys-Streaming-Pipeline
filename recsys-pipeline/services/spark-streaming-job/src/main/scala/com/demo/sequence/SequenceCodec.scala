@@ -19,10 +19,6 @@ object SequenceCodec {
     else parts.toSeq ++ Seq.fill(n - parts.length)("")
   }
 
-  def sanitize(value: String): String =
-    if (value == null) ""
-    else value.replace(SequenceSchema.RowSeparator, "").replace(SequenceSchema.ValueSeparator, " ")
-
   /** Concatenate `fresh` after `existing`, keeping the newest `maxRows` rows.
     * Columns absent from either side are treated as all-null so they stay aligned. */
   def merge(

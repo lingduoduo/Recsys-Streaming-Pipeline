@@ -42,11 +42,6 @@ class SequenceCodecSpec extends AnyFlatSpec with Matchers {
     SequenceCodec.unpack("a,b,c,d", 2) shouldBe Seq("a", "b")
   }
 
-  "sanitize" should "strip both separators so a value cannot break the layout" in {
-    SequenceCodec.sanitize("Sci-Fi, Drama|Comedy") shouldBe "Sci-Fi Drama Comedy"
-    SequenceCodec.sanitize(null) shouldBe ""
-  }
-
   "merge" should "append fresh rows after existing rows" in {
     val merged = SequenceCodec.merge(chunk("a,b", "1,2", 2), chunk("c", "3", 1), maxRows = 10)
     merged(SequenceSchema.ColItemId) shouldBe "a,b,c"
