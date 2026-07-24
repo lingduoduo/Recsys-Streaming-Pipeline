@@ -1,6 +1,5 @@
 package com.demo.sequence
 
-import com.demo.util.Env
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.storage.StorageLevel
 
@@ -15,12 +14,20 @@ final case class SequenceJobConfig(
 }
 
 object SequenceJobConfig {
-  def fromEnv(): SequenceJobConfig = SequenceJobConfig(
-    bucketWidth      = sys.env.getOrElse("SEQ_BUCKET_WIDTH", "day"),
-    lookbackDays     = math.max(1, Env.int("SEQ_LOOKBACK_DAYS", 90)),
-    maxRowsPerBucket = math.max(1, Env.int("SEQ_MAX_ROWS_PER_BUCKET", 500)),
-    parquetPath      = sys.env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
+
+  private def intFromMap(env: Map[String, String], key: String, default: Int): Int =
+    env.get(key).flatMap(v => try Some(v.toInt) catch { case _: NumberFormatException => None }).getOrElse(default)
+
+  /** Pure: builds the config from an explicit environment map. */
+  def from(env: Map[String, String]): SequenceJobConfig = SequenceJobConfig(
+    bucketWidth      = env.getOrElse("SEQ_BUCKET_WIDTH", "day"),
+    lookbackDays     = math.max(1, intFromMap(env, "SEQ_LOOKBACK_DAYS", 90)),
+    maxRowsPerBucket = math.max(1, intFromMap(env, "SEQ_MAX_ROWS_PER_BUCKET", 500)),
+    parquetPath      = env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
   )
+
+  /** Reads the real process environment. */
+  def fromEnv(): SequenceJobConfig = from(sys.env)
 }
 
 /** Fans one chunk DataFrame out to the Redis and Parquet sinks. Shared by both

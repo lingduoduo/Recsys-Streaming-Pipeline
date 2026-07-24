@@ -6,13 +6,43 @@ import org.scalatest.matchers.should.Matchers
 
 class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
-  "fromEnv" should "apply the documented defaults when nothing is set" in {
-    // The suite does not set SEQ_* env vars, so this exercises the default path.
-    val cfg = SequenceJobConfig.fromEnv()
+  "from" should "apply the documented defaults when the map is empty" in {
+    val cfg = SequenceJobConfig.from(Map.empty)
     cfg.bucketWidth shouldBe "day"
     cfg.lookbackDays shouldBe 90
     cfg.maxRowsPerBucket shouldBe 500
     cfg.parquetPath shouldBe None
+  }
+
+  it should "use overrides when all four keys are set to valid values" in {
+    val cfg = SequenceJobConfig.from(Map(
+      "SEQ_BUCKET_WIDTH" -> "hour",
+      "SEQ_LOOKBACK_DAYS" -> "7",
+      "SEQ_MAX_ROWS_PER_BUCKET" -> "50",
+      "SEQ_PARQUET_PATH" -> "/tmp/x"
+    ))
+    cfg.bucketWidth shouldBe "hour"
+    cfg.lookbackDays shouldBe 7
+    cfg.maxRowsPerBucket shouldBe 50
+    cfg.parquetPath shouldBe Some("/tmp/x")
+  }
+
+  it should "floor lookbackDays and maxRowsPerBucket at 1" in {
+    val cfg = SequenceJobConfig.from(Map(
+      "SEQ_LOOKBACK_DAYS" -> "0",
+      "SEQ_MAX_ROWS_PER_BUCKET" -> "0"
+    ))
+    cfg.lookbackDays shouldBe 1
+    cfg.maxRowsPerBucket shouldBe 1
+  }
+
+  it should "fall back to the default when an int key is non-numeric" in {
+    val cfg = SequenceJobConfig.from(Map("SEQ_LOOKBACK_DAYS" -> "abc"))
+    cfg.lookbackDays shouldBe 90
+  }
+
+  it should "treat an empty SEQ_PARQUET_PATH as None" in {
+    SequenceJobConfig.from(Map("SEQ_PARQUET_PATH" -> "")).parquetPath shouldBe None
   }
 
   "ttlSeconds" should "convert the lookback window into seconds" in {
