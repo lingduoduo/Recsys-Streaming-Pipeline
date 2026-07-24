@@ -76,7 +76,12 @@ class RedisSequenceClientTest {
 
     /** Client that records every batch of keys it fetches, so the walk's cost is assertable. */
     private static RedisSequenceClient recordingClient(RecordingRedis redis) {
-        return new RedisSequenceClient(redis.template, 7, CLOCK) {
+        return recordingClient(redis, 7);
+    }
+
+    /** Same as above, with a caller-chosen {@code bucketFetchChunk} (e.g. to force multiple round trips). */
+    private static RedisSequenceClient recordingClient(RecordingRedis redis, int chunk) {
+        return new RedisSequenceClient(redis.template, chunk, CLOCK) {
             @Override
             protected List<Map<String, String>> fetchBatch(List<String> keys, List<String> fields) {
                 redis.fetchedKeyBatches.add(List.copyOf(keys));
@@ -185,5 +190,68 @@ class RedisSequenceClientTest {
 
         assertEquals(2, slice.size());
         assertEquals(List.of("m2", "m1"), slice.itemIds());
+    }
+
+    @Test
+    void readSortsGloballyAcrossBucketsEvenWhenNewerRowsAreInAnOlderBucket() {
+        // Newest timestamps live in yesterday's (later-fetched) bucket; today's bucket only
+        // holds the oldest rows. A per-bucket-sort-then-concat implementation would emit
+        // today's rows first regardless of ts and get this wrong.
+        RecordingRedis redis = new RecordingRedis(Map.of(
+            key("20260723"), chunk("m1,m2", "100,200", 2),
+            key("20260722"), chunk("m3,m4", "300,400", 2)
+        ));
+        RedisSequenceClient client = new RedisSequenceClient(redis.template, 7, CLOCK);
+
+        SequenceSlice slice = client.read("u1", SequenceSchemaConstants.KIND_RATING,
+            Set.of(SequenceSchemaConstants.COL_ITEM_ID), 10, Duration.ofDays(7));
+
+        assertEquals(4, slice.size());
+        assertEquals(List.of("m4", "m3", "m2", "m1"), slice.itemIds());
+        assertEquals(List.of(400L, 300L, 200L, 100L), slice.timestamps());
+    }
+
+    @Test
+    void readContinuesToASecondRoundTripWhenFirstBatchDoesNotFillMaxRows() {
+        // bucketFetchChunk of 1 forces one bucket per round trip. Today has a row, the next
+        // day back is empty, and two days back has the row that finally fills maxRows — so
+        // the walk must survive past the first (and second) pipelined batch.
+        RecordingRedis redis = new RecordingRedis(Map.of(
+            key("20260723"), chunk("mA", "500", 1),
+            key("20260721"), chunk("mB", "100", 1)
+        ));
+        RedisSequenceClient client = recordingClient(redis, 1);
+
+        SequenceSlice slice = client.read("u1", SequenceSchemaConstants.KIND_RATING,
+            Set.of(SequenceSchemaConstants.COL_ITEM_ID), 2, Duration.ofDays(3));
+
+        assertEquals(2, slice.size());
+        assertEquals(List.of("mA", "mB"), slice.itemIds());
+        assertEquals(List.of(500L, 100L), slice.timestamps());
+        assertTrue(redis.fetchedKeyBatches.size() >= 2, "expected more than one pipelined round trip");
+    }
+
+    @Test
+    void readWithAPartialDayLookbackWalksIntoYesterdaysBucket() {
+        // NOTE: the task spec's example used Duration.ofHours(18), but with NOW fixed at
+        // 12:00:00Z, Math.max(1, ceil(hours/24)) equals 1 for ANY sub-24h duration (floor and
+        // ceil agree below one full day), so 18h cannot discriminate the fix — it fails
+        // identically before and after. 30h is a partial (non-whole-day) lookback that still
+        // reaches into yesterday (2026-07-22T06:00:00Z) but does differentiate: floor gives 1
+        // day (misses yesterday), ceil gives 2 (walks it). See task-11-report.md for the math.
+        RecordingRedis redis = new RecordingRedis(Map.of(
+            key("20260722"), chunk("m1", "100", 1)
+        ));
+        RedisSequenceClient client = new RedisSequenceClient(redis.template, 7, CLOCK);
+
+        SequenceSlice slice = client.read("u1", SequenceSchemaConstants.KIND_RATING,
+            Set.of(SequenceSchemaConstants.COL_ITEM_ID), 10, Duration.ofHours(30));
+
+        assertEquals(1, slice.size());
+        assertEquals(List.of("m1"), slice.itemIds());
+
+        List<String> buckets = RedisSequenceClient.bucketsToWalk(NOW, Duration.ofHours(30));
+        assertTrue(buckets.contains("20260723"));
+        assertTrue(buckets.contains("20260722"));
     }
 }

@@ -33,7 +33,7 @@ public class RedisSequenceClient implements SequenceClient {
 
     /** Day stamps from today backwards, inclusive, bounded by {@code lookback}. */
     public static List<String> bucketsToWalk(long nowMillis, Duration lookback) {
-        int days = Math.max(1, (int) lookback.toDays());
+        int days = Math.max(1, (int) Math.ceil(lookback.toMillis() / 86_400_000.0));
         List<String> buckets = new ArrayList<>(days);
         for (int i = 0; i < days; i++) {
             buckets.add(SequenceSchemaConstants.bucket(nowMillis - (long) i * 86_400_000L));
