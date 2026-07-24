@@ -3,6 +3,7 @@ package com.demo.sequence
 import com.demo.engine.{RedisPool, RedisSink, Sink}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.slf4j.LoggerFactory
+import redis.clients.jedis.exceptions.JedisException
 
 import scala.collection.JavaConverters._
 
@@ -38,9 +39,13 @@ class SequenceRedisSink(
         // Phase 1 — direct, NON-pipelined reads. Issuing a read inside an open pipeline
         // makes it consume buffered pipeline replies and corrupts the connection.
         val writes = scala.collection.mutable.ArrayBuffer.empty[(String, java.util.Map[String, String])]
+        var total = 0
+        var skipped = 0
         rows.foreach { row =>
+          total += 1
+          var key = "<unresolved-key>"
           try {
-            val key = SequenceSchema.key(
+            key = SequenceSchema.key(
               row.getAs[String]("user_id"), row.getAs[String]("kind"), row.getAs[String]("bucket")
             )
             val fresh = SequenceRedisSink.chunkFields(row)
@@ -52,8 +57,14 @@ class SequenceRedisSink(
             }
             writes += key -> SequenceRedisSink.resolve(existing, fresh, cap, m).asJava
           } catch {
-            case e: Exception => log.warn("Skipping sequence chunk: {}", e.getMessage)
+            case e: Exception if SequenceRedisSink.isFatal(e) => throw e
+            case e: Exception =>
+              skipped += 1
+              log.warn("Skipping sequence chunk for key {}: {}", Array[AnyRef](key, e.getMessage): _*)
           }
+        }
+        if (skipped > 0) {
+          log.warn("Skipped {} of {} rows in partition due to per-row errors", skipped, total)
         }
 
         // Phase 2 — all writes through one pipeline, no reads interleaved.
@@ -72,6 +83,10 @@ class SequenceRedisSink(
 }
 
 object SequenceRedisSink {
+
+  /** Infrastructure failures must fail the batch so Spark retries; per-row data
+    * problems are skipped. */
+  def isFatal(e: Throwable): Boolean = e.isInstanceOf[JedisException]
 
   /** Row → field map. Pure, so the column extraction is testable without Redis. */
   def chunkFields(row: Row): Map[String, String] = {

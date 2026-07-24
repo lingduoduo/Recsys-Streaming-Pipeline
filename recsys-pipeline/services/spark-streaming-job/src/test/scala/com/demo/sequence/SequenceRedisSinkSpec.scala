@@ -3,6 +3,7 @@ package com.demo.sequence
 import com.demo.SparkTestSupport
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import redis.clients.jedis.exceptions.{JedisConnectionException, JedisException}
 
 class SequenceRedisSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
@@ -52,5 +53,21 @@ class SequenceRedisSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     fields(SequenceSchema.ColRating) shouldBe ",4.0"
     fields(SequenceSchema.ColCount) shouldBe "2"
     fields.keySet shouldBe (SequenceSchema.Columns.toSet + SequenceSchema.ColCount)
+  }
+
+  "isFatal" should "be true for a JedisConnectionException" in {
+    SequenceRedisSink.isFatal(new JedisConnectionException("boom")) shouldBe true
+  }
+
+  it should "be true for a plain JedisException" in {
+    SequenceRedisSink.isFatal(new JedisException("boom")) shouldBe true
+  }
+
+  it should "be false for a NullPointerException" in {
+    SequenceRedisSink.isFatal(new NullPointerException("boom")) shouldBe false
+  }
+
+  it should "be false for an IllegalArgumentException" in {
+    SequenceRedisSink.isFatal(new IllegalArgumentException("boom")) shouldBe false
   }
 }
