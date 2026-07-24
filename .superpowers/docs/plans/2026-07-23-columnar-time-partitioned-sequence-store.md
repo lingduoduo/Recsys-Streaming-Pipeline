@@ -253,7 +253,6 @@ git commit -m "feat(sequence): add SequenceSchema with UTC time bucketing"
 - Produces:
   - `SequenceCodec.pack(values: Seq[String]): String`
   - `SequenceCodec.unpack(packed: String, n: Int): Seq[String]`
-  - `SequenceCodec.sanitize(value: String): String`
   - `SequenceCodec.merge(existing: Map[String, String], fresh: Map[String, String], maxRows: Int): Map[String, String]` — both maps are field→packed-string including `"n"`; returns the same shape.
 
 - [ ] **Step 1: Write the failing test**
@@ -303,11 +302,6 @@ class SequenceCodecSpec extends AnyFlatSpec with Matchers {
 
   it should "truncate a column longer than n" in {
     SequenceCodec.unpack("a,b,c,d", 2) shouldBe Seq("a", "b")
-  }
-
-  "sanitize" should "strip both separators so a value cannot break the layout" in {
-    SequenceCodec.sanitize("Sci-Fi, Drama|Comedy") shouldBe "Sci-Fi Drama Comedy"
-    SequenceCodec.sanitize(null) shouldBe ""
   }
 
   "merge" should "append fresh rows after existing rows" in {
@@ -370,10 +364,6 @@ object SequenceCodec {
     else if (parts.length > n) parts.take(n).toSeq
     else parts.toSeq ++ Seq.fill(n - parts.length)("")
   }
-
-  def sanitize(value: String): String =
-    if (value == null) ""
-    else value.replace(SequenceSchema.RowSeparator, "").replace(SequenceSchema.ValueSeparator, "")
 
   /** Concatenate `fresh` after `existing`, keeping the newest `maxRows` rows.
     * Columns absent from either side are treated as all-null so they stay aligned. */
