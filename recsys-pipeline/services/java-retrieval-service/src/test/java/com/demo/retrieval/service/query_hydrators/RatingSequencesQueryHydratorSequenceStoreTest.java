@@ -161,4 +161,46 @@ class RatingSequencesQueryHydratorSequenceStoreTest {
 
         assertEquals(ids("legacy", 10), result.actionSequenceMovieIds());
     }
+
+    @Test
+    void singleArgConstructorDefaultsToOffAndNeverReadsAStore() {
+        // The one-arg constructor is the production legacy call path (no SequenceClient is
+        // wired in), so off-mode behavior can only be proven via its output, not by inspecting
+        // a store client for zero reads.
+        RatingSequencesQueryHydrator hydrator =
+            new RatingSequencesQueryHydrator(userId -> Optional.of(legacyFeatures(ids("m", 120))));
+
+        MovieLensUserFeatures result = hydrator.hydrate(query()).userFeatures();
+
+        assertEquals(100, result.retrievalSequenceMovieIds().size());
+        assertEquals(50, result.actionSequenceMovieIds().size());
+        assertEquals(20, result.scoringSequenceMovieIds().size());
+        assertEquals("m0", result.retrievalSequenceMovieIds().get(0));
+        assertEquals("m1", result.retrievalSequenceMovieIds().get(1));
+    }
+
+    @Test
+    void offModeReproducesLegacyDedupeAndAllThreeTruncationsExactly() {
+        // Recency-ordered duplicates, e.g. m0,m1,m0,m2,m1,m3,... covering 120 distinct ids so
+        // dedup exceeds even the 100-item retrieval cap.
+        List<String> withDuplicates = new ArrayList<>();
+        withDuplicates.add("m0");
+        for (int i = 1; i < 120; i++) {
+            withDuplicates.add("m" + i);
+            withDuplicates.add("m" + (i - 1));
+        }
+
+        RecordingSequenceClient sequenceClient = new RecordingSequenceClient(ids("new", 200));
+        RatingSequencesQueryHydrator hydrator = new RatingSequencesQueryHydrator(
+            userId -> Optional.of(legacyFeatures(withDuplicates)), sequenceClient, "off", 90
+        );
+
+        MovieLensUserFeatures result = hydrator.hydrate(query()).userFeatures();
+
+        List<String> deduped = ids("m", 120);
+        assertEquals(deduped.subList(0, 100), result.retrievalSequenceMovieIds());
+        assertEquals(deduped.subList(0, 50), result.actionSequenceMovieIds());
+        assertEquals(deduped.subList(0, 20), result.scoringSequenceMovieIds());
+        assertNull(sequenceClient.requestedColumns, "sequence store must not be read in off mode");
+    }
 }
