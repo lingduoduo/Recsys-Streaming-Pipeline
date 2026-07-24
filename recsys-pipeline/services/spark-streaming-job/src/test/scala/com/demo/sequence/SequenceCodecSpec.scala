@@ -69,4 +69,12 @@ class SequenceCodecSpec extends AnyFlatSpec with Matchers {
     merged(SequenceSchema.ColRating) shouldBe ",4.0,"
     merged(SequenceSchema.ColCount) shouldBe "3"
   }
+
+  it should "return a full-shaped chunk when both sides are empty" in {
+    val merged = SequenceCodec.merge(Map.empty, Map.empty, 10)
+    merged(SequenceSchema.ColCount) shouldBe "0"
+    SequenceSchema.Columns.foreach { column =>
+      withClue(s"column $column: ") { merged(column) shouldBe "" }
+    }
+  }
 }

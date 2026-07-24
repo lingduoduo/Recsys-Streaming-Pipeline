@@ -29,8 +29,6 @@ object SequenceCodec {
     val existingCount = count(existing)
     val freshCount    = count(fresh)
     val total         = existingCount + freshCount
-    if (total <= 0) return Map(SequenceSchema.ColCount -> "0")
-
     val kept = math.min(total, math.max(0, maxRows))
     val drop = total - kept
 
