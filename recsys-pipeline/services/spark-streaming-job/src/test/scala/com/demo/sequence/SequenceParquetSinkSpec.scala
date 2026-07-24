@@ -90,6 +90,44 @@ class SequenceParquetSinkSpec extends AnyFlatSpec with Matchers with SparkTestSu
     rows(0).getAs[String]("release_year") shouldBe "1995"
   }
 
+  it should "round-trip a single-event chunk (n = 1) with null rating/genres/release_year (click event)" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+    // A click-kind event structurally has null rating, genres, release_year, which
+    // SequenceCodec.pack encodes as the empty string "" -- one element, not zero.
+    val single = Seq(
+      ("u1", "click", "20260723", "m1", "1000", "click", "", "", "", 1L)
+    ).toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+
+    val rows = SequenceParquetSink.explodeChunks(single).collect()
+
+    rows.length shouldBe 1
+    rows(0).getAs[String]("item_id") shouldBe "m1"
+    rows(0).getAs[Long]("ts") shouldBe 1000L
+  }
+
+  it should "emit both rows for a chunk whose packed rating is two null values (n = 2)" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+    val twoNullRatings = Seq(
+      ("u1", "rating", "20260723", "m1,m2", "1000,2000", "rate,rate", ",", "a,b", "1995,1996", 2L)
+    ).toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+
+    val rows = SequenceParquetSink.explodeChunks(twoNullRatings)
+      .orderBy("ts")
+      .collect()
+
+    rows.length shouldBe 2
+
+    rows(0).getAs[String]("item_id") shouldBe "m1"
+    rows(0).getAs[Long]("ts") shouldBe 1000L
+    rows(0).getAs[String]("rating") shouldBe ""
+
+    rows(1).getAs[String]("item_id") shouldBe "m2"
+    rows(1).getAs[Long]("ts") shouldBe 2000L
+    rows(1).getAs[String]("rating") shouldBe ""
+  }
+
   "write" should "partition the output by bucket and kind" in {
     val path = java.nio.file.Files.createTempDirectory("seq-parquet").toString + "/out"
     new SequenceParquetSink(path, SequenceWriteMode.Overwrite).write(chunks, 0L)

@@ -26,12 +26,17 @@ object SequenceParquetSink {
   private val IndexField      = "__i"
   private val EffectiveNField = "__effectiveN"
 
-  // Mirrors SequenceCodec.unpack, which treats a null/empty packed string as zero
-  // elements rather than one: Spark's split("", ",", -1) returns a 1-element array,
-  // so that case must be special-cased or a short column would not shrink effectiveN.
+  // A packed string always encodes split(packed, ",", -1).length elements -- "" is
+  // ONE empty element (e.g. a click event's null rating), never zero; zero elements
+  // is expressed only by n == 0. So there is no "" special case here. A SQL-null
+  // column means the column is entirely absent (not merely short), so it must not
+  // clamp effectiveN at all -- we return n itself and let the other columns decide.
+  // This clamp is silent by necessity: explodeChunks is a pure distributed Spark
+  // transformation with no per-row driver loop to log from. The logged clamp for
+  // this same torn-write case lives on the serving-side reader instead.
   private def splitLength(column: String): Column = {
     val packed = col(column)
-    when(packed.isNull || packed === "", lit(0))
+    when(packed.isNull, col(SequenceSchema.ColCount).cast("int"))
       .otherwise(size(split(packed, ",", -1)))
   }
 
