@@ -1,20 +1,12 @@
 package com.demo.sequence
 
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{Env, RatingsCsv, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types._
 
 /** One-shot backfill of the columnar sequence store from the historical ratings CSV.
   * Runs in Overwrite mode, so it is idempotent and skips the read-merge phase entirely. */
 object SequenceBackfillJob {
-
-  private val RatingsSchema = StructType(Seq(
-    StructField("userId", StringType),
-    StructField("movieId", StringType),
-    StructField("rating", DoubleType),
-    StructField("timestamp", LongType)
-  ))
 
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
@@ -38,11 +30,7 @@ object SequenceBackfillJob {
 
   /** MovieLens ratings CSV → sequence-store event shape. `timestamp` is in seconds. */
   def readRatings(spark: SparkSession, ratingsPath: String): DataFrame =
-    spark.read
-      .format("csv")
-      .option("header", "true")
-      .schema(RatingsSchema)
-      .load(ratingsPath)
+    RatingsCsv.read(spark, ratingsPath)
       .filter(col("userId").isNotNull && col("movieId").isNotNull && col("timestamp").isNotNull)
       .select(
         col("userId").as("user_id"),
