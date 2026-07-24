@@ -5,7 +5,6 @@ import org.apache.spark.storage.StorageLevel
 
 /** Shared sequence-store knobs, read once per job. */
 final case class SequenceJobConfig(
-    bucketWidth: String,
     lookbackDays: Int,
     maxRowsPerBucket: Int,
     parquetPath: Option[String]
@@ -20,7 +19,6 @@ object SequenceJobConfig {
 
   /** Pure: builds the config from an explicit environment map. */
   def from(env: Map[String, String]): SequenceJobConfig = SequenceJobConfig(
-    bucketWidth      = env.getOrElse("SEQ_BUCKET_WIDTH", "day"),
     lookbackDays     = math.max(1, intFromMap(env, "SEQ_LOOKBACK_DAYS", 90)),
     maxRowsPerBucket = math.max(1, intFromMap(env, "SEQ_MAX_ROWS_PER_BUCKET", 500)),
     parquetPath      = env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)

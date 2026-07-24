@@ -8,20 +8,17 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
 
   "from" should "apply the documented defaults when the map is empty" in {
     val cfg = SequenceJobConfig.from(Map.empty)
-    cfg.bucketWidth shouldBe "day"
     cfg.lookbackDays shouldBe 90
     cfg.maxRowsPerBucket shouldBe 500
     cfg.parquetPath shouldBe None
   }
 
-  it should "use overrides when all four keys are set to valid values" in {
+  it should "use overrides when all keys are set to valid values" in {
     val cfg = SequenceJobConfig.from(Map(
-      "SEQ_BUCKET_WIDTH" -> "hour",
       "SEQ_LOOKBACK_DAYS" -> "7",
       "SEQ_MAX_ROWS_PER_BUCKET" -> "50",
       "SEQ_PARQUET_PATH" -> "/tmp/x"
     ))
-    cfg.bucketWidth shouldBe "hour"
     cfg.lookbackDays shouldBe 7
     cfg.maxRowsPerBucket shouldBe 50
     cfg.parquetPath shouldBe Some("/tmp/x")
@@ -46,8 +43,8 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
   }
 
   "ttlSeconds" should "convert the lookback window into seconds" in {
-    SequenceJobConfig("day", 90, 500, None).ttlSeconds shouldBe 90 * 24 * 3600
-    SequenceJobConfig("day", 1, 500, None).ttlSeconds shouldBe 86400
+    SequenceJobConfig(90, 500, None).ttlSeconds shouldBe 90 * 24 * 3600
+    SequenceJobConfig(1, 500, None).ttlSeconds shouldBe 86400
   }
 
   "SequenceSinks.write" should "write Parquet when a path is configured" in {
@@ -59,7 +56,7 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     val path = java.nio.file.Files.createTempDirectory("seq-sinks").toString + "/out"
 
     SequenceSinks.write(
-      chunks, SequenceJobConfig("day", 90, 500, Some(path)),
+      chunks, SequenceJobConfig(90, 500, Some(path)),
       redisHost = "unused", redisPort = 0, poolMax = 1, pipelineSize = 10,
       mode = SequenceWriteMode.Overwrite, batchId = 0L, writeRedis = false
     )
@@ -77,7 +74,7 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     // No Redis, no Parquet path — must be a clean no-op rather than an NPE or a
     // write to some default location.
     noException should be thrownBy SequenceSinks.write(
-      chunks, SequenceJobConfig("day", 90, 500, None),
+      chunks, SequenceJobConfig(90, 500, None),
       redisHost = "unused", redisPort = 0, poolMax = 1, pipelineSize = 10,
       mode = SequenceWriteMode.Append, batchId = 0L, writeRedis = false
     )

@@ -19,7 +19,7 @@ object SequenceBackfillJob {
     val spark = SparkSessions.create("SequenceBackfillJob")
     try {
       SequenceSinks.write(
-        SequenceEncoder.toColumnChunks(readRatings(spark, ratingsPath), cfg.bucketWidth),
+        SequenceEncoder.toColumnChunks(readRatings(spark, ratingsPath)),
         cfg, redisHost, redisPort, poolMax, pipelineSz,
         SequenceWriteMode.Overwrite, 0L
       )

@@ -98,7 +98,7 @@ object UserEventStreamingJob {
       ).write(counts, batchId)
 
       SequenceSinks.write(
-        SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceConfig.bucketWidth),
+        SequenceEncoder.toColumnChunks(buildSequenceEvents(batch)),
         sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
         SequenceWriteMode.Append, batchId
       )

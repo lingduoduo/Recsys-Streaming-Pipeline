@@ -34,7 +34,7 @@ class SequenceBackfillJobSpec extends AnyFlatSpec with Matchers with SparkTestSu
 
   it should "chunk into one partition per user and day" in {
     val chunks = SequenceEncoder
-      .toColumnChunks(SequenceBackfillJob.readRatings(spark, ratingsCsv()), "day")
+      .toColumnChunks(SequenceBackfillJob.readRatings(spark, ratingsCsv()))
       .orderBy("user_id", "bucket")
       .collect()
 
@@ -48,7 +48,7 @@ class SequenceBackfillJobSpec extends AnyFlatSpec with Matchers with SparkTestSu
 
   it should "be idempotent under Overwrite: a second run reproduces the same Parquet" in {
     val events = SequenceBackfillJob.readRatings(spark, ratingsCsv())
-    val chunks = SequenceEncoder.toColumnChunks(events, "day")
+    val chunks = SequenceEncoder.toColumnChunks(events)
     val path = Files.createTempDirectory("seq-backfill-out").toString + "/out"
 
     new SequenceParquetSink(path, SequenceWriteMode.Overwrite).write(chunks, 0L)

@@ -109,7 +109,7 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
     ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
 
     val chunk = com.demo.sequence.SequenceEncoder
-      .toColumnChunks(MovieLensContextCollectorStreamingJob.buildSequenceEvents(events), "day")
+      .toColumnChunks(MovieLensContextCollectorStreamingJob.buildSequenceEvents(events))
       .collect()
 
     chunk.length shouldBe 1
