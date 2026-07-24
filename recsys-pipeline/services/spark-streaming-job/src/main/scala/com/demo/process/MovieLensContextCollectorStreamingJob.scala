@@ -1,6 +1,7 @@
 package com.demo.process
 
 import com.demo.engine.RedisPool
+import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
 import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.functions._
@@ -43,6 +44,7 @@ object MovieLensContextCollectorStreamingJob {
     val redisPoolMaxTotal = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
     val contextTtlSeconds = Env.int("MOVIELENS_CONTEXT_TTL_SECONDS", 30 * 24 * 3600)
     val recentRatingsLimit = math.max(1, Env.int("MOVIELENS_RECENT_RATINGS_LIMIT", 50))
+    val sequenceConfig = SequenceJobConfig.fromEnv()
 
     val spark = SparkSessions.create("MovieLensContextCollectorStreamingJob", defaultShufflePartitions = 4)
 
@@ -56,11 +58,17 @@ object MovieLensContextCollectorStreamingJob {
       .load()
 
     parseEvents(raw).writeStream
-      .foreachBatch { (batch: DataFrame, _: Long) =>
+      .foreachBatch { (batch: DataFrame, batchId: Long) =>
         val userUpdates = buildUserFeatureUpdates(batch, recentRatingsLimit)
         val movieUpdates = buildMovieFeatureUpdates(batch)
         writeUserUpdates(userUpdates, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize, contextTtlSeconds, recentRatingsLimit)
         writeMovieUpdates(movieUpdates, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize, contextTtlSeconds)
+
+        SequenceSinks.write(
+          SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceConfig.bucketWidth),
+          sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
+          SequenceWriteMode.Append, batchId
+        )
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
@@ -140,6 +148,28 @@ object MovieLensContextCollectorStreamingJob {
         first(col("genres"), ignoreNulls = true).as("genres"),
         max(col("release_year")).as("releaseYear"),
         max(col("timestamp")).as("lastUpdatedTs")
+      )
+
+  /** Projects rating events into the sequence-store event shape.
+    * This job's `timestamp` is in seconds (MovieLens convention); the sequence store is
+    * millisecond-based, so it is scaled here at the producer boundary. */
+  def buildSequenceEvents(events: DataFrame): DataFrame =
+    events
+      .filter(
+        col("event_kind") === "rating" &&
+          col("user_id").isNotNull &&
+          col("item_id").isNotNull &&
+          col("timestamp").isNotNull
+      )
+      .select(
+        col("user_id"),
+        lit(SequenceSchema.KindRating).as("kind"),
+        col("item_id"),
+        (col("timestamp") * 1000L).cast("long").as("ts"),
+        lit("rate").as("action"),
+        col("rating").cast("double").as("rating"),
+        col("genres"),
+        col("release_year").cast("int").as("release_year")
       )
 
   def writeUserUpdates(
