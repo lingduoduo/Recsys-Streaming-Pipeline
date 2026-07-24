@@ -12,17 +12,12 @@ class SequenceSchemaSpec extends AnyFlatSpec with Matchers with SparkTestSupport
   private val dayEnd   = 1784851199999L
 
   "bucket" should "map an entire UTC day to one stamp" in {
-    SequenceSchema.bucket(dayStart, "day") shouldBe "20260723"
-    SequenceSchema.bucket(dayEnd, "day") shouldBe "20260723"
+    SequenceSchema.bucket(dayStart) shouldBe "20260723"
+    SequenceSchema.bucket(dayEnd) shouldBe "20260723"
   }
 
   it should "put the next millisecond in the next bucket" in {
-    SequenceSchema.bucket(dayEnd + 1L, "day") shouldBe "20260724"
-  }
-
-  it should "support hour width" in {
-    SequenceSchema.bucket(dayStart, "hour") shouldBe "2026072300"
-    SequenceSchema.bucket(dayEnd, "hour") shouldBe "2026072323"
+    SequenceSchema.bucket(dayEnd + 1L) shouldBe "20260724"
   }
 
   "key" should "format the partition key" in {
@@ -35,26 +30,12 @@ class SequenceSchemaSpec extends AnyFlatSpec with Matchers with SparkTestSupport
 
     val timestamps = Seq(dayStart, dayEnd, dayEnd + 1L, 0L)
     val computed = timestamps.toDF("ts")
-      .select(SequenceSchema.bucketColumn(col("ts"), "day").as("bucket"))
+      .select(SequenceSchema.bucketColumn(col("ts")).as("bucket"))
       .as[String]
       .collect()
       .toSeq
 
-    computed shouldBe timestamps.map(SequenceSchema.bucket(_, "day"))
-  }
-
-  it should "agree with the scalar bucket function at hour width" in {
-    val sparkSession = spark
-    import sparkSession.implicits._
-
-    val timestamps = Seq(dayStart, dayStart + 3600000L, dayEnd)
-    val computed = timestamps.toDF("ts")
-      .select(SequenceSchema.bucketColumn(col("ts"), "hour").as("bucket"))
-      .as[String]
-      .collect()
-      .toSeq
-
-    computed shouldBe timestamps.map(SequenceSchema.bucket(_, "hour"))
+    computed shouldBe timestamps.map(SequenceSchema.bucket)
   }
 
   "Columns" should "match the shared cross-language fixture" in {

@@ -21,7 +21,7 @@ class SequenceEncoderSpec extends AnyFlatSpec with Matchers with SparkTestSuppor
       ("u1", "rating", "m1", dayStart + 1000L, "rate", 4.0: java.lang.Double, Seq("Drama", "Comedy"), 1995: java.lang.Integer)
     ))
 
-    val chunk = SequenceEncoder.toColumnChunks(df, "day").collect().head
+    val chunk = SequenceEncoder.toColumnChunks(df).collect().head
 
     chunk.getAs[String]("user_id") shouldBe "u1"
     chunk.getAs[String]("kind") shouldBe "rating"
@@ -40,7 +40,7 @@ class SequenceEncoderSpec extends AnyFlatSpec with Matchers with SparkTestSuppor
       ("u1", "rating", "m2", dayStart + 86400000L, "rate", 4.0: java.lang.Double, Seq("Drama"), 1995: java.lang.Integer)
     ))
 
-    val buckets = SequenceEncoder.toColumnChunks(df, "day")
+    val buckets = SequenceEncoder.toColumnChunks(df)
       .collect().map(_.getAs[String]("bucket")).toSet
 
     buckets shouldBe Set("20260723", "20260724")
@@ -52,7 +52,7 @@ class SequenceEncoderSpec extends AnyFlatSpec with Matchers with SparkTestSuppor
       ("u1", "click", "m2", dayStart + 2000L, "click", 3.0: java.lang.Double, Seq.empty[String], 2001: java.lang.Integer)
     ))
 
-    val chunk = SequenceEncoder.toColumnChunks(df, "day").collect().head
+    val chunk = SequenceEncoder.toColumnChunks(df).collect().head
 
     chunk.getAs[String]("rating") shouldBe ",3.0"
     chunk.getAs[String]("release_year") shouldBe ",2001"
@@ -66,7 +66,7 @@ class SequenceEncoderSpec extends AnyFlatSpec with Matchers with SparkTestSuppor
       ("u1", "rating", "m2", dayStart + 2000L, "rate", 4.0: java.lang.Double, Seq("Action"), 1996: java.lang.Integer)
     ))
 
-    val chunk = SequenceEncoder.toColumnChunks(df, "day").collect().head
+    val chunk = SequenceEncoder.toColumnChunks(df).collect().head
 
     chunk.getAs[String]("genres") shouldBe "Sci-Fi Fantasy|Drama,Action"
     chunk.getAs[String]("item_id") shouldBe "m1,m2"
@@ -79,7 +79,7 @@ class SequenceEncoderSpec extends AnyFlatSpec with Matchers with SparkTestSuppor
       ("u1", "rating", "m3", dayStart + 3000L, "rate", null.asInstanceOf[java.lang.Double], Seq.empty[String], null.asInstanceOf[java.lang.Integer])
     ))
 
-    val chunk: Row = SequenceEncoder.toColumnChunks(df, "day").collect().head
+    val chunk: Row = SequenceEncoder.toColumnChunks(df).collect().head
     val n = chunk.getAs[Long]("n").toInt
 
     SequenceSchema.Columns.foreach { column =>

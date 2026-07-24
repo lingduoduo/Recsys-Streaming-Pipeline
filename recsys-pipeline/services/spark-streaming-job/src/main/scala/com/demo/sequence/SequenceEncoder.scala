@@ -9,9 +9,9 @@ object SequenceEncoder {
 
   private val RowsField = "__rows"
 
-  def toColumnChunks(events: DataFrame, bucketWidth: String): DataFrame = {
+  def toColumnChunks(events: DataFrame): DataFrame = {
     val sorted = events
-      .withColumn("bucket", SequenceSchema.bucketColumn(col(SequenceSchema.ColTs), bucketWidth))
+      .withColumn("bucket", SequenceSchema.bucketColumn(col(SequenceSchema.ColTs)))
       .groupBy("user_id", "kind", "bucket")
       // sort_array on a struct sorts by its first field (ts) — no UDF needed, same idiom
       // as ItemSequencePreprocessingJob.

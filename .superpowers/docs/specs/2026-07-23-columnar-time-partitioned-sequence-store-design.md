@@ -81,7 +81,6 @@ in the repo. Those reads always return empty.
 
 **Partition key:** `seq:{userId}:{kind}:{bucket}`, where `kind ∈ {rating, click}`
 (plus `served` in a later version) and `bucket` is a UTC day stamp `YYYYMMDD`.
-Bucket width is configurable via `SEQ_BUCKET_WIDTH`, default `day`.
 
 **Value:** one Redis HASH, one field per column, positionally aligned — row *i*
 is element *i* of every field.
@@ -120,14 +119,14 @@ asserting the two agree.
 ```scala
 object SequenceSchema {
   val Columns = Seq("item_id","ts","action","rating","genres","release_year")
-  def bucket(tsMillis: Long, width: BucketWidth): String   // UTC → "20260723"
+  def bucket(tsMillis: Long): String   // UTC → "20260723"
   def key(userId: String, kind: String, bucket: String): String
 }
 
 object SequenceEncoder {
   // events(user_id, kind, item_id, ts, action, rating, genres, release_year)
   //   → (user_id, kind, bucket, item_id, ts, action, rating, genres, release_year, n)
-  def toColumnChunks(events: DataFrame, width: BucketWidth): DataFrame
+  def toColumnChunks(events: DataFrame): DataFrame
 }
 ```
 
@@ -277,7 +276,6 @@ connection). Every non-trivial decision here lives in a pure function.
 
 | setting | default | where |
 |---|---|---|
-| `SEQ_BUCKET_WIDTH` | `day` | Spark jobs |
 | `SEQ_LOOKBACK_DAYS` | `90` | both |
 | `SEQ_MAX_ROWS_PER_BUCKET` | `500` | Spark jobs |
 | `SEQ_BUCKET_FETCH_CHUNK` | `7` | serving |
@@ -285,22 +283,10 @@ connection). Every non-trivial decision here lives in a pure function.
 
 ## Known limitations (accepted at merge, 2026-07-24)
 
-Surfaced by the whole-branch review; accepted as-is because all three are off
+Surfaced by the whole-branch review; accepted as-is because both are off
 the default path, and documented here rather than fixed.
 
-1. **`SEQ_BUCKET_WIDTH=hour` is incompatible with serving.** The Scala writers
-   support an `hour` bucket width (`yyyyMMddHH`), but the Java read path
-   (`SequenceSchemaConstants.bucket`, `RedisSequenceClient.bucketsToWalk`) only
-   understands day buckets (`yyyyMMdd`). If a producer runs with `hour` while
-   `recsys.sequence.mode=on`, every serving key misses and the reader returns an
-   **empty** sequence — which is deliberately never fallback-masked, so it fails
-   silent, not loud. The default (`day`) is safe end to end and is what every
-   test exercises. **Do not set `SEQ_BUCKET_WIDTH=hour` while serving from the
-   store.** The clean fix, if hour bucketing is ever wanted, is to drop the hour
-   capability entirely (YAGNI — nothing consumes it today) or thread the width
-   through the Java reader. Tracked for later.
-
-2. **Popularity double-count on micro-batch retry (click producer).** In
+1. **Popularity double-count on micro-batch retry (click producer).** In
    `UserEventStreamingJob`, the non-idempotent `zincrby global:item_popularity`
    commits *before* the sequence write in the same `foreachBatch`. Because
    `SequenceRedisSink` deliberately fails the batch on Redis infrastructure
@@ -312,9 +298,9 @@ the default path, and documented here rather than fixed.
    commits). Fix options if it ever matters: make popularity idempotent, or
    reorder so the sequence write precedes the `zincrby`.
 
-3. **No producer-side dual-write kill switch.** `SequenceSinks.write` is called
+2. **No producer-side dual-write kill switch.** `SequenceSinks.write` is called
    unconditionally in both producers; combined with fail-batch-on-`JedisException`
-   (#2), a sequence-store Redis problem stalls both streaming jobs' batches with
+   (#1), a sequence-store Redis problem stalls both streaming jobs' batches with
    no runtime mitigation short of revert/redeploy. A `SEQ_WRITE_ENABLED` flag
    mirroring the serving-side `recsys.sequence.mode` is the intended fast-follow.
 

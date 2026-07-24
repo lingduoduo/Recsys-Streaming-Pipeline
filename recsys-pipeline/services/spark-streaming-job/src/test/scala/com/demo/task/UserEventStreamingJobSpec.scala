@@ -86,7 +86,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
     ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
 
     val chunks = com.demo.sequence.SequenceEncoder
-      .toColumnChunks(UserEventStreamingJob.buildSequenceEvents(batch), "day")
+      .toColumnChunks(UserEventStreamingJob.buildSequenceEvents(batch))
       .orderBy("bucket")
       .collect()
 

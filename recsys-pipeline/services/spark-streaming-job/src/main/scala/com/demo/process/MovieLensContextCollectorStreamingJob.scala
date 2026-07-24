@@ -65,7 +65,7 @@ object MovieLensContextCollectorStreamingJob {
         writeMovieUpdates(movieUpdates, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize, contextTtlSeconds)
 
         SequenceSinks.write(
-          SequenceEncoder.toColumnChunks(buildSequenceEvents(batch), sequenceConfig.bucketWidth),
+          SequenceEncoder.toColumnChunks(buildSequenceEvents(batch)),
           sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
           SequenceWriteMode.Append, batchId
         )
