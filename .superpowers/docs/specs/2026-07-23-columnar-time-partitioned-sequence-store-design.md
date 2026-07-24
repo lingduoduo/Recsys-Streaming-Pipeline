@@ -282,3 +282,42 @@ connection). Every non-trivial decision here lives in a pure function.
 | `SEQ_MAX_ROWS_PER_BUCKET` | `500` | Spark jobs |
 | `SEQ_BUCKET_FETCH_CHUNK` | `7` | serving |
 | `recsys.sequence.mode` | `off` | serving |
+
+## Known limitations (accepted at merge, 2026-07-24)
+
+Surfaced by the whole-branch review; accepted as-is because all three are off
+the default path, and documented here rather than fixed.
+
+1. **`SEQ_BUCKET_WIDTH=hour` is incompatible with serving.** The Scala writers
+   support an `hour` bucket width (`yyyyMMddHH`), but the Java read path
+   (`SequenceSchemaConstants.bucket`, `RedisSequenceClient.bucketsToWalk`) only
+   understands day buckets (`yyyyMMdd`). If a producer runs with `hour` while
+   `recsys.sequence.mode=on`, every serving key misses and the reader returns an
+   **empty** sequence — which is deliberately never fallback-masked, so it fails
+   silent, not loud. The default (`day`) is safe end to end and is what every
+   test exercises. **Do not set `SEQ_BUCKET_WIDTH=hour` while serving from the
+   store.** The clean fix, if hour bucketing is ever wanted, is to drop the hour
+   capability entirely (YAGNI — nothing consumes it today) or thread the width
+   through the Java reader. Tracked for later.
+
+2. **Popularity double-count on micro-batch retry (click producer).** In
+   `UserEventStreamingJob`, the non-idempotent `zincrby global:item_popularity`
+   commits *before* the sequence write in the same `foreachBatch`. Because
+   `SequenceRedisSink` deliberately fails the batch on Redis infrastructure
+   errors (rethrows `JedisException` so Spark retries from the checkpoint), a
+   transient sequence-store error *after* the `zincrby` commits re-runs the
+   `zincrby` on retry, inflating popularity. This is an amplification of the
+   pre-existing at-least-once behavior of that counter, not a new bug class.
+   Window is narrow (a hard Redis outage fails the `zincrby` too, so nothing
+   commits). Fix options if it ever matters: make popularity idempotent, or
+   reorder so the sequence write precedes the `zincrby`.
+
+3. **No producer-side dual-write kill switch.** `SequenceSinks.write` is called
+   unconditionally in both producers; combined with fail-batch-on-`JedisException`
+   (#2), a sequence-store Redis problem stalls both streaming jobs' batches with
+   no runtime mitigation short of revert/redeploy. A `SEQ_WRITE_ENABLED` flag
+   mirroring the serving-side `recsys.sequence.mode` is the intended fast-follow.
+
+The serving-side sequence read path is gated by `recsys.sequence.mode` (default
+`off`), so none of the above affects production until the store is deliberately
+enabled.
