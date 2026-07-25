@@ -77,7 +77,10 @@ Stream-processing notes and Spark code — from learning fundamentals to product
 
 ### Running
 
+From the repository root:
+
 ```bash
+cd spark-analysis
 # Submit any job via spark-submit
 spark-submit --class com.demo.analysis.ActiveUsersJob \
   --master yarn target/spark-analysis.jar
@@ -295,6 +298,7 @@ the remaining diagnostics use the paths shown.
 Trains embeddings offline and produces the ONNX model the retrieval service serves.
 
 ```bash
+cd recsys-pipeline
 # Item2Vec item embeddings (writes sampledata/item_embedding.txt + Redis)
 RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
 
@@ -327,7 +331,8 @@ Serves recommendations and runs online learning + UCB/Thompson bandit RL.
 
 ```bash
 # Start the service (binds :8080; connects to Redis :6379)
-cd services/java-retrieval-service && mvn spring-boot:run
+cd recsys-pipeline/services/java-retrieval-service
+mvn spring-boot:run
 ```
 
 ```bash
@@ -363,6 +368,7 @@ Two standalone, honest offline evaluators that compare policies *without* touchi
 path — replacing the service's self-referential vanity metrics.
 
 ```bash
+cd recsys-pipeline
 # Bandit off-policy evaluation (Direct Method) from the rl_experience replay buffer.
 # Fits a numpy logistic reward model on logged (taken-action features → observed reward),
 # then re-picks each event's slate under logging / popularity / ctr / model:* / random

@@ -4,6 +4,9 @@ Spark Structured Streaming and offline embedding jobs: ingest Kafka click and be
 impressions with feedback into feature+label training samples, train Item2Vec and ALS embeddings
 from historical ratings, and keep per-user history and global item popularity fresh in Redis.
 
+Unless a command block changes directory explicitly, run it from the repository's
+`recsys-pipeline/` directory.
+
 ![Feature pipeline reference architecture](feature.png)
 
 *Reference feature-store architecture: online events (Kafka) and offline events flow through a

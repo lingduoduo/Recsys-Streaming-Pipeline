@@ -117,7 +117,8 @@ curl -X POST http://localhost:8080/feedback \
 
 ## `GET /metrics`
 
-Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view — see [9_Track_Metrics.md](9_Track_Metrics.md) for the full field and Redis-key tables.
+Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view — see
+[Track Metrics](../recommendation_flows/9_Track_Metrics.md) for the full field and Redis-key tables.
 
 ```bash
 curl http://localhost:8080/metrics
