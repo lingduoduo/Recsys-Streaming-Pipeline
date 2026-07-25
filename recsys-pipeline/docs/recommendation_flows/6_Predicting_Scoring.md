@@ -10,10 +10,15 @@ Candidate items are scored through three stages, each with a different learning 
 
 ## Required state
 
-- Offline prediction requires the ONNX model and its matching lookup tables. The default
-  classpath pair is `mlp_embedding_model.onnx` plus `mlp_embedding_lookups.json`. Optional
-  two-tower scoring requires the configured user/item/ranking ONNX artifacts and the sibling
-  `movielens_lookups.json`.
+- `DeepLearningPredictionService` always loads the base MLP and lookup table when its Spring bean
+  is created, even when `RECSYS_DEEP_LEARNING_WEIGHT=0`. `ONNX_MODEL_PATH` and
+  `ONNX_LOOKUPS_PATH` override the default classpath pair `mlp_embedding_model.onnx` and
+  `mlp_embedding_lookups.json`; an absent, unreadable, malformed, or invalid base artifact aborts
+  application startup with `Failed to load deep learning prediction artifacts`.
+- Two-tower scoring is optional. If any of `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, or
+  `ONNX_RANKING_PATH` is unset, `TwoTowerPredictionService` is disabled. When all three are set,
+  the service also requires `movielens_lookups.json` beside the user-tower file; an unreadable or
+  invalid configured model/lookup path aborts startup with `Failed to load two-tower ONNX models`.
 - Hybrid relevance reads Redis vectors at
   `{recsys.embeddings.user-prefix}:{user}` and
   `{recsys.embeddings.item-prefix}:{item}` (defaults `uEmb:*` and `i2vEmb:*`). Online scoring reads
@@ -26,9 +31,10 @@ Candidate items are scored through three stages, each with a different learning 
   resolves them.
 
 If Redis vectors or reward counters are absent, the affected score components fall back to empty
-vectors or zero/prior values and the remaining signals still rank candidates. If an external ID is
-missing from the ONNX lookup, the string endpoint returns `unknown_user_or_item`; an out-of-bounds
-numeric index returns HTTP 400 instead of being passed to ONNX.
+vectors or zero/prior values and the remaining signals still rank candidates. A valid base lookup
+file may contain no matching external ID; that request returns `unknown_user_or_item` without
+stopping the service. An out-of-bounds numeric index returns HTTP 400 instead of being passed to
+ONNX.
 
 | Model type | Class | Signal | Update cadence |
 |---|---|---|---|
