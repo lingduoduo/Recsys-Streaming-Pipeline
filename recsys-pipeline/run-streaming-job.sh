@@ -24,10 +24,30 @@ if [[ ! -f services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar ]
   exit 127
 fi
 
+MAIN_CLASS="${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}"
+
+# Spark's Kafka AdminClient does not trigger broker-side topic auto-creation when it
+# asks for initial offsets. Bootstrap the default job's input topic when using the
+# local Docker stack so a consumer can be started before the first producer.
+if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
+  KAFKA_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"
+  INPUT_TOPIC="${KAFKA_TOPIC:-recsys_events}"
+  if command -v kafka-topics >/dev/null 2>&1; then
+    kafka-topics --bootstrap-server "$KAFKA_SERVERS" \
+      --create --if-not-exists --topic "$INPUT_TOPIC"
+  elif [[ "$KAFKA_SERVERS" == "localhost:9092" ]] &&
+       command -v docker >/dev/null 2>&1 &&
+       docker compose ps --status running kafka >/dev/null 2>&1; then
+    docker compose exec -T kafka kafka-topics \
+      --bootstrap-server localhost:9092 \
+      --create --if-not-exists --topic "$INPUT_TOPIC"
+  fi
+fi
+
 exec "$SPARK_SUBMIT" \
   --master "${SPARK_MASTER:-local[*]}" \
   --driver-memory "${SPARK_DRIVER_MEMORY:-1g}" \
   --executor-memory "${SPARK_EXECUTOR_MEMORY:-2g}" \
   --conf "spark.sql.shuffle.partitions=${SPARK_SQL_SHUFFLE_PARTITIONS:-4}" \
-  --class "${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}" \
+  --class "$MAIN_CLASS" \
   services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
