@@ -4,6 +4,9 @@ Spark Structured Streaming and offline embedding jobs: ingest Kafka click and be
 impressions with feedback into feature+label training samples, train Item2Vec and ALS embeddings
 from historical ratings, and keep per-user history and global item popularity fresh in Redis.
 
+Unless a command block changes directory explicitly, run it from the repository's
+`recsys-pipeline/` directory.
+
 ![Feature pipeline reference architecture](feature.png)
 
 *Reference feature-store architecture: online events (Kafka) and offline events flow through a
@@ -25,7 +28,8 @@ producer.py (behavior, request_id key)  ──► Kafka: recsys_events ──►
 
 Kafka: training_samples     ──► ExperienceCollectorStreamingJob  ──► Kafka: training_experiences
 Kafka: training_experiences ──► RecommendationResponseStatsJob   ──► Kafka: recommendation_metrics
-Kafka: movielens_context    ──► MovieLensContextCollectorStreamingJob ──► Redis user/movie context
+Kafka: movielens_context    ──► MovieLensContextCollectorStreamingJob ──► Redis user context (serving hydration)
+                                                                        └──► Redis movie context (training/report enrichment)
 
 ── Offline embeddings ───────────────────────────────────────────────────────────────────────
 
@@ -39,9 +43,10 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
                                                                              └──► Parquet candidate-generation/
 ```
 
-> Note: `movie:{id}:features` (written by `MovieLensContextCollectorStreamingJob`) and
-> `user:{id}:candidates` (written by `EmbeddingCandidateGenerationJob`) are produced by the
-> pipeline but not currently read by the retrieval service at serve time.
+> Note: serving query hydration reads `user:{id}:features`, not
+> `movie:{id}:features`. The movie hashes feed the derived relevance dataset and Python
+> training/report enrichment. `user:{id}:candidates` (written by
+> `EmbeddingCandidateGenerationJob`) is also not currently read by the retrieval service.
 
 ## Derived ML Datasets
 
@@ -84,6 +89,31 @@ SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.
 
 ## Real-Time Path
 
+The canonical [finite local workflow](../../../README.md#canonical-finite-local-workflow)
+owns the full setup sequence. Run the bootstrap block below from the repository root; after
+`cd recsys-pipeline`, the remaining commands execute in that subdirectory. Start the local
+dependencies, check their readiness, install the Python producer requirements once, and assemble
+the Spark job before starting a producer or Spark process:
+
+```bash
+cd recsys-pipeline
+docker compose up -d zookeeper kafka redis
+docker compose ps
+python -m pip install -r services/python-modeling/requirements.txt
+(cd services/spark-streaming-job && sbt assembly)
+```
+
+Do not continue until both Kafka and Redis report `healthy` in `docker compose ps`. A service still
+showing `starting`, `unhealthy`, or absent is an infrastructure-readiness failure; producer and
+Spark connection errors at that point do not indicate an application failure.
+
+Producer and streaming-job commands are long-running unless a producer is bounded with
+`MAX_EVENTS` or a job is externally stopped. Kafka topic names must match across producers,
+consumers, and their environment variables—for example, `KAFKA_TOPIC` and
+`ONLINE_JOINER_INPUT_TOPIC` must name the same topic when those processes form one flow. The local
+`./run-streaming-job.sh` launcher bootstraps the default `UserEventStreamingJob` input topic
+(`KAFKA_TOPIC`, default `recsys_events`) when it can reach the local Kafka tooling or Docker stack.
+
 ### `services/python-modeling/producer.py`
 
 Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
@@ -124,6 +154,17 @@ Environment variables:
 }
 ```
 
+Check whether the default topic has received records:
+
+```bash
+docker compose exec -T kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 --topic recsys_events
+```
+
+Zero Kafka offsets mean no messages were produced to that topic; they do not indicate a consumer
+crash. If a producer or consumer uses a non-default topic, substitute that exact topic in the
+diagnostic.
+
 ### `UserEventStreamingJob`
 
 Consumes click events from Kafka and writes global item popularity to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than a new TCP connection per partition.
@@ -156,6 +197,15 @@ Environment variables:
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
+
+`ZCARD` reports the number of distinct clicked items, so it confirms that the popularity set is
+present but does not show total clicks. Inspect the member scores to observe accumulated click
+increments:
+
+```bash
+docker compose exec -T redis redis-cli ZCARD global:item_popularity
+docker compose exec -T redis redis-cli ZRANGE global:item_popularity 0 -1 WITHSCORES
+```
 
 ### `OnlineJoinerStreamingJob`
 
@@ -195,6 +245,12 @@ Environment variables:
 | `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |
+
+Confirm that the Parquet sink created training-sample files:
+
+```bash
+find /tmp/spark-recsys/training-samples -name '*.parquet'
+```
 
 ### Session tracking
 
@@ -274,7 +330,11 @@ Environment variables:
 
 ### `MovieLensContextCollectorStreamingJob`
 
-Consumes MovieLens user, movie, and rating context updates from Kafka and writes the Redis hashes used by the retrieval service query hydrators. Context events are normalized once in the streaming layer; the online service then reads compact per-user and per-movie feature state at request time.
+Consumes MovieLens user, movie, and rating context updates from Kafka and writes two Redis hash
+families with different consumers. The retrieval service's query hydrators read compact
+`user:{id}:features` state for demographics, rating history, and sequence views. The
+`movie:{id}:features` hashes supply title/genre/year enrichment to downstream sample generation,
+training, and reports; the retrieval service does not read those movie hashes at serve time.
 
 ```bash
 SPARK_MAIN_CLASS=com.demo.process.MovieLensContextCollectorStreamingJob \
@@ -292,8 +352,8 @@ Redis keys written:
 
 | Key | Type | Contents | TTL |
 |---|---|---|---|
-| `user:{id}:features` | hash | MovieLens user demographics and rating context | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
-| `movie:{id}:features` | hash | Movie title, genres, release year | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+| `user:{id}:features` | hash | MovieLens user demographics and rating context consumed by serving query hydration | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+| `movie:{id}:features` | hash | Movie title, genres, and release year for derived samples, training, and reports (not serving reads) | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
 | `seq:{id}:rating:{day}` | hash | Per-user rating sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
 
 Environment variables:
@@ -311,6 +371,12 @@ Environment variables:
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `10 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/movielens-context-collector` |
+
+Confirm that movie feature hashes exist in Redis:
+
+```bash
+docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features'
+```
 
 ### Columnar sequence store
 

@@ -1,7 +1,18 @@
 # API
 
-REST endpoints served by the `java-retrieval-service`. See the [README](README.md) for how to
-build and start the service.
+REST endpoints served by the `java-retrieval-service`. From the repository root, use this working
+directory and start the service:
+
+```bash
+cd recsys-pipeline/services/java-retrieval-service
+mvn spring-boot:run
+```
+
+Startup requires Java 17 and Redis reachable at the configured host and port. Wait for
+`Started RetrievalServiceApplication` before sending requests. The base URL for the local service
+is `http://localhost:8080`. See the canonical
+[retrieval-service workflow](../../../README.md#3-experiment-pipeline--retrieval-service-8080)
+for the surrounding local run sequence.
 
 ## `GET /recommend/{user}?limit=6`
 
@@ -49,7 +60,9 @@ curl 'http://localhost:8080/recommend/user_1?limit=6'
 
 ## `GET /predict/{user}/{item}`
 
-Scores a single (user, item) pair using the offline ONNX model. Returns an error if either ID is not in the model's lookup table.
+Scores a single (user, item) pair using the offline ONNX model. These are string IDs: the service
+resolves both values through the model's user and item lookup tables before invoking ONNX. If
+either value is absent, the response contains `unknown_user_or_item`.
 
 ```bash
 curl http://localhost:8080/predict/user_employee_01/action_benefits
@@ -59,11 +72,23 @@ curl http://localhost:8080/predict/user_employee_01/action_benefits
 {"model":"mlp_embedding","user":"user_employee_01","item":"action_benefits","userId":0,"itemId":0,"score":0.448}
 ```
 
-The default classpath model (`mlp_embedding`) is an internal employee/action dataset — valid IDs are `user_employee_01`..`user_employee_32` and `action_*` (e.g. `action_benefits`, `action_payroll`). Unknown IDs return `{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
+The default classpath model (`mlp_embedding`) is an internal employee/action dataset. Its user
+lookup contains `user_employee_01..08`, `user_manager_01..08`, `user_new_hire_01..08`, and
+`user_payroll_admin_01..08`. Its item lookup contains twelve `action_*` IDs, including
+`action_benefits`, `action_learning`, `action_onboarding`, and `action_payroll`. Unknown IDs return
+`{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
 
 ## `GET /predict/id?userId=0&itemId=4`
 
-Same as above but accepts raw integer lookup IDs directly.
+Same as above but accepts raw, zero-based internal lookup indices directly. These values are not
+external movie IDs. Inspect the loaded model's lookup sizes before choosing indices:
+
+```bash
+curl -s http://localhost:8080/predict/metadata
+```
+
+`userId` must be in `0..users-1`, and `itemId` must be in `0..items-1`, where `users` and `items`
+come from the metadata response. An out-of-range index returns HTTP 400.
 
 ```bash
 curl 'http://localhost:8080/predict/id?userId=0&itemId=4'
@@ -96,7 +121,8 @@ curl -X POST http://localhost:8080/feedback \
 
 ## `GET /metrics`
 
-Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view — see [9_Track_Metrics.md](9_Track_Metrics.md) for the full field and Redis-key tables.
+Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view — see
+[Track Metrics](../recommendation_flows/9_Track_Metrics.md) for the full field and Redis-key tables.
 
 ```bash
 curl http://localhost:8080/metrics

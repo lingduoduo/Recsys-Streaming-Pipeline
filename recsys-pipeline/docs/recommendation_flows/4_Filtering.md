@@ -1,27 +1,46 @@
 # Candidate Filters
 
-After candidate generation, candidates pass through the `CandidateFilter` pipeline, which drops seen, blocked, muted, and otherwise ineligible candidates before scoring.
+**Flow:** [Previous](3_Cold_Start.md) · **Current: Filtering** · [Next](5_Candidate_Hydration.md)
 
-| Filter | Removes |
+**References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
+
+For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+
+After candidate generation, `ContentCandidateRetriever` removes known-history items and applies
+catalog-based expiry and muted-value checks before scoring.
+
+## Required state
+
+- Filter switches and muted-value lists come from `recsys.filtering.*`
+  (`RECSYS_FILTERING_ENABLED`, `RECSYS_MUTED_PRODUCT_TYPES`, `RECSYS_MUTED_GENRES`, and
+  `RECSYS_MUTED_KEYWORDS`), and item eligibility fields come from the configured catalog.
+- Query hydration supplies watched/rated history, recently rated/action/cached IDs, impressed IDs,
+  and served IDs from the stage 1 keys. `ContentCandidateRetriever` also passes its combined
+  excluded-item set through the final eligibility check.
+
+When configuration lists are absent, they default to empty and remove nothing on that dimension;
+when hydrated history is absent, the corresponding history filter has no IDs to exclude. A
+candidate with no catalog profile bypasses catalog metadata checks, while a profile with an expired
+`expiresAtEpochMillis` is always removed. Setting `recsys.filtering.enabled=false` disables the
+muted product-type, genre, and keyword checks; history and expiry filtering still run.
+
+| Implemented check | Removes |
 |---|---|
-| `PreviouslySeenMoviesFilter` | Movies the user has already watched (via bloom filter) |
-| `PreviouslySeenMoviesBackupFilter` | Watched movies using `impressedMovieIds`; used when bloom filter is unavailable |
+| `PreviouslySeenMoviesFilter` | Watched, rated, recently rated, action-sequence, and cached movie IDs |
+| `PreviouslySeenMoviesBackupFilter` | Movies in `impressedMovieIds` |
 | `PreviouslyServedMoviesFilter` | Recently served movies (`servedMovieIds`) |
-| `SelfMovieFilter` | Movies created by the requesting user (`userId == ownerId`) |
-| `CreatorBlocklistFilter` | Movies from blocked creators |
-| `MutedKeywordFilter` | Movies whose title or tags match muted keywords |
-| `AgeFilter` | Movies outside the user's age-appropriate range |
-| `VideoFilter` | Non-video content (configurable via filter settings) |
-| `ReshareDeduplicationFilter` | Duplicate reshares of the same source movie |
-| `GenreIdsFilter` | Candidates not matching the requested genre IDs |
-| `NewUserGenreFilter` | Candidates outside the genre allowlist for new users |
+| Catalog expiry check | Profiles whose positive `expiresAtEpochMillis` is in the past |
+| Configured muted-value checks | Profiles matching a muted product type, genre, tag/keyword, or title substring |
+
+Creator block/mute/follow, age, self-item, media, reshare, requested-genre, visibility, and safety
+filters are not implemented in the current Java serving path. Adding them would require new query
+state, catalog fields or upstream clients, and `CandidateFilter` wiring.
 
 ### Configuration
 
 | Property | Default |
 |---|---|
 | `recsys.filtering.enabled` | `true` |
-| `recsys.filtering.blocked-users` | *(empty)* |
 | `recsys.filtering.muted-product-types` | *(empty)* |
 | `recsys.filtering.muted-genres` | *(empty)* |
 | `recsys.filtering.muted-keywords` | *(empty)* |

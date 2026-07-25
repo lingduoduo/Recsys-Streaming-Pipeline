@@ -1,38 +1,189 @@
 # Analysis Reports
 
-Offline reports over the engagement data (`training_samples` Parquet, joined with movie
-genres/embeddings from Redis where needed). The first three are PySpark (run via
-`"$SPARK_HOME/bin/spark-submit"`); the two retrieval-eval reports are self-contained pandas/Python
-(hand-rolled metrics, run with plain `python`). All write CSVs under `<input>/../report-*`.
+This is the focused reference for choosing, generating, and interpreting offline analysis
+artifacts. For the only canonical end-to-end setup, movie-category simulation, React snapshot,
+and teardown sequence, follow the root
+[README](../../../README.md#canonical-finite-local-workflow). The commands here assume that
+workflow has already reached its literal `==> done` signal.
 
-| Report | Script | What it shows | Outputs |
-|--------|--------|---------------|---------|
-| **Keyword / SubKeyword Distributions** | `KeywordAnalysisReportJob` (Scala) | Distribution of keyword (1st genre) & subkeyword (2nd genre) for movies vs queries; per-category (l1/l2/l3) top keywords | `by_keyword`, `by_subkeyword`, `top_keywords_l1/l2/l3` |
-| **Query Analysis** | `QueryAnalysisReportJob` (Scala) | Most-common queries (genre-combo intent); short (≤10 chars) vs long (>10) query engagement | `top_queries`, `by_query_length` |
-| **Relevance Analysis** | `RelevanceAnalysisReportJob` (Scala) | Relevance-state (impression/click/order) distribution + mean score by query and by movie genre | `by_state`, `by_query`, `by_genre` |
-| **Recall-Task Performance** | `recall_eval_report.py` | BM25 vs embedding vs hybrid (RRF) retrieval, leave-one-out per user | `recall_eval.csv` (recall@k, hitrate@k) |
-| **Ranking Performance** | `ranking_eval_report.py` | logloss + ROC-AUC of ranking signals (popularity / position / embedding) vs the click label | `ranking_eval.csv` |
-| **Off-policy evaluation** | `ope_eval_report.py` | Direct-Method policy value + lift-vs-logging with 95% bootstrap CIs, over the Redis replay buffer | `ope_eval.csv` |
-| **Consolidated Dashboard** | `analysis_dashboard_report.py` | All five analyses + the off-policy card (live) and MDP card (from `mdp_eval.csv`) as one self-contained HTML page | `report-dashboard/index.html` |
+## Choose the artifact
 
-Definitions shared across reports: a **query** = a recommended impression's genre-combo intent
-(`concat_ws(" ", genres)`); engagement label `0.0/1.0/2.0` = impression-only / clicked / ordered;
-**CTR** = clicks/impressions, **CVR** = orders/impressions.
+| Desired artifact | Generator | Primary output |
+|---|---|---|
+| Keyword and subkeyword CSVs | `KeywordAnalysisReportJob` | `<input>/../report-keywords/` |
+| Query-intent CSVs | `QueryAnalysisReportJob` | `<input>/../report-queries/` |
+| Relevance CSVs | `RelevanceAnalysisReportJob` | `<input>/../report-relevance/` |
+| Recall evaluation CSV | `recall_eval_report.py` | `<input>/../report-recall-eval/recall_eval.csv` |
+| Ranking evaluation CSV | `ranking_eval_report.py` | `<input>/../report-ranking-eval/ranking_eval.csv` |
+| Off-policy evaluation CSV | `ope_eval_report.py --output <file>` | the exact `--output` path |
+| Standalone self-contained HTML | `analysis_dashboard_report.py` | `<input>/../report-dashboard/index.html` |
+| React dashboard snapshot | `frontend/export_dashboard_json.py` | `frontend/data/dashboard.json` |
+
+The standalone HTML can be opened directly. The React app renders a static JSON snapshot and does
+not query Spark or Redis in the browser.
+
+## Shared definitions
+
+- A **query** is a recommended impression's genre-combination intent,
+  `concat_ws(" ", genres)`.
+- Engagement label `0.0`, `1.0`, or `2.0` means impression-only, clicked, or ordered.
+- **CTR** is clicks divided by impressions; **CVR** is orders divided by impressions.
+- **Recall@k** is the mean fraction of held-out relevant items recovered in the top `k`;
+  **hitrate@k** is the fraction of evaluated users with at least one hit.
+- Ranking **ROC-AUC** measures ordering quality; **logloss** is computed after per-signal
+  z-score/sigmoid calibration; **coverage** is the fraction of impressions a signal can score.
+- Off-policy **value** is a Direct-Method reward estimate. Its 95% event-bootstrap intervals are
+  conditional on the fitted reward model and do not include model-fit uncertainty.
+
+## Prerequisites and inputs
+
+Run the setup block from the repository root:
 
 ```bash
-IN=/tmp/spark-recsys/movie-category-sim/training-samples   # any sim's training_samples Parquet
-
-# Pure-Spark Scala jobs (build once: cd services/spark-streaming-job && sbt assembly)
-SPARK_MAIN_CLASS=com.demo.report.KeywordAnalysisReportJob   KEYWORD_ANALYSIS_INPUT_PATH="$IN"   ./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.report.QueryAnalysisReportJob     QUERY_ANALYSIS_INPUT_PATH="$IN"     ./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.report.RelevanceAnalysisReportJob RELEVANCE_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
-
-# Retrieval-eval reports (plain Python; need movie:{id}:features, i2vEmb/uEmb in Redis)
-REDIS_HOST=localhost python services/python-modeling/recall_eval_report.py  --input "$IN"
-REDIS_HOST=localhost python services/python-modeling/ranking_eval_report.py --input "$IN"
-
-# Consolidated HTML dashboard (plain python; recall/ranking sections need Redis corpus)
-REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input "$IN"
+cd recsys-pipeline
+python -m pip install -r services/python-modeling/requirements.txt
+python -m pip install pandas pyarrow numpy redis
+(cd services/spark-streaming-job && sbt assembly)
+test -s services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
 
-See `docs/specs/` and `docs/plans/` for each report's full spec/plan.
+All engagement reports need a populated `training_samples` Parquet directory, not merely an
+existing directory. The examples use:
+
+```text
+/tmp/spark-recsys/movie-category-sim/training-samples
+```
+
+Keep Redis running after the movie-category simulation:
+
+- `movie:*:features` supplies the movie title/genre corpus and fills missing Python-report
+  metadata.
+- `i2vEmb:*` and `uEmb:*` enable embedding recall and ranking.
+- `global:item_popularity` enables the ranking popularity signal.
+- `replay:recommendations` supplies feedback-completed events for off-policy evaluation.
+
+The three Scala CSV jobs use the Parquet `genres` column directly and do not enrich it from Redis.
+The Python loader can enrich rows whose `genres` array is empty from
+`movie:{item_id}:features`. Without those hashes, keyword/query values can become `unknown`,
+category tables can be empty, and recall is unavailable. An empty Parquet input is rejected.
+
+## Spark keyword, query, and relevance reports
+
+Run this focused block from the repository root after the Spark assembly exists:
+
+```bash
+cd recsys-pipeline
+IN=/tmp/spark-recsys/movie-category-sim/training-samples
+
+SPARK_MAIN_CLASS=com.demo.report.KeywordAnalysisReportJob \
+  KEYWORD_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.report.QueryAnalysisReportJob \
+  QUERY_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.report.RelevanceAnalysisReportJob \
+  RELEVANCE_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+```
+
+Outputs:
+
+- `report-keywords/by_keyword`, `by_subkeyword`, and
+  `top_keywords_l1` / `top_keywords_l2` / `top_keywords_l3`;
+- `report-queries/top_queries` and `by_query_length`;
+- `report-relevance/by_state`, `by_query`, and `by_genre`.
+
+Each named output is a Spark CSV directory containing a header-bearing part file.
+
+## Recall evaluation
+
+`recall_eval_report.py` compares lexical BM25, embedding cosine similarity, and reciprocal-rank
+fusion under a leave-one-out protocol. A user needs at least two distinct clicked items
+that exist in the Redis movie corpus to be evaluated. BM25 needs `movie:*:features`; embedding and
+hybrid results additionally need `i2vEmb:*`.
+
+Run from the repository root:
+
+```bash
+cd recsys-pipeline
+IN=/tmp/spark-recsys/movie-category-sim/training-samples
+REDIS_HOST=localhost python services/python-modeling/recall_eval_report.py \
+  --input "$IN" \
+  --ks 5,10,20
+```
+
+The command prints metrics per method and `k`, then writes
+`$IN/../report-recall-eval/recall_eval.csv` with `method`, `k`, `recall_at_k`,
+`hitrate_at_k`, `users_evaluated`, and `instances`. Use `--outdir` to override the directory.
+If Redis has no movie corpus, the script reports that it cannot evaluate and exits without a CSV.
+
+## Ranking evaluation
+
+`ranking_eval_report.py` compares global popularity, negative impression position, and
+`dot(uEmb[user], i2vEmb[item])` against the click label. Position needs only Parquet input;
+popularity and embedding coverage depend on their Redis keys.
+
+Run from the repository root:
+
+```bash
+cd recsys-pipeline
+IN=/tmp/spark-recsys/movie-category-sim/training-samples
+REDIS_HOST=localhost python services/python-modeling/ranking_eval_report.py \
+  --input "$IN"
+```
+
+The output is `$IN/../report-ranking-eval/ranking_eval.csv` with `signal`, `n`, `positives`,
+`coverage`, `auc`, and `logloss`. Use `--outdir` to override the directory. AUC is empty when a
+signal has only one observed class; embedding metrics are empty when no rows have both vectors.
+
+## Off-policy evaluation
+
+`ope_eval_report.py` fits a dependency-light logistic reward model to logged taken-action features,
+then re-picks every event under logging, popularity, CTR, deterministic random, and available
+`model:*` policies. It requires feedback-completed events with an observed reward. Those events
+are normally written to `replay:recommendations` by later `POST /feedback` calls.
+
+Run the Redis-backed evaluation from the repository root:
+
+```bash
+cd recsys-pipeline
+REDIS_HOST=localhost python services/python-modeling/ope_eval_report.py \
+  --key replay:recommendations \
+  --output /tmp/spark-recsys/movie-category-sim/ope_eval.csv
+```
+
+The CSV includes policy value, lift versus logging, event count, reward-estimator AUC/MSE, and 95%
+value/lift interval bounds. `--bootstrap-samples 0` disables intervals; `--bootstrap-seed`
+controls deterministic resampling. To evaluate an exported replay dataset instead of live Redis,
+replace `--key ...` with `--parquet /path/to/replay.parquet`. The script exits without output when
+there are no events whose `reward` is present.
+
+## Consolidated standalone HTML
+
+`analysis_dashboard_report.py` recomputes relevance, keyword, query, recall, ranking, and live
+off-policy sections in one HTML file. It also renders the Java MovieLens policy-evaluation CSV
+when `--mdp-csv` exists. Missing Redis replay/embedding data or a missing MDP CSV becomes an
+explicit N/A card rather than a fabricated metric.
+
+Run from the repository root:
+
+```bash
+cd recsys-pipeline
+IN=/tmp/spark-recsys/movie-category-sim/training-samples
+REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py \
+  --input "$IN" \
+  --ks 5,10,20 \
+  --mdp-csv "$IN/../mdp_eval.csv"
+```
+
+The output is `$IN/../report-dashboard/index.html`; use `--outdir` to override it. The default MDP
+input is already `$IN/../mdp_eval.csv`, so `--mdp-csv` is optional when the file is there.
+
+## React snapshot
+
+The root canonical workflow owns snapshot generation so there is only one end-to-end path. Its
+export command uses the movie-category input and validates a positive row count plus a populated
+Keyword Gap L1 table. The output is `frontend/data/dashboard.json`. After regenerating it,
+hard-refresh `http://localhost:3000` or restart the development server if it still serves the old
+snapshot.
+
+If validation reports `unknown` values or zero category rows, confirm that the simulation reached
+`==> done`, Parquet files exist under the movie-category input, and Redis still holds
+`movie:*:features`.

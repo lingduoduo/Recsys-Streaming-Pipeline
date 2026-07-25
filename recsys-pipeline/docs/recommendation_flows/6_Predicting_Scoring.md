@@ -1,6 +1,40 @@
 # Scoring Model Architecture
 
+**Flow:** [Previous](5_Candidate_Hydration.md) · **Current: Predicting and scoring** · [Next](7_Shuffling.md)
+
+**References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
+
+For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+
 Candidate items are scored through three stages, each with a different learning paradigm:
+
+## Required state
+
+- `DeepLearningPredictionService` always loads the base MLP and lookup table when its Spring bean
+  is created, even when `RECSYS_DEEP_LEARNING_WEIGHT=0`. `ONNX_MODEL_PATH` and
+  `ONNX_LOOKUPS_PATH` override the default classpath pair `mlp_embedding_model.onnx` and
+  `mlp_embedding_lookups.json`; an absent, unreadable, malformed, or invalid base artifact aborts
+  application startup with `Failed to load deep learning prediction artifacts`.
+- Two-tower scoring is optional. If any of `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, or
+  `ONNX_RANKING_PATH` is unset, `TwoTowerPredictionService` is disabled. When all three are set,
+  the service also requires `movielens_lookups.json` beside the user-tower file; an unreadable or
+  invalid configured model/lookup path aborts startup with `Failed to load two-tower ONNX models`.
+- Hybrid relevance reads Redis vectors at
+  `{recsys.embeddings.user-prefix}:{user}` and
+  `{recsys.embeddings.item-prefix}:{item}` (defaults `uEmb:*` and `i2vEmb:*`). Online scoring reads
+  `reward-model:global`, `reward-model:item:*`, `reward-model:genre:*`, and
+  `reward-model:tag:*`; bandit scoring reads item impression/click counters and, for tabular
+  policies, `q-learning:q:{stateKey}` or `sarsa:q:{stateKey}`.
+- Raw numeric calls to `GET /predict/id` must use zero-based internal lookup indices:
+  `userId` in `0..users-1` and `itemId` in `0..items-1`, using the sizes from
+  `GET /predict/metadata`. External IDs should use `GET /predict/{user}/{item}` so the lookup table
+  resolves them.
+
+If Redis vectors or reward counters are absent, the affected score components fall back to empty
+vectors or zero/prior values and the remaining signals still rank candidates. A valid base lookup
+file may contain no matching external ID; that request returns `unknown_user_or_item` without
+stopping the service. An out-of-bounds numeric index returns HTTP 400 instead of being passed to
+ONNX.
 
 | Model type | Class | Signal | Update cadence |
 |---|---|---|---|
@@ -40,4 +74,5 @@ Set `RECSYS_DEEP_LEARNING_WEIGHT` to a non-zero value to enable the ONNX model's
 
 Switch algorithms by setting `RECSYS_BANDIT_ALGORITHM` to `ucb`, `thompson`, `q-learning`, or `sarsa`.
 
-The bandit and reward-model weights that feed these formulas are configured in the main README's [Retrieval Service Configuration](README.md#retrieval-service-configuration).
+The bandit and reward-model weights that feed these formulas are configured in the
+[Retrieval Service Configuration](../../README.md#retrieval-service-configuration).
