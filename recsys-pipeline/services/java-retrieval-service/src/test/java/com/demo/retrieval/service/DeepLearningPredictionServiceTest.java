@@ -9,6 +9,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DeepLearningPredictionServiceTest {
@@ -48,6 +49,23 @@ class DeepLearningPredictionServiceTest {
         try {
             assertFalse(service.predict("unknown_user", "action_benefits").isPresent());
             assertFalse(service.predict("user_employee_01", "unknown_item").isPresent());
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void rejectsNumericIdsOutsideModelVocabulary() throws Exception {
+        DeepLearningPredictionService service = new DeepLearningPredictionService(new ObjectMapper());
+        try {
+            IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.predict(0L, 42L)
+            );
+            assertEquals(
+                "Model indices out of range: userId must be 0..31 and itemId must be 0..11",
+                error.getMessage()
+            );
         } finally {
             service.close();
         }

@@ -3,6 +3,7 @@ package com.demo.retrieval.controller;
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.model.FeedbackRequest;
 import com.demo.retrieval.service.HybridRecommendationService;
+import com.demo.retrieval.service.ModelIndexOutOfRangeException;
 import com.demo.retrieval.model.ModelPrediction;
 import com.demo.retrieval.model.RecommendationResult;
 import jakarta.validation.ConstraintViolationException;
@@ -136,6 +137,12 @@ public class RecommendationController {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleValidation(ConstraintViolationException e) {
         return Map.of("error", "Invalid input: id must be 1-64 alphanumeric characters");
+    }
+
+    @ExceptionHandler(ModelIndexOutOfRangeException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> handleModelIndexOutOfRange(ModelIndexOutOfRangeException e) {
+        return Map.of("error", e.getMessage());
     }
 
     private Map<String, Object> predictionPayload(ModelPrediction prediction) {

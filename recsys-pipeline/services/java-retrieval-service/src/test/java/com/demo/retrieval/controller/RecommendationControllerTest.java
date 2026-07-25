@@ -2,6 +2,7 @@ package com.demo.retrieval.controller;
 
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
+import com.demo.retrieval.service.ModelIndexOutOfRangeException;
 import com.demo.retrieval.model.ModelPrediction;
 import com.demo.retrieval.model.RecommendationResult;
 import org.junit.jupiter.api.Test;
@@ -177,6 +178,19 @@ class RecommendationControllerTest {
             .andExpect(jsonPath("$.userId").value(0))
             .andExpect(jsonPath("$.itemId").value(1))
             .andExpect(jsonPath("$.score").value(0.61));
+    }
+
+    @Test
+    void predictByIdReturnsBadRequestForIndexOutsideModelVocabulary() throws Exception {
+        when(predictionService.predict(0L, 42L)).thenThrow(new ModelIndexOutOfRangeException(
+            "Model indices out of range: userId must be 0..31 and itemId must be 0..11"
+        ));
+
+        mockMvc.perform(get("/predict/id?userId=0&itemId=42"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value(
+                "Model indices out of range: userId must be 0..31 and itemId must be 0..11"
+            ));
     }
 
     @Test

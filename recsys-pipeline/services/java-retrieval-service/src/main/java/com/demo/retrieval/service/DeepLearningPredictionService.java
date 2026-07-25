@@ -74,6 +74,12 @@ public class DeepLearningPredictionService {
     }
 
     public ModelPrediction predict(long userId, long itemId) {
+        if (userId >= userLookup.size() || itemId >= itemLookup.size()) {
+            throw new ModelIndexOutOfRangeException(
+                "Model indices out of range: userId must be 0.." + (userLookup.size() - 1)
+                    + " and itemId must be 0.." + (itemLookup.size() - 1)
+            );
+        }
         return predict(null, null, userId, itemId);
     }
 
