@@ -20,6 +20,11 @@ def query_of(genres: list[str]) -> str:
 def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
     import pandas as pd
     df = pd.read_parquet(input_dir)
+    if df.empty:
+        raise ValueError(
+            f"No training samples found at {input_dir}. "
+            "Wait for the streaming simulation to finish before exporting the dashboard."
+        )
     if "label" not in df.columns:
         df["label"] = (df["clicked"] if "clicked" in df.columns else 0).astype(float)
     df["label"] = df["label"].astype(float)

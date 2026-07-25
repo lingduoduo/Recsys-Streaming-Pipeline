@@ -34,6 +34,18 @@ def test_load_samples_normalizes_columns(tmp_path):
     assert dash.query_of([]) == "unknown"
 
 
+def test_load_samples_rejects_empty_parquet_directory(tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+
+    samples = tmp_path / "samples"
+    samples.mkdir()
+
+    with pytest.raises(ValueError, match="No training samples found"):
+        dash.load_samples(str(samples))
+
+
 def test_load_samples_enriches_empty_genres_from_redis(tmp_path, monkeypatch):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
