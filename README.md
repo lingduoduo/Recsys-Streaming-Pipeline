@@ -252,11 +252,12 @@ npm run dev
 `/tmp/spark-recsys/movie-category-sim/report-dashboard/index.html` is a separate standalone HTML
 artifact produced by the simulation.
 
-**Analytics dashboard** — turn any run's `training_samples` Parquet (from a sim or the joiner) into
-one self-contained HTML page covering keyword / query / relevance / recall / ranking plus the two
-offline policy evaluations below (off-policy + MDP):
+**Analytics dashboard** — with Redis still running and after the simulation has printed `==> done`,
+turn its `training_samples` Parquet into one self-contained HTML page covering keyword / query /
+relevance / recall / ranking plus the two offline policy evaluations below (off-policy + MDP):
 
 ```bash
+cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim/training-samples   # any run's training_samples
 REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py --input "$IN" \
   --mdp-csv "$IN/../mdp_eval.csv"          # optional: render the MDP card from the Java CLI's CSV
@@ -273,6 +274,9 @@ See the recsys-pipeline README → *Analysis Reports* for the five individual pe
 *Offline policy evaluation* above for the two evaluators.
 
 ### Troubleshooting the local workflow
+
+Run Docker Compose diagnostics below from `recsys-pipeline/` (start with `cd recsys-pipeline`);
+the remaining diagnostics use the paths shown.
 
 | Symptom | Diagnostic | Interpretation | Remedy |
 |---|---|---|---|
