@@ -72,7 +72,11 @@ curl http://localhost:8080/predict/user_employee_01/action_benefits
 {"model":"mlp_embedding","user":"user_employee_01","item":"action_benefits","userId":0,"itemId":0,"score":0.448}
 ```
 
-The default classpath model (`mlp_embedding`) is an internal employee/action dataset — valid IDs are `user_employee_01`..`user_employee_32` and `action_*` (e.g. `action_benefits`, `action_payroll`). Unknown IDs return `{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
+The default classpath model (`mlp_embedding`) is an internal employee/action dataset. Its user
+lookup contains `user_employee_01..08`, `user_manager_01..08`, `user_new_hire_01..08`, and
+`user_payroll_admin_01..08`. Its item lookup contains twelve `action_*` IDs, including
+`action_benefits`, `action_learning`, `action_onboarding`, and `action_payroll`. Unknown IDs return
+`{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
 
 ## `GET /predict/id?userId=0&itemId=4`
 
