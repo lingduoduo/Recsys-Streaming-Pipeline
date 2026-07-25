@@ -1,6 +1,29 @@
 # Cold-Start Candidates
 
-After popular candidates are fetched, the retrieval service adds extra candidates from the configured catalog for users or items with no exposure history, so new users and unseen items can still surface.
+**Flow:** [Previous](2_Fetch_Popular_Stuff.md) · **Current: Cold-start candidates** · [Next](4_Filtering.md)
+
+**References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
+
+For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+
+After popular candidates are fetched, the retrieval service adds new-release and low-exposure
+items from the configured catalog. This fallback is especially useful for new users whose empty
+history excludes fewer catalog items.
+
+## Required state
+
+- The candidate source is the merged `recsys.catalog` configuration plus the optional JSON file at
+  `recsys.catalog-path` (`RECSYS_CATALOG_PATH`). Catalog metadata supplies content signals such as
+  title, genres, tags, release status, and eligibility attributes.
+- `recsys.candidate-generation.cold-start-pool-size` bounds the fallback pool, while
+  `recsys.bandit.cold-start-exposure-threshold` and the per-item
+  `bandit:item:{item}:impressions` counters determine whether an item is still low exposure. New
+  releases qualify independently of their impression count.
+
+The catalog fallback is evaluated on every request. It is especially important when a new user has
+no history, because fewer items are excluded, and it admits only new-release or below-threshold
+items. If the catalog is empty, this stage adds no candidates; if impression counters are absent,
+they read as zero and catalog items are treated as cold-start items.
 
 ### Configuration
 
@@ -18,7 +41,8 @@ After popular candidates are fetched, the retrieval service adds extra candidate
 
 Cold-start items additionally receive a bandit exploration boost at scoring time
 (`recsys.bandit.cold-start-boost`, `recsys.bandit.cold-start-exposure-threshold`); those knobs
-live with the rest of the Bandit configuration in the main README.
+live with the rest of the Bandit configuration in the
+[recsys-pipeline README](../../README.md#retrieval-service-configuration).
 
 ## Cold-Start RL Extension Plan
 

@@ -1,6 +1,29 @@
 # Track Metrics
 
+**Flow:** [Previous](8_Store_Context.md) · **Current: Track metrics**
+
+**References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
+
+For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+
 The final step of each request records impressions, clicks, regret-style metrics, novelty, and catalog coverage. Aggregates are exposed through the `GET /metrics` endpoint and stored under `bandit:metrics*` Redis keys.
+
+## Required state
+
+- Successful recommendation calls populate `bandit:metrics`,
+  `bandit:metrics:{algorithm}`, `bandit:item:{item}:impressions`,
+  `bandit:last_served:{item}`, `bandit:exposed_items`, and the pending/request context keys
+  described in stage 8.
+- `POST /feedback` populates click and observed-reward fields in the global and per-algorithm
+  metric hashes, item click counters, `reward-model:*` hashes, and
+  `replay:recommendations`. For Q-learning and SARSA, feedback with a valid pending state also
+  updates the matching Q-table and Q-update metrics.
+
+A fresh Redis has none of these request, feedback, or replay writes. Numeric aggregates therefore
+return zero, catalog coverage is zero, inactive algorithms are omitted from `allAlgorithms`, and
+the replay list is empty. Send `GET /recommend/{user}` first to create impressions and pending
+context, then send matching `POST /feedback` calls to create clicks, rewards, and labeled replay
+events.
 
 ## `GET /metrics`
 
@@ -35,3 +58,6 @@ Redis keys:
 | `bandit:metrics` | All traffic combined |
 | `bandit:metrics:ucb` | UCB only |
 | `bandit:metrics:thompson` | Thompson Sampling only |
+| `bandit:metrics:q-learning` | Q-learning only |
+| `bandit:metrics:sarsa` | SARSA only |
+| `replay:recommendations` | Rewarded replay events populated by `POST /feedback` |

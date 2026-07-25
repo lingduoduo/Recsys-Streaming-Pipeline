@@ -1,6 +1,34 @@
 # Scoring Model Architecture
 
+**Flow:** [Previous](5_Candidate_Hydration.md) · **Current: Predicting and scoring** · [Next](7_Shuffling.md)
+
+**References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
+
+For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+
 Candidate items are scored through three stages, each with a different learning paradigm:
+
+## Required state
+
+- Offline prediction requires the ONNX model and its matching lookup tables. The default
+  classpath pair is `mlp_embedding_model.onnx` plus `mlp_embedding_lookups.json`. Optional
+  two-tower scoring requires the configured user/item/ranking ONNX artifacts and the sibling
+  `movielens_lookups.json`.
+- Hybrid relevance reads Redis vectors at
+  `{recsys.embeddings.user-prefix}:{user}` and
+  `{recsys.embeddings.item-prefix}:{item}` (defaults `uEmb:*` and `i2vEmb:*`). Online scoring reads
+  `reward-model:global`, `reward-model:item:*`, `reward-model:genre:*`, and
+  `reward-model:tag:*`; bandit scoring reads item impression/click counters and, for tabular
+  policies, `q-learning:q:{stateKey}` or `sarsa:q:{stateKey}`.
+- Raw numeric calls to `GET /predict/id` must use zero-based internal lookup indices:
+  `userId` in `0..users-1` and `itemId` in `0..items-1`, using the sizes from
+  `GET /predict/metadata`. External IDs should use `GET /predict/{user}/{item}` so the lookup table
+  resolves them.
+
+If Redis vectors or reward counters are absent, the affected score components fall back to empty
+vectors or zero/prior values and the remaining signals still rank candidates. If an external ID is
+missing from the ONNX lookup, the string endpoint returns `unknown_user_or_item`; an out-of-bounds
+numeric index returns HTTP 400 instead of being passed to ONNX.
 
 | Model type | Class | Signal | Update cadence |
 |---|---|---|---|
@@ -40,4 +68,5 @@ Set `RECSYS_DEEP_LEARNING_WEIGHT` to a non-zero value to enable the ONNX model's
 
 Switch algorithms by setting `RECSYS_BANDIT_ALGORITHM` to `ucb`, `thompson`, `q-learning`, or `sarsa`.
 
-The bandit and reward-model weights that feed these formulas are configured in the main README's [Retrieval Service Configuration](README.md#retrieval-service-configuration).
+The bandit and reward-model weights that feed these formulas are configured in the
+[Retrieval Service Configuration](../../README.md#retrieval-service-configuration).
