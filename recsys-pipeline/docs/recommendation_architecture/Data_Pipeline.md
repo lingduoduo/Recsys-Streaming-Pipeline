@@ -84,14 +84,23 @@ SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.
 
 ## Real-Time Path
 
-Run the real-time examples from the `recsys-pipeline` working directory. Start the local
-dependencies and assemble the Spark job first:
+Run the real-time examples from the `recsys-pipeline` working directory. The canonical
+[local data-pipeline workflow](../../../README.md#1-data-pipeline--kafka-9092--redis-6379)
+shows the full multi-terminal sequence. Start the local dependencies, check their readiness,
+install the Python producer requirements once, and assemble the Spark job before starting a
+producer or Spark process:
 
 ```bash
 cd recsys-pipeline
 docker compose up -d zookeeper kafka redis
+docker compose ps
+python -m pip install -r services/python-modeling/requirements.txt
 (cd services/spark-streaming-job && sbt assembly)
 ```
+
+Do not continue until both Kafka and Redis report `healthy` in `docker compose ps`. A service still
+showing `starting`, `unhealthy`, or absent is an infrastructure-readiness failure; producer and
+Spark connection errors at that point do not indicate an application failure.
 
 Producer and streaming-job commands are long-running unless a producer is bounded with
 `MAX_EVENTS` or a job is externally stopped. Kafka topic names must match across producers,
@@ -184,10 +193,13 @@ Environment variables:
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
 
-Confirm that processed clicks changed the Redis popularity set:
+`ZCARD` reports the number of distinct clicked items, so it confirms that the popularity set is
+present but does not show total clicks. Inspect the member scores to observe accumulated click
+increments:
 
 ```bash
 docker compose exec -T redis redis-cli ZCARD global:item_popularity
+docker compose exec -T redis redis-cli ZRANGE global:item_popularity 0 -1 WITHSCORES
 ```
 
 ### `OnlineJoinerStreamingJob`
