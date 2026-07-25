@@ -1,7 +1,16 @@
 # API
 
-REST endpoints served by the `java-retrieval-service`. See the [README](README.md) for how to
-build and start the service.
+REST endpoints served by the `java-retrieval-service`. From the repository root, use this working
+directory and start the service:
+
+```bash
+cd recsys-pipeline/services/java-retrieval-service
+mvn spring-boot:run
+```
+
+Startup requires Java 17 and Redis reachable at the configured host and port. Wait for
+`Started RetrievalServiceApplication` before sending requests. The base URL for the local service
+is `http://localhost:8080`. See the [README](README.md) for additional configuration.
 
 ## `GET /recommend/{user}?limit=6`
 
@@ -49,7 +58,9 @@ curl 'http://localhost:8080/recommend/user_1?limit=6'
 
 ## `GET /predict/{user}/{item}`
 
-Scores a single (user, item) pair using the offline ONNX model. Returns an error if either ID is not in the model's lookup table.
+Scores a single (user, item) pair using the offline ONNX model. These are string IDs: the service
+resolves both values through the model's user and item lookup tables before invoking ONNX. If
+either value is absent, the response contains `unknown_user_or_item`.
 
 ```bash
 curl http://localhost:8080/predict/user_employee_01/action_benefits
@@ -63,7 +74,15 @@ The default classpath model (`mlp_embedding`) is an internal employee/action dat
 
 ## `GET /predict/id?userId=0&itemId=4`
 
-Same as above but accepts raw integer lookup IDs directly.
+Same as above but accepts raw, zero-based internal lookup indices directly. These values are not
+external movie IDs. Inspect the loaded model's lookup sizes before choosing indices:
+
+```bash
+curl -s http://localhost:8080/predict/metadata
+```
+
+`userId` must be in `0..users-1`, and `itemId` must be in `0..items-1`, where `users` and `items`
+come from the metadata response. An out-of-range index returns HTTP 400.
 
 ```bash
 curl 'http://localhost:8080/predict/id?userId=0&itemId=4'

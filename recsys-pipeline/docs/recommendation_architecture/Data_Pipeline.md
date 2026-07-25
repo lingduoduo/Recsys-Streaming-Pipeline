@@ -84,6 +84,22 @@ SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.
 
 ## Real-Time Path
 
+Run the real-time examples from the `recsys-pipeline` working directory. Start the local
+dependencies and assemble the Spark job first:
+
+```bash
+cd recsys-pipeline
+docker compose up -d zookeeper kafka redis
+(cd services/spark-streaming-job && sbt assembly)
+```
+
+Producer and streaming-job commands are long-running unless a producer is bounded with
+`MAX_EVENTS` or a job is externally stopped. Kafka topic names must match across producers,
+consumers, and their environment variables—for example, `KAFKA_TOPIC` and
+`ONLINE_JOINER_INPUT_TOPIC` must name the same topic when those processes form one flow. The local
+`./run-streaming-job.sh` launcher bootstraps the default `UserEventStreamingJob` input topic
+(`KAFKA_TOPIC`, default `recsys_events`) when it can reach the local Kafka tooling or Docker stack.
+
 ### `services/python-modeling/producer.py`
 
 Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
@@ -124,6 +140,17 @@ Environment variables:
 }
 ```
 
+Check whether the default topic has received records:
+
+```bash
+docker compose exec -T kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 --topic recsys_events
+```
+
+Zero Kafka offsets mean no messages were produced to that topic; they do not indicate a consumer
+crash. If a producer or consumer uses a non-default topic, substitute that exact topic in the
+diagnostic.
+
 ### `UserEventStreamingJob`
 
 Consumes click events from Kafka and writes global item popularity to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than a new TCP connection per partition.
@@ -156,6 +183,12 @@ Environment variables:
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
+
+Confirm that processed clicks changed the Redis popularity set:
+
+```bash
+docker compose exec -T redis redis-cli ZCARD global:item_popularity
+```
 
 ### `OnlineJoinerStreamingJob`
 
@@ -195,6 +228,12 @@ Environment variables:
 | `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |
+
+Confirm that the Parquet sink created training-sample files:
+
+```bash
+find /tmp/spark-recsys/training-samples -name '*.parquet'
+```
 
 ### Session tracking
 
@@ -311,6 +350,12 @@ Environment variables:
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `10 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/movielens-context-collector` |
+
+Confirm that movie feature hashes exist in Redis:
+
+```bash
+docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features'
+```
 
 ### Columnar sequence store
 
