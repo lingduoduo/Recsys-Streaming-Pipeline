@@ -159,7 +159,7 @@ Kafka: training_samples
 | `services/python-modeling/movielens_pipeline.py` | Python | Modeling | Two-tower training + ONNX export |
 | `services/java-retrieval-service` | Java / Spring Boot | Experiment | REST API serving hybrid recommendations + bandit RL |
 
-The platform runs as **three pipelines**. On first setup, run them top to bottom; each section below is titled with the **service and port** it owns. Unless noted, commands run from `recsys-pipeline/`.
+The platform runs as **three pipelines**. The numbered workflow below is the canonical local path from infrastructure to the React dashboard; its setup and simulation command blocks make their working directories explicit.
 
 ---
 
@@ -169,9 +169,12 @@ Requires a running Docker daemon (Docker Desktop, or `colima start`).
 
 ```bash
 cd recsys-pipeline
-docker compose up -d     # Kafka (:9092, :29092), Zookeeper (:2181), Redis (:6379)
-docker compose ps        # wait until kafka/redis report "healthy"
+docker compose up -d zookeeper kafka redis
+docker compose ps
 ```
+
+Kafka and Redis must report `healthy` before continuing. Port `6379` must be free for Redis. A
+`docker compose up` failure is an infrastructure/port problem, not a Spark failure.
 
 Topics (`recsys_events`, `training_samples`, `training_experiences`, and the derived
 `recall_samples` / `ranking_samples` / `relevance_samples`) auto-create on first use.
@@ -180,15 +183,23 @@ Topics (`recsys_events`, `training_samples`, `training_experiences`, and the der
 
 ### 1. Data Pipeline — Kafka `:9092` → Redis `:6379`
 
-Generates events and turns them into training data. No HTTP surface.
+Generates events and turns them into training data. No HTTP surface. The producer and Spark jobs
+are long-running processes: start them in separate terminals and stop them with `Ctrl-C` when you
+are finished.
 
 ```bash
+cd recsys-pipeline
 # One-time setup: Python deps + build the Spark fat jar
 python -m pip install -r services/python-modeling/requirements.txt
 (cd services/spark-streaming-job && sbt assembly)
 
-# Emit synthetic user–item events to the recsys_events topic (:9092)
+# Emit synthetic user–item events to the recsys_events topic (:9092).
+# It runs until Ctrl-C, defaults to one event per second, and logs every 100 events after the first.
 python services/python-modeling/producer.py
+
+# Bounded, more verbose producer run for a quick check:
+EVENTS_PER_SECOND=20 LOG_EVERY=10 MAX_EVENTS=100 \
+  python services/python-modeling/producer.py
 
 # Ingest events → user history + item popularity in Redis (:6379)
 ./run-streaming-job.sh                                                       # UserEventStreamingJob (default)
@@ -209,9 +220,37 @@ SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./run-streaming-jo
 ./run-data-pipeline.sh
 ```
 
+Spark streaming jobs wait for new Kafka records, so they appear idle when `recsys_events` is
+empty; this is normal. Keep the producer running or use the bounded example above to provide
+records.
+
 > End-to-end **simulation harnesses** drive this whole pipeline and emit analysis reports:
 > `./run-engagement-sim.sh`, `./run-movielens-segment-sim.sh`, `./run-movie-category-sim.sh`
 > (see the recsys-pipeline README → *Simulation Harnesses*).
+
+### 1a. Movie-category simulation → React dashboard
+
+`run-movie-category-sim.sh` is finite, but can take several minutes. Wait for its literal
+`==> done` line before exporting the dashboard snapshot.
+
+```bash
+cd recsys-pipeline
+./run-movie-category-sim.sh
+# Wait for: ==> done
+
+cd ..
+REDIS_HOST=localhost python frontend/export_dashboard_json.py \
+  --input /tmp/spark-recsys/movie-category-sim/training-samples \
+  --output frontend/data/dashboard.json
+
+cd frontend
+npm install
+npm run dev
+```
+
+`http://localhost:3000` is the React dashboard. In contrast,
+`/tmp/spark-recsys/movie-category-sim/report-dashboard/index.html` is a separate standalone HTML
+artifact produced by the simulation.
 
 **Analytics dashboard** — turn any run's `training_samples` Parquet (from a sim or the joiner) into
 one self-contained HTML page covering keyword / query / relevance / recall / ranking plus the two
@@ -232,6 +271,18 @@ embeddings + item popularity itself, so its dashboard renders real recall/rankin
 `<input>/../mdp_eval.csv`, or `--mdp-csv`). Each falls back to an N/A card when its data is absent.
 See the recsys-pipeline README → *Analysis Reports* for the five individual per-report scripts, and
 *Offline policy evaluation* above for the two evaluators.
+
+### Troubleshooting the local workflow
+
+| Symptom | Diagnostic | Interpretation | Remedy |
+|---|---|---|---|
+| `Bind for 0.0.0.0:6379 failed` | `lsof -nP -iTCP:6379 -sTCP:LISTEN` and `docker ps --filter publish=6379` | another process/container owns the port | identify the owner; stop it only if safe, then rerun |
+| `UnknownTopicOrPartitionException` | `docker compose exec -T kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic recsys_events` | missing/wrong topic | use the launcher bootstrap or create/produce to the configured topic |
+| Producer appears stuck | inspect `rate=...` and `LOG_EVERY` banner | normal long-running producer | use `LOG_EVERY=1` or `MAX_EVENTS` |
+| Dashboard exporter says no samples | `find /tmp/spark-recsys/movie-category-sim/training-samples -name '*.parquet'` | simulation not finished | wait for `==> done` |
+| Keyword Gap is `unknown`; L1/L2/L3 empty | `docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features' \| wc -l` | snapshot exported without movie metadata | keep Redis running and export from the movie-category path |
+| Dashboard still shows old row count | inspect `input` and `rows` in `frontend/data/dashboard.json` | stale static snapshot/browser | rerun exporter, hard-refresh, or restart `npm run dev` |
+| ONNX Gather index error | `GET /predict/metadata` | raw numeric ID exceeds lookup size | use string IDs or indices within metadata bounds |
 
 ---
 
