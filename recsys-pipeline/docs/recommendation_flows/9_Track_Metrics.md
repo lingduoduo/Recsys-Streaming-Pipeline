@@ -4,9 +4,13 @@
 
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
-For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+For the complete local startup sequence, follow the
+[root quick start](../../../README.md#canonical-finite-local-workflow).
 
-The final step of each request records impressions, clicks, regret-style metrics, novelty, and catalog coverage. Aggregates are exposed through the `GET /metrics` endpoint and stored under `bandit:metrics*` Redis keys.
+Recommendation serving records the request count, item impressions, estimated reward,
+regret-style metrics, novelty, and catalog coverage. A later `POST /feedback` call for that
+request records clicks and the observed reward. Aggregates are exposed through the `GET /metrics`
+endpoint and stored under `bandit:metrics*` Redis keys.
 
 ## Required state
 

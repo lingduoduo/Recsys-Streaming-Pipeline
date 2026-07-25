@@ -28,7 +28,8 @@ producer.py (behavior, request_id key)  ──► Kafka: recsys_events ──►
 
 Kafka: training_samples     ──► ExperienceCollectorStreamingJob  ──► Kafka: training_experiences
 Kafka: training_experiences ──► RecommendationResponseStatsJob   ──► Kafka: recommendation_metrics
-Kafka: movielens_context    ──► MovieLensContextCollectorStreamingJob ──► Redis user/movie context
+Kafka: movielens_context    ──► MovieLensContextCollectorStreamingJob ──► Redis user context (serving hydration)
+                                                                        └──► Redis movie context (training/report enrichment)
 
 ── Offline embeddings ───────────────────────────────────────────────────────────────────────
 
@@ -42,9 +43,10 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
                                                                              └──► Parquet candidate-generation/
 ```
 
-> Note: `movie:{id}:features` (written by `MovieLensContextCollectorStreamingJob`) and
-> `user:{id}:candidates` (written by `EmbeddingCandidateGenerationJob`) are produced by the
-> pipeline but not currently read by the retrieval service at serve time.
+> Note: serving query hydration reads `user:{id}:features`, not
+> `movie:{id}:features`. The movie hashes feed the derived relevance dataset and Python
+> training/report enrichment. `user:{id}:candidates` (written by
+> `EmbeddingCandidateGenerationJob`) is also not currently read by the retrieval service.
 
 ## Derived ML Datasets
 
@@ -87,11 +89,11 @@ SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.
 
 ## Real-Time Path
 
-Run the real-time examples from the `recsys-pipeline` working directory. The canonical
-[local data-pipeline workflow](../../../README.md#1-data-pipeline--kafka-9092--redis-6379)
-shows the full multi-terminal sequence. Start the local dependencies, check their readiness,
-install the Python producer requirements once, and assemble the Spark job before starting a
-producer or Spark process:
+The canonical [finite local workflow](../../../README.md#canonical-finite-local-workflow)
+owns the full setup sequence. Run the bootstrap block below from the repository root; after
+`cd recsys-pipeline`, the remaining commands execute in that subdirectory. Start the local
+dependencies, check their readiness, install the Python producer requirements once, and assemble
+the Spark job before starting a producer or Spark process:
 
 ```bash
 cd recsys-pipeline
@@ -328,7 +330,11 @@ Environment variables:
 
 ### `MovieLensContextCollectorStreamingJob`
 
-Consumes MovieLens user, movie, and rating context updates from Kafka and writes the Redis hashes used by the retrieval service query hydrators. Context events are normalized once in the streaming layer; the online service then reads compact per-user and per-movie feature state at request time.
+Consumes MovieLens user, movie, and rating context updates from Kafka and writes two Redis hash
+families with different consumers. The retrieval service's query hydrators read compact
+`user:{id}:features` state for demographics, rating history, and sequence views. The
+`movie:{id}:features` hashes supply title/genre/year enrichment to downstream sample generation,
+training, and reports; the retrieval service does not read those movie hashes at serve time.
 
 ```bash
 SPARK_MAIN_CLASS=com.demo.process.MovieLensContextCollectorStreamingJob \
@@ -346,8 +352,8 @@ Redis keys written:
 
 | Key | Type | Contents | TTL |
 |---|---|---|---|
-| `user:{id}:features` | hash | MovieLens user demographics and rating context | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
-| `movie:{id}:features` | hash | Movie title, genres, release year | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+| `user:{id}:features` | hash | MovieLens user demographics and rating context consumed by serving query hydration | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
+| `movie:{id}:features` | hash | Movie title, genres, and release year for derived samples, training, and reports (not serving reads) | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
 | `seq:{id}:rating:{day}` | hash | Per-user rating sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
 
 Environment variables:
