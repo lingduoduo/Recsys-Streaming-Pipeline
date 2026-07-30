@@ -489,30 +489,32 @@ Java service only observes the work it was already doing.
 
 ### Capture the inputs
 
+`./run-movie-category-sim.sh` runs the whole capture-and-export sequence below as its last two
+steps: it runs `ExperienceCollectorStreamingJob` with `EXPERIENCE_COLLECTOR_OUTPUT_PATH` set (so
+slates land as Parquet, not just on the `training_experiences` Kafka topic), bursts traffic
+against the retrieval service to populate `/metrics`, then exports and validates the snapshot —
+one command, no manual steps. To capture the same inputs by hand against a run already in
+progress:
+
 ```bash
 # 1. live operational measurements from the running retrieval service
 curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
 
-# 2. slate experiences, for the listwise measures. ExperienceCollectorStreamingJob publishes
-#    them to the training_experiences Kafka topic only, so dump the topic to JSONL:
-docker compose exec -T kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 --topic training_experiences \
-  --from-beginning --timeout-ms 10000 > /tmp/spark-recsys/slates.jsonl
-
-# 3. offline measurements from a run's training samples + those slates
-cd recsys-pipeline
+# 2. offline + slate + live measurements from a run's outputs
 IN=/tmp/spark-recsys/movie-category-sim
 REDIS_HOST=localhost python ../frontend/export_dashboard_json.py \
   --input "$IN/training-samples" \
-  --experiences /tmp/spark-recsys/slates.jsonl \
-  --live-metrics /tmp/spark-recsys/live-metrics.json \
+  --experiences "$IN/slates" \
+  --live-metrics "$IN/live-metrics.json" \
   --output ../frontend/data/dashboard.json
 ```
 
 `/metrics` keeps every pre-existing key and adds `measurements` (schema `2.0`) with the live
 latency, freshness, safety, and feedback-coverage sections. `--experiences` accepts a `.json` /
-`.jsonl` file or a Parquet directory; without it, relevance and diversity stay N/A because they
-are the only measures that need whole ranked slates.
+`.jsonl` file or a Parquet directory — `ExperienceCollectorStreamingJob` writes the slates
+directly to Parquet under `$EXPERIENCE_COLLECTOR_OUTPUT_PATH` (no manual `kafka-console-consumer`
+dump needed); without it, relevance and diversity stay N/A because they are the only measures
+that need whole ranked slates.
 
 ### What each dimension measures
 
@@ -567,9 +569,13 @@ are the only measures that need whole ranked slates.
 | `RECSYS_FAIRNESS_MIN_SUPPORT` | `100` | declared only | Minimum impressions before a fairness group is published |
 | `RECSYS_FRESHNESS_WINDOW_DAYS` | `30` | declared only | Age below which an item counts as fresh |
 | `RECSYS_LONG_TAIL_PERCENTILE` | `0.80` | declared only | Popularity percentile below which exposure is long-tail |
+| `EXPERIENCE_COLLECTOR_OUTPUT_PATH` | unset (Parquet write disabled) | `ExperienceCollectorStreamingJob` | Directory to also write ranked slates as Parquet — the `--experiences` input; unset means slates publish only to the `training_experiences` Kafka topic |
+| `MEASUREMENT_BURST_REQUESTS` | `50` | `run-movie-category-sim.sh` | Number of `/recommend` calls the sim's service burst makes to populate live latency/freshness/safety/feedback-coverage metrics |
+| `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port the sim starts the retrieval service on for its traffic burst |
 
-The last three describe offline calculations, so the retrieval service binds and validates them
-for a single source of truth but does not act on them. **Set them on the exporter** —
+`RECSYS_FAIRNESS_MIN_SUPPORT`, `RECSYS_FRESHNESS_WINDOW_DAYS`, and `RECSYS_LONG_TAIL_PERCENTILE`
+describe offline calculations, so the retrieval service binds and validates them for a single
+source of truth but does not act on them. **Set them on the exporter** —
 `--fairness-min-support`, `--freshness-window-days`, `--long-tail-percentile`, and
 `--safety-policy-version` — which is where those measurements are actually calculated.
 
@@ -595,6 +601,17 @@ resulting Parquet (joining Redis demographics/movie features where needed) and w
 > Run PySpark reports through the project's pinned Spark: `"$SPARK_HOME/bin/spark-submit"`. A
 > mismatched pip `pyspark` (vs `$SPARK_HOME`) fails with `JavaPackage object is not callable`. See
 > `docs/specs/` and `docs/plans/` for the per-sim specs/plans.
+>
+> `SPARK_HOME` must point at a **Spark 3.5.1 / Scala 2.12** distribution matching
+> `services/spark-streaming-job/build.sbt` — not any pip-installed `pyspark`. A Scala 2.13 build
+> (e.g. conda's `pyspark` 4.1.1) fails every streaming job in these sims with
+> `NoSuchMethodError: ...wrapRefArray...`. That failure doesn't surface as a startup error — the
+> job dies immediately but the sim's own drain loop keeps polling for up to `DRAIN_TIMEOUT`
+> seconds (default 600) before giving up, so it presents as a silent multi-minute timeout. Check
+> `$SIM_ROOT/*.log` (e.g. `redis.log`, `parquet.log`) first if a drain step stalls.
+>
+> These sims also need Docker running (`docker info` must succeed) — a Colima VM (`colima start`)
+> works as a drop-in for Docker Desktop with no extra configuration.
 
 ## Analysis Reports
 

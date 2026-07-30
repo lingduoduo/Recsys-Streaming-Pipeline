@@ -1,167 +1,1429 @@
 {
   "schemaVersion": "2.0",
-  "input": "/tmp/spark-recsys/training-samples",
-  "rows": 53880,
+  "input": "/tmp/spark-recsys/movie-category-sim/training-samples",
+  "rows": 100000,
   "relevance": {
-    "status": "unavailable",
-    "headline": "N/A",
-    "warnings": [
-      "missing slate experiences",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
-    ],
-    "rows": []
+    "status": "available",
+    "headline": "Graded relevance across labeled slates",
+    "sampleSize": 20000,
+    "coverage": 1.0,
+    "window": null,
+    "warnings": [],
+    "rows": [
+      {
+        "k": 5,
+        "ndcg_at_k": 0.6392,
+        "mrr_at_k": 0.3545,
+        "recall_at_k": 0.6558,
+        "hit_rate_at_k": 1.0,
+        "evaluated_slate_count": 20000,
+        "ndcg_evaluated_slate_count": 13110,
+        "evaluated_user_count": 200,
+        "leave_one_out_fold_count": 20000,
+        "positive_label_count": 19260,
+        "label_coverage": 1.0
+      },
+      {
+        "k": 10,
+        "ndcg_at_k": 0.6392,
+        "mrr_at_k": 0.3545,
+        "recall_at_k": 0.6558,
+        "hit_rate_at_k": 1.0,
+        "evaluated_slate_count": 20000,
+        "ndcg_evaluated_slate_count": 13110,
+        "evaluated_user_count": 200,
+        "leave_one_out_fold_count": 20000,
+        "positive_label_count": 19260,
+        "label_coverage": 1.0
+      },
+      {
+        "k": 20,
+        "ndcg_at_k": 0.6392,
+        "mrr_at_k": 0.3545,
+        "recall_at_k": 0.6558,
+        "hit_rate_at_k": 1.0,
+        "evaluated_slate_count": 20000,
+        "ndcg_evaluated_slate_count": 13110,
+        "evaluated_user_count": 200,
+        "leave_one_out_fold_count": 20000,
+        "positive_label_count": 19260,
+        "label_coverage": 1.0
+      }
+    ]
   },
   "satisfaction": {
-    "status": "unavailable",
-    "headline": "N/A",
-    "warnings": [
-      "missing observed satisfaction signals",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
-    ],
-    "rows": []
+    "status": "available",
+    "headline": "Observed user satisfaction",
+    "sampleSize": 100000,
+    "coverage": 1.0,
+    "window": null,
+    "warnings": [],
+    "rows": [
+      {
+        "scope": "offline",
+        "ctr": 0.1926,
+        "ctr_coverage": 1.0,
+        "order_rate": 0.0424,
+        "order_coverage": 1.0,
+        "mean_reward": null,
+        "reward_coverage": 0.0,
+        "mean_rating": 4.1705,
+        "rating_coverage": 0.0424,
+        "negative_feedback_rate": 0.0004,
+        "negative_feedback_coverage": 0.0004,
+        "mean_dwell_millis": 69718.6786,
+        "dwell_coverage": 0.1502,
+        "mean_completion_rate": 0.581,
+        "completion_coverage": 0.1502
+      },
+      {
+        "scope": "live_service",
+        "feedback_events": 25,
+        "request_id_coverage": 0.0,
+        "rating_coverage": 1.0,
+        "negative_feedback_coverage": 0.0,
+        "dwell_coverage": 1.0,
+        "completion_coverage": 1.0
+      }
+    ]
   },
   "freshness": {
-    "status": "unavailable",
-    "headline": "N/A",
-    "warnings": [
-      "missing published_at and new_release freshness signals",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
-    ],
-    "rows": []
+    "status": "available",
+    "headline": "Fresh-item exposure",
+    "sampleSize": 100000,
+    "coverage": 1.0,
+    "window": null,
+    "warnings": [],
+    "rows": [
+      {
+        "scope": "offline",
+        "freshness_source": "published_at",
+        "fresh_share": 0.1344,
+        "freshness_coverage": 1.0,
+        "mean_content_age_days": 417.4171,
+        "median_content_age_days": 418.5644,
+        "fresh_ctr": 0.1857,
+        "fresh_ctr_coverage": 1.0,
+        "established_ctr": 0.1937,
+        "established_ctr_coverage": 1.0,
+        "fresh_mean_reward": null,
+        "fresh_reward_coverage": 0.0,
+        "established_mean_reward": null,
+        "established_reward_coverage": 0.0
+      },
+      {
+        "scope": "live_service",
+        "freshness_source": "boolean_new_release",
+        "fresh_share": null,
+        "freshness_coverage": 0.0,
+        "exposures": 300
+      }
+    ]
   },
   "diversity": {
-    "status": "unavailable",
-    "headline": "N/A",
+    "status": "available",
+    "headline": "Catalog diversity across slates",
+    "sampleSize": 20000,
+    "coverage": 1.0,
+    "window": null,
     "warnings": [
-      "missing slate experiences",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+      "showing 10 of 20000 slate rows; the aggregate covers all"
     ],
-    "rows": []
+    "rows": [
+      {
+        "scope": "aggregate",
+        "unique_genres_at_k": 7.9665,
+        "normalized_genre_entropy": 0.9725,
+        "intra_list_genre_distance": 0.9299,
+        "long_tail_exposure_share": 0.7966,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0,
+        "long_tail_popularity_cutoff": 57.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_000d819cfe9e",
+        "unique_genres_at_k": 7.0,
+        "normalized_genre_entropy": 0.9708357627258161,
+        "intra_list_genre_distance": 0.9333,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_0018739cf248",
+        "unique_genres_at_k": 7.0,
+        "normalized_genre_entropy": 0.9708357627258161,
+        "intra_list_genre_distance": 0.9167,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_0041b0269d35",
+        "unique_genres_at_k": 7.0,
+        "normalized_genre_entropy": 0.9708357627258161,
+        "intra_list_genre_distance": 0.9417,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_00533b1352f2",
+        "unique_genres_at_k": 10.0,
+        "normalized_genre_entropy": 0.978837914159631,
+        "intra_list_genre_distance": 0.95,
+        "long_tail_exposure_share": 0.6,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_005ad386c330",
+        "unique_genres_at_k": 9.0,
+        "normalized_genre_entropy": 0.9766146686727132,
+        "intra_list_genre_distance": 0.955,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_006d7c6c1822",
+        "unique_genres_at_k": 9.0,
+        "normalized_genre_entropy": 0.9848586617875463,
+        "intra_list_genre_distance": 0.95,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_00a0c0c8a7f6",
+        "unique_genres_at_k": 9.0,
+        "normalized_genre_entropy": 0.9766146686727132,
+        "intra_list_genre_distance": 0.9467,
+        "long_tail_exposure_share": 1.0,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_00b0ebd96069",
+        "unique_genres_at_k": 8.0,
+        "normalized_genre_entropy": 0.9825675930733636,
+        "intra_list_genre_distance": 0.98,
+        "long_tail_exposure_share": 1.0,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_00b498924f1d",
+        "unique_genres_at_k": 8.0,
+        "normalized_genre_entropy": 0.9713256910609176,
+        "intra_list_genre_distance": 0.9083,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_00da23fda619",
+        "unique_genres_at_k": 11.0,
+        "normalized_genre_entropy": 0.9807239409418417,
+        "intra_list_genre_distance": 0.955,
+        "long_tail_exposure_share": 1.0,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      }
+    ]
   },
   "fairness": {
-    "status": "unavailable",
-    "headline": "N/A",
+    "status": "available",
+    "headline": "Outcome parity across supported demographic groups",
+    "sampleSize": 100000,
+    "coverage": 0.5714,
+    "window": null,
     "warnings": [
-      "missing supported demographic dimensions",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+      "missing demographic dimension: occupation",
+      "missing demographic dimension: geo",
+      "missing demographic dimension: platform"
     ],
-    "rows": []
+    "rows": [
+      {
+        "dimension": "age_band",
+        "evaluated_candidates": 100000,
+        "overall_ctr": 0.1926,
+        "overall_order_rate": 0.04239,
+        "overall_mean_reward": null,
+        "overall_ndcg": 0.6392362507935422,
+        "groups": [
+          {
+            "group": "18-24",
+            "support": 23075,
+            "exposure_share": 0.23075,
+            "ctr": 0.19692307692307692,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.045460455037919824,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6427890504947787,
+            "ndcg_evaluated_slate_count": 3066,
+            "ctr_absolute_gap_from_overall": 0.0043230769230769295,
+            "order_rate_absolute_gap_from_overall": 0.0030704550379198267,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.003552799701236564
+          },
+          {
+            "group": "25-34",
+            "support": 28035,
+            "exposure_share": 0.28035,
+            "ctr": 0.19450686641697879,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04269662921348315,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6336990615024203,
+            "ndcg_evaluated_slate_count": 3697,
+            "ctr_absolute_gap_from_overall": 0.0019068664169787919,
+            "order_rate_absolute_gap_from_overall": 0.00030662921348315053,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.005537189291121902
+          },
+          {
+            "group": "35-49",
+            "support": 20985,
+            "exposure_share": 0.20985,
+            "ctr": 0.18808672861567788,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.03974267333809864,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6349251069099657,
+            "ndcg_evaluated_slate_count": 2709,
+            "ctr_absolute_gap_from_overall": 0.004513271384322115,
+            "order_rate_absolute_gap_from_overall": 0.0026473266619013586,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.0043111438835764515
+          },
+          {
+            "group": "50+",
+            "support": 27905,
+            "exposure_share": 0.27905,
+            "ctr": 0.1905034939974915,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04153377530908439,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6450792946929085,
+            "ndcg_evaluated_slate_count": 3638,
+            "ctr_absolute_gap_from_overall": 0.0020965060025084914,
+            "order_rate_absolute_gap_from_overall": 0.0008562246909156052,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.005843043899366296
+          }
+        ],
+        "evaluated_group_count": 4,
+        "suppressed_group_count": 0,
+        "suppressed_candidate_count": 0,
+        "ctr_max_min_gap": 0.008836348307399045,
+        "ctr_disparity_ratio": 0.9551279187514893,
+        "order_rate_max_min_gap": 0.005717781699821185,
+        "order_rate_disparity_ratio": 0.8742251546964978,
+        "mean_reward_max_min_gap": null,
+        "mean_reward_disparity_ratio": null,
+        "ndcg_max_min_gap": 0.011380233190488198,
+        "ndcg_disparity_ratio": 0.9823583964264334
+      },
+      {
+        "dimension": "gender",
+        "evaluated_candidates": 100000,
+        "overall_ctr": 0.1926,
+        "overall_order_rate": 0.04239,
+        "overall_mean_reward": null,
+        "overall_ndcg": 0.6392362507935422,
+        "groups": [
+          {
+            "group": "female",
+            "support": 34425,
+            "exposure_share": 0.34425,
+            "ctr": 0.19192447349310093,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04142338416848221,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6404717037370005,
+            "ndcg_evaluated_slate_count": 4491,
+            "ctr_absolute_gap_from_overall": 0.0006755265068990601,
+            "order_rate_absolute_gap_from_overall": 0.0009666158315177892,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.0012354529434582817
+          },
+          {
+            "group": "male",
+            "support": 38655,
+            "exposure_share": 0.38655,
+            "ctr": 0.19324796274738068,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04214202561117578,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6361131397742517,
+            "ndcg_evaluated_slate_count": 5108,
+            "ctr_absolute_gap_from_overall": 0.000647962747380687,
+            "order_rate_absolute_gap_from_overall": 0.0002479743888242139,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.0031231110192905254
+          },
+          {
+            "group": "unknown",
+            "support": 26920,
+            "exposure_share": 0.2692,
+            "ctr": 0.1925334323922734,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04398216939078752,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6421996321428627,
+            "ndcg_evaluated_slate_count": 3511,
+            "ctr_absolute_gap_from_overall": 6.656760772658088e-05,
+            "order_rate_absolute_gap_from_overall": 0.0015921693907875248,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.002963381349320504
+          }
+        ],
+        "evaluated_group_count": 3,
+        "suppressed_group_count": 0,
+        "suppressed_candidate_count": 0,
+        "ctr_max_min_gap": 0.0013234892542797472,
+        "ctr_disparity_ratio": 0.993151341750444,
+        "order_rate_max_min_gap": 0.002558785222305314,
+        "order_rate_disparity_ratio": 0.9418222143712339,
+        "mean_reward_max_min_gap": null,
+        "mean_reward_disparity_ratio": null,
+        "ndcg_max_min_gap": 0.0060864923686110295,
+        "ndcg_disparity_ratio": 0.9905224293755792
+      },
+      {
+        "dimension": "country",
+        "evaluated_candidates": 100000,
+        "overall_ctr": 0.1926,
+        "overall_order_rate": 0.04239,
+        "overall_mean_reward": null,
+        "overall_ndcg": 0.6392362507935422,
+        "groups": [
+          {
+            "group": "ca",
+            "support": 26145,
+            "exposure_share": 0.26145,
+            "ctr": 0.19215911264104035,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04199655765920826,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6408135729283818,
+            "ndcg_evaluated_slate_count": 3423,
+            "ctr_absolute_gap_from_overall": 0.0004408873589596407,
+            "order_rate_absolute_gap_from_overall": 0.0003934423407917359,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.0015773221348396316
+          },
+          {
+            "group": "de",
+            "support": 23445,
+            "exposure_share": 0.23445,
+            "ctr": 0.19185327361910856,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04167199829387929,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6384983917338859,
+            "ndcg_evaluated_slate_count": 3043,
+            "ctr_absolute_gap_from_overall": 0.0007467263808914326,
+            "order_rate_absolute_gap_from_overall": 0.0007180017061207064,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.0007378590596562873
+          },
+          {
+            "group": "gb",
+            "support": 23190,
+            "exposure_share": 0.2319,
+            "ctr": 0.19219491159982752,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04156964208710651,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.640868877494573,
+            "ndcg_evaluated_slate_count": 3053,
+            "ctr_absolute_gap_from_overall": 0.0004050884001724764,
+            "order_rate_absolute_gap_from_overall": 0.0008203579128934838,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.0016326267010308149
+          },
+          {
+            "group": "us",
+            "support": 27220,
+            "exposure_share": 0.2722,
+            "ctr": 0.19401175606171933,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.0440852314474651,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6369699523064163,
+            "ndcg_evaluated_slate_count": 3591,
+            "ctr_absolute_gap_from_overall": 0.001411756061719338,
+            "order_rate_absolute_gap_from_overall": 0.001695231447465105,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.002266298487125895
+          }
+        ],
+        "evaluated_group_count": 4,
+        "suppressed_group_count": 0,
+        "suppressed_candidate_count": 0,
+        "ctr_max_min_gap": 0.0021584824426107707,
+        "ctr_disparity_ratio": 0.9888744760295654,
+        "order_rate_max_min_gap": 0.002515589360358589,
+        "order_rate_disparity_ratio": 0.9429380480091993,
+        "mean_reward_max_min_gap": null,
+        "mean_reward_disparity_ratio": null,
+        "ndcg_max_min_gap": 0.00389892518815671,
+        "ndcg_disparity_ratio": 0.9939161889037282
+      },
+      {
+        "dimension": "subscription",
+        "evaluated_candidates": 100000,
+        "overall_ctr": 0.1926,
+        "overall_order_rate": 0.04239,
+        "overall_mean_reward": null,
+        "overall_ndcg": 0.6392362507935422,
+        "groups": [
+          {
+            "group": "basic",
+            "support": 42850,
+            "exposure_share": 0.4285,
+            "ctr": 0.18968494749124853,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.04247374562427071,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6354314946816755,
+            "ndcg_evaluated_slate_count": 5576,
+            "ctr_absolute_gap_from_overall": 0.002915052508751459,
+            "order_rate_absolute_gap_from_overall": 8.374562427071464e-05,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.003804756111866703
+          },
+          {
+            "group": "free",
+            "support": 29595,
+            "exposure_share": 0.29595,
+            "ctr": 0.1707720898800473,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.038418651799290424,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.6342154796315284,
+            "ndcg_evaluated_slate_count": 3613,
+            "ctr_absolute_gap_from_overall": 0.021827910119952693,
+            "order_rate_absolute_gap_from_overall": 0.0039713482007095735,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.005020771162013826
+          },
+          {
+            "group": "premium",
+            "support": 27555,
+            "exposure_share": 0.27555,
+            "ctr": 0.2205770277626565,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.046525131555071673,
+            "order_coverage": 1.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "ndcg": 0.649273324572712,
+            "ndcg_evaluated_slate_count": 3921,
+            "ctr_absolute_gap_from_overall": 0.02797702776265651,
+            "order_rate_absolute_gap_from_overall": 0.004135131555071676,
+            "mean_reward_absolute_gap_from_overall": null,
+            "ndcg_absolute_gap_from_overall": 0.010037073779169847
+          }
+        ],
+        "evaluated_group_count": 3,
+        "suppressed_group_count": 0,
+        "suppressed_candidate_count": 0,
+        "ctr_max_min_gap": 0.0498049378826092,
+        "ctr_disparity_ratio": 0.7742061429162066,
+        "order_rate_max_min_gap": 0.00810647975578125,
+        "order_rate_disparity_ratio": 0.8257612717078375,
+        "mean_reward_max_min_gap": null,
+        "mean_reward_disparity_ratio": null,
+        "ndcg_max_min_gap": 0.015057844941183673,
+        "ndcg_disparity_ratio": 0.97680815710226
+      }
+    ]
   },
   "safety": {
-    "status": "unavailable",
-    "headline": "N/A",
-    "warnings": [
-      "missing filter_reason and unsafe_label safety signals",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
-    ],
-    "rows": []
+    "status": "available",
+    "headline": "Candidate safety policy accounting",
+    "sampleSize": 100000,
+    "coverage": 1.0,
+    "window": null,
+    "warnings": [],
+    "rows": [
+      {
+        "scope": "offline",
+        "policy_version": "catalog-filter-v1",
+        "evaluated_candidates": 100000,
+        "filter_decisions": 0,
+        "filter_decision_rate": 0.0,
+        "reason_counts": {
+          "expired": 0,
+          "muted_product_type": 0,
+          "muted_genre": 0,
+          "muted_keyword": 0,
+          "muted_title": 0,
+          "unknown": 0
+        },
+        "unknown_share": 0.0,
+        "unsafe_exposure_rate": 0.02235,
+        "unsafe_label_coverage": 1.0
+      },
+      {
+        "scope": "live_service",
+        "policy_version": "catalog-filter-v1",
+        "evaluated_candidates": 2200,
+        "filter_decisions": 1500,
+        "filter_decision_rate": 0.6818181818181818,
+        "reason_counts": {
+          "expired": 0,
+          "muted_genre": 0,
+          "muted_keyword": 0,
+          "muted_product_type": 0,
+          "muted_title": 0,
+          "unknown": 1500
+        },
+        "unknown_share": 0.6818181818181818
+      }
+    ]
   },
   "latency": {
-    "status": "unavailable",
-    "headline": "N/A",
-    "warnings": [
-      "missing live measurement snapshot",
-      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
-    ],
-    "rows": []
+    "status": "available",
+    "headline": "Live request and stage latency (milliseconds)",
+    "sampleSize": 75,
+    "coverage": 1.0,
+    "window": null,
+    "warnings": [],
+    "rows": [
+      {
+        "scope": "endpoint",
+        "name": "feedback",
+        "unit": "milliseconds",
+        "p50": 24.641536,
+        "p95": 83.361792,
+        "p99": 125.304832,
+        "count": 25,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0
+      },
+      {
+        "scope": "endpoint",
+        "name": "recommend",
+        "unit": "milliseconds",
+        "p50": 36.70016,
+        "p95": 158.334976,
+        "p99": 602.9312,
+        "count": 50,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0
+      },
+      {
+        "scope": "stage",
+        "name": "hydration",
+        "unit": "milliseconds",
+        "p50": 13.1072,
+        "p95": 47.710208,
+        "p99": 167.247872,
+        "count": 50,
+        "error_rate": null,
+        "timeout_rate": null
+      },
+      {
+        "scope": "stage",
+        "name": "redis_fetch",
+        "unit": "milliseconds",
+        "p50": 9.699328,
+        "p95": 37.486592,
+        "p99": 150.7328,
+        "count": 50,
+        "error_rate": null,
+        "timeout_rate": null
+      },
+      {
+        "scope": "stage",
+        "name": "scoring",
+        "unit": "milliseconds",
+        "p50": 1.998848,
+        "p95": 12.550144,
+        "p99": 32.473088,
+        "count": 50,
+        "error_rate": null,
+        "timeout_rate": null
+      },
+      {
+        "scope": "stage",
+        "name": "selection",
+        "unit": "milliseconds",
+        "p50": 0.036352,
+        "p95": 0.114176,
+        "p99": 1.375744,
+        "count": 50,
+        "error_rate": null,
+        "timeout_rate": null
+      },
+      {
+        "scope": "stage",
+        "name": "side_effects",
+        "unit": "milliseconds",
+        "p50": 7.602176,
+        "p95": 64.749568,
+        "p99": 142.344192,
+        "count": 50,
+        "error_rate": null,
+        "timeout_rate": null
+      }
+    ]
   },
   "engagement": {
-    "headline": "impressions 53880 \u00b7 CTR 7% \u00b7 CVR 1%",
-    "ctr": 0.0694,
-    "cvr": 0.0081,
+    "headline": "impressions 100000 \u00b7 CTR 19% \u00b7 CVR 4%",
+    "ctr": 0.1926,
+    "cvr": 0.0424,
     "funnel": {
-      "impression": 53880,
-      "click": 3739,
-      "order": 436
+      "impression": 100000,
+      "click": 19260,
+      "order": 4239
     },
     "by_query": [
       {
-        "query": "unknown",
-        "impressions": 53880,
-        "mean_score": 0.07748700816629547
+        "query": "Fantasy Thriller",
+        "impressions": 275,
+        "mean_score": 0.3890909090909091
+      },
+      {
+        "query": "Adventure Animation Drama",
+        "impressions": 255,
+        "mean_score": 0.35294117647058826
+      },
+      {
+        "query": "Sci-Fi Crime Action",
+        "impressions": 256,
+        "mean_score": 0.34765625
+      },
+      {
+        "query": "Fantasy War Horror",
+        "impressions": 239,
+        "mean_score": 0.34309623430962344
+      },
+      {
+        "query": "Fantasy Documentary",
+        "impressions": 216,
+        "mean_score": 0.3425925925925926
+      },
+      {
+        "query": "Animation Thriller Documentary",
+        "impressions": 260,
+        "mean_score": 0.33076923076923076
+      },
+      {
+        "query": "Fantasy Western Sci-Fi",
+        "impressions": 250,
+        "mean_score": 0.324
+      },
+      {
+        "query": "Animation Thriller",
+        "impressions": 241,
+        "mean_score": 0.3236514522821577
+      },
+      {
+        "query": "Film-Noir Sci-Fi Horror",
+        "impressions": 235,
+        "mean_score": 0.3148936170212766
+      },
+      {
+        "query": "Action Animation",
+        "impressions": 248,
+        "mean_score": 0.31451612903225806
       }
     ],
-    "by_genre": []
+    "by_genre": [
+      {
+        "genre": "Animation",
+        "impressions": 11576,
+        "mean_score": 0.2662404975812025
+      },
+      {
+        "genre": "Fantasy",
+        "impressions": 12474,
+        "mean_score": 0.2638287638287638
+      },
+      {
+        "genre": "Sci-Fi",
+        "impressions": 8813,
+        "mean_score": 0.26041075683649156
+      },
+      {
+        "genre": "War",
+        "impressions": 10312,
+        "mean_score": 0.2533941039565555
+      },
+      {
+        "genre": "Action",
+        "impressions": 10888,
+        "mean_score": 0.2500918442321822
+      },
+      {
+        "genre": "Western",
+        "impressions": 11902,
+        "mean_score": 0.24752142497059318
+      },
+      {
+        "genre": "Thriller",
+        "impressions": 8202,
+        "mean_score": 0.23543038283345524
+      },
+      {
+        "genre": "Film-Noir",
+        "impressions": 11218,
+        "mean_score": 0.23533606703512214
+      },
+      {
+        "genre": "Crime",
+        "impressions": 10091,
+        "mean_score": 0.23317807947676147
+      },
+      {
+        "genre": "Mystery",
+        "impressions": 10378,
+        "mean_score": 0.23280015417228753
+      }
+    ]
   },
   "keyword": {
-    "headline": "'unknown' diverges most: shown 100% vs clicked 100%",
+    "headline": "'Documentary' diverges most: shown 7% vs clicked 6%",
     "by_keyword": [
       {
-        "keyword": "unknown",
-        "movie_impressions": 53880,
-        "query_clicks": 3739,
-        "movie_share": 1.0,
-        "query_share": 1.0,
-        "divergence": 0.0
+        "keyword": "Drama",
+        "movie_impressions": 7501,
+        "query_clicks": 1286,
+        "movie_share": 0.075,
+        "query_share": 0.0668,
+        "divergence": -0.0082
+      },
+      {
+        "keyword": "Documentary",
+        "movie_impressions": 7395,
+        "query_clicks": 1059,
+        "movie_share": 0.074,
+        "query_share": 0.055,
+        "divergence": -0.019
+      },
+      {
+        "keyword": "Fantasy",
+        "movie_impressions": 6929,
+        "query_clicks": 1604,
+        "movie_share": 0.0693,
+        "query_share": 0.0833,
+        "divergence": 0.014
+      },
+      {
+        "keyword": "Romance",
+        "movie_impressions": 6528,
+        "query_clicks": 1158,
+        "movie_share": 0.0653,
+        "query_share": 0.0601,
+        "divergence": -0.0052
+      },
+      {
+        "keyword": "Musical",
+        "movie_impressions": 6008,
+        "query_clicks": 1078,
+        "movie_share": 0.0601,
+        "query_share": 0.056,
+        "divergence": -0.0041
+      },
+      {
+        "keyword": "Action",
+        "movie_impressions": 5902,
+        "query_clicks": 1259,
+        "movie_share": 0.059,
+        "query_share": 0.0654,
+        "divergence": 0.0064
+      },
+      {
+        "keyword": "Animation",
+        "movie_impressions": 5823,
+        "query_clicks": 1277,
+        "movie_share": 0.0582,
+        "query_share": 0.0663,
+        "divergence": 0.0081
+      },
+      {
+        "keyword": "Film-Noir",
+        "movie_impressions": 5511,
+        "query_clicks": 1050,
+        "movie_share": 0.0551,
+        "query_share": 0.0545,
+        "divergence": -0.0006
+      },
+      {
+        "keyword": "Horror",
+        "movie_impressions": 5368,
+        "query_clicks": 1070,
+        "movie_share": 0.0537,
+        "query_share": 0.0556,
+        "divergence": 0.0019
+      },
+      {
+        "keyword": "Crime",
+        "movie_impressions": 5278,
+        "query_clicks": 987,
+        "movie_share": 0.0528,
+        "query_share": 0.0512,
+        "divergence": -0.0016
       }
     ],
     "by_subkeyword": [
       {
         "subkeyword": "none",
-        "movie_impressions": 53880,
-        "query_clicks": 3739,
-        "movie_share": 1.0,
-        "query_share": 1.0,
-        "divergence": 0.0
+        "movie_impressions": 33894,
+        "query_clicks": 6441,
+        "movie_share": 0.3389,
+        "query_share": 0.3344,
+        "divergence": -0.0045
+      },
+      {
+        "subkeyword": "Documentary",
+        "movie_impressions": 5205,
+        "query_clicks": 1033,
+        "movie_share": 0.052,
+        "query_share": 0.0536,
+        "divergence": 0.0016
+      },
+      {
+        "subkeyword": "Horror",
+        "movie_impressions": 4581,
+        "query_clicks": 785,
+        "movie_share": 0.0458,
+        "query_share": 0.0408,
+        "divergence": -0.005
+      },
+      {
+        "subkeyword": "Western",
+        "movie_impressions": 4450,
+        "query_clicks": 897,
+        "movie_share": 0.0445,
+        "query_share": 0.0466,
+        "divergence": 0.0021
+      },
+      {
+        "subkeyword": "Children",
+        "movie_impressions": 4346,
+        "query_clicks": 832,
+        "movie_share": 0.0435,
+        "query_share": 0.0432,
+        "divergence": -0.0003
+      },
+      {
+        "subkeyword": "Film-Noir",
+        "movie_impressions": 4265,
+        "query_clicks": 847,
+        "movie_share": 0.0426,
+        "query_share": 0.044,
+        "divergence": 0.0014
+      },
+      {
+        "subkeyword": "War",
+        "movie_impressions": 3907,
+        "query_clicks": 770,
+        "movie_share": 0.0391,
+        "query_share": 0.04,
+        "divergence": 0.0009
+      },
+      {
+        "subkeyword": "Animation",
+        "movie_impressions": 3762,
+        "query_clicks": 807,
+        "movie_share": 0.0376,
+        "query_share": 0.0419,
+        "divergence": 0.0043
+      },
+      {
+        "subkeyword": "Fantasy",
+        "movie_impressions": 3752,
+        "query_clicks": 746,
+        "movie_share": 0.0375,
+        "query_share": 0.0387,
+        "divergence": 0.0012
+      },
+      {
+        "subkeyword": "Romance",
+        "movie_impressions": 3733,
+        "query_clicks": 734,
+        "movie_share": 0.0373,
+        "query_share": 0.0381,
+        "divergence": 0.0008
       }
     ],
     "tops": {
-      "l1": [],
-      "l2": [],
-      "l3": []
+      "l1": [
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Action",
+          "movie_impressions": 6926,
+          "query_clicks": 1468,
+          "rank": 1
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Western",
+          "movie_impressions": 5947,
+          "query_clicks": 1274,
+          "rank": 2
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "War",
+          "movie_impressions": 5390,
+          "query_clicks": 1143,
+          "rank": 3
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Adventure",
+          "movie_impressions": 4645,
+          "query_clicks": 931,
+          "rank": 4
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Mystery",
+          "movie_impressions": 2047,
+          "query_clicks": 436,
+          "rank": 5
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Documentary",
+          "movie_impressions": 2020,
+          "query_clicks": 421,
+          "rank": 6
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Animation",
+          "movie_impressions": 1769,
+          "query_clicks": 406,
+          "rank": 7
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Comedy",
+          "movie_impressions": 1738,
+          "query_clicks": 388,
+          "rank": 8
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Romance",
+          "movie_impressions": 1474,
+          "query_clicks": 305,
+          "rank": 9
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Film-Noir",
+          "movie_impressions": 1451,
+          "query_clicks": 301,
+          "rank": 10
+        }
+      ],
+      "l2": [
+        {
+          "l2": "Action",
+          "keyword": "Action",
+          "movie_impressions": 5902,
+          "query_clicks": 1259,
+          "rank": 1
+        },
+        {
+          "l2": "Action",
+          "keyword": "Documentary",
+          "movie_impressions": 1016,
+          "query_clicks": 206,
+          "rank": 2
+        },
+        {
+          "l2": "Action",
+          "keyword": "Comedy",
+          "movie_impressions": 974,
+          "query_clicks": 220,
+          "rank": 3
+        },
+        {
+          "l2": "Action",
+          "keyword": "Western",
+          "movie_impressions": 725,
+          "query_clicks": 161,
+          "rank": 4
+        },
+        {
+          "l2": "Action",
+          "keyword": "Fantasy",
+          "movie_impressions": 522,
+          "query_clicks": 119,
+          "rank": 5
+        },
+        {
+          "l2": "Action",
+          "keyword": "Horror",
+          "movie_impressions": 497,
+          "query_clicks": 88,
+          "rank": 6
+        },
+        {
+          "l2": "Action",
+          "keyword": "Sci-Fi",
+          "movie_impressions": 476,
+          "query_clicks": 104,
+          "rank": 7
+        },
+        {
+          "l2": "Action",
+          "keyword": "Romance",
+          "movie_impressions": 267,
+          "query_clicks": 52,
+          "rank": 8
+        },
+        {
+          "l2": "Action",
+          "keyword": "Mystery",
+          "movie_impressions": 256,
+          "query_clicks": 45,
+          "rank": 9
+        },
+        {
+          "l2": "Action",
+          "keyword": "Children",
+          "movie_impressions": 251,
+          "query_clicks": 43,
+          "rank": 10
+        }
+      ],
+      "l3": [
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Action",
+          "movie_impressions": 5902,
+          "query_clicks": 1259,
+          "rank": 1
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Documentary",
+          "movie_impressions": 1016,
+          "query_clicks": 206,
+          "rank": 2
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Comedy",
+          "movie_impressions": 974,
+          "query_clicks": 220,
+          "rank": 3
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Western",
+          "movie_impressions": 725,
+          "query_clicks": 161,
+          "rank": 4
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Fantasy",
+          "movie_impressions": 522,
+          "query_clicks": 119,
+          "rank": 5
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Horror",
+          "movie_impressions": 497,
+          "query_clicks": 88,
+          "rank": 6
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Sci-Fi",
+          "movie_impressions": 476,
+          "query_clicks": 104,
+          "rank": 7
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Romance",
+          "movie_impressions": 267,
+          "query_clicks": 52,
+          "rank": 8
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Mystery",
+          "movie_impressions": 256,
+          "query_clicks": 45,
+          "rank": 9
+        },
+        {
+          "l3": "Action\u00b7unknown",
+          "keyword": "Children",
+          "movie_impressions": 251,
+          "query_clicks": 43,
+          "rank": 10
+        }
+      ]
     }
   },
   "query": {
-    "headline": "top query 'unknown' (53880 impr, CTR 7%)",
+    "headline": "top query 'Horror' (3054 impr, CTR 19%)",
     "top_queries": [
       {
-        "query": "unknown",
-        "impressions": 53880,
-        "clicks": 3739,
-        "orders": 436,
+        "query": "Horror",
+        "impressions": 3054,
+        "clicks": 594,
+        "orders": 101,
+        "query_len": 6,
+        "ctr": 0.1945,
+        "cvr": 0.0331
+      },
+      {
+        "query": "Documentary",
+        "impressions": 2953,
+        "clicks": 447,
+        "orders": 76,
+        "query_len": 11,
+        "ctr": 0.1514,
+        "cvr": 0.0257
+      },
+      {
+        "query": "Musical",
+        "impressions": 2778,
+        "clicks": 471,
+        "orders": 105,
         "query_len": 7,
-        "ctr": 0.0694,
-        "cvr": 0.0081
+        "ctr": 0.1695,
+        "cvr": 0.0378
+      },
+      {
+        "query": "Drama",
+        "impressions": 2762,
+        "clicks": 461,
+        "orders": 99,
+        "query_len": 5,
+        "ctr": 0.1669,
+        "cvr": 0.0358
+      },
+      {
+        "query": "Western",
+        "impressions": 2468,
+        "clicks": 541,
+        "orders": 135,
+        "query_len": 7,
+        "ctr": 0.2192,
+        "cvr": 0.0547
+      },
+      {
+        "query": "Fantasy",
+        "impressions": 2212,
+        "clicks": 504,
+        "orders": 115,
+        "query_len": 7,
+        "ctr": 0.2278,
+        "cvr": 0.052
+      },
+      {
+        "query": "Children",
+        "impressions": 1988,
+        "clicks": 327,
+        "orders": 67,
+        "query_len": 8,
+        "ctr": 0.1645,
+        "cvr": 0.0337
+      },
+      {
+        "query": "Crime",
+        "impressions": 1986,
+        "clicks": 376,
+        "orders": 61,
+        "query_len": 5,
+        "ctr": 0.1893,
+        "cvr": 0.0307
+      },
+      {
+        "query": "Mystery",
+        "impressions": 1797,
+        "clicks": 347,
+        "orders": 81,
+        "query_len": 7,
+        "ctr": 0.1931,
+        "cvr": 0.0451
+      },
+      {
+        "query": "Comedy",
+        "impressions": 1683,
+        "clicks": 304,
+        "orders": 60,
+        "query_len": 6,
+        "ctr": 0.1806,
+        "cvr": 0.0357
       }
     ],
     "by_length": [
       {
+        "bucket": "long (>10)",
+        "impressions": 67817,
+        "clicks": 13000,
+        "orders": 2881,
+        "ctr": 0.1917,
+        "cvr": 0.0425
+      },
+      {
         "bucket": "short (<=10)",
-        "impressions": 53880,
-        "clicks": 3739,
-        "orders": 436,
-        "ctr": 0.0694,
-        "cvr": 0.0081
+        "impressions": 32183,
+        "clicks": 6260,
+        "orders": 1358,
+        "ctr": 0.1945,
+        "cvr": 0.0422
       }
     ]
   },
-  "recall": null,
+  "recall": {
+    "headline": "hybrid recall@10 0.039 vs BM25 0.036",
+    "rows": [
+      {
+        "method": "bm25",
+        "k": 5,
+        "recall_at_k": 0.0188,
+        "hitrate_at_k": 0.73,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "bm25",
+        "k": 10,
+        "recall_at_k": 0.0362,
+        "hitrate_at_k": 0.93,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "bm25",
+        "k": 20,
+        "recall_at_k": 0.0705,
+        "hitrate_at_k": 0.995,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "embedding",
+        "k": 5,
+        "recall_at_k": 0.0195,
+        "hitrate_at_k": 0.74,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "embedding",
+        "k": 10,
+        "recall_at_k": 0.0389,
+        "hitrate_at_k": 0.955,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "embedding",
+        "k": 20,
+        "recall_at_k": 0.0776,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "hybrid",
+        "k": 5,
+        "recall_at_k": 0.02,
+        "hitrate_at_k": 0.765,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "hybrid",
+        "k": 10,
+        "recall_at_k": 0.0391,
+        "hitrate_at_k": 0.94,
+        "users_evaluated": 200,
+        "instances": 17018
+      },
+      {
+        "method": "hybrid",
+        "k": 20,
+        "recall_at_k": 0.0759,
+        "hitrate_at_k": 0.995,
+        "users_evaluated": 200,
+        "instances": 17018
+      }
+    ]
+  },
   "ranking": {
-    "headline": "best signal 'popularity' AUC 0.517",
+    "headline": "best signal 'popularity' AUC 0.562",
     "rows": [
       {
         "signal": "popularity",
         "coverage": 1.0,
-        "n": 53880,
-        "positives": 3739,
-        "auc": 0.5168450751176413,
-        "logloss": 0.8063
+        "n": 100000,
+        "positives": 19260,
+        "auc": 0.5622333800455857,
+        "logloss": 0.772
       },
       {
         "signal": "position",
         "coverage": 1.0,
-        "n": 53880,
-        "positives": 3739,
-        "auc": 0.5002873949487585,
-        "logloss": 0.8102
+        "n": 100000,
+        "positives": 19260,
+        "auc": 0.5007845394791841,
+        "logloss": 0.8098
       },
       {
         "signal": "embedding",
-        "n": 0,
-        "positives": 0,
-        "coverage": 0.0,
-        "auc": null,
-        "logloss": null
+        "coverage": 1.0,
+        "n": 100000,
+        "positives": 19260,
+        "auc": 0.5585364586428084,
+        "logloss": 0.7733
       }
     ]
   },
@@ -172,9 +1434,9 @@
         "policy": "logging",
         "value": 1.0,
         "lift_vs_logging": 0.0,
-        "n_events": 2,
+        "n_events": 25,
         "estimator_auc": null,
-        "estimator_mse": null,
+        "estimator_mse": 0.0,
         "value_ci_low": 1.0,
         "value_ci_high": 1.0,
         "lift_ci_low": 0.0,
@@ -182,44 +1444,176 @@
       },
       {
         "policy": "popularity",
-        "value": 0.0,
-        "lift_vs_logging": -1.0,
-        "n_events": 0,
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
         "estimator_auc": null,
-        "estimator_mse": null,
-        "value_ci_low": 0.0,
-        "value_ci_high": 0.0,
-        "lift_ci_low": -1.0,
-        "lift_ci_high": -1.0
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
       },
       {
         "policy": "ctr",
-        "value": 0.0,
-        "lift_vs_logging": -1.0,
-        "n_events": 0,
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
         "estimator_auc": null,
-        "estimator_mse": null,
-        "value_ci_low": 0.0,
-        "value_ci_high": 0.0,
-        "lift_ci_low": -1.0,
-        "lift_ci_high": -1.0
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
       },
       {
         "policy": "random",
-        "value": 0.0,
-        "lift_vs_logging": -1.0,
-        "n_events": 0,
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
         "estimator_auc": null,
-        "estimator_mse": null,
-        "value_ci_low": 0.0,
-        "value_ci_high": 0.0,
-        "lift_ci_low": -1.0,
-        "lift_ci_high": -1.0
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:banditScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:contentScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:deepLearningScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:diversityScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:estimatedReward",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:popularityScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:predictionScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:qValue",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:relevanceScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:rewardModelScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
+      },
+      {
+        "policy": "model:weightedOutcomeScore",
+        "value": 0.996,
+        "lift_vs_logging": -0.004,
+        "n_events": 25,
+        "estimator_auc": null,
+        "estimator_mse": 0.0,
+        "value_ci_low": 0.996,
+        "value_ci_high": 0.996,
+        "lift_ci_low": -0.004,
+        "lift_ci_high": -0.004
       }
     ],
     "calibration": {
-      "n_test": 0,
-      "mse": null,
+      "n_test": 6,
+      "mse": 0.0,
       "auc": null
     }
   },
