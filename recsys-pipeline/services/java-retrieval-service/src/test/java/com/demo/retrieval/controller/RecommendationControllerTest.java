@@ -1,5 +1,6 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.model.FeedbackRequest;
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.ModelIndexOutOfRangeException;
@@ -16,8 +17,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -194,7 +198,7 @@ class RecommendationControllerTest {
     }
 
     @Test
-    void feedbackEndpointDelegatesToRecommendationService() throws Exception {
+    void feedbackEndpointAcceptsLegacyFourFieldBody() throws Exception {
         when(recommendationService.recordFeedback(any())).thenReturn(Map.of("status", "ok", "clicked", true));
 
         mockMvc.perform(post("/feedback")
@@ -203,6 +207,60 @@ class RecommendationControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ok"))
             .andExpect(jsonPath("$.clicked").value(true));
+    }
+
+    @Test
+    void feedbackEndpointAcceptsEnrichedMeasurementFields() throws Exception {
+        when(recommendationService.recordFeedback(any())).thenReturn(Map.of("status", "ok"));
+
+        mockMvc.perform(post("/feedback")
+                .contentType("application/json")
+                .content("""
+                    {
+                      "user": "u1",
+                      "item": "item1",
+                      "clicked": true,
+                      "reward": 1.0,
+                      "requestId": "req-1",
+                      "rating": 4.5,
+                      "negativeFeedbackReason": null,
+                      "dwellMillis": 12000,
+                      "completionRate": 0.75
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<FeedbackRequest> request =
+            org.mockito.ArgumentCaptor.forClass(FeedbackRequest.class);
+        verify(recommendationService).recordFeedback(request.capture());
+        assertEquals("req-1", request.getValue().requestId());
+        assertEquals(4.5, request.getValue().rating());
+        assertNull(request.getValue().negativeFeedbackReason());
+        assertEquals(12000L, request.getValue().dwellMillis());
+        assertEquals(0.75, request.getValue().completionRate());
+    }
+
+    @Test
+    void feedbackEndpointRejectsRatingOutsideZeroToFive() throws Exception {
+        invalidFeedbackFieldIsRejected("\"rating\":5.1");
+    }
+
+    @Test
+    void feedbackEndpointRejectsNegativeDwellMillis() throws Exception {
+        invalidFeedbackFieldIsRejected("\"dwellMillis\":-1");
+    }
+
+    @Test
+    void feedbackEndpointRejectsCompletionRateOutsideZeroToOne() throws Exception {
+        invalidFeedbackFieldIsRejected("\"completionRate\":1.1");
+    }
+
+    private void invalidFeedbackFieldIsRejected(String invalidField) throws Exception {
+        mockMvc.perform(post("/feedback")
+                .contentType("application/json")
+                .content("{\"user\":\"u1\",\"item\":\"item1\",\"clicked\":true,\"reward\":1.0,"
+                    + invalidField + "}"))
+            .andExpect(status().isBadRequest());
     }
 
     @Test
