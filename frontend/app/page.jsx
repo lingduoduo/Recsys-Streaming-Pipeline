@@ -1,6 +1,13 @@
 import data from "../data/dashboard.json";
 import {
   RelevanceSection,
+  SatisfactionSection,
+  FreshnessSection,
+  DiversitySection,
+  FairnessSection,
+  SafetySection,
+  LatencySection,
+  EngagementSection,
   KeywordSection,
   QuerySection,
   RecallSection,
@@ -26,6 +33,13 @@ export default function Page() {
 
       <div className="report-grid">
         <RelevanceSection data={data.relevance} />
+        <SatisfactionSection data={data.satisfaction} />
+        <FreshnessSection data={data.freshness} />
+        <DiversitySection data={data.diversity} />
+        <FairnessSection data={data.fairness} />
+        <SafetySection data={data.safety} />
+        <LatencySection data={data.latency} />
+        <EngagementSection data={data.engagement} />
         <KeywordSection data={data.keyword} />
         <QuerySection data={data.query} />
         <RecallSection data={data.recall} />

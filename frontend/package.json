@@ -5,8 +5,9 @@
   "description": "Next.js rendering of the recsys analysis dashboard (reads data/dashboard.json).",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run validate:data && next build",
     "start": "next start",
+    "validate:data": "node validate_measurements.mjs",
     "export:data": "python3 export_dashboard_json.py"
   },
   "dependencies": {

@@ -120,6 +120,12 @@ body {
   font-size: 0.78rem;
 }
 
+/* A measurement's nested breakdown (e.g. fairness groups) stays with its caption. */
+.measurement-groups {
+  display: grid;
+  gap: 8px;
+}
+
 .chart {
   display: block;
   width: min(100%, 720px);

@@ -1,7 +1,71 @@
 {
+  "schemaVersion": "2.0",
   "input": "/tmp/spark-recsys/training-samples",
   "rows": 53880,
   "relevance": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing slate experiences",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "satisfaction": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing observed satisfaction signals",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "freshness": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing published_at and new_release freshness signals",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "diversity": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing slate experiences",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "fairness": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing supported demographic dimensions",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "safety": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing filter_reason and unsafe_label safety signals",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "latency": {
+    "status": "unavailable",
+    "headline": "N/A",
+    "warnings": [
+      "missing live measurement snapshot",
+      "snapshot predates recommendation measurements; rerun export_dashboard_json.py"
+    ],
+    "rows": []
+  },
+  "engagement": {
     "headline": "impressions 53880 \u00b7 CTR 7% \u00b7 CVR 1%",
     "ctr": 0.0694,
     "cvr": 0.0081,
