@@ -44,6 +44,42 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
     return df
 
 
+def load_slates(path: str | None, host: str = "localhost", port: int = 6379):
+    """Load slate experiences (Parquet dir or JSON file) with catalog signals attached.
+
+    Slate items carry rankings and labels but not genres/popularity, so the
+    diversity measures read those from the same Redis catalog the other
+    sections use. Absent catalog data leaves the signals missing, never zero.
+    """
+    if not path:
+        return None
+    import pandas as pd
+    if os.path.isfile(path) and path.endswith((".json", ".jsonl")):
+        slates = pd.read_json(path, lines=path.endswith(".jsonl"))
+    else:
+        slates = pd.read_parquet(path)
+    if "items" not in slates.columns:
+        return slates
+    from feature_derivations import fetch_movie_meta
+    from ranking_eval_report import fetch_popularity
+    genres = {str(m["item_id"]): list(m["genres"]) for m in fetch_movie_meta(host, port)}
+    popularity = fetch_popularity(host, port)
+    slates["items"] = slates["items"].apply(
+        lambda items: [_slate_item(item, genres, popularity) for item in (items if items is not None else [])])
+    return slates
+
+
+def _slate_item(item, genres: dict, popularity: dict) -> dict:
+    import pandas as pd
+    values = dict(item)
+    item_id = str(values.get("item_id"))
+    observed = values.get("genres")
+    values["genres"] = list(observed) if observed is not None and len(observed) else genres.get(item_id, [])
+    if pd.isna(values.get("popularity")) and item_id in popularity:
+        values["popularity"] = popularity[item_id]
+    return values
+
+
 def compute_relevance(df) -> dict:
     n = len(df)
     clicks = int((df["label"] >= 1).sum())
@@ -245,6 +281,173 @@ def compute_mdp(csv_path):
     headline = (f"{best['policy']} return {best['mean_return']:.3f} vs "
                 f"{worst['policy']} {worst['mean_return']:.3f} over {int(best['episodes'])} episodes")
     return {"headline": headline, "df": df, "path": csv_path}
+
+
+MEASUREMENT_SCHEMA_VERSION = "2.0"
+
+MEASUREMENT_DEFAULTS = {
+    "fairness_min_support": 100,
+    "freshness_window_days": 30,
+    "long_tail_percentile": 0.80,
+    "safety_policy_version": "catalog-filter-v1",
+    "now": None,
+}
+
+# Live feedback signals published by the Java service, mapped onto the offline column names.
+_LIVE_FEEDBACK_COLUMNS = {
+    "request_id": "request_id_coverage",
+    "rating": "rating_coverage",
+    "negative_feedback_reason": "negative_feedback_coverage",
+    "dwell_millis": "dwell_coverage",
+    "completion_rate": "completion_coverage",
+}
+
+
+def measurement_config(config: dict | None = None) -> dict:
+    """Validate configured measurement ranges before any calculation runs."""
+    cfg = {**MEASUREMENT_DEFAULTS, **(config or {})}
+    if int(cfg["fairness_min_support"]) <= 0:
+        raise ValueError("fairness-min-support must be a positive integer")
+    if int(cfg["freshness_window_days"]) < 0:
+        raise ValueError("freshness-window-days must be non-negative")
+    if not 0.0 < float(cfg["long_tail_percentile"]) < 1.0:
+        raise ValueError("long-tail-percentile must be between zero and one")
+    if not str(cfg["safety_policy_version"]).strip():
+        raise ValueError("safety-policy-version must not be blank")
+    return cfg
+
+
+def build_measurement_dashboard(samples, slates, live, config: dict | None = None) -> dict:
+    """Consolidate offline calculators and the live snapshot into the seven measurement sections.
+
+    Pure: every section is a measurement envelope, and a missing input yields an
+    explicit unavailable reason rather than a zero.
+    """
+    from datetime import datetime, timezone
+
+    import governance_measurements as governance
+    import quality_measurements as quality
+    from measurement_contract import unavailable
+
+    cfg = measurement_config(config)
+    now = cfg["now"] or datetime.now(timezone.utc)
+    measured = _with_published_timestamps(samples)
+    live_measurements = (live or {}).get("measurements", live) or {}
+    no_slates = unavailable("missing slate experiences")
+
+    return {
+        "relevance": quality.compute_relevance(slates) if slates is not None else no_slates,
+        "satisfaction": _merge_live_row(
+            quality.compute_satisfaction(measured), _live_feedback(live_measurements)),
+        "freshness": _merge_live_row(
+            quality.compute_freshness(measured, now, int(cfg["freshness_window_days"])),
+            _live_freshness(live_measurements)),
+        "diversity": (quality.compute_diversity(slates, float(cfg["long_tail_percentile"]))
+                      if slates is not None else no_slates),
+        "fairness": governance.compute_fairness(measured, int(cfg["fairness_min_support"])),
+        "safety": _merge_live_row(
+            governance.compute_safety(measured, str(cfg["safety_policy_version"])),
+            _live_safety(live_measurements)),
+        "latency": _live_latency(live_measurements),
+    }
+
+
+def _with_published_timestamps(samples):
+    """Interpret the pipeline's epoch-second published_at as UTC instants."""
+    import pandas as pd
+    if "published_at" not in samples.columns or not pd.api.types.is_numeric_dtype(samples["published_at"]):
+        return samples
+    converted = samples.copy()
+    converted["published_at"] = pd.to_datetime(samples["published_at"], unit="s", utc=True, errors="coerce")
+    return converted
+
+
+def _merge_live_row(offline: dict, live_entry) -> dict:
+    """Append the live row to the offline rows; never overwrite an offline measurement."""
+    from measurement_contract import available
+    if live_entry is None:
+        return offline
+    row, sample_size, coverage, headline = live_entry
+    if offline["status"] != "available":
+        return available(headline, [row], sample_size, coverage, warnings=offline["warnings"])
+    return {**offline, "rows": [{"scope": "offline", **entry} for entry in offline["rows"]] + [row]}
+
+
+def _live_freshness(live: dict):
+    freshness = live.get("freshness") or {}
+    if freshness.get("availability") != "available":
+        return None
+    row = {
+        "scope": "live_service",
+        "freshness_source": freshness.get("source"),
+        "fresh_share": freshness.get("freshShare"),
+        "freshness_coverage": freshness.get("coverage"),
+        "exposures": freshness.get("exposures"),
+    }
+    return row, int(freshness.get("exposures") or 0), float(freshness.get("coverage") or 0.0), "Live fresh-item exposure"
+
+
+def _live_safety(live: dict):
+    from measurement_contract import safe_ratio
+    safety = live.get("safety") or {}
+    if safety.get("availability") != "available":
+        return None
+    evaluated = int(safety.get("evaluatedCandidates") or 0)
+    decisions = safety.get("totalDecisions")
+    row = {
+        "scope": "live_service",
+        "policy_version": safety.get("policyVersion"),
+        "evaluated_candidates": evaluated,
+        "filter_decisions": decisions,
+        "filter_decision_rate": safe_ratio(decisions, evaluated) if decisions is not None else None,
+        "reason_counts": {reason: values.get("count")
+                          for reason, values in sorted((safety.get("reasons") or {}).items())},
+        "unknown_share": safety.get("unknownShare"),
+    }
+    return row, evaluated, 1.0, "Live candidate safety policy accounting"
+
+
+def _live_feedback(live: dict):
+    feedback = live.get("feedbackCoverage") or {}
+    if feedback.get("availability") != "available":
+        return None
+    signals = feedback.get("signals") or {}
+    total = int(feedback.get("total") or 0)
+    row = {"scope": "live_service", "feedback_events": total}
+    row.update({column: (signals.get(signal) or {}).get("coverage")
+                for signal, column in _LIVE_FEEDBACK_COLUMNS.items()})
+    observed = [value for value in row.values() if isinstance(value, float)]
+    return row, total, (sum(observed) / len(observed) if observed else 0.0), "Live feedback signal coverage"
+
+
+def _live_latency(live: dict) -> dict:
+    from measurement_contract import available, safe_ratio, unavailable
+    latency = live.get("latency") or {}
+    if not latency:
+        return unavailable("missing live measurement snapshot")
+    if latency.get("availability") != "available":
+        return unavailable("live latency measurement unavailable")
+
+    unit = latency.get("unit", "milliseconds")
+
+    def row(scope, name, values, endpoint):
+        return {
+            "scope": scope, "name": name, "unit": unit,
+            "p50": values.get("p50"), "p95": values.get("p95"), "p99": values.get("p99"),
+            "count": values.get("count"),
+            "error_rate": values.get("errorRate") if endpoint else None,
+            "timeout_rate": values.get("timeoutRate") if endpoint else None,
+        }
+
+    rows = ([row("endpoint", name, values, True)
+             for name, values in sorted((latency.get("endpoints") or {}).items())]
+            + [row("stage", name, values, False)
+               for name, values in sorted((latency.get("stages") or {}).items())])
+    if not rows:
+        return unavailable("missing live latency measurements")
+    requests = sum(entry["count"] or 0 for entry in rows if entry["scope"] == "endpoint")
+    coverage = safe_ratio(sum(bool(entry["count"]) for entry in rows), len(rows)) or 0.0
+    return available(f"Live request and stage latency ({unit})", rows, requests, coverage)
 
 
 import html as _html

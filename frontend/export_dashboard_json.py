@@ -40,11 +40,28 @@ def _json_default(o):
     raise TypeError(f"not serializable: {type(o)}")
 
 
-def build(input_dir: str, host: str, port: int, mdp_csv: str | None) -> dict:
+def _json_safe(value):
+    """Replace non-finite floats with null so the snapshot is strict JSON."""
+    import math
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (float, np.floating)) and not math.isfinite(value):
+        return None
+    return value
+
+
+def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
+          experiences: str | None = None, live_metrics: str | None = None,
+          config: dict | None = None) -> dict:
     df = dash.load_samples(input_dir, host, port)
+    slates = dash.load_slates(experiences, host, port)
+    live = json.loads(Path(live_metrics).read_text()) if live_metrics else None
+    measurements = dash.build_measurement_dashboard(df, slates, live, config)
 
     rel = dash.compute_relevance(df)
-    relevance = {
+    engagement = {
         "headline": rel["headline"], "ctr": rel["ctr"], "cvr": rel["cvr"],
         "funnel": rel["funnel"],
         "by_query": _records(rel["by_query"].head(10)),
@@ -71,17 +88,19 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None) -> dict:
     ope = dash.compute_ope(host, port)
     mdp = dash.compute_mdp(mdp_csv)
 
-    return {
+    return _json_safe({
+        "schemaVersion": dash.MEASUREMENT_SCHEMA_VERSION,
         "input": input_dir,
         "rows": int(len(df)),
-        "relevance": relevance,
+        **measurements,  # relevance, satisfaction, freshness, diversity, fairness, safety, latency
+        "engagement": engagement,
         "keyword": keyword,
         "query": query,
         "recall": recall,  # {headline, rows} or None
         "ranking": {"headline": ranking["headline"], "rows": ranking["rows"]} if ranking else None,
         "ope": ope,        # {headline, rows, calibration} or None
         "mdp": {"headline": mdp["headline"], "rows": _records(mdp["df"])} if mdp else None,
-    }
+    })
 
 
 def main(argv=None) -> None:
@@ -89,15 +108,28 @@ def main(argv=None) -> None:
     ap.add_argument("--input", default="/tmp/spark-recsys/training-samples")
     ap.add_argument("--output", default=str(_REPO / "frontend" / "data" / "dashboard.json"))
     ap.add_argument("--mdp-csv", default=None)
+    ap.add_argument("--experiences", default=None,
+                    help="slate experiences Parquet directory or JSON file (relevance/diversity)")
+    ap.add_argument("--live-metrics", default=None,
+                    help="JSON captured from the retrieval service /metrics endpoint (latency)")
+    ap.add_argument("--fairness-min-support", type=int, default=100)
+    ap.add_argument("--freshness-window-days", type=int, default=30)
+    ap.add_argument("--long-tail-percentile", type=float, default=0.80)
+    ap.add_argument("--safety-policy-version", default="catalog-filter-v1")
     args = ap.parse_args(argv)
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
 
-    data = build(args.input, host, port, args.mdp_csv)
+    data = build(args.input, host, port, args.mdp_csv, args.experiences, args.live_metrics, {
+        "fairness_min_support": args.fairness_min_support,
+        "freshness_window_days": args.freshness_window_days,
+        "long_tail_percentile": args.long_tail_percentile,
+        "safety_policy_version": args.safety_policy_version,
+    })
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as fh:
-        json.dump(data, fh, indent=2, default=_json_default)
+        json.dump(data, fh, indent=2, default=_json_default, allow_nan=False)
     print(f"wrote {out} ({out.stat().st_size} bytes)")
 
 

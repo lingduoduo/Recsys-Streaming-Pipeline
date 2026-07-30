@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -6,6 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
+sys.path.insert(0, str(Path(__file__).parents[3] / "frontend"))
 
 
 def _df(pd):
@@ -68,6 +70,43 @@ def test_load_samples_enriches_empty_genres_from_redis(tmp_path, monkeypatch):
     out = dash.load_samples(str(parquet), "redis.test", 6380)
 
     assert out["genres"].tolist() == [["Sci-Fi", "Action"], ["Drama"]]
+
+
+def test_load_slates_normalizes_items_and_fills_catalog_signals(tmp_path, monkeypatch):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+    import ranking_eval_report as ranking
+
+    experiences = tmp_path / "experiences"
+    pd.DataFrame([{
+        "request_id": "r1", "user_id": "u1",
+        "items": [
+            {"position": 0, "item_id": "item_1", "label": 2.0},
+            {"position": 1, "item_id": "item_2", "label": 0.0,
+             "genres": ["Comedy"], "popularity": 5.0},
+        ],
+    }]).to_parquet(experiences, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta",
+                        lambda host, port: [{"item_id": "item_1", "genres": ["Drama"]}])
+    monkeypatch.setattr(ranking, "fetch_popularity", lambda host, port: {"item_1": 100.0})
+
+    items = dash.load_slates(str(experiences))["items"].iloc[0]
+    # Slate items keep their own signals; the catalog only fills what the slate omits.
+    assert [item["genres"] for item in items] == [["Drama"], ["Comedy"]]
+    assert [item["popularity"] for item in items] == [100.0, 5.0]
+    assert dash.load_slates(None) is None
+
+
+def test_export_replaces_non_finite_values_with_null():
+    pytest.importorskip("numpy")
+    import export_dashboard_json as exporter
+
+    safe = exporter._json_safe({"ctr": float("nan"), "latency": [float("inf"), 1.0], "n": 3})
+
+    assert safe == {"ctr": None, "latency": [None, 1.0], "n": 3}
+    json.dumps(safe, allow_nan=False)
 
 
 def test_compute_relevance_funnel_and_means(tmp_path):
