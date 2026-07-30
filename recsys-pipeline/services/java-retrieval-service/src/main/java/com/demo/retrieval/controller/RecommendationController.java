@@ -26,11 +26,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
+import java.sql.SQLTimeoutException;
+import org.springframework.dao.QueryTimeoutException;
 
 @RestController
 @Validated
@@ -92,6 +96,7 @@ public class RecommendationController {
     ) {
         long started = System.nanoTime();
         boolean error = true;
+        boolean timeout = false;
         try {
             int boundedLimit = Math.max(1, Math.min(limit, MAX_LIMIT));
             RecommendationResult result = recommendationService.recommend(user, boundedLimit);
@@ -103,8 +108,11 @@ public class RecommendationController {
                 "diagnostics", result.candidateDiagnostics(),
                 "metrics", result.metrics()
             );
+        } catch (RuntimeException | Error e) {
+            timeout = isTimeout(e);
+            throw e;
         } finally {
-            measurementService.recordRequest("recommend", Duration.ofNanos(System.nanoTime() - started), error);
+            measurementService.recordRequest("recommend", Duration.ofNanos(System.nanoTime() - started), error, timeout);
         }
     }
 
@@ -140,12 +148,16 @@ public class RecommendationController {
     public Map<String, Object> feedback(@Valid @RequestBody FeedbackRequest request) {
         long started = System.nanoTime();
         boolean error = true;
+        boolean timeout = false;
         try {
             Map<String, Object> response = recommendationService.recordFeedback(request);
             error = false;
             return response;
+        } catch (RuntimeException | Error e) {
+            timeout = isTimeout(e);
+            throw e;
         } finally {
-            measurementService.recordRequest("feedback", Duration.ofNanos(System.nanoTime() - started), error);
+            measurementService.recordRequest("feedback", Duration.ofNanos(System.nanoTime() - started), error, timeout);
         }
     }
 
@@ -181,5 +193,17 @@ public class RecommendationController {
         payload.put("itemId", prediction.itemId());
         payload.put("score", prediction.score());
         return payload;
+    }
+
+    private static boolean isTimeout(Throwable error) {
+        for (Throwable current = error; current != null && current.getCause() != current; current = current.getCause()) {
+            if (current instanceof TimeoutException
+                || current instanceof SocketTimeoutException
+                || current instanceof SQLTimeoutException
+                || current instanceof QueryTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 }

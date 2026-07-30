@@ -2,6 +2,7 @@ package com.demo.retrieval.measurement;
 
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.model.FeedbackRequest;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class RecommendationMeasurementServiceTest {
 
@@ -117,7 +121,8 @@ class RecommendationMeasurementServiceTest {
             new FilterDecision("muted_product_type"),
             new FilterDecision("muted_genre"),
             new FilterDecision("muted_keyword"),
-            new FilterDecision("muted_title")
+            new FilterDecision("muted_title"),
+            new FilterDecision("unknown")
         ));
         measurements.recordFeedbackCoverage(new FeedbackRequest("u1", "i1", true, 1.0));
         measurements.recordFeedbackCoverage(new FeedbackRequest(
@@ -132,8 +137,8 @@ class RecommendationMeasurementServiceTest {
 
         assertEquals("catalog-filter-v1", safety.get("policyVersion"));
         assertEquals(4L, safety.get("evaluatedCandidates"));
-        assertEquals(5L, safety.get("totalDecisions"));
-        assertEquals(0.0, safety.get("unknownShare"));
+        assertEquals(6L, safety.get("totalDecisions"));
+        assertEquals(0.25, safety.get("unknownShare"));
         assertEquals(2L, feedbackCoverage.get("total"));
         assertEquals(1L, rating.get("present"));
         assertEquals(0.5, rating.get("coverage"));
@@ -164,6 +169,55 @@ class RecommendationMeasurementServiceTest {
         }
     }
 
+    @Test
+    void concurrentRequestSnapshotsKeepCountsAndRatesConsistent() throws Exception {
+        RecommendationMeasurementService measurements = measurements(new SimpleMeterRegistry());
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            executor.submit(() -> recordRequests(start, measurements, true, true));
+            executor.submit(() -> recordRequests(start, measurements, true, false));
+            start.countDown();
+            for (int i = 0; i < 1_000; i++) {
+                Map<?, ?> latency = (Map<?, ?>) measurements.snapshot().asMap().get("latency");
+                Map<?, ?> recommend = (Map<?, ?>) ((Map<?, ?>) latency.get("endpoints")).get("recommend");
+                long count = (Long) recommend.get("count");
+                long errors = (Long) recommend.get("errorCount");
+                long timeouts = (Long) recommend.get("timeoutCount");
+                assertTrue(errors <= count, "errors must not exceed request count");
+                assertTrue(timeouts <= count, "timeouts must not exceed request count");
+                assertInUnitInterval((Double) recommend.get("errorRate"));
+                assertInUnitInterval((Double) recommend.get("timeoutRate"));
+            }
+        } finally {
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void snapshotMarksOnlyTheUnavailableSectionAsUnavailable() {
+        MeterRegistry registry = mock(MeterRegistry.class);
+        when(registry.find("recommendation.request.latency"))
+            .thenThrow(new IllegalStateException("registry unavailable"));
+        RecommendationMeasurementService measurements = new RecommendationMeasurementService(
+            registry, new RecommendationProperties());
+
+        Map<String, Object> snapshot = measurements.snapshot().asMap();
+        Map<?, ?> latency = (Map<?, ?>) snapshot.get("latency");
+        Map<?, ?> recommend = (Map<?, ?>) ((Map<?, ?>) latency.get("endpoints")).get("recommend");
+        Map<?, ?> freshness = (Map<?, ?>) snapshot.get("freshness");
+        Map<?, ?> safety = (Map<?, ?>) snapshot.get("safety");
+        Map<?, ?> feedback = (Map<?, ?>) snapshot.get("feedbackCoverage");
+
+        assertEquals("unavailable", latency.get("availability"));
+        assertNull(recommend.get("count"));
+        assertNull(recommend.get("errorRate"));
+        assertEquals("available", freshness.get("availability"));
+        assertEquals("available", safety.get("availability"));
+        assertEquals("available", feedback.get("availability"));
+    }
+
     private void recordFreshness(
         CountDownLatch start,
         RecommendationMeasurementService measurements,
@@ -173,6 +227,23 @@ class RecommendationMeasurementServiceTest {
             start.await();
             for (int i = 0; i < 500; i++) {
                 measurements.recordFreshness(List.of(fresh));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+    }
+
+    private void recordRequests(
+        CountDownLatch start,
+        RecommendationMeasurementService measurements,
+        boolean error,
+        boolean timeout
+    ) {
+        try {
+            start.await();
+            for (int i = 0; i < 1_000; i++) {
+                measurements.recordRequest("recommend", Duration.ofMillis(1), error, timeout);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

@@ -72,3 +72,29 @@ constructor, Spring starts successfully before that independent Mockito failure.
 - GREEN: `mvn -q test` exited 0 under Corretto JDK 17; current Surefire reports
   contain 143 tests with zero failures/errors. Docker-backed tests continue to
   skip their container work when Docker is unavailable.
+
+## Second review remediation
+
+- `/recommend` and `/feedback` now classify known timeout exceptions through a
+  bounded cause-chain check and supply the four-argument request recorder. No
+  exception text becomes a label.
+- Request timer/counter updates and endpoint snapshot reads share a lock, so
+  published error and timeout rates cannot exceed their denominator.
+- `unknownShare` now uses the evaluated-candidate denominator, consistent with
+  per-reason safety rates.
+- Snapshot sections expose bounded `availability` values. A registry read
+  failure produces stable null/N/A fields for that section only; it cannot
+  fabricate zero traffic or erase the other sections.
+
+### Second-loop RED/GREEN evidence
+
+- RED: focused JDK 17 regressions failed with the old three-argument controller
+  calls, an observed request snapshot where errors exceeded count, an
+  `unknownShare` of `1/6` instead of `1/4`, and a registry failure lacking an
+  unavailable section marker.
+- GREEN: after the fixes,
+  `mvn -q -Dtest=RecommendationMeasurementServiceTest,RecommendationControllerTest,HybridRecommendationServiceTest test`
+  exited 0 with 32 tests.
+- GREEN: final `mvn -q test` exited 0 under Corretto JDK 17; current Surefire
+  reports contain 148 tests with zero failures/errors. Docker-backed tests still
+  execute zero container tests when Docker is unavailable.

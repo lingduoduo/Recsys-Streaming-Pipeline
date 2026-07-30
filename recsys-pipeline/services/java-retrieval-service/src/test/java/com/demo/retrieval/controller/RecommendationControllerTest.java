@@ -19,9 +19,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -214,7 +216,7 @@ class RecommendationControllerTest {
             .andExpect(jsonPath("$.status").value("ok"))
             .andExpect(jsonPath("$.clicked").value(true));
 
-        verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(false));
+        verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(false), eq(false));
     }
 
     @Test
@@ -293,6 +295,35 @@ class RecommendationControllerTest {
         mockMvc.perform(get("/recommend/u1"))
             .andExpect(status().isOk());
 
-        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(false));
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(false), eq(false));
+    }
+
+    @Test
+    void recommendEndpointRecordsTimeoutAsAnErrorAndTimeout() {
+        when(recommendationService.recommend("u1", 6)).thenThrow(new IllegalStateException(new TimeoutException()));
+
+        assertThrows(Exception.class, () -> mockMvc.perform(get("/recommend/u1")));
+
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(true), eq(true));
+    }
+
+    @Test
+    void recommendEndpointRecordsNonTimeoutServiceErrorWithoutTimeoutFlag() {
+        when(recommendationService.recommend("u1", 6)).thenThrow(new IllegalStateException("service failed"));
+
+        assertThrows(Exception.class, () -> mockMvc.perform(get("/recommend/u1")));
+
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(true), eq(false));
+    }
+
+    @Test
+    void feedbackEndpointRecordsTimeoutAsAnErrorAndTimeout() {
+        when(recommendationService.recordFeedback(any())).thenThrow(new IllegalStateException(new TimeoutException()));
+
+        assertThrows(Exception.class, () -> mockMvc.perform(post("/feedback")
+            .contentType("application/json")
+            .content("{\"user\":\"u1\",\"item\":\"item1\",\"clicked\":true,\"reward\":1.0}")));
+
+        verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(true), eq(true));
     }
 }

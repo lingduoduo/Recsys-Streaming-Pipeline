@@ -41,6 +41,7 @@ public class RecommendationMeasurementService {
     private final Object freshnessLock = new Object();
     private final Object safetyLock = new Object();
     private final Object feedbackLock = new Object();
+    private final Object requestLock = new Object();
     private long freshnessTotal;
     private long freshnessObserved;
     private long freshnessFresh;
@@ -76,12 +77,14 @@ public class RecommendationMeasurementService {
             if (noOp || !ENDPOINTS.contains(endpoint)) {
                 return;
             }
-            requestTimer(endpoint).record(safeDuration(duration));
-            if (error) {
-                incrementRequestCounter("recommendation.request.errors", endpoint);
-            }
-            if (timeout) {
-                incrementRequestCounter("recommendation.request.timeouts", endpoint);
+            synchronized (requestLock) {
+                requestTimer(endpoint).record(safeDuration(duration));
+                if (error) {
+                    incrementRequestCounter("recommendation.request.errors", endpoint);
+                }
+                if (timeout) {
+                    incrementRequestCounter("recommendation.request.timeouts", endpoint);
+                }
             }
         } catch (RuntimeException e) {
             log.warn("Unable to record recommendation request measurement", e);
@@ -181,13 +184,13 @@ public class RecommendationMeasurementService {
     }
 
     public MeasurementSnapshot snapshot() {
-        try {
-            return new MeasurementSnapshot(
-                "2.0", latencySnapshot(), freshnessSnapshot(), safetySnapshot(), feedbackSnapshot());
-        } catch (RuntimeException e) {
-            log.warn("Unable to assemble recommendation measurement snapshot", e);
-            return new MeasurementSnapshot("2.0", emptyLatency(), Map.of(), Map.of(), Map.of());
-        }
+        return new MeasurementSnapshot(
+            "2.0",
+            snapshotSection("latency", this::latencySnapshot, this::unavailableLatency),
+            snapshotSection("freshness", this::freshnessSnapshot, this::unavailableFreshness),
+            snapshotSection("safety", this::safetySnapshot, this::unavailableSafety),
+            snapshotSection("feedback coverage", this::feedbackSnapshot, this::unavailableFeedback)
+        );
     }
 
     private void recordStage(String stage, Duration duration) {
@@ -228,10 +231,13 @@ public class RecommendationMeasurementService {
 
     private Map<String, Object> latencySnapshot() {
         Map<String, Object> endpoints = new LinkedHashMap<>();
-        ENDPOINTS.stream().sorted().forEach(endpoint -> endpoints.put(endpoint, endpointLatency(endpoint)));
+        synchronized (requestLock) {
+            ENDPOINTS.stream().sorted().forEach(endpoint -> endpoints.put(endpoint, endpointLatency(endpoint)));
+        }
         Map<String, Object> stages = new LinkedHashMap<>();
         STAGES.stream().sorted().forEach(stage -> stages.put(stage, stageLatency(stage)));
         Map<String, Object> latency = new LinkedHashMap<>();
+        latency.put("availability", "available");
         latency.put("unit", "milliseconds");
         latency.put("endpoints", endpoints);
         latency.put("stages", stages);
@@ -273,6 +279,20 @@ public class RecommendationMeasurementService {
         Map<String, Object> stages = new LinkedHashMap<>();
         STAGES.stream().sorted().forEach(stage -> stages.put(stage, emptyStageLatency()));
         Map<String, Object> latency = new LinkedHashMap<>();
+        latency.put("availability", "available");
+        latency.put("unit", "milliseconds");
+        latency.put("endpoints", endpoints);
+        latency.put("stages", stages);
+        return latency;
+    }
+
+    private Map<String, Object> unavailableLatency() {
+        Map<String, Object> endpoints = new LinkedHashMap<>();
+        ENDPOINTS.stream().sorted().forEach(endpoint -> endpoints.put(endpoint, unavailableEndpointLatency()));
+        Map<String, Object> stages = new LinkedHashMap<>();
+        STAGES.stream().sorted().forEach(stage -> stages.put(stage, unavailableStageLatency()));
+        Map<String, Object> latency = new LinkedHashMap<>();
+        latency.put("availability", "unavailable");
         latency.put("unit", "milliseconds");
         latency.put("endpoints", endpoints);
         latency.put("stages", stages);
@@ -295,10 +315,27 @@ public class RecommendationMeasurementService {
         return values;
     }
 
+    private Map<String, Object> unavailableEndpointLatency() {
+        Map<String, Object> values = timerLatency(null);
+        values.put("count", null);
+        values.put("errorCount", null);
+        values.put("errorRate", null);
+        values.put("timeoutCount", null);
+        values.put("timeoutRate", null);
+        return values;
+    }
+
+    private Map<String, Object> unavailableStageLatency() {
+        Map<String, Object> values = timerLatency(null);
+        values.put("count", null);
+        return values;
+    }
+
     private Map<String, Object> freshnessSnapshot() {
         synchronized (freshnessLock) {
             Map<String, Object> freshness = new LinkedHashMap<>();
             freshness.put("exposures", freshnessTotal);
+            freshness.put("availability", "available");
             freshness.put("coverage", rate(freshnessObserved, freshnessTotal));
             freshness.put("freshShare", rate(freshnessFresh, freshnessObserved));
             freshness.put("source", "boolean_new_release");
@@ -319,10 +356,11 @@ public class RecommendationMeasurementService {
             });
             Map<String, Object> safety = new LinkedHashMap<>();
             safety.put("policyVersion", safetyPolicyVersion);
+            safety.put("availability", "available");
             safety.put("evaluatedCandidates", evaluatedCandidates);
             safety.put("totalDecisions", totalDecisions);
             safety.put("reasons", reasons);
-            safety.put("unknownShare", rate(filterDecisionCounts.getOrDefault("unknown", 0L), totalDecisions));
+            safety.put("unknownShare", rate(filterDecisionCounts.getOrDefault("unknown", 0L), evaluatedCandidates));
             return safety;
         }
     }
@@ -339,8 +377,65 @@ public class RecommendationMeasurementService {
             });
             Map<String, Object> feedback = new LinkedHashMap<>();
             feedback.put("total", feedbackTotal);
+            feedback.put("availability", "available");
             feedback.put("signals", signals);
             return feedback;
+        }
+    }
+
+    private Map<String, Object> unavailableFreshness() {
+        Map<String, Object> freshness = new LinkedHashMap<>();
+        freshness.put("availability", "unavailable");
+        freshness.put("exposures", null);
+        freshness.put("coverage", null);
+        freshness.put("freshShare", null);
+        freshness.put("source", "boolean_new_release");
+        return freshness;
+    }
+
+    private Map<String, Object> unavailableSafety() {
+        Map<String, Object> reasons = new LinkedHashMap<>();
+        FILTER_REASONS.stream().sorted().forEach(reason -> {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("count", null);
+            values.put("rate", null);
+            reasons.put(reason, values);
+        });
+        Map<String, Object> safety = new LinkedHashMap<>();
+        safety.put("availability", "unavailable");
+        safety.put("policyVersion", safetyPolicyVersion);
+        safety.put("evaluatedCandidates", null);
+        safety.put("totalDecisions", null);
+        safety.put("reasons", reasons);
+        safety.put("unknownShare", null);
+        return safety;
+    }
+
+    private Map<String, Object> unavailableFeedback() {
+        Map<String, Object> signals = new LinkedHashMap<>();
+        FEEDBACK_SIGNALS.forEach(signal -> {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("present", null);
+            values.put("coverage", null);
+            signals.put(signal, values);
+        });
+        Map<String, Object> feedback = new LinkedHashMap<>();
+        feedback.put("availability", "unavailable");
+        feedback.put("total", null);
+        feedback.put("signals", signals);
+        return feedback;
+    }
+
+    private Map<String, Object> snapshotSection(
+        String section,
+        Supplier<Map<String, Object>> snapshot,
+        Supplier<Map<String, Object>> unavailable
+    ) {
+        try {
+            return snapshot.get();
+        } catch (RuntimeException e) {
+            log.warn("Unable to assemble recommendation {} measurement snapshot", section, e);
+            return unavailable.get();
         }
     }
 
