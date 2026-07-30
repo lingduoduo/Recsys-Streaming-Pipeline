@@ -105,7 +105,7 @@ object OnlineJoinerStreamingJob {
   def parseEvents(rawKafka: DataFrame): DataFrame =
     EventParsing.observeIngest(EventParsing.fromJson(rawKafka, EventSchemas.joiner))
       .withColumn("timestamp",
-        coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
+        coalesce((col("timestamp_ms") / 1000L).cast(LongType), col("timestamp")).cast(LongType))
       .drop("timestamp_ms")
       .filter(
         col("request_id").isNotNull &&
@@ -119,9 +119,14 @@ object OnlineJoinerStreamingJob {
     val isImpression = col("etype").isin("impression", "exposure")
     val isFeedback   = col("etype").isin("click", "order", "purchase")
 
-    MeasurementFields.foldLeft(events) { case (df, (name, dataType)) =>
+    val withMeasurementFields = MeasurementFields.foldLeft(events) { case (df, (name, dataType)) =>
       if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
     }
+    val withEventId =
+      if (withMeasurementFields.columns.contains("event_id")) withMeasurementFields
+      else withMeasurementFields.withColumn("event_id", lit(null).cast(StringType))
+
+    withEventId
       .withColumn("etype", lower(trim(col("event_type"))))
       // Single-pass conditional groupBy: one shuffle replaces (groupBy feedback) + (left join).
       // Because the producer keys behavior events by request_id, all events in a slate
@@ -136,18 +141,20 @@ object OnlineJoinerStreamingJob {
         first(when(isImpression, col("context_features")), ignoreNulls = true).as("context_features"),
         max(when(col("etype") === "click", lit(1)).otherwise(lit(0))).as("clicked"),
         max(when(col("etype").isin("order", "purchase"), lit(1)).otherwise(lit(0))).as("ordered"),
-        max(when(isFeedback, col("timestamp"))).as("last_feedback_ts"),
-        first(col("model_version"), ignoreNulls = true).as("model_version"),
-        first(col("policy_version"), ignoreNulls = true).as("policy_version"),
-        first(col("algorithm_version"), ignoreNulls = true).as("algorithm_version"),
-        first(col("rating"), ignoreNulls = true).as("rating"),
-        first(col("negative_feedback_reason"), ignoreNulls = true).as("negative_feedback_reason"),
-        first(col("dwell_millis"), ignoreNulls = true).as("dwell_millis"),
-        first(col("completion_rate"), ignoreNulls = true).as("completion_rate"),
-        first(col("published_at"), ignoreNulls = true).as("published_at"),
-        first(col("new_release"), ignoreNulls = true).as("new_release"),
-        first(col("filter_reason"), ignoreNulls = true).as("filter_reason"),
-        first(col("unsafe_label"), ignoreNulls = true).as("unsafe_label"),
+        max_by(
+          when(isImpression, struct(
+            col("model_version"), col("policy_version"), col("algorithm_version"),
+            col("published_at"), col("new_release"), col("filter_reason"), col("unsafe_label")
+          )),
+          when(isImpression, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
+        ).as("impression_measurement"),
+        max_by(
+          when(isFeedback, struct(
+            col("timestamp").as("last_feedback_ts"), col("rating"), col("negative_feedback_reason"),
+            col("dwell_millis"), col("completion_rate")
+          )),
+          when(isFeedback, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
+        ).as("feedback_measurement"),
         // session_id is constant across a slate's events; carry it through (one session per request).
         first(col("session_id"), ignoreNulls = true).as("session_id")
       )
@@ -166,20 +173,21 @@ object OnlineJoinerStreamingJob {
         when(coalesce(col("ordered"), lit(0)) === 1, lit(2.0))
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
-        col("last_feedback_ts"),
-        when(col("last_feedback_ts").isNotNull,
-          (col("last_feedback_ts") - col("impression_ts")) * 1000L).as("feedback_delay_ms"),
-        col("model_version"),
-        col("policy_version"),
-        col("algorithm_version"),
-        col("rating"),
-        col("negative_feedback_reason"),
-        col("dwell_millis"),
-        col("completion_rate"),
-        col("published_at"),
-        col("new_release"),
-        col("filter_reason"),
-        col("unsafe_label"),
+        col("feedback_measurement.last_feedback_ts").as("last_feedback_ts"),
+        when(col("feedback_measurement.last_feedback_ts").isNotNull,
+          ((col("feedback_measurement.last_feedback_ts") - col("impression_ts")) * 1000L).cast(LongType)
+        ).as("feedback_delay_ms"),
+        col("impression_measurement.model_version").as("model_version"),
+        col("impression_measurement.policy_version").as("policy_version"),
+        col("impression_measurement.algorithm_version").as("algorithm_version"),
+        col("feedback_measurement.rating").as("rating"),
+        col("feedback_measurement.negative_feedback_reason").as("negative_feedback_reason"),
+        col("feedback_measurement.dwell_millis").as("dwell_millis"),
+        col("feedback_measurement.completion_rate").as("completion_rate"),
+        col("impression_measurement.published_at").as("published_at"),
+        col("impression_measurement.new_release").as("new_release"),
+        col("impression_measurement.filter_reason").as("filter_reason"),
+        col("impression_measurement.unsafe_label").as("unsafe_label"),
         coalesce(col("session_id"), lit("")).as("session_id"),
         coalesce(col("user_features"),     typedLit(Map.empty[String, String])).as("user_features"),
         coalesce(col("item_features"),     typedLit(Map.empty[String, String])).as("item_features"),

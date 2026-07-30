@@ -2,7 +2,8 @@ package com.demo.process
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.streaming.MemoryStream
-import org.apache.spark.sql.functions.{coalesce, col}
+import org.apache.spark.sql.functions.{coalesce, col, struct, to_json}
+import org.apache.spark.sql.types.LongType
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -92,6 +93,73 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     impressionTime should not be null
     // impression_time should be in year 2024, not 54426
     impressionTime.toLocalDateTime.getYear shouldBe 2024
+  }
+
+  it should "preserve Long timestamp and delay fields through the training-sample Kafka contract" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val rawEvents = Seq(
+      """{"event_id":"legacy-impression","session_id":"legacy-session","request_id":"legacy-request","user_id":"legacy-user","item_id":"legacy-item","event_type":"impression","timestamp":100,"position":0}""",
+      """{"event_id":"legacy-feedback","session_id":"legacy-session","request_id":"legacy-request","user_id":"legacy-user","item_id":"legacy-item","event_type":"click","timestamp":105,"position":0}""",
+      """{"event_id":"millis-impression","session_id":"millis-session","request_id":"millis-request","user_id":"millis-user","item_id":"millis-item","event_type":"impression","timestamp_ms":200000,"position":0}""",
+      """{"event_id":"millis-feedback","session_id":"millis-session","request_id":"millis-request","user_id":"millis-user","item_id":"millis-item","event_type":"order","timestamp_ms":205000,"position":0}"""
+    ).toDF("value")
+
+    val samples = OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(rawEvents))
+    Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
+      samples.schema(field).dataType shouldBe LongType
+    }
+
+    val kafkaSamples = samples.select(to_json(struct(samples.columns.map(col): _*)).as("value"))
+    val decoded = ExperienceCollectorStreamingJob.parseSamples(kafkaSamples)
+    Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
+      decoded.schema(field).dataType shouldBe LongType
+    }
+    val delays = decoded.select("request_id", "impression_ts", "last_feedback_ts", "feedback_delay_ms")
+      .collect()
+      .map(row => row.getAs[String]("request_id") ->
+        (row.getAs[Long]("impression_ts"), row.getAs[Long]("last_feedback_ts"), row.getAs[Long]("feedback_delay_ms")))
+      .toMap
+
+    delays("legacy-request") shouldBe (100L, 105L, 5000L)
+    delays("millis-request") shouldBe (200L, 205L, 5000L)
+  }
+
+  it should "attribute all feedback fields to the latest feedback event regardless of input order" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val events = Seq(
+      """{"event_id":"impression","session_id":"session","request_id":"request","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0,"model_version":"impression-model","policy_version":"impression-policy","algorithm_version":"impression-algorithm","published_at":50,"new_release":true,"filter_reason":"catalog","unsafe_label":false}""",
+      """{"event_id":"click","session_id":"session","request_id":"request","user_id":"user","item_id":"item","event_type":"click","timestamp":105,"rating":1.0,"negative_feedback_reason":"click-reason","dwell_millis":1000,"completion_rate":0.1,"model_version":"feedback-model"}""",
+      """{"event_id":"order","session_id":"session","request_id":"request","user_id":"user","item_id":"item","event_type":"order","timestamp":110,"rating":5.0,"negative_feedback_reason":"order-reason","dwell_millis":5000,"completion_rate":0.9,"model_version":"later-feedback-model"}"""
+    )
+
+    def attribution(input: Seq[String]) =
+      OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(input.toDF("value")))
+        .select(
+          "model_version", "policy_version", "algorithm_version", "last_feedback_ts", "feedback_delay_ms",
+          "rating", "negative_feedback_reason", "dwell_millis", "completion_rate"
+        )
+        .first()
+
+    val forward = attribution(events)
+    val reversed = attribution(events.reverse)
+    Seq("model_version", "policy_version", "algorithm_version", "last_feedback_ts", "feedback_delay_ms",
+      "rating", "negative_feedback_reason", "dwell_millis", "completion_rate").foreach { field =>
+      forward.getAs[Any](field) shouldBe reversed.getAs[Any](field)
+    }
+
+    forward.getAs[String]("model_version") shouldBe "impression-model"
+    forward.getAs[String]("policy_version") shouldBe "impression-policy"
+    forward.getAs[String]("algorithm_version") shouldBe "impression-algorithm"
+    forward.getAs[Long]("last_feedback_ts") shouldBe 110L
+    forward.getAs[Long]("feedback_delay_ms") shouldBe 10000L
+    forward.getAs[Double]("rating") shouldBe 5.0
+    forward.getAs[String]("negative_feedback_reason") shouldBe "order-reason"
+    forward.getAs[Long]("dwell_millis") shouldBe 5000L
+    forward.getAs[Double]("completion_rate") shouldBe 0.9
   }
 
   it should "preserve nullable measurement attribution without changing legacy events" in {

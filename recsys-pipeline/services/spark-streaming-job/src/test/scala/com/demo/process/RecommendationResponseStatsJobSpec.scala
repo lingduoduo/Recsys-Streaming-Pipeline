@@ -91,4 +91,27 @@ class RecommendationResponseStatsJobSpec extends AnyFlatSpec with Matchers with 
       tags.values should not contain "user-secret"
     }
   }
+
+  it should "normalize delay metric subscription tags to a fixed allowlist" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val rawKafka = Seq(
+      ("""{"slate_id":"known","request_id":"request-known","user_id":"user-known","request_ts":100,"user_features":{"subscription_level":"GoLd"},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-known","feedback_delay_ms":5000}]}""", new java.sql.Timestamp(105000L)),
+      ("""{"slate_id":"blank","request_id":"request-blank","user_id":"user-blank","request_ts":100,"user_features":{"subscription_level":"  "},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-blank","feedback_delay_ms":5000}]}""", new java.sql.Timestamp(105000L)),
+      ("""{"slate_id":"unknown","request_id":"request-unknown","user_id":"user-unknown","request_ts":100,"user_features":{"subscription":"customer-123456789"},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-unknown","feedback_delay_ms":5000}]}""", new java.sql.Timestamp(105000L))
+    ).toDF("value", "timestamp")
+
+    val delayTags = RecommendationResponseStatsJob.buildMetricEvents(
+      RecommendationResponseStatsJob.parseSlates(rawKafka)
+    ).collect().map(_.getAs[Map[String, String]]("tags"))
+      .filter(_.get("type").contains("feedback_delay_ms"))
+
+    delayTags.map(_("subscription")).toSet shouldBe Set("gold", "unknown", "other")
+    val allowed = Set("none", "free", "basic", "standard", "premium", "gold", "unknown", "other")
+    delayTags.foreach { tags =>
+      tags.keySet shouldBe Set("type", "subscription", "country")
+      allowed should contain (tags("subscription"))
+    }
+  }
 }

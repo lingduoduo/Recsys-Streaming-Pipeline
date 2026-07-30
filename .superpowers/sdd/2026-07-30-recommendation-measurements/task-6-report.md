@@ -48,3 +48,26 @@
 - `git diff --check` exits successfully.
 - The focused Spark specs pass with the externally verified Corretto JDK 17
   command above: 13 tests, 3 suites, 0 failed.
+
+## Review remediation
+
+- RED provenance: the Task 6 review probe established the original failures:
+  the timestamp and delay columns were `double`, latest feedback timestamps
+  could be paired with earlier feedback fields, and an arbitrary
+  `customer-123456789` subscription value was emitted as a delay metric tag.
+- Added regression coverage that asserts the `LongType` training-sample fields
+  survive production JSON serialization and `TrainingSampleSchema` decoding for
+  legacy-second and millisecond events.
+- Added a shuffled multi-feedback regression: impression attribution comes from
+  an impression event, while timestamp, delay, rating, reason, dwell, and
+  completion come together from the deterministic latest feedback event.
+- Added subscription-tag regressions for mixed-case known, blank, and
+  customer-shaped values, including the complete delay-tag key set.
+- The implementation normalizes millisecond timestamps to `LongType`, selects
+  measurement structs with timestamp/event-ID ordering, and maps subscription
+  values to an allowlist with `unknown` and `other` fallbacks. No ranking,
+  filtering, labels, or grouping keys changed.
+- GREEN under Corretto JDK 17 in this environment: the three focused specs pass
+  (16 tests, 3 suites, 0 failed) and the full suite passes (157 tests, 39
+  suites, 0 failed, `sbt test` exit 0), up from the 154-test pre-remediation
+  baseline.

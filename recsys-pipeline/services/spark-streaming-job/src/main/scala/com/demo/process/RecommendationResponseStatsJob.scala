@@ -9,6 +9,7 @@ import org.apache.spark.sql.types._
 object RecommendationResponseStatsJob {
 
   val ResponseMetric = "RecommendationFeed.response"
+  private val AllowedSubscriptions = Seq("none", "free", "basic", "standard", "premium", "gold")
 
   val ItemSchema: StructType = StructType(Seq(
     StructField("position", IntegerType, nullable = true),
@@ -126,11 +127,11 @@ object RecommendationResponseStatsJob {
       )
       .withColumn(
         "subscription",
-        coalesce(
+        bucketSubscription(coalesce(
           col("safe_user_features").getItem("subscription_level"),
           col("safe_user_features").getItem("subscription"),
           lit("none")
-        )
+        ))
       )
       .withColumn(
         "blender",
@@ -220,6 +221,11 @@ object RecommendationResponseStatsJob {
   private def bucketCountry(country: Column): Column =
     when(country.isNull || length(trim(country)) === 0, lit("unknown"))
       .when(upper(trim(country)).isin("US", "CA", "GB", "AU", "DE", "FR", "JP", "IN", "BR"), lower(trim(country)))
+      .otherwise(lit("other"))
+
+  private def bucketSubscription(subscription: Column): Column =
+    when(subscription.isNull || length(trim(subscription)) === 0, lit("unknown"))
+      .when(lower(trim(subscription)).isin(AllowedSubscriptions: _*), lower(trim(subscription)))
       .otherwise(lit("other"))
 
 }
