@@ -94,6 +94,49 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     impressionTime.toLocalDateTime.getYear shouldBe 2024
   }
 
+  it should "preserve nullable measurement attribution without changing legacy events" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val raw = Seq(
+      """{"event_id":"legacy","session_id":"sess_legacy","request_id":"req_legacy","user_id":"user_legacy","item_id":"item_legacy","event_type":"impression","timestamp":100,"position":0}""",
+      """{"event_id":"enriched-impression","session_id":"sess_enriched","request_id":"req_enriched","user_id":"user_enriched","item_id":"item_enriched","event_type":"impression","timestamp":100,"position":1,"model_version":"model-v2","policy_version":"policy-v3","algorithm_version":"algo-v4","published_at":50,"new_release":true,"filter_reason":"muted_genre","unsafe_label":false}""",
+      """{"event_id":"enriched-feedback","session_id":"sess_enriched","request_id":"req_enriched","user_id":"user_enriched","item_id":"item_enriched","event_type":"click","timestamp":105,"rating":4.5,"negative_feedback_reason":"not_interested","dwell_millis":12000,"completion_rate":0.75}"""
+    ).toDF("value")
+
+    val rows = OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(raw))
+      .select(
+        "request_id", "model_version", "policy_version", "algorithm_version", "rating",
+        "negative_feedback_reason", "dwell_millis", "completion_rate", "published_at",
+        "new_release", "filter_reason", "unsafe_label", "last_feedback_ts", "feedback_delay_ms"
+      )
+      .collect()
+      .map(row => row.getAs[String]("request_id") -> row)
+      .toMap
+
+    val legacy = rows("req_legacy")
+    Seq(
+      "model_version", "policy_version", "algorithm_version", "rating", "negative_feedback_reason",
+      "dwell_millis", "completion_rate", "published_at", "new_release", "filter_reason", "unsafe_label",
+      "last_feedback_ts", "feedback_delay_ms"
+    ).foreach(field => legacy.getAs[AnyRef](field) shouldBe null)
+
+    val enriched = rows("req_enriched")
+    enriched.getAs[String]("model_version") shouldBe "model-v2"
+    enriched.getAs[String]("policy_version") shouldBe "policy-v3"
+    enriched.getAs[String]("algorithm_version") shouldBe "algo-v4"
+    enriched.getAs[Double]("rating") shouldBe 4.5
+    enriched.getAs[String]("negative_feedback_reason") shouldBe "not_interested"
+    enriched.getAs[Long]("dwell_millis") shouldBe 12000L
+    enriched.getAs[Double]("completion_rate") shouldBe 0.75
+    enriched.getAs[Long]("published_at") shouldBe 50L
+    enriched.getAs[Boolean]("new_release") shouldBe true
+    enriched.getAs[String]("filter_reason") shouldBe "muted_genre"
+    enriched.getAs[Boolean]("unsafe_label") shouldBe false
+    enriched.getAs[Long]("last_feedback_ts") shouldBe 105L
+    enriched.getAs[Long]("feedback_delay_ms") shouldBe 5000L
+  }
+
   "enrichWithCatalog" should "attach genres/tags by item_id and fill empty arrays for misses" in {
     val sparkSession = spark
     import sparkSession.implicits._

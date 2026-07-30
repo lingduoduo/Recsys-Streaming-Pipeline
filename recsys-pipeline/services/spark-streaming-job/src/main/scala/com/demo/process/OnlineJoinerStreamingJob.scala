@@ -9,6 +9,20 @@ import org.apache.spark.sql.types._
 
 object OnlineJoinerStreamingJob {
 
+  private val MeasurementFields: Seq[(String, DataType)] = Seq(
+    "model_version" -> StringType,
+    "policy_version" -> StringType,
+    "algorithm_version" -> StringType,
+    "rating" -> DoubleType,
+    "negative_feedback_reason" -> StringType,
+    "dwell_millis" -> LongType,
+    "completion_rate" -> DoubleType,
+    "published_at" -> LongType,
+    "new_release" -> BooleanType,
+    "filter_reason" -> StringType,
+    "unsafe_label" -> BooleanType
+  )
+
   def main(args: Array[String]): Unit = {
     val spark = SparkSessions.create("OnlineJoinerStreamingJob")
 
@@ -105,7 +119,9 @@ object OnlineJoinerStreamingJob {
     val isImpression = col("etype").isin("impression", "exposure")
     val isFeedback   = col("etype").isin("click", "order", "purchase")
 
-    events
+    MeasurementFields.foldLeft(events) { case (df, (name, dataType)) =>
+      if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
+    }
       .withColumn("etype", lower(trim(col("event_type"))))
       // Single-pass conditional groupBy: one shuffle replaces (groupBy feedback) + (left join).
       // Because the producer keys behavior events by request_id, all events in a slate
@@ -121,6 +137,17 @@ object OnlineJoinerStreamingJob {
         max(when(col("etype") === "click", lit(1)).otherwise(lit(0))).as("clicked"),
         max(when(col("etype").isin("order", "purchase"), lit(1)).otherwise(lit(0))).as("ordered"),
         max(when(isFeedback, col("timestamp"))).as("last_feedback_ts"),
+        first(col("model_version"), ignoreNulls = true).as("model_version"),
+        first(col("policy_version"), ignoreNulls = true).as("policy_version"),
+        first(col("algorithm_version"), ignoreNulls = true).as("algorithm_version"),
+        first(col("rating"), ignoreNulls = true).as("rating"),
+        first(col("negative_feedback_reason"), ignoreNulls = true).as("negative_feedback_reason"),
+        first(col("dwell_millis"), ignoreNulls = true).as("dwell_millis"),
+        first(col("completion_rate"), ignoreNulls = true).as("completion_rate"),
+        first(col("published_at"), ignoreNulls = true).as("published_at"),
+        first(col("new_release"), ignoreNulls = true).as("new_release"),
+        first(col("filter_reason"), ignoreNulls = true).as("filter_reason"),
+        first(col("unsafe_label"), ignoreNulls = true).as("unsafe_label"),
         // session_id is constant across a slate's events; carry it through (one session per request).
         first(col("session_id"), ignoreNulls = true).as("session_id")
       )
@@ -140,6 +167,19 @@ object OnlineJoinerStreamingJob {
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
         col("last_feedback_ts"),
+        when(col("last_feedback_ts").isNotNull,
+          (col("last_feedback_ts") - col("impression_ts")) * 1000L).as("feedback_delay_ms"),
+        col("model_version"),
+        col("policy_version"),
+        col("algorithm_version"),
+        col("rating"),
+        col("negative_feedback_reason"),
+        col("dwell_millis"),
+        col("completion_rate"),
+        col("published_at"),
+        col("new_release"),
+        col("filter_reason"),
+        col("unsafe_label"),
         coalesce(col("session_id"), lit("")).as("session_id"),
         coalesce(col("user_features"),     typedLit(Map.empty[String, String])).as("user_features"),
         coalesce(col("item_features"),     typedLit(Map.empty[String, String])).as("item_features"),

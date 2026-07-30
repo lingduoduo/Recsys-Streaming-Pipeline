@@ -16,6 +16,19 @@ object RecommendationResponseStatsJob {
     StructField("clicked", IntegerType, nullable = true),
     StructField("ordered", IntegerType, nullable = true),
     StructField("label", DoubleType, nullable = true),
+    StructField("last_feedback_ts", LongType, nullable = true),
+    StructField("feedback_delay_ms", LongType, nullable = true),
+    StructField("model_version", StringType, nullable = true),
+    StructField("policy_version", StringType, nullable = true),
+    StructField("algorithm_version", StringType, nullable = true),
+    StructField("rating", DoubleType, nullable = true),
+    StructField("negative_feedback_reason", StringType, nullable = true),
+    StructField("dwell_millis", LongType, nullable = true),
+    StructField("completion_rate", DoubleType, nullable = true),
+    StructField("published_at", LongType, nullable = true),
+    StructField("new_release", BooleanType, nullable = true),
+    StructField("filter_reason", StringType, nullable = true),
+    StructField("unsafe_label", BooleanType, nullable = true),
     StructField("item_features", MapType(StringType, StringType), nullable = true)
   ))
 
@@ -71,13 +84,26 @@ object RecommendationResponseStatsJob {
   }
 
   def parseSlates(rawKafka: DataFrame): DataFrame =
-    rawKafka.selectExpr("CAST(value AS STRING) AS json")
-      .select(from_json(col("json"), SlateSchema).as("data"))
-      .select("data.*")
+    rawKafka
+      .select(col("timestamp").as("kafka_timestamp"), col("value").cast(StringType).as("json"))
+      .select(col("kafka_timestamp"), from_json(col("json"), SlateSchema).as("data"))
+      .selectExpr("kafka_timestamp", "data.*")
+      .withColumn(
+        "kafka_ingest_lag_ms",
+        when(
+          col("kafka_timestamp").isNotNull && col("request_ts").isNotNull,
+          unix_millis(col("kafka_timestamp")) - col("request_ts") * 1000L
+        )
+      )
+      .drop("kafka_timestamp")
       .filter(col("slate_id").isNotNull && col("request_id").isNotNull && col("user_id").isNotNull)
 
   def buildMetricEvents(slates: DataFrame): DataFrame = {
-    val enriched = slates
+    val withIngestLag =
+      if (slates.columns.contains("kafka_ingest_lag_ms")) slates
+      else slates.withColumn("kafka_ingest_lag_ms", lit(null).cast(LongType))
+
+    val enriched = withIngestLag
       .withColumn("safe_items", coalesce(col("items"), array().cast(ArrayType(ItemSchema))))
       .withColumn("safe_user_features", coalesce(col("user_features"), typedLit(Map.empty[String, String])))
       .withColumn("safe_context_features", coalesce(col("context_features"), typedLit(Map.empty[String, String])))
@@ -122,11 +148,14 @@ object RecommendationResponseStatsJob {
         col("metric.tags").as("tags"),
         col("metric.value").as("value")
       )
-      .filter(col("value") > 0L)
+      .filter(
+        col("value") > 0L ||
+          col("tags").getItem("type").isin("feedback_delay_ms", "kafka_ingest_lag_ms")
+      )
   }
 
-  private def metricArray: Column =
-    array(
+  private def metricArray: Column = {
+    val standard = array(
       metric("total", col("subscription"), lit(null).cast(StringType), lit(null).cast(StringType), lit(1L)),
       metric("total", col("subscription"), col("country"), lit(null).cast(StringType), lit(1L)),
       metric("items", col("subscription"), lit(null).cast(StringType), col("blender"), col("selected_items")),
@@ -136,6 +165,22 @@ object RecommendationResponseStatsJob {
       stageMetric("sufficient_ads", "response", col("subscription"), col("blender"), when(col("selected_ads") >= 5L, lit(1L)).otherwise(lit(0L))),
       stageMetric("sufficient_items", "response", col("subscription"), col("blender"), when(col("selected_items") >= 20L, lit(1L)).otherwise(lit(0L)))
     )
+
+    val feedbackDelays = transform(
+      filter(col("safe_items"), item =>
+        item.getField("feedback_delay_ms").isNotNull && item.getField("feedback_delay_ms") >= lit(0L)
+      ),
+      item => delayMetric("feedback_delay_ms", col("subscription"), col("country"), item.getField("feedback_delay_ms"))
+    )
+    val ingestDelay = filter(
+      array(when(
+        col("kafka_ingest_lag_ms").isNotNull && col("kafka_ingest_lag_ms") >= lit(0L),
+        delayMetric("kafka_ingest_lag_ms", col("subscription"), col("country"), col("kafka_ingest_lag_ms"))
+      )),
+      metric => metric.isNotNull
+    )
+    concat(standard, feedbackDelays, ingestDelay)
+  }
 
   private def metric(metricType: String, subscription: Column, country: Column, blender: Column, value: Column): Column =
     struct(
@@ -155,6 +200,16 @@ object RecommendationResponseStatsJob {
         lit("stage"), lit(stage),
         lit("subscription"), subscription,
         lit("blender"), blender
+      )).as("tags"),
+      value.cast("long").as("value")
+    )
+
+  private def delayMetric(metricType: String, subscription: Column, country: Column, value: Column): Column =
+    struct(
+      cleanTags(map(
+        lit("type"), lit(metricType),
+        lit("subscription"), subscription,
+        lit("country"), country
       )).as("tags"),
       value.cast("long").as("value")
     )

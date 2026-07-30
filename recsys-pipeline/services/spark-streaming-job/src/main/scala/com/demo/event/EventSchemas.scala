@@ -28,7 +28,18 @@ object EventSchemas {
       StructField("position", IntegerType, nullable = true),
       StructField("user_features", MapType(StringType, StringType), nullable = true),
       StructField("item_features", MapType(StringType, StringType), nullable = true),
-      StructField("context_features", MapType(StringType, StringType), nullable = true)
+      StructField("context_features", MapType(StringType, StringType), nullable = true),
+      StructField("model_version", StringType, nullable = true),
+      StructField("policy_version", StringType, nullable = true),
+      StructField("algorithm_version", StringType, nullable = true),
+      StructField("rating", DoubleType, nullable = true),
+      StructField("negative_feedback_reason", StringType, nullable = true),
+      StructField("dwell_millis", LongType, nullable = true),
+      StructField("completion_rate", DoubleType, nullable = true),
+      StructField("published_at", LongType, nullable = true),
+      StructField("new_release", BooleanType, nullable = true),
+      StructField("filter_reason", StringType, nullable = true),
+      StructField("unsafe_label", BooleanType, nullable = true)
     )
   )
 }
