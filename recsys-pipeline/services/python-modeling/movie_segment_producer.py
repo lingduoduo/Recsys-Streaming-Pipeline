@@ -172,7 +172,7 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
             click["completion_rate"] = round(completion, 4)
             click["dwell_millis"] = int(completion * 120_000)
             click["negative_feedback_reason"] = (
-                "not_interested" if completion < NEGATIVE_COMPLETION_CUTOFF else None)
+                "not_interested" if click["completion_rate"] < NEGATIVE_COMPLETION_CUTOFF else None)
             events.append(click)
 
             if rng.random() < order_prob(meta):
