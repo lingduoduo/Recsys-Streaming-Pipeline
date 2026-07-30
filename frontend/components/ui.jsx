@@ -1,6 +1,6 @@
-export function Section({ title, headline, children }) {
+export function Section({ title, headline, children, id }) {
   return (
-    <section className="report-card">
+    <section className="report-card" id={id}>
       <div className="section-heading">
         <h2>{title}</h2>
         {headline ? <p className="insight">{headline}</p> : null}
@@ -10,9 +10,9 @@ export function Section({ title, headline, children }) {
   );
 }
 
-export function NaCard({ title, reason }) {
+export function NaCard({ title, reason, id }) {
   return (
-    <section className="report-card status-card">
+    <section className="report-card status-card" id={id}>
       <div className="section-heading">
         <h2>{title}</h2>
         <p className="na">N/A — {reason}</p>
@@ -93,4 +93,19 @@ function formatCell(v) {
   if (typeof v === "number") return String(round4(v));
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+// One scorecard tile. Status reflects DATA AVAILABILITY only — never whether the
+// number is good, because no targets have been set for these measurements.
+export function MetricTile({ title, value, label, sampleSize, status, reason, href }) {
+  return (
+    <a className={`metric-tile status-${status}`} href={href}>
+      <span className="metric-title">{title}</span>
+      <span className="metric-value">{value}</span>
+      <span className="metric-label">{label}</span>
+      <span className="metric-support">
+        {status === "na" ? reason : `n=${(sampleSize ?? 0).toLocaleString()}`}
+      </span>
+    </a>
+  );
 }

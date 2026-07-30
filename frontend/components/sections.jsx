@@ -1,4 +1,4 @@
-import { Section, NaCard, BarChart, DataTable } from "./ui";
+import { Section, NaCard, BarChart, DataTable, MetricTile } from "./ui";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const pct = (v) => (v === null || v === undefined ? "N/A" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
@@ -10,14 +10,68 @@ const ci = (lo, hi, asPct = false) =>
       ? `[${pct(lo)}, ${pct(hi)}]`
       : `[${num(lo)}, ${num(hi)}]`;
 
+// Which single number represents each measurement on the scorecard. `field` must be a
+// key the calculator actually publishes — the contract test enforces that.
+const HEADLINES = {
+  relevance: { rowIndex: 1, field: "ndcg_at_k", label: "NDCG@10", format: "num" },
+  satisfaction: { rowIndex: 0, field: "ctr", label: "CTR", format: "pct" },
+  freshness: { rowIndex: 0, field: "fresh_share", label: "fresh share", format: "pct" },
+  diversity: { rowIndex: 0, field: "normalized_genre_entropy", label: "genre entropy", format: "num" },
+  fairness: { rowIndex: 0, field: "ctr_max_min_gap", label: "largest CTR gap", format: "num" },
+  safety: { rowIndex: 0, field: "unsafe_exposure_rate", label: "unsafe exposure", format: "pct" },
+  // Endpoint rows are emitted in sorted order over the fixed {feedback, recommend}
+  // allowlist, so index 1 is always /recommend.
+  latency: { rowIndex: 1, field: "p95", label: "p95 /recommend", format: "ms" },
+};
+
+const TITLES = {
+  relevance: "Relevance", satisfaction: "Satisfaction", freshness: "Freshness",
+  diversity: "Diversity", fairness: "Fairness", safety: "Safety", latency: "Latency",
+};
+
+const LOW_COVERAGE = 0.5;
+
+function headlineValue(section, spec) {
+  const row = section.rows?.[spec.rowIndex] ?? section.rows?.[0];
+  const value = row?.[spec.field];
+  if (value === null || value === undefined) return "N/A";
+  if (spec.format === "pct") return share(value);
+  if (spec.format === "ms") return `${num(value, 1)} ms`;
+  return num(value, 3);
+}
+
+export function Scorecard({ data }) {
+  return (
+    <section className="scorecard">
+      {Object.entries(HEADLINES).map(([key, spec]) => {
+        const section = data[key];
+        const available = section?.status === "available";
+        const status = !available ? "na" : (section.coverage ?? 1) < LOW_COVERAGE ? "low" : "ok";
+        return (
+          <MetricTile
+            key={key}
+            href={`#${key}`}
+            title={TITLES[key]}
+            value={available ? headlineValue(section, spec) : "N/A"}
+            label={spec.label}
+            sampleSize={section?.sampleSize}
+            status={status}
+            reason={section?.warnings?.[0] || "measurement unavailable"}
+          />
+        );
+      })}
+    </section>
+  );
+}
+
 // One consistent presentation for every measurement envelope: headline, the support it
 // was calculated from, any warnings, then the rows. Never invents a value for N/A.
 function MeasurementSection({ title, data, columns, children }) {
   if (!data || data.status !== "available") {
-    return <NaCard title={title} reason={data?.warnings?.[0] || "measurement unavailable"} />;
+    return <NaCard title={title} reason={data?.warnings?.[0] || "measurement unavailable"} id={title.toLowerCase()} />;
   }
   return (
-    <Section title={title} headline={data.headline}>
+    <Section title={title} headline={data.headline} id={title.toLowerCase()}>
       <p className="fine-print">
         sample size {data.sampleSize?.toLocaleString() ?? "N/A"} · coverage {share(data.coverage)}
         {data.window ? ` · window ${data.window}` : ""}

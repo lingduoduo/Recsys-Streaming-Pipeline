@@ -208,3 +208,44 @@ table.rpt tbody tr:hover {
     align-self: flex-start;
   }
 }
+
+.scorecard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.metric-tile {
+  display: grid;
+  gap: 2px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-decoration: none;
+  color: inherit;
+}
+
+.metric-tile.status-ok { border-left-color: #0d9488; }
+.metric-tile.status-low { border-left-color: #b45309; }
+.metric-tile.status-na { border-left-color: var(--muted); background: #f8fafc; }
+
+.metric-title {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.metric-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-label { font-size: 0.8rem; color: var(--muted); }
+.metric-support { font-size: 0.72rem; color: var(--muted); }

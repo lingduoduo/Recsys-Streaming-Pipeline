@@ -289,3 +289,28 @@ def test_measurement_config_rejects_out_of_range_values(tmp_path):
                     {"fairness_min_support": 0}):
         with pytest.raises(ValueError):
             dash.build_measurement_dashboard(samples, None, None, invalid)
+
+
+def test_scorecard_headline_fields_exist_in_the_published_rows(tmp_path, monkeypatch):
+    """Every field the scorecard reads must be a real key in that section's rows."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    monkeypatch.setenv("REDIS_PORT", "6399")
+
+    samples = _samples_frame(pd)
+    samples.to_parquet(tmp_path / "samples", index=False)
+    _slates_frame(pd, samples).to_parquet(tmp_path / "experiences", index=False)
+    (tmp_path / "live.json").write_text(json.dumps(_live_metrics()))
+    output = _export(tmp_path, experiences=tmp_path / "experiences", live=tmp_path / "live.json",
+                     extra_args=["--fairness-min-support", "1"])
+
+    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
+    assert headlines, "sections.jsx must declare a HEADLINES map"
+
+    declared = re.findall(r'(\w+):\s*\{[^}]*field:\s*"([^"]+)"', headlines.group(1))
+    assert {key for key, _ in declared} == MEASUREMENT_KEYS
+
+    for key, field in declared:
+        published = {column for row in output[key]["rows"] for column in row}
+        assert field in published, f"scorecard reads {key}.{field}, which no row publishes"
