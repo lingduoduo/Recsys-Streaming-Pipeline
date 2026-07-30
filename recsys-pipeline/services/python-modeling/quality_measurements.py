@@ -201,10 +201,10 @@ def _leave_one_out_metrics(
     slate_records: Sequence[tuple[Sequence[float], str | None]],
     k: int,
 ) -> tuple[list[float], list[float], int, int]:
-    """Aggregate positive held-out slate outcomes by user under the LOO protocol."""
+    """Aggregate every complete labeled user fold under the LOO protocol."""
     outcomes_by_user: dict[str, list[float]] = {}
     for labels, user_id in slate_records:
-        if user_id is None or not any(value > 0 for value in labels):
+        if user_id is None:
             continue
         outcomes_by_user.setdefault(user_id, []).append(1.0 if any(value > 0 for value in labels[:k]) else 0.0)
     recall_values = [sum(outcomes) / len(outcomes) for outcomes in outcomes_by_user.values()]
@@ -353,8 +353,8 @@ def _numeric_value(value: object) -> float | None:
 
 def _boolean_value(value: object) -> bool | None:
     """Parse booleans and documented 0/1 or true/false serializations."""
-    if isinstance(value, bool):
-        return value
+    if pd.api.types.is_bool(value):
+        return bool(value)
     if isinstance(value, Real) and math.isfinite(float(value)) and value in (0, 1):
         return bool(value)
     if isinstance(value, str):

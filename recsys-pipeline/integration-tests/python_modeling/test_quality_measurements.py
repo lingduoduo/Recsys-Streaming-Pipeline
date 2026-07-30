@@ -261,3 +261,47 @@ def test_diversity_keeps_per_slate_rows_alongside_aggregate():
     assert slate_rows["r1"]["scope"] == "slate"
     assert slate_rows["r1"]["unique_genres_at_k"] == 1.0
     assert slate_rows["r2"]["unique_genres_at_k"] == 2.0
+
+
+def test_leave_one_out_counts_complete_zero_folds_and_all_miss_users():
+    """Complete misses count as zero outcomes while incomplete folds remain unavailable."""
+    result = compute_relevance(pd.DataFrame([
+        {"user_id": "u1", "items": [{"label": 1.0}, {"label": 0.0}]},
+        {"user_id": "u1", "items": [{"label": 1.0}, {"label": None}]},
+        {"user_id": "u1", "items": [{"label": 0.0}, {"label": 0.0}]},
+        {"user_id": "u2", "items": [{"label": 0.0}, {"label": 0.0}]},
+    ]), ks=(1,))
+
+    row = result["rows"][0]
+    assert row["recall_at_k"] == 0.25
+    assert row["hit_rate_at_k"] == 0.5
+    assert row["evaluated_user_count"] == 2
+    assert row["leave_one_out_fold_count"] == 3
+
+
+def test_freshness_accepts_homogeneous_and_nullable_pandas_boolean_columns():
+    """Native pandas boolean scalars are valid fallbacks, while pd.NA stays missing."""
+    now = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    homogeneous = compute_freshness(
+        pd.DataFrame({"new_release": pd.Series([True, False], dtype=bool)}), now
+    )
+    nullable = compute_freshness(
+        pd.DataFrame({"new_release": pd.Series([True, False, pd.NA], dtype="boolean")}), now
+    )
+
+    assert homogeneous["status"] == "available"
+    assert homogeneous["rows"][0]["fresh_share"] == 0.5
+    assert nullable["status"] == "available"
+    assert nullable["rows"][0]["fresh_share"] == 0.5
+    assert nullable["rows"][0]["freshness_coverage"] == pytest.approx(0.6667)
+
+
+@pytest.mark.parametrize("value", ["yes", "1.0", 2, -1])
+def test_freshness_rejects_arbitrary_truthy_boolean_encodings(value):
+    """Only documented boolean encodings are accepted by the fallback parser."""
+    result = compute_freshness(
+        pd.DataFrame([{"new_release": value}]),
+        datetime(2026, 7, 30, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "unavailable"
