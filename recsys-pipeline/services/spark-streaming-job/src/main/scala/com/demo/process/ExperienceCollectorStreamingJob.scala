@@ -1,5 +1,6 @@
 package com.demo.process
 
+import com.demo.engine.ParquetSink
 import com.demo.event.EventParsing
 import com.demo.util.{BatchMetricsListener, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -58,6 +59,9 @@ object ExperienceCollectorStreamingJob {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     val inputTopic = sys.env.getOrElse("EXPERIENCE_COLLECTOR_INPUT_TOPIC", "training_samples")
     val outputTopic = sys.env.getOrElse("EXPERIENCE_COLLECTOR_OUTPUT_TOPIC", "training_experiences")
+    val outputPath  = sys.env.getOrElse("EXPERIENCE_COLLECTOR_OUTPUT_PATH", "")
+    val outputFiles = sys.env.get("EXPERIENCE_COLLECTOR_OUTPUT_FILES").map(_.toInt).getOrElse(1)
+    val slateSink   = parquetSink(outputPath, outputFiles)
     val checkpointLocation = sys.env.getOrElse(
       "SPARK_CHECKPOINT_LOCATION",
       "/tmp/spark-recsys/experience-collector"
@@ -93,12 +97,21 @@ object ExperienceCollectorStreamingJob {
           .option("kafka.bootstrap.servers", kafkaBootstrapServers)
           .option("topic", outputTopic)
           .save()
+
+        slateSink.foreach(_.write(slates, batchId))
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
       .start()
       .awaitTermination()
   }
+
+  /** Optional Parquet sink for slate experiences, mirroring the joiner's training-sample
+    * sink. Returns None when no path is configured, leaving the Kafka path untouched. */
+  def parquetSink(outputPath: String, outputFiles: Int): Option[ParquetSink] =
+    if (outputPath.isEmpty) None
+    else Some(new ParquetSink(outputPath, "date", math.max(1, outputFiles),
+      (df: DataFrame) => df.withColumn("date", to_date(from_unixtime(col("request_ts"))))))
 
   def parseSamples(rawKafka: DataFrame): DataFrame =
     EventParsing.fromJson(rawKafka, TrainingSampleSchema)
