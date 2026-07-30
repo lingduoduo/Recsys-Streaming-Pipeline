@@ -36,8 +36,8 @@ SAFETY_REASONS: tuple[str, ...] = (
 )
 """The fixed allowlist of candidate-filter reasons for policy accounting."""
 
-MAX_RELEVANCE_LABEL = 5.0
-"""Largest accepted graded relevance label; larger values are unavailable."""
+ALLOWED_RELEVANCE_LABELS: frozenset[float] = frozenset((0.0, 1.0, 2.0))
+"""The pipeline's complete impression/click/order graded-relevance domain."""
 
 
 def compute_fairness(
@@ -299,8 +299,10 @@ def _numeric_value(value: object) -> float | None:
 
 
 def _relevance_label(value: object) -> float | None:
+    if pd.api.types.is_bool(value) or not isinstance(value, Real):
+        return None
     numeric = _numeric_value(value)
-    if numeric is None or not 0.0 <= numeric <= MAX_RELEVANCE_LABEL:
+    if numeric not in ALLOWED_RELEVANCE_LABELS:
         return None
     return numeric
 

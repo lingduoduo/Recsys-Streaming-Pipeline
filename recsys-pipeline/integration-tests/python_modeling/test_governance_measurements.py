@@ -191,6 +191,40 @@ def test_fairness_rejects_extreme_labels_without_crashing_ndcg():
     assert row["groups"][0]["ndcg"] is None
 
 
+@pytest.mark.parametrize("label", [0, 1, 2, 0.0, 1.0, 2.0])
+def test_fairness_ndcg_accepts_only_the_documented_numeric_relevance_grades(label):
+    """The documented 0/1/2 grades remain evaluable across integer/float scalars."""
+    result = compute_fairness(
+        pd.DataFrame([
+            {"gender": "a", "request_id": "r1", "position": 0, "label": label},
+            {"gender": "a", "request_id": "r1", "position": 1, "label": 2.0},
+        ]),
+        min_support=2,
+        dimensions=("gender",),
+    )
+
+    group = result["rows"][0]["groups"][0]
+    assert group["ndcg"] is not None
+    assert group["ndcg_evaluated_slate_count"] == 1
+
+
+@pytest.mark.parametrize("label", [2.5, 3, 5.0, -1, math.inf, math.nan, True, False, "2"])
+def test_fairness_ndcg_rejects_outside_or_non_numeric_relevance_encodings(label):
+    """Fractional, out-of-domain, non-finite, and boolean-like labels are unavailable."""
+    result = compute_fairness(
+        pd.DataFrame([
+            {"gender": "a", "request_id": "r1", "position": 0, "label": label},
+            {"gender": "a", "request_id": "r1", "position": 1, "label": 2.0},
+        ]),
+        min_support=2,
+        dimensions=("gender",),
+    )
+
+    group = result["rows"][0]["groups"][0]
+    assert group["ndcg"] is None
+    assert group["ndcg_evaluated_slate_count"] == 0
+
+
 def test_fairness_accepts_only_boolean_or_zero_one_outcome_encodings():
     """Out-of-range and non-finite click/order telemetry is excluded from coverage."""
     nullable_boolean = compute_fairness(
