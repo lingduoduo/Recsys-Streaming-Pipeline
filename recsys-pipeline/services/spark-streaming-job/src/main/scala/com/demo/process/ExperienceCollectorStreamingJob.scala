@@ -7,6 +7,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
+import org.apache.spark.storage.StorageLevel
 
 object ExperienceCollectorStreamingJob {
 
@@ -86,19 +87,24 @@ object ExperienceCollectorStreamingJob {
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
         val slates = buildSlates(parseSamples(batch))
           .withColumn("batch_id", lit(batchId))
+          .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-        slates
-          .select(
-            col("slate_id").as("key"),
-            to_json(struct(slates.columns.map(col): _*)).as("value")
-          )
-          .write
-          .format("kafka")
-          .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-          .option("topic", outputTopic)
-          .save()
+        try {
+          slates
+            .select(
+              col("slate_id").as("key"),
+              to_json(struct(slates.columns.map(col): _*)).as("value")
+            )
+            .write
+            .format("kafka")
+            .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+            .option("topic", outputTopic)
+            .save()
 
-        slateSink.foreach(_.write(slates, batchId))
+          slateSink.foreach(_.write(slates, batchId))
+        } finally {
+          slates.unpersist()
+        }
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
