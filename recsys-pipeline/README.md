@@ -481,6 +481,85 @@ Replay and reward-model Redis keys:
 | `reward-model:genre:{genre}` | hash | Per-genre count and reward total |
 | `reward-model:tag:{tag}` | hash | Per-tag count and reward total |
 
+## Recommendation Measurements
+
+Measurement-only coverage of seven quality dimensions. **Nothing here changes candidate
+generation, filtering, ranking, or selection** — the calculators read recorded outcomes, and the
+Java service only observes the work it was already doing.
+
+### Capture the inputs
+
+```bash
+# 1. live operational measurements from the running retrieval service
+curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
+
+# 2. offline measurements from a run's training samples + slate experiences
+cd recsys-pipeline
+IN=/tmp/spark-recsys/movie-category-sim
+REDIS_HOST=localhost python ../frontend/export_dashboard_json.py \
+  --input "$IN/training-samples" \
+  --experiences "$IN/training-experiences" \
+  --live-metrics /tmp/spark-recsys/live-metrics.json \
+  --output ../frontend/data/dashboard.json
+```
+
+`/metrics` keeps every pre-existing key and adds `measurements` (schema `2.0`) with the live
+latency, freshness, safety, and feedback-coverage sections. `--experiences` is the slate dataset
+written by `ExperienceCollectorStreamingJob`; without it the listwise measures stay N/A.
+
+### What each dimension measures
+
+| Dimension | Measures | Denominator / support |
+|---|---|---|
+| Relevance | NDCG@k, MRR@k, leave-one-out recall@k and hit-rate@k | Slates whose items all carry labels; user folds for the LOO measures |
+| Satisfaction | CTR, order rate, mean reward, mean rating, negative-feedback rate, dwell, completion | Recorded samples; each optional signal reports its own coverage |
+| Freshness | Fresh share, mean/median content age, fresh vs established CTR and reward | Samples with an observed `published_at`, else the `new_release` boolean fallback |
+| Diversity | Unique genres, normalized genre entropy, intra-list Jaccard distance, long-tail exposure share | Slate items with genres / popularity, averaged over slates |
+| Fairness | Per-group exposure, CTR, order rate, reward, NDCG plus max-min gaps and disparity ratios | Candidates per group, after suppression |
+| Safety | Filter-decision rate by reason, unknown share, unsafe exposure rate | Evaluated candidates; unsafe exposure over independently labeled exposures |
+| Latency | Endpoint and stage p50/p95/p99, error and timeout rates | Requests recorded since service start |
+
+### Availability rules
+
+- Every section is an envelope: `status`, `headline`, `sampleSize`, `coverage`, `window`,
+  `warnings`, `rows`.
+- A missing signal is **unavailable with a named reason**, never zero. An observed `false` or `0`
+  is a measured value and is reported as such.
+- Every rate carries its denominator or sample size, and every optional signal carries coverage.
+- Live rows are merged alongside the offline rows (`scope: offline` / `scope: live_service`); a
+  live measurement never overwrites an offline one.
+
+### Interpretation caveats
+
+- **Fairness is observational.** Groups differ in catalog, intent, and traffic mix, so a gap is
+  not evidence of discriminatory treatment. Groups below `RECSYS_FAIRNESS_MIN_SUPPORT`
+  (default 100) impressions are suppressed and only counted in `suppressed_group_count`.
+- **Safety accounting is scoped to the catalog filter taxonomy** — `expired`,
+  `muted_product_type`, `muted_genre`, `muted_keyword`, `muted_title`, and `unknown`. It records
+  which policy rule rejected a candidate under `policy_version`; it is not a content-moderation
+  verdict. `unsafe_exposure_rate` requires independently supplied `unsafe_label` values.
+- **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
+  Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback) and
+  `kafka_ingest_lag_ms` (event time → Kafka record time) are emitted as Spark metric events.
+- No user ID, item ID, request ID, or free-form reason is ever used as a metric label; filter
+  reasons, countries, and subscription levels are bucketed to fixed allowlists.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RECSYS_FAIRNESS_MIN_SUPPORT` | `100` | Minimum impressions before a fairness group is published |
+| `RECSYS_FRESHNESS_WINDOW_DAYS` | `30` | Age below which an item counts as fresh |
+| `RECSYS_LONG_TAIL_PERCENTILE` | `0.80` | Popularity percentile below which exposure is long-tail |
+| `RECSYS_SAFETY_POLICY_VERSION` | `catalog-filter-v1` | Version stamped on safety accounting |
+| `RECSYS_LATENCY_BUCKETS_MS` | `5,10,25,50,100,250,500,1000,2500` | Latency histogram boundaries |
+
+The exporter takes the same knobs as `--fairness-min-support`, `--freshness-window-days`,
+`--long-tail-percentile`, and `--safety-policy-version`.
+
+`sampledata/catalog.json` carries both `publishedAt` (UTC ISO-8601, the timestamp freshness
+source) and `newRelease` (the boolean fallback for services with no publication timestamp).
+
 ## Simulation Harnesses
 
 End-to-end synthetic-stream sims drive the real pipeline (docker → producer → Spark jobs →
