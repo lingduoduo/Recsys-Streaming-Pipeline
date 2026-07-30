@@ -1,4 +1,4 @@
-import { Section, NaCard, BarChart, DataTable, MetricTile } from "./ui";
+import { Section, NaCard, BarChart, GroupedBarChart, DataTable, MetricTile } from "./ui";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const pct = (v) => (v === null || v === undefined ? "N/A" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
@@ -79,10 +79,12 @@ export function Scorecard({ data }) {
 
 // One consistent presentation for every measurement envelope: headline, the support it
 // was calculated from, any warnings, then the rows. Never invents a value for N/A.
-function MeasurementSection({ title, data, columns, children }) {
+function MeasurementSection({ title, data, columns, kpis, chart, children }) {
   if (!data || data.status !== "available") {
-    return <NaCard title={title} reason={data?.warnings?.[0] || "measurement unavailable"} id={title.toLowerCase()} />;
+    return <NaCard title={title} id={title.toLowerCase()} reason={data?.warnings?.[0] || "measurement unavailable"} />;
   }
+  const rows = data.rows || [];
+  const values = kpis ? kpis(rows) : [];
   return (
     <Section title={title} headline={data.headline} id={title.toLowerCase()}>
       <p className="fine-print">
@@ -90,7 +92,18 @@ function MeasurementSection({ title, data, columns, children }) {
         {data.window ? ` · window ${data.window}` : ""}
       </p>
       {data.warnings?.length ? <p className="na">{data.warnings.join(" · ")}</p> : null}
-      <DataTable rows={data.rows || []} columns={columns} />
+      {values.length ? (
+        <div className="kpi-row">
+          {values.map((kpi) => (
+            <div className="kpi" key={kpi.label}>
+              <span className="kpi-value">{kpi.value}</span>
+              <span className="kpi-label">{kpi.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {chart ? chart(rows) : null}
+      <DataTable rows={rows} columns={columns} />
       {children}
     </Section>
   );
@@ -105,6 +118,25 @@ export function RelevanceSection({ data }) {
         "k", "ndcg_at_k", "mrr_at_k", "recall_at_k", "hit_rate_at_k",
         "evaluated_slate_count", "evaluated_user_count", "label_coverage",
       ]}
+      kpis={(rows) => {
+        const row = rows.find((r) => r.k === 10) || rows[0] || {};
+        return [
+          { label: "NDCG@10", value: num(row.ndcg_at_k, 3) },
+          { label: "MRR@10", value: num(row.mrr_at_k, 3) },
+          { label: "recall@10", value: num(row.recall_at_k, 3) },
+          { label: "slates", value: (row.evaluated_slate_count ?? 0).toLocaleString() },
+        ];
+      }}
+      chart={(rows) => (
+        <GroupedBarChart
+          title="Relevance by cutoff"
+          labels={rows.map((r) => `k=${r.k}`)}
+          series={[
+            { name: "ndcg", values: rows.map((r) => r.ndcg_at_k ?? 0) },
+            { name: "mrr", values: rows.map((r) => r.mrr_at_k ?? 0) },
+          ]}
+        />
+      )}
     />
   );
 }
@@ -119,6 +151,24 @@ export function SatisfactionSection({ data }) {
         "negative_feedback_rate", "negative_feedback_coverage", "mean_dwell_millis",
         "dwell_coverage", "mean_completion_rate", "completion_coverage", "feedback_events",
       ]}
+      kpis={(rows) => {
+        const row = rows[0] || {};
+        return [
+          { label: "CTR", value: share(row.ctr) },
+          { label: "order rate", value: share(row.order_rate) },
+          { label: "mean rating", value: num(row.mean_rating, 2) },
+          { label: "mean dwell", value: num(row.mean_dwell_millis, 0) },
+        ];
+      }}
+      chart={(rows) => {
+        const row = rows[0] || {};
+        const fields = ["rating_coverage", "negative_feedback_coverage", "dwell_coverage", "completion_coverage"];
+        return (
+          <BarChart title="Optional signal coverage"
+            labels={fields.map((f) => f.replace("_coverage", ""))}
+            values={fields.map((f) => row[f] ?? 0)} />
+        );
+      }}
     />
   );
 }
@@ -133,6 +183,23 @@ export function FreshnessSection({ data }) {
         "mean_content_age_days", "median_content_age_days", "fresh_ctr", "established_ctr",
         "fresh_mean_reward", "established_mean_reward", "exposures",
       ]}
+      kpis={(rows) => {
+        const row = rows[0] || {};
+        return [
+          { label: "fresh share", value: share(row.fresh_share) },
+          { label: "mean age (days)", value: num(row.mean_content_age_days, 1) },
+          { label: "fresh CTR", value: share(row.fresh_ctr) },
+          { label: "established CTR", value: share(row.established_ctr) },
+        ];
+      }}
+      chart={(rows) => {
+        const row = rows[0] || {};
+        return (
+          <BarChart title="CTR by content age"
+            labels={["fresh", "established"]}
+            values={[row.fresh_ctr ?? 0, row.established_ctr ?? 0]} />
+        );
+      }}
     />
   );
 }
@@ -147,6 +214,24 @@ export function DiversitySection({ data }) {
         "intra_list_genre_distance", "long_tail_exposure_share",
         "long_tail_popularity_cutoff", "genre_coverage", "popularity_coverage",
       ]}
+      kpis={(rows) => {
+        const row = rows.find((r) => r.scope === "aggregate") || rows[0] || {};
+        return [
+          { label: "genre entropy", value: num(row.normalized_genre_entropy, 3) },
+          { label: "unique genres", value: num(row.unique_genres_at_k, 2) },
+          { label: "intra-list distance", value: num(row.intra_list_genre_distance, 3) },
+          { label: "long-tail share", value: share(row.long_tail_exposure_share) },
+        ];
+      }}
+      chart={(rows) => {
+        const row = rows.find((r) => r.scope === "aggregate") || rows[0] || {};
+        return (
+          <BarChart title="Diversity (0–1)"
+            labels={["genre entropy", "intra-list distance", "long-tail share"]}
+            values={[row.normalized_genre_entropy ?? 0, row.intra_list_genre_distance ?? 0,
+                     row.long_tail_exposure_share ?? 0]} />
+        );
+      }}
     />
   );
 }
@@ -162,6 +247,22 @@ export function FairnessSection({ data }) {
         "suppressed_group_count", "ctr_max_min_gap", "ctr_disparity_ratio",
         "ndcg_max_min_gap", "ndcg_disparity_ratio",
       ]}
+      kpis={(rows) => {
+        const row = rows[0] || {};
+        return [
+          { label: "overall CTR", value: share(row.overall_ctr) },
+          { label: "CTR gap", value: num(row.ctr_max_min_gap, 3) },
+          { label: "groups", value: String(row.evaluated_group_count ?? 0) },
+          { label: "suppressed", value: String(row.suppressed_group_count ?? 0) },
+        ];
+      }}
+      chart={(rows) => {
+        const groups = rows[0]?.groups || [];
+        return groups.length ? (
+          <BarChart title={`CTR by ${rows[0].dimension} (overall ${num(rows[0].overall_ctr, 3)})`}
+            labels={groups.map((g) => g.group)} values={groups.map((g) => g.ctr ?? 0)} />
+        ) : null;
+      }}
     >
       {(data?.rows || []).map((row) =>
         row.groups?.length ? (
@@ -197,6 +298,24 @@ export function SafetySection({ data }) {
         "filter_decision_rate", "reason_counts", "unknown_share",
         "unsafe_exposure_rate", "unsafe_label_coverage",
       ]}
+      kpis={(rows) => {
+        const offline = rows[0] || {};
+        const filtered = rows.find((r) => r.filter_decision_rate !== null && r.filter_decision_rate !== undefined) || {};
+        return [
+          { label: "unsafe exposure", value: share(offline.unsafe_exposure_rate) },
+          { label: "label coverage", value: share(offline.unsafe_label_coverage) },
+          { label: "filter rate", value: share(filtered.filter_decision_rate) },
+          { label: "policy", value: String(offline.policy_version ?? filtered.policy_version ?? "N/A") },
+        ];
+      }}
+      chart={(rows) => {
+        const counts = rows.map((r) => r.reason_counts).find((c) => c && Object.keys(c).length) || {};
+        const entries = Object.entries(counts).filter(([, v]) => v !== null && v !== undefined);
+        return entries.length ? (
+          <BarChart title="Filter decisions by reason"
+            labels={entries.map(([k]) => k)} values={entries.map(([, v]) => v)} />
+        ) : null;
+      }}
     />
   );
 }
@@ -207,6 +326,22 @@ export function LatencySection({ data }) {
       title="Latency"
       data={data}
       columns={["scope", "name", "unit", "p50", "p95", "p99", "count", "error_rate", "timeout_rate"]}
+      kpis={(rows) => {
+        const row = rows.filter((r) => r.scope === "endpoint")[1] || rows[0] || {};
+        return [
+          { label: "p50", value: `${num(row.p50, 1)} ms` },
+          { label: "p95", value: `${num(row.p95, 1)} ms` },
+          { label: "p99", value: `${num(row.p99, 1)} ms` },
+          { label: "requests", value: (row.count ?? 0).toLocaleString() },
+        ];
+      }}
+      chart={(rows) => {
+        const stages = rows.filter((r) => r.scope === "stage");
+        return stages.length ? (
+          <BarChart title="p95 by stage (ms)"
+            labels={stages.map((r) => r.name)} values={stages.map((r) => r.p95 ?? 0)} />
+        ) : null;
+      }}
     >
       <p className="fine-print">
         Live service request and stage latency from the retrieval service. Stream lag

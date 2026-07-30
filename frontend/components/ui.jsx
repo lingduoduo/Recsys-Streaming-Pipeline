@@ -61,6 +61,43 @@ export function BarChart({ labels, values, title, width = 520, barH = 22, gap = 
   );
 }
 
+// Two-series horizontal bars sharing one scale — for comparisons where a single
+// series would hide the relationship (ndcg vs mrr, fresh vs established).
+export function GroupedBarChart({ series, labels, title, width = 520, barH = 14, gap = 6 }) {
+  const colors = ["#4f46e5", "#eb6834"];
+  const all = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v));
+  const vmax = Math.max(...all, 0) || 1;
+  const groupH = series.length * (barH + 2) + gap;
+  const h = Math.max(labels.length, 1) * groupH;
+  return (
+    <svg className="chart" role="img" viewBox={`0 -20 ${width} ${h + 24}`} width={width} fontFamily="sans-serif">
+      {title ? <text x="0" y="-6" fontSize="13" fontWeight="bold">{title}</text> : null}
+      {series.map((s, si) => (
+        <text key={s.name} x={String(60 + si * 110)} y="-6" fontSize="11" fill={colors[si % colors.length]}>
+          {s.name}
+        </text>
+      ))}
+      {labels.map((label, li) => (
+        <g key={`${label}-${li}`}>
+          <text x="0" y={li * groupH + barH} fontSize="12">{label}</text>
+          {series.map((s, si) => {
+            const v = s.values[li] ?? 0;
+            const w = Math.max(0, Math.round((v / vmax) * (width - 200)));
+            return (
+              <g key={s.name}>
+                <title>{`${s.name} ${label}: ${v}`}</title>
+                <rect x="150" y={li * groupH + si * (barH + 2)} width={w} height={barH} rx="4"
+                      fill={colors[si % colors.length]} />
+                <text x={155 + w} y={li * groupH + si * (barH + 2) + barH - 2} fontSize="10">{v}</text>
+              </g>
+            );
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 // Render a list of record objects as a table over the given columns.
 export function DataTable({ rows, columns }) {
   const cols = columns || (rows.length ? Object.keys(rows[0]) : []);
