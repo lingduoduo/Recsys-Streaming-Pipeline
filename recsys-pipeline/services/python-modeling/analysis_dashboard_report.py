@@ -331,7 +331,7 @@ def build_measurement_dashboard(samples, slates, live, config: dict | None = Non
 
     cfg = measurement_config(config)
     now = cfg["now"] or datetime.now(timezone.utc)
-    measured = _with_published_timestamps(samples)
+    measured = _with_demographic_columns(_with_published_timestamps(samples))
     live_measurements = (live or {}).get("measurements", live) or {}
     no_slates = unavailable("missing slate experiences")
 
@@ -360,6 +360,35 @@ def _with_published_timestamps(samples):
     converted = samples.copy()
     converted["published_at"] = pd.to_datetime(samples["published_at"], unit="s", utc=True, errors="coerce")
     return converted
+
+
+def _feature_map(value) -> dict:
+    """Read a features column entry as a dict; Parquet maps decode as key/value pairs."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (list, tuple)):
+        return {pair[0]: pair[1] for pair in value if len(pair) == 2}
+    return {}
+
+
+def _with_demographic_columns(samples):
+    """Hoist allowlisted demographics out of user_features into fairness columns.
+
+    The allowlist is the cardinality guard: a key outside DEFAULT_DIMENSIONS is
+    never promoted, so no arbitrary user attribute can become a published group.
+    """
+    from governance_measurements import DEFAULT_DIMENSIONS
+    if "user_features" not in samples.columns:
+        return samples
+    features = [_feature_map(value) for value in samples["user_features"]]
+    missing = [dimension for dimension in DEFAULT_DIMENSIONS
+               if dimension not in samples.columns and any(dimension in entry for entry in features)]
+    if not missing:
+        return samples
+    hoisted = samples.copy()
+    for dimension in missing:
+        hoisted[dimension] = [entry.get(dimension) for entry in features]
+    return hoisted
 
 
 def _merge_live_row(offline: dict, live_entry) -> dict:
