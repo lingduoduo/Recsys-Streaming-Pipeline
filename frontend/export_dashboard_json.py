@@ -52,6 +52,23 @@ def _json_safe(value):
     return value
 
 
+SLATE_ROW_LIMIT = 10
+
+
+def _bounded_slate_rows(diversity: dict) -> dict:
+    """Publish the diversity aggregate plus a bounded sample of per-slate rows.
+
+    One row per slate would put every request id in the committed snapshot; the
+    aggregate keeps the full support and the warning states what was dropped.
+    """
+    rows = diversity.get("rows") or []
+    if diversity["status"] != "available" or len(rows) <= SLATE_ROW_LIMIT + 1:
+        return diversity
+    kept = rows[: SLATE_ROW_LIMIT + 1]  # rows[0] is the aggregate over every slate
+    warning = f"showing {len(kept) - 1} of {len(rows) - 1} slate rows; the aggregate covers all"
+    return {**diversity, "rows": kept, "warnings": [*diversity["warnings"], warning]}
+
+
 def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
           experiences: str | None = None, live_metrics: str | None = None,
           config: dict | None = None) -> dict:
@@ -59,6 +76,7 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
     slates = dash.load_slates(experiences, host, port)
     live = json.loads(Path(live_metrics).read_text()) if live_metrics else None
     measurements = dash.build_measurement_dashboard(df, slates, live, config)
+    measurements["diversity"] = _bounded_slate_rows(measurements["diversity"])
 
     rel = dash.compute_relevance(df)
     engagement = {

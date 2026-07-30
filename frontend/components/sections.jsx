@@ -104,7 +104,10 @@ export function FairnessSection({ data }) {
             </p>
             <DataTable
               rows={row.groups}
-              columns={["group", "candidates", "exposure_share", "ctr", "order_rate", "mean_reward", "ndcg"]}
+              columns={[
+                "group", "support", "exposure_share", "ctr", "order_rate", "mean_reward",
+                "ndcg", "ndcg_evaluated_slate_count",
+              ]}
             />
           </div>
         ) : null,

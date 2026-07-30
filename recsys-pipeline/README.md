@@ -493,19 +493,26 @@ Java service only observes the work it was already doing.
 # 1. live operational measurements from the running retrieval service
 curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
 
-# 2. offline measurements from a run's training samples + slate experiences
+# 2. slate experiences, for the listwise measures. ExperienceCollectorStreamingJob publishes
+#    them to the training_experiences Kafka topic only, so dump the topic to JSONL:
+docker compose exec -T kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 --topic training_experiences \
+  --from-beginning --timeout-ms 10000 > /tmp/spark-recsys/slates.jsonl
+
+# 3. offline measurements from a run's training samples + those slates
 cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim
 REDIS_HOST=localhost python ../frontend/export_dashboard_json.py \
   --input "$IN/training-samples" \
-  --experiences "$IN/training-experiences" \
+  --experiences /tmp/spark-recsys/slates.jsonl \
   --live-metrics /tmp/spark-recsys/live-metrics.json \
   --output ../frontend/data/dashboard.json
 ```
 
 `/metrics` keeps every pre-existing key and adds `measurements` (schema `2.0`) with the live
-latency, freshness, safety, and feedback-coverage sections. `--experiences` is the slate dataset
-written by `ExperienceCollectorStreamingJob`; without it the listwise measures stay N/A.
+latency, freshness, safety, and feedback-coverage sections. `--experiences` accepts a `.json` /
+`.jsonl` file or a Parquet directory; without it, relevance and diversity stay N/A because they
+are the only measures that need whole ranked slates.
 
 ### What each dimension measures
 
@@ -527,13 +534,20 @@ written by `ExperienceCollectorStreamingJob`; without it the listwise measures s
   is a measured value and is reported as such.
 - Every rate carries its denominator or sample size, and every optional signal carries coverage.
 - Live rows are merged alongside the offline rows (`scope: offline` / `scope: live_service`); a
-  live measurement never overwrites an offline one.
+  live measurement never overwrites an offline one. A merged section's `sampleSize` and
+  `coverage` describe the offline population; each live row carries its own denominator
+  (`feedback_events`, `exposures`, `evaluated_candidates`).
+- A live snapshot captured before any traffic contributes nothing: sections stay N/A rather than
+  reporting "available" over zero observations.
+- The diversity section publishes the all-slate aggregate plus a bounded sample of per-slate
+  rows, and warns how many rows it dropped.
 
 ### Interpretation caveats
 
 - **Fairness is observational.** Groups differ in catalog, intent, and traffic mix, so a gap is
-  not evidence of discriminatory treatment. Groups below `RECSYS_FAIRNESS_MIN_SUPPORT`
-  (default 100) impressions are suppressed and only counted in `suppressed_group_count`.
+  not evidence of discriminatory treatment. Groups below the configured minimum support
+  (`--fairness-min-support`, default 100) are suppressed and only counted in
+  `suppressed_group_count`.
 - **Safety accounting is scoped to the catalog filter taxonomy** — `expired`,
   `muted_product_type`, `muted_genre`, `muted_keyword`, `muted_title`, and `unknown`. It records
   which policy rule rejected a candidate under `policy_version`; it is not a content-moderation
@@ -546,16 +560,18 @@ written by `ExperienceCollectorStreamingJob`; without it the listwise measures s
 
 ### Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RECSYS_FAIRNESS_MIN_SUPPORT` | `100` | Minimum impressions before a fairness group is published |
-| `RECSYS_FRESHNESS_WINDOW_DAYS` | `30` | Age below which an item counts as fresh |
-| `RECSYS_LONG_TAIL_PERCENTILE` | `0.80` | Popularity percentile below which exposure is long-tail |
-| `RECSYS_SAFETY_POLICY_VERSION` | `catalog-filter-v1` | Version stamped on safety accounting |
-| `RECSYS_LATENCY_BUCKETS_MS` | `5,10,25,50,100,250,500,1000,2500` | Latency histogram boundaries |
+| Variable | Default | Read by | Description |
+|----------|---------|---------|-------------|
+| `RECSYS_LATENCY_BUCKETS_MS` | `5,10,25,50,100,250,500,1000,2500` | retrieval service | Latency histogram boundaries |
+| `RECSYS_SAFETY_POLICY_VERSION` | `catalog-filter-v1` | retrieval service | Version stamped on live safety accounting |
+| `RECSYS_FAIRNESS_MIN_SUPPORT` | `100` | declared only | Minimum impressions before a fairness group is published |
+| `RECSYS_FRESHNESS_WINDOW_DAYS` | `30` | declared only | Age below which an item counts as fresh |
+| `RECSYS_LONG_TAIL_PERCENTILE` | `0.80` | declared only | Popularity percentile below which exposure is long-tail |
 
-The exporter takes the same knobs as `--fairness-min-support`, `--freshness-window-days`,
-`--long-tail-percentile`, and `--safety-policy-version`.
+The last three describe offline calculations, so the retrieval service binds and validates them
+for a single source of truth but does not act on them. **Set them on the exporter** —
+`--fairness-min-support`, `--freshness-window-days`, `--long-tail-percentile`, and
+`--safety-policy-version` — which is where those measurements are actually calculated.
 
 `sampledata/catalog.json` carries both `publishedAt` (UTC ISO-8601, the timestamp freshness
 source) and `newRelease` (the boolean fallback for services with no publication timestamp).

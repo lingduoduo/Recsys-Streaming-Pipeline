@@ -24,12 +24,16 @@ for (const key of SECTIONS) {
     problems.push(`"${key}" must carry a rows array`);
   }
   if (section.status === "available") {
-    // Every published measurement states the support it was calculated from.
-    if (!Number.isInteger(section.sampleSize)) {
-      problems.push(`available "${key}" must report an integer sampleSize`);
+    // Every published measurement states the support it was calculated from, and an
+    // available section with no observations is an N/A wearing a green hat.
+    if (!Number.isInteger(section.sampleSize) || section.sampleSize < 1) {
+      problems.push(`available "${key}" must report a positive integer sampleSize`);
     }
     if (typeof section.coverage !== "number") {
       problems.push(`available "${key}" must report coverage`);
+    }
+    if (Array.isArray(section.rows) && section.rows.length === 0) {
+      problems.push(`available "${key}" must publish at least one row`);
     }
   } else if (!Array.isArray(section.warnings) || section.warnings.length === 0) {
     problems.push(`unavailable "${key}" must explain why it is unavailable`);

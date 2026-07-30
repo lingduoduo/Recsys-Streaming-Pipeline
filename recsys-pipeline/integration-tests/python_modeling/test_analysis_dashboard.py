@@ -109,6 +109,20 @@ def test_export_replaces_non_finite_values_with_null():
     json.dumps(safe, allow_nan=False)
 
 
+def test_export_bounds_diversity_slate_rows_and_says_so():
+    import export_dashboard_json as exporter
+
+    rows = [{"scope": "aggregate"}] + [{"scope": "slate", "slate_id": f"r{i}"} for i in range(25)]
+    bounded = exporter._bounded_slate_rows({"status": "available", "rows": rows, "warnings": []})
+
+    assert len(bounded["rows"]) == exporter.SLATE_ROW_LIMIT + 1
+    assert bounded["rows"][0]["scope"] == "aggregate"      # the full-support row is kept
+    assert bounded["warnings"] == ["showing 10 of 25 slate rows; the aggregate covers all"]
+
+    short = {"status": "available", "rows": rows[:3], "warnings": []}
+    assert exporter._bounded_slate_rows(short) == short    # nothing dropped, nothing claimed
+
+
 def test_compute_relevance_funnel_and_means(tmp_path):
     pd = pytest.importorskip("pandas")
     import analysis_dashboard_report as dash

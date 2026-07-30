@@ -375,7 +375,9 @@ def _merge_live_row(offline: dict, live_entry) -> dict:
 
 def _live_freshness(live: dict):
     freshness = live.get("freshness") or {}
-    if freshness.get("availability") != "available":
+    exposures = int(freshness.get("exposures") or 0)
+    # The service reports "available" from startup; without exposures there is nothing measured.
+    if freshness.get("availability") != "available" or exposures <= 0:
         return None
     row = {
         "scope": "live_service",
@@ -384,15 +386,15 @@ def _live_freshness(live: dict):
         "freshness_coverage": freshness.get("coverage"),
         "exposures": freshness.get("exposures"),
     }
-    return row, int(freshness.get("exposures") or 0), float(freshness.get("coverage") or 0.0), "Live fresh-item exposure"
+    return row, exposures, float(freshness.get("coverage") or 0.0), "Live fresh-item exposure"
 
 
 def _live_safety(live: dict):
     from measurement_contract import safe_ratio
     safety = live.get("safety") or {}
-    if safety.get("availability") != "available":
-        return None
     evaluated = int(safety.get("evaluatedCandidates") or 0)
+    if safety.get("availability") != "available" or evaluated <= 0:
+        return None
     decisions = safety.get("totalDecisions")
     row = {
         "scope": "live_service",
@@ -404,19 +406,20 @@ def _live_safety(live: dict):
                           for reason, values in sorted((safety.get("reasons") or {}).items())},
         "unknown_share": safety.get("unknownShare"),
     }
-    return row, evaluated, 1.0, "Live candidate safety policy accounting"
+    # The live service logs filter decisions but no unsafe labels: one of the two safety signals.
+    return row, evaluated, 0.5, "Live candidate safety policy accounting"
 
 
 def _live_feedback(live: dict):
     feedback = live.get("feedbackCoverage") or {}
-    if feedback.get("availability") != "available":
+    total = int(feedback.get("total") or 0)
+    if feedback.get("availability") != "available" or total <= 0:
         return None
     signals = feedback.get("signals") or {}
-    total = int(feedback.get("total") or 0)
-    row = {"scope": "live_service", "feedback_events": total}
-    row.update({column: (signals.get(signal) or {}).get("coverage")
-                for signal, column in _LIVE_FEEDBACK_COLUMNS.items()})
-    observed = [value for value in row.values() if isinstance(value, float)]
+    coverages = {column: (signals.get(signal) or {}).get("coverage")
+                 for signal, column in _LIVE_FEEDBACK_COLUMNS.items()}
+    row = {"scope": "live_service", "feedback_events": total, **coverages}
+    observed = [value for value in coverages.values() if isinstance(value, (int, float))]
     return row, total, (sum(observed) / len(observed) if observed else 0.0), "Live feedback signal coverage"
 
 
@@ -446,6 +449,8 @@ def _live_latency(live: dict) -> dict:
     if not rows:
         return unavailable("missing live latency measurements")
     requests = sum(entry["count"] or 0 for entry in rows if entry["scope"] == "endpoint")
+    if requests <= 0:
+        return unavailable("no live requests recorded")
     coverage = safe_ratio(sum(bool(entry["count"]) for entry in rows), len(rows)) or 0.0
     return available(f"Live request and stage latency ({unit})", rows, requests, coverage)
 

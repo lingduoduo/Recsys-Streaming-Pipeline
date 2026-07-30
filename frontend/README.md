@@ -24,19 +24,27 @@ HTML since the data is read at build time).
 ## Refresh the data
 
 `export_dashboard_json.py` reuses the pure `compute_*` functions from
-`recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`, so the React
-dashboard shows exactly what the Python HTML dashboard would:
+`recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`. The diagnostic sections
+match the Python HTML dashboard; the seven measurement sections are exported for this app only
+(`analysis_dashboard_report.py`'s HTML report does not render them):
 
 ```bash
 # from the repo root (Redis up; a run's training_samples Parquet available)
-curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json   # optional (latency)
+
+# optional inputs: live latency/freshness/safety/feedback coverage, and the ranked slates
+# (published to the training_experiences Kafka topic, not to disk) that relevance and
+# diversity need
+curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
+docker compose exec -T kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 --topic training_experiences \
+  --from-beginning --timeout-ms 10000 > /tmp/spark-recsys/slates.jsonl
 
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --input /tmp/spark-recsys/training-samples \
   --output frontend/data/dashboard.json \
-  --experiences /tmp/spark-recsys/training-experiences \  # optional (relevance, diversity)
-  --live-metrics /tmp/spark-recsys/live-metrics.json \    # optional (latency, live rows)
-  --mdp-csv /tmp/spark-recsys/mdp_eval.csv                # optional (MDP card)
+  --experiences /tmp/spark-recsys/slates.jsonl \
+  --live-metrics /tmp/spark-recsys/live-metrics.json \
+  --mdp-csv /tmp/spark-recsys/mdp_eval.csv
 ```
 
 Measurement configuration flags (defaults shown): `--fairness-min-support 100`,

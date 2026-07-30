@@ -263,9 +263,15 @@ From the repository root:
 # Optional: capture live latency/freshness/safety/feedback coverage while the service runs.
 curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
 
+# Optional: dump the ranked slates (Kafka-only output) that relevance and diversity need.
+cd recsys-pipeline && docker compose exec -T kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 --topic training_experiences \
+  --from-beginning --timeout-ms 10000 > /tmp/spark-recsys/slates.jsonl
+cd ..
+
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --input /tmp/spark-recsys/movie-category-sim/training-samples \
-  --experiences /tmp/spark-recsys/movie-category-sim/training-experiences \
+  --experiences /tmp/spark-recsys/slates.jsonl \
   --live-metrics /tmp/spark-recsys/live-metrics.json \
   --output frontend/data/dashboard.json
 
@@ -290,7 +296,8 @@ consumed by the React app.
 
 The snapshot carries seven measurement sections — relevance, satisfaction, freshness, diversity,
 fairness, safety, and latency — alongside the engagement/keyword/query/recall/ranking/OPE/MDP
-diagnostics. Any section whose inputs are missing reports `"status": "unavailable"` with an
+diagnostics. Note the schema change at `schemaVersion: "2.0"`: `relevance` now holds the listwise
+measurement envelope (NDCG/MRR), and the engagement funnel it used to hold moved to `engagement`. Any section whose inputs are missing reports `"status": "unavailable"` with an
 explicit reason and renders an N/A card; nothing is zero-filled. See
 [Recommendation Measurements](recsys-pipeline/README.md#recommendation-measurements) for the
 metric definitions, denominators, interpretation caveats, and configuration variables.

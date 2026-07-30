@@ -1,5 +1,6 @@
 """The consolidated dashboard export always publishes the seven measurement sections."""
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -218,6 +219,65 @@ def test_measurement_sections_report_missing_prerequisites(tmp_path, monkeypatch
         "latency": "missing live measurement snapshot",
     }
     json.dumps(output, allow_nan=False)
+
+
+def test_zero_traffic_live_snapshot_never_claims_availability(tmp_path):
+    """A /metrics capture taken before any traffic must not turn N/A into 'available'."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    startup = _live_metrics()
+    measurements = startup["measurements"]
+    for values in measurements["latency"]["endpoints"].values():
+        values.update(count=0, errorCount=0, timeoutCount=0)
+    for values in measurements["latency"]["stages"].values():
+        values["count"] = 0
+    measurements["freshness"].update(exposures=0, coverage=None, freshShare=None)
+    measurements["safety"].update(evaluatedCandidates=0, totalDecisions=0, unknownShare=None)
+    measurements["feedbackCoverage"]["total"] = 0
+    for values in measurements["feedbackCoverage"]["signals"].values():
+        values.update(present=0, coverage=None)
+
+    samples = pd.DataFrame({"user_id": ["u1"], "item_id": ["item_1"], "label": [1.0], "clicked": [1]})
+    output = dash.build_measurement_dashboard(samples, None, startup, None)
+
+    assert output["latency"]["status"] == "unavailable"
+    assert output["latency"]["warnings"] == ["no live requests recorded"]
+    # Offline freshness and safety are unavailable here; an empty live snapshot cannot promote them.
+    for key in ("freshness", "safety"):
+        assert output[key]["status"] == "unavailable", f"{key} was promoted on zero observations"
+    # Satisfaction is available offline; the empty live row must not be appended.
+    assert [row.get("scope") for row in output["satisfaction"]["rows"]] == [None]
+
+
+def test_dashboard_columns_match_the_published_measurement_keys(tmp_path, monkeypatch):
+    """Every column the React sections request must exist in the rows the exporter emits."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    monkeypatch.setenv("REDIS_PORT", "6399")
+
+    samples = _samples_frame(pd)
+    samples.to_parquet(tmp_path / "samples", index=False)
+    _slates_frame(pd, samples).to_parquet(tmp_path / "experiences", index=False)
+    (tmp_path / "live.json").write_text(json.dumps(_live_metrics()))
+    output = _export(tmp_path, experiences=tmp_path / "experiences", live=tmp_path / "live.json",
+                     extra_args=["--fairness-min-support", "1"])
+
+    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+
+    def columns_after(anchor):
+        block = re.search(re.escape(anchor) + r"[\s\S]*?columns=\{\[(.*?)\]\}", sections, re.S)
+        assert block, f"no columns declared after {anchor}"
+        return re.findall(r'"([^"]+)"', block.group(1))
+
+    for key in sorted(MEASUREMENT_KEYS):
+        published = {column for row in output[key]["rows"] for column in row}
+        requested = set(columns_after(f'title="{key.capitalize()}"'))
+        assert requested <= published, f"{key} renders unknown columns {sorted(requested - published)}"
+
+    groups = [group for row in output["fairness"]["rows"] for group in row["groups"]]
+    group_keys = {column for group in groups for column in group}
+    assert set(columns_after("rows={row.groups}")) <= group_keys
 
 
 def test_measurement_config_rejects_out_of_range_values(tmp_path):
