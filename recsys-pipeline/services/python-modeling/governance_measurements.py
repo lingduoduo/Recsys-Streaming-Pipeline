@@ -6,7 +6,7 @@ participate in candidate filtering, scoring, or ranking decisions.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 import math
 from numbers import Real
 
@@ -35,6 +35,9 @@ SAFETY_REASONS: tuple[str, ...] = (
     "unknown",
 )
 """The fixed allowlist of candidate-filter reasons for policy accounting."""
+
+MAX_RELEVANCE_LABEL = 5.0
+"""Largest accepted graded relevance label; larger values are unavailable."""
 
 
 def compute_fairness(
@@ -78,6 +81,8 @@ def compute_safety(
     An absent ``unsafe_label`` field keeps unsafe exposure unavailable. A
     present field with observed false values is a measured zero, not missing
     data. Unrecognized non-empty filter reasons are counted under ``unknown``.
+    Envelope coverage is the mean of complete filter-log availability (one
+    when the ``filter_reason`` column is present) and unsafe-label coverage.
     """
     if samples.empty:
         return unavailable("missing safety samples")
@@ -114,12 +119,13 @@ def compute_safety(
         "unsafe_exposure_rate": safe_ratio(unsafe_exposed, len(observed_labels)),
         "unsafe_label_coverage": safe_ratio(len(observed_labels), total),
     }
-    signal_count = int(has_filter_reasons) + int(has_unsafe_labels)
+    filter_log_coverage = 1.0 if has_filter_reasons else 0.0
+    unsafe_label_coverage = safe_ratio(len(observed_labels), total) or 0.0
     return available(
         "Candidate safety policy accounting",
         [row],
         total,
-        safe_ratio(signal_count, 2) or 0.0,
+        (filter_log_coverage + unsafe_label_coverage) / 2,
     )
 
 
@@ -133,8 +139,14 @@ def _fairness_dimension_row(samples: pd.DataFrame, dimension: str, min_support: 
         for group, group_samples in group_frames.items()
         if len(group_samples) >= min_support
     }
+    overall = {
+        "ctr": _mean(_binary_values(samples, "clicked")),
+        "order_rate": _mean(_binary_values(samples, "ordered")),
+        "mean_reward": _mean(_numeric_values(samples, "reward")),
+        "ndcg": _group_ndcg(samples.to_dict("records")),
+    }
     groups = [
-        _fairness_group_row(group, group_samples, len(samples))
+        _fairness_group_row(group, group_samples, len(samples), overall)
         for group, group_samples in sorted(eligible.items())
     ]
     ctrs = [group["ctr"] for group in groups]
@@ -144,10 +156,10 @@ def _fairness_dimension_row(samples: pd.DataFrame, dimension: str, min_support: 
     return {
         "dimension": dimension,
         "evaluated_candidates": len(samples),
-        "overall_ctr": _mean(_numeric_values(samples, "clicked")),
-        "overall_order_rate": _mean(_numeric_values(samples, "ordered")),
-        "overall_mean_reward": _mean(_numeric_values(samples, "reward")),
-        "overall_ndcg": _group_ndcg(samples.to_dict("records")),
+        "overall_ctr": overall["ctr"],
+        "overall_order_rate": overall["order_rate"],
+        "overall_mean_reward": overall["mean_reward"],
+        "overall_ndcg": overall["ndcg"],
         "groups": groups,
         "evaluated_group_count": len(groups),
         "suppressed_group_count": len(group_frames) - len(groups),
@@ -163,22 +175,35 @@ def _fairness_dimension_row(samples: pd.DataFrame, dimension: str, min_support: 
     }
 
 
-def _fairness_group_row(group: str, samples: Sequence[dict[str, object]], total: int) -> dict[str, object]:
-    clicked = _numeric_values(samples, "clicked")
-    ordered = _numeric_values(samples, "ordered")
+def _fairness_group_row(
+    group: str,
+    samples: Sequence[dict[str, object]],
+    total: int,
+    overall: Mapping[str, float | None],
+) -> dict[str, object]:
+    clicked = _binary_values(samples, "clicked")
+    ordered = _binary_values(samples, "ordered")
     rewards = _numeric_values(samples, "reward")
+    ndcg = _group_ndcg(samples)
+    ctr = _mean(clicked)
+    order_rate = _mean(ordered)
+    mean_reward = _mean(rewards)
     return {
         "group": group,
         "support": len(samples),
         "exposure_share": safe_ratio(len(samples), total),
-        "ctr": _mean(clicked),
+        "ctr": ctr,
         "ctr_coverage": safe_ratio(len(clicked), len(samples)),
-        "order_rate": _mean(ordered),
+        "order_rate": order_rate,
         "order_coverage": safe_ratio(len(ordered), len(samples)),
-        "mean_reward": _mean(rewards),
+        "mean_reward": mean_reward,
         "reward_coverage": safe_ratio(len(rewards), len(samples)),
-        "ndcg": _group_ndcg(samples),
+        "ndcg": ndcg,
         "ndcg_evaluated_slate_count": _evaluable_slate_count(samples),
+        "ctr_absolute_gap_from_overall": _absolute_gap(ctr, overall["ctr"]),
+        "order_rate_absolute_gap_from_overall": _absolute_gap(order_rate, overall["order_rate"]),
+        "mean_reward_absolute_gap_from_overall": _absolute_gap(mean_reward, overall["mean_reward"]),
+        "ndcg_absolute_gap_from_overall": _absolute_gap(ndcg, overall["ndcg"]),
     }
 
 
@@ -203,7 +228,7 @@ def _group_ndcg(samples: Sequence[dict[str, object]]) -> float | None:
         ranked: list[tuple[float, float]] = []
         for sample in slate:
             position = _numeric_value(sample.get("position"))
-            label = _numeric_value(sample.get("label"))
+            label = _relevance_label(sample.get("label"))
             if position is None or label is None:
                 ranked = []
                 break
@@ -228,7 +253,7 @@ def _evaluable_slate_count(samples: Sequence[dict[str, object]]) -> int:
             slates.setdefault(request_id, []).append(sample)
     count = 0
     for slate in slates.values():
-        labels = [_numeric_value(sample.get("label")) for sample in slate]
+        labels = [_relevance_label(sample.get("label")) for sample in slate]
         positions = [_numeric_value(sample.get("position")) for sample in slate]
         if all(value is not None for value in labels) and all(value is not None for value in positions):
             if _dcg(sorted((float(value) for value in labels), reverse=True)) > 0:
@@ -253,6 +278,16 @@ def _numeric_values(samples: pd.DataFrame | Sequence[dict[str, object]], column:
     return [numeric for value in values if (numeric := _numeric_value(value)) is not None]
 
 
+def _binary_values(samples: pd.DataFrame | Sequence[dict[str, object]], column: str) -> list[float]:
+    if isinstance(samples, pd.DataFrame):
+        if column not in samples.columns:
+            return []
+        values = samples[column]
+    else:
+        values = (sample.get(column) for sample in samples)
+    return [float(parsed) for value in values if (parsed := _boolean_value(value)) is not None]
+
+
 def _numeric_value(value: object) -> float | None:
     if _is_missing(value):
         return None
@@ -261,6 +296,13 @@ def _numeric_value(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return numeric if math.isfinite(numeric) else None
+
+
+def _relevance_label(value: object) -> float | None:
+    numeric = _numeric_value(value)
+    if numeric is None or not 0.0 <= numeric <= MAX_RELEVANCE_LABEL:
+        return None
+    return numeric
 
 
 def _boolean_value(value: object) -> bool | None:
@@ -312,9 +354,13 @@ def _mean(values: Iterable[float]) -> float | None:
 
 def _max_min_gap(values: Iterable[float | None]) -> float | None:
     observed = [float(value) for value in values if value is not None]
-    return max(observed) - min(observed) if observed else None
+    return max(observed) - min(observed) if len(observed) >= 2 else None
 
 
 def _disparity_ratio(values: Iterable[float | None]) -> float | None:
     observed = [float(value) for value in values if value is not None]
-    return safe_ratio(min(observed), max(observed)) if observed else None
+    return safe_ratio(min(observed), max(observed)) if len(observed) >= 2 else None
+
+
+def _absolute_gap(value: float | None, overall: float | None) -> float | None:
+    return abs(value - overall) if value is not None and overall is not None else None
