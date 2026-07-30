@@ -136,11 +136,18 @@ fi
 echo
 echo "==> SERVICE BURST (real /metrics latency, freshness, and filter decisions)"
 service_pid=""
+kill_service() {
+  kill "$service_pid" 2>/dev/null || true
+  # spring-boot:run forks its own JVM by default, so the process we backgrounded
+  # (even post-exec) may not be the one actually bound to the port. Kill by port too.
+  lsof -ti tcp:"$SERVICE_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
+}
 (cd services/java-retrieval-service && \
   JAVA_HOME="${MEASUREMENT_JAVA_HOME:-$JAVA_HOME}" \
   SERVER_PORT="$SERVICE_PORT" REDIS_HOST=localhost \
-  mvn -q -DskipTests spring-boot:run >"$SIM_ROOT/service.log" 2>&1) &
+  exec mvn -q -DskipTests spring-boot:run >"$SIM_ROOT/service.log" 2>&1) &
 service_pid=$!
+trap kill_service EXIT
 for _ in $(seq 1 40); do
   curl -sf "http://localhost:$SERVICE_PORT/metrics" >/dev/null 2>&1 && break; sleep 3
 done
@@ -162,8 +169,9 @@ if curl -sf "http://localhost:$SERVICE_PORT/metrics" >/dev/null 2>&1; then
 else
   echo "   service did not start (see $SIM_ROOT/service.log) — latency stays N/A"
 fi
-kill "$service_pid" 2>/dev/null || true
+kill_service
 wait "$service_pid" 2>/dev/null || true
+trap - EXIT
 
 echo
 echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
