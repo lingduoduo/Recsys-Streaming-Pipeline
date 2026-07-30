@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from itertools import combinations
 import math
+from numbers import Real
 
 import pandas as pd
 
@@ -39,9 +40,10 @@ def jaccard_distance(left: Iterable[str], right: Iterable[str]) -> float | None:
 
 def compute_relevance(slates: pd.DataFrame, ks: Sequence[int] = (5, 10, 20)) -> dict[str, object]:
     """Calculate slate-averaged graded relevance measures at each requested cutoff."""
-    slate_labels, observed_labels, item_count = _complete_slate_labels(slates)
-    if not slate_labels:
+    slate_records, observed_labels, item_count = _complete_slate_labels(slates)
+    if not slate_records:
         return unavailable("missing complete labeled slates")
+    slate_labels = [labels for labels, _ in slate_records]
 
     rows: list[dict[str, object]] = []
     for k in ks:
@@ -49,15 +51,17 @@ def compute_relevance(slates: pd.DataFrame, ks: Sequence[int] = (5, 10, 20)) -> 
             continue
         ndcg_values = [value for labels in slate_labels if (value := ndcg(labels, k)) is not None]
         mrr_values = [reciprocal_rank(labels, k) for labels in slate_labels]
-        recall_values = [_recall_at_k(labels, k) for labels in slate_labels]
+        recall_values, hit_rate_values, evaluated_user_count, fold_count = _leave_one_out_metrics(slate_records, k)
         rows.append({
             "k": int(k),
             "ndcg_at_k": _mean(ndcg_values),
             "mrr_at_k": _mean(mrr_values),
             "recall_at_k": _mean(recall_values),
-            "hit_rate_at_k": _mean([1.0 if value > 0 else 0.0 for value in mrr_values]),
+            "hit_rate_at_k": _mean(hit_rate_values),
             "evaluated_slate_count": len(slate_labels),
             "ndcg_evaluated_slate_count": len(ndcg_values),
+            "evaluated_user_count": evaluated_user_count,
+            "leave_one_out_fold_count": fold_count,
             "positive_label_count": sum(label > 0 for labels in slate_labels for label in labels),
             "label_coverage": _ratio(observed_labels, item_count),
         })
@@ -84,6 +88,8 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
     dwell = _numeric_column(samples, "dwell_millis")
     completion = _numeric_column(samples, "completion_rate")
     negative = _observed_column(samples, "negative_feedback_reason")
+    if not any((clicked, ordered, rewards, ratings, dwell, completion, negative)):
+        return unavailable("missing observed satisfaction signals")
     row = {
         "ctr": _mean(clicked),
         "ctr_coverage": _ratio(len(clicked), total),
@@ -109,7 +115,10 @@ def compute_freshness(
     now: datetime,
     window_days: int = 30,
 ) -> dict[str, object]:
-    """Measure fresh-item exposure using timestamps, then explicit boolean fallback."""
+    """Measure fresh-item exposure using timestamps, then explicit boolean fallback.
+
+    A timezone-naive ``now`` is interpreted as UTC.
+    """
     if len(samples) == 0:
         return unavailable("missing freshness samples")
     if window_days < 0:
@@ -133,22 +142,29 @@ def compute_diversity(
     if not 0.0 < long_tail_percentile < 1.0:
         return unavailable("long-tail percentile must be between zero and one")
 
-    slate_items = [_items(row) for _, row in slates.iterrows()]
-    slate_items = [items for items in slate_items if items]
-    if not slate_items:
+    slate_inputs = [
+        (_slate_id(index, row), _items(row))
+        for index, row in slates.iterrows()
+    ]
+    slate_inputs = [(slate_id, items) for slate_id, items in slate_inputs if items]
+    if not slate_inputs:
         return unavailable("missing slate items")
 
     popularities = [
         popularity
-        for items in slate_items
+        for _, items in slate_inputs
         for item in items
         if (popularity := _numeric_item_value(item, "popularity")) is not None
     ]
     cutoff = float(pd.Series(popularities).quantile(long_tail_percentile)) if popularities else None
-    slate_rows = [_diversity_for_slate(items, cutoff) for items in slate_items]
-    all_items = [item for items in slate_items for item in items]
+    slate_rows = [
+        {"scope": "slate", "slate_id": slate_id, **_diversity_for_slate(items, cutoff)}
+        for slate_id, items in slate_inputs
+    ]
+    all_items = [item for _, items in slate_inputs for item in items]
     genre_coverage = _ratio(sum(bool(_genres(item)) for item in all_items), len(all_items))
-    row = {
+    aggregate = {
+        "scope": "aggregate",
         "unique_genres_at_k": _mean([entry["unique_genres_at_k"] for entry in slate_rows]),
         "normalized_genre_entropy": _mean([entry["normalized_genre_entropy"] for entry in slate_rows]),
         "intra_list_genre_distance": _mean([entry["intra_list_genre_distance"] for entry in slate_rows]),
@@ -157,13 +173,18 @@ def compute_diversity(
         "popularity_coverage": _ratio(len(popularities), len(all_items)),
         "long_tail_popularity_cutoff": _round(cutoff),
     }
-    if not any(value is not None for key, value in row.items() if key not in {"genre_coverage", "popularity_coverage"}):
+    if not any(value is not None for key, value in aggregate.items() if key not in {"genre_coverage", "popularity_coverage", "scope"}):
         return unavailable("missing genre and popularity diversity signals")
-    return available("Catalog diversity across slates", [row], len(slate_items), genre_coverage or 0.0)
+    return available(
+        "Catalog diversity across slates",
+        [aggregate, *slate_rows],
+        len(slate_inputs),
+        genre_coverage or 0.0,
+    )
 
 
-def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[list[float]], int, int]:
-    labels_by_slate: list[list[float]] = []
+def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:
+    labels_by_slate: list[tuple[list[float], str | None]] = []
     observed_labels = 0
     item_count = 0
     for _, row in slates.iterrows():
@@ -172,13 +193,27 @@ def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[list[float]], int
         labels = [_numeric_item_value(item, "label") for item in items]
         observed_labels += sum(label is not None for label in labels)
         if items and all(label is not None for label in labels):
-            labels_by_slate.append([float(label) for label in labels])
+            labels_by_slate.append(([float(label) for label in labels], _string_value(row.get("user_id"))))
     return labels_by_slate, observed_labels, item_count
 
 
-def _recall_at_k(labels: Sequence[float], k: int) -> float | None:
-    positives = sum(value > 0 for value in labels)
-    return None if positives == 0 else sum(value > 0 for value in labels[:k]) / positives
+def _leave_one_out_metrics(
+    slate_records: Sequence[tuple[Sequence[float], str | None]],
+    k: int,
+) -> tuple[list[float], list[float], int, int]:
+    """Aggregate positive held-out slate outcomes by user under the LOO protocol."""
+    outcomes_by_user: dict[str, list[float]] = {}
+    for labels, user_id in slate_records:
+        if user_id is None or not any(value > 0 for value in labels):
+            continue
+        outcomes_by_user.setdefault(user_id, []).append(1.0 if any(value > 0 for value in labels[:k]) else 0.0)
+    recall_values = [sum(outcomes) / len(outcomes) for outcomes in outcomes_by_user.values()]
+    return (
+        recall_values,
+        [1.0 if any(outcomes) else 0.0 for outcomes in outcomes_by_user.values()],
+        len(outcomes_by_user),
+        sum(len(outcomes) for outcomes in outcomes_by_user.values()),
+    )
 
 
 def _freshness_result(
@@ -196,9 +231,13 @@ def _freshness_result(
         "mean_content_age_days": _mean(ages),
         "median_content_age_days": _median(ages),
         "fresh_ctr": _mean([entry[2] for entry in fresh]),
+        "fresh_ctr_coverage": _ratio(sum(entry[2] is not None for entry in fresh), len(fresh)),
         "established_ctr": _mean([entry[2] for entry in established]),
+        "established_ctr_coverage": _ratio(sum(entry[2] is not None for entry in established), len(established)),
         "fresh_mean_reward": _mean([entry[3] for entry in fresh]),
+        "fresh_reward_coverage": _ratio(sum(entry[3] is not None for entry in fresh), len(fresh)),
         "established_mean_reward": _mean([entry[3] for entry in established]),
+        "established_reward_coverage": _ratio(sum(entry[3] is not None for entry in established), len(established)),
     }
     return available("Fresh-item exposure", [row], total, _ratio(len(observations), total) or 0.0)
 
@@ -211,6 +250,10 @@ def _timestamp_observations(
     if "published_at" not in samples:
         return []
     now_timestamp = pd.Timestamp(now)
+    if now_timestamp.tzinfo is None:
+        now_timestamp = now_timestamp.tz_localize("UTC")
+    else:
+        now_timestamp = now_timestamp.tz_convert("UTC")
     observations: list[tuple[bool, float | None, float | None, float | None]] = []
     for _, sample in samples.iterrows():
         published = pd.to_datetime(sample.get("published_at"), utc=True, errors="coerce")
@@ -232,9 +275,10 @@ def _boolean_freshness_observations(samples: pd.DataFrame) -> list[tuple[bool, N
     observations: list[tuple[bool, None, float | None, float | None]] = []
     for _, sample in samples.iterrows():
         value = sample.get("new_release")
-        if not pd.notna(value):
+        fresh = _boolean_value(value)
+        if fresh is None:
             continue
-        observations.append((bool(value), None, _numeric_value(sample.get("clicked")), _numeric_value(sample.get("reward"))))
+        observations.append((fresh, None, _numeric_value(sample.get("clicked")), _numeric_value(sample.get("reward"))))
     return observations
 
 
@@ -258,6 +302,8 @@ def _diversity_for_slate(items: list[Mapping[str, object]], cutoff: float | None
             _ratio(sum(value < cutoff for value in observed_popularities), len(observed_popularities))
             if cutoff is not None and observed_popularities else None
         ),
+        "genre_coverage": _ratio(len(observed_genres), len(items)),
+        "popularity_coverage": _ratio(len(observed_popularities), len(items)),
     }
 
 
@@ -273,6 +319,10 @@ def _items(row: pd.Series) -> list[Mapping[str, object]]:
     if not isinstance(values, (list, tuple)):
         return []
     return [item for item in values if isinstance(item, Mapping)]
+
+
+def _slate_id(index: object, row: pd.Series) -> str:
+    return _string_value(row.get("request_id")) or f"row-{index}"
 
 
 def _numeric_column(samples: pd.DataFrame, name: str) -> list[float]:
@@ -295,9 +345,32 @@ def _numeric_value(value: object) -> float | None:
     if not pd.notna(value):
         return None
     try:
-        return float(value)
+        converted = float(value)
     except (TypeError, ValueError):
         return None
+    return converted if math.isfinite(converted) else None
+
+
+def _boolean_value(value: object) -> bool | None:
+    """Parse booleans and documented 0/1 or true/false serializations."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Real) and math.isfinite(float(value)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return None
+
+
+def _string_value(value: object) -> str | None:
+    if not pd.notna(value):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _normalized_entropy(genres: Sequence[str]) -> float | None:
