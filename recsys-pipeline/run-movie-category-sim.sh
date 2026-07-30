@@ -155,8 +155,27 @@ done
 if curl -sf "http://localhost:$SERVICE_PORT/metrics" >/dev/null 2>&1; then
   for i in $(seq 1 "$BURST_REQUESTS"); do
     user="user_$(( (i % 10) + 1 ))"
+    # /recommend's "recommendations" field is a List<String> of item ids (see
+    # HybridRecommendationService.recommend()), not a list of objects — but stay tolerant of an
+    # {"item": ...}-shaped entry too, in case that ever changes. Extraction failures print to
+    # stderr (not swallowed) so a broken response shape is visible in the sim log.
     item="$(curl -sf "http://localhost:$SERVICE_PORT/recommend/$user?limit=6" \
-      | python3 -c 'import json,sys; d=json.load(sys.stdin).get("recommendations") or [{}]; print(d[0].get("item",""))' 2>/dev/null || true)"
+      | python3 -c '
+import json, sys
+item = ""
+try:
+    recs = json.load(sys.stdin).get("recommendations") or []
+    first = recs[0] if recs else None
+    if isinstance(first, str):
+        item = first
+    elif isinstance(first, dict):
+        item = first.get("item", "")
+    if recs and not item:
+        print(f"WARN: could not extract item id from recommendation entry: {first!r}", file=sys.stderr)
+except Exception as e:
+    print(f"WARN: failed to parse /recommend response: {e}", file=sys.stderr)
+print(item)
+' || true)"
     if [[ -n "$item" && $(( i % 2 )) -eq 0 ]]; then
       curl -sf -X POST "http://localhost:$SERVICE_PORT/feedback" \
         -H 'Content-Type: application/json' \
