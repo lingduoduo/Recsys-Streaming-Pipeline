@@ -3,42 +3,49 @@
     "title": "Retro Space Adventure",
     "genres": ["sci-fi", "adventure"],
     "tags": ["space", "classic", "ensemble"],
-    "newRelease": false
+    "newRelease": false,
+    "publishedAt": "2019-04-12T00:00:00Z"
   },
   "item2": {
     "title": "City Heat",
     "genres": ["action", "thriller"],
     "tags": ["crime", "urban", "fast-paced"],
-    "newRelease": false
+    "newRelease": false,
+    "publishedAt": "2021-09-30T00:00:00Z"
   },
   "item3": {
     "title": "Midnight Runway",
     "genres": ["drama", "romance"],
     "tags": ["fashion", "character", "emotional"],
-    "newRelease": false
+    "newRelease": false,
+    "publishedAt": "2023-02-17T00:00:00Z"
   },
   "item4": {
     "title": "Deep Blue Signal",
     "genres": ["sci-fi", "thriller"],
     "tags": ["ai", "mystery", "future"],
-    "newRelease": true
+    "newRelease": true,
+    "publishedAt": "2026-07-15T00:00:00Z"
   },
   "item5": {
     "title": "Wild Terrain",
     "genres": ["adventure", "family"],
     "tags": ["nature", "uplifting", "journey"],
-    "newRelease": true
+    "newRelease": true,
+    "publishedAt": "2026-07-22T00:00:00Z"
   },
   "item6": {
     "title": "Glass Horizon",
     "genres": ["drama", "sci-fi"],
     "tags": ["future", "reflective", "arthouse"],
-    "newRelease": false
+    "newRelease": false,
+    "publishedAt": "2024-11-08T00:00:00Z"
   },
   "item7": {
     "title": "Laugh Circuit",
     "genres": ["comedy", "sci-fi"],
     "tags": ["robots", "workplace", "feel-good"],
-    "newRelease": true
+    "newRelease": true,
+    "publishedAt": "2026-07-05T00:00:00Z"
   }
 }

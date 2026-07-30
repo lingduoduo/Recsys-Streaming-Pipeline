@@ -9,6 +9,22 @@ import org.apache.spark.sql.types._
 
 object ExperienceCollectorStreamingJob {
 
+  private val MeasurementFields: Seq[(String, DataType)] = Seq(
+    "last_feedback_ts" -> LongType,
+    "feedback_delay_ms" -> LongType,
+    "model_version" -> StringType,
+    "policy_version" -> StringType,
+    "algorithm_version" -> StringType,
+    "rating" -> DoubleType,
+    "negative_feedback_reason" -> StringType,
+    "dwell_millis" -> LongType,
+    "completion_rate" -> DoubleType,
+    "published_at" -> LongType,
+    "new_release" -> BooleanType,
+    "filter_reason" -> StringType,
+    "unsafe_label" -> BooleanType
+  )
+
   val TrainingSampleSchema: StructType = StructType(Seq(
     StructField("sample_id", StringType, nullable = false),
     StructField("session_id", StringType, nullable = true),
@@ -20,6 +36,19 @@ object ExperienceCollectorStreamingJob {
     StructField("clicked", IntegerType, nullable = false),
     StructField("ordered", IntegerType, nullable = false),
     StructField("label", DoubleType, nullable = false),
+    StructField("last_feedback_ts", LongType, nullable = true),
+    StructField("feedback_delay_ms", LongType, nullable = true),
+    StructField("model_version", StringType, nullable = true),
+    StructField("policy_version", StringType, nullable = true),
+    StructField("algorithm_version", StringType, nullable = true),
+    StructField("rating", DoubleType, nullable = true),
+    StructField("negative_feedback_reason", StringType, nullable = true),
+    StructField("dwell_millis", LongType, nullable = true),
+    StructField("completion_rate", DoubleType, nullable = true),
+    StructField("published_at", LongType, nullable = true),
+    StructField("new_release", BooleanType, nullable = true),
+    StructField("filter_reason", StringType, nullable = true),
+    StructField("unsafe_label", BooleanType, nullable = true),
     StructField("user_features", MapType(StringType, StringType), nullable = true),
     StructField("item_features", MapType(StringType, StringType), nullable = true),
     StructField("context_features", MapType(StringType, StringType), nullable = true)
@@ -80,7 +109,9 @@ object ExperienceCollectorStreamingJob {
       )
 
   def buildSlates(samples: DataFrame): DataFrame =
-    samples
+    MeasurementFields.foldLeft(samples) { case (df, (name, dataType)) =>
+      if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
+    }
       .groupBy("request_id", "user_id")
       .agg(
         min(col("impression_ts")).as("request_ts"),
@@ -96,6 +127,19 @@ object ExperienceCollectorStreamingJob {
           col("clicked"),
           col("ordered"),
           col("label"),
+          col("last_feedback_ts"),
+          col("feedback_delay_ms"),
+          col("model_version"),
+          col("policy_version"),
+          col("algorithm_version"),
+          col("rating"),
+          col("negative_feedback_reason"),
+          col("dwell_millis"),
+          col("completion_rate"),
+          col("published_at"),
+          col("new_release"),
+          col("filter_reason"),
+          col("unsafe_label"),
           coalesce(col("item_features"), typedLit(Map.empty[String, String])).as("item_features")
         )), (left, right) =>
           when(left.getField("position") < right.getField("position"), -1)

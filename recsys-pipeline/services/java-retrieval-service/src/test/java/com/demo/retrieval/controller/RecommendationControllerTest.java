@@ -1,5 +1,8 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.model.FeedbackRequest;
+import com.demo.retrieval.measurement.MeasurementSnapshot;
+import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.ModelIndexOutOfRangeException;
@@ -15,9 +18,15 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,6 +47,9 @@ class RecommendationControllerTest {
 
     @MockBean
     private DeepLearningPredictionService predictionService;
+
+    @MockBean
+    private RecommendationMeasurementService measurementService;
 
     // --- /embedding ---
 
@@ -194,7 +206,7 @@ class RecommendationControllerTest {
     }
 
     @Test
-    void feedbackEndpointDelegatesToRecommendationService() throws Exception {
+    void feedbackEndpointAcceptsLegacyFourFieldBody() throws Exception {
         when(recommendationService.recordFeedback(any())).thenReturn(Map.of("status", "ok", "clicked", true));
 
         mockMvc.perform(post("/feedback")
@@ -203,15 +215,115 @@ class RecommendationControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ok"))
             .andExpect(jsonPath("$.clicked").value(true));
+
+        verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(false), eq(false));
+    }
+
+    @Test
+    void feedbackEndpointAcceptsEnrichedMeasurementFields() throws Exception {
+        when(recommendationService.recordFeedback(any())).thenReturn(Map.of("status", "ok"));
+
+        mockMvc.perform(post("/feedback")
+                .contentType("application/json")
+                .content("""
+                    {
+                      "user": "u1",
+                      "item": "item1",
+                      "clicked": true,
+                      "reward": 1.0,
+                      "requestId": "req-1",
+                      "rating": 4.5,
+                      "negativeFeedbackReason": null,
+                      "dwellMillis": 12000,
+                      "completionRate": 0.75
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<FeedbackRequest> request =
+            org.mockito.ArgumentCaptor.forClass(FeedbackRequest.class);
+        verify(recommendationService).recordFeedback(request.capture());
+        assertEquals("req-1", request.getValue().requestId());
+        assertEquals(4.5, request.getValue().rating());
+        assertNull(request.getValue().negativeFeedbackReason());
+        assertEquals(12000L, request.getValue().dwellMillis());
+        assertEquals(0.75, request.getValue().completionRate());
+    }
+
+    @Test
+    void feedbackEndpointRejectsRatingOutsideZeroToFive() throws Exception {
+        invalidFeedbackFieldIsRejected("\"rating\":5.1");
+    }
+
+    @Test
+    void feedbackEndpointRejectsNegativeDwellMillis() throws Exception {
+        invalidFeedbackFieldIsRejected("\"dwellMillis\":-1");
+    }
+
+    @Test
+    void feedbackEndpointRejectsCompletionRateOutsideZeroToOne() throws Exception {
+        invalidFeedbackFieldIsRejected("\"completionRate\":1.1");
+    }
+
+    private void invalidFeedbackFieldIsRejected(String invalidField) throws Exception {
+        mockMvc.perform(post("/feedback")
+                .contentType("application/json")
+                .content("{\"user\":\"u1\",\"item\":\"item1\",\"clicked\":true,\"reward\":1.0,"
+                    + invalidField + "}"))
+            .andExpect(status().isBadRequest());
     }
 
     @Test
     void metricsEndpointReturnsAggregateMetrics() throws Exception {
         when(recommendationService.getAggregateMetrics()).thenReturn(Map.of("ctr", 0.25, "requests", 4));
+        when(measurementService.snapshot()).thenReturn(new MeasurementSnapshot(
+            "2.0", Map.of(), Map.of(), Map.of(), Map.of()));
 
         mockMvc.perform(get("/metrics"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.ctr").value(0.25))
-            .andExpect(jsonPath("$.requests").value(4));
+            .andExpect(jsonPath("$.requests").value(4))
+            .andExpect(jsonPath("$.measurements.schemaVersion").value("2.0"));
+    }
+
+    @Test
+    void recommendEndpointRecordsBoundedRequestMeasurement() throws Exception {
+        when(recommendationService.recommend("u1", 6)).thenReturn(
+            new RecommendationResult("u1", List.of(), List.of(), List.of(), Map.of())
+        );
+
+        mockMvc.perform(get("/recommend/u1"))
+            .andExpect(status().isOk());
+
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(false), eq(false));
+    }
+
+    @Test
+    void recommendEndpointRecordsTimeoutAsAnErrorAndTimeout() {
+        when(recommendationService.recommend("u1", 6)).thenThrow(new IllegalStateException(new TimeoutException()));
+
+        assertThrows(Exception.class, () -> mockMvc.perform(get("/recommend/u1")));
+
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(true), eq(true));
+    }
+
+    @Test
+    void recommendEndpointRecordsNonTimeoutServiceErrorWithoutTimeoutFlag() {
+        when(recommendationService.recommend("u1", 6)).thenThrow(new IllegalStateException("service failed"));
+
+        assertThrows(Exception.class, () -> mockMvc.perform(get("/recommend/u1")));
+
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(true), eq(false));
+    }
+
+    @Test
+    void feedbackEndpointRecordsTimeoutAsAnErrorAndTimeout() {
+        when(recommendationService.recordFeedback(any())).thenThrow(new IllegalStateException(new TimeoutException()));
+
+        assertThrows(Exception.class, () -> mockMvc.perform(post("/feedback")
+            .contentType("application/json")
+            .content("{\"user\":\"u1\",\"item\":\"item1\",\"clicked\":true,\"reward\":1.0}")));
+
+        verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(true), eq(true));
     }
 }

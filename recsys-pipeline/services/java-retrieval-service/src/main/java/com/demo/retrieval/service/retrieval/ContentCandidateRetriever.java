@@ -2,6 +2,7 @@ package com.demo.retrieval.service.retrieval;
 
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.measurement.FilterDecision;
 import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.demo.retrieval.service.content.NormalizedProfile;
@@ -51,8 +52,11 @@ public class ContentCandidateRetriever {
         int limit
     ) {
         List<MovieCandidate> retrieved = new ArrayList<>();
+        List<FilterDecision> filterDecisions = new ArrayList<>();
+        int[] evaluatedCandidateCount = {0};
         retrieved.addAll(fetchPopularCandidates(popularityMap, userGenres, userTags));
-        retrieved.addAll(fetchColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit));
+        retrieved.addAll(fetchColdStartCandidates(
+            excludedItems, userGenres, userTags, filterCtx, limit, filterDecisions, evaluatedCandidateCount));
 
         List<MovieCandidate> kept = List.copyOf(retrieved);
         List<MovieCandidate> removed = new ArrayList<>();
@@ -66,13 +70,16 @@ public class ContentCandidateRetriever {
                 removed.addAll(result.removed());
             }
         }
-        CandidateFilterResult eligible = filterEligibleCandidates(kept, excludedItems, filterCtx);
+        CandidateFilterResult eligible = filterEligibleCandidates(
+            kept, excludedItems, filterCtx, filterDecisions, evaluatedCandidateCount);
         kept = eligible.kept();
         removed.addAll(eligible.removed());
 
         List<MovieCandidate> scored = preRankCandidates(kept, limit);
         List<MovieCandidate> selected = selectDistinctCandidates(scored);
-        return new RetrievalOutcome(List.copyOf(retrieved), List.copyOf(removed), scored, selected);
+        return new RetrievalOutcome(
+            List.copyOf(retrieved), List.copyOf(removed), scored, selected,
+            List.copyOf(filterDecisions), evaluatedCandidateCount[0]);
     }
 
     private List<MovieCandidate> fetchPopularCandidates(
@@ -88,10 +95,23 @@ public class ContentCandidateRetriever {
     }
 
     private CandidateFilterResult filterEligibleCandidates(
-        List<MovieCandidate> candidates, Set<String> excludedItems, FilterContext filterCtx) {
-        Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
-            .collect(Collectors.partitioningBy(candidate ->
-                isEligibleCandidate(candidate, excludedItems, filterCtx)));
+        List<MovieCandidate> candidates,
+        Set<String> excludedItems,
+        FilterContext filterCtx,
+        List<FilterDecision> filterDecisions,
+        int[] evaluatedCandidateCount
+    ) {
+        Map<Boolean, List<MovieCandidate>> partitioned = new LinkedHashMap<>();
+        partitioned.put(Boolean.TRUE, new ArrayList<>());
+        partitioned.put(Boolean.FALSE, new ArrayList<>());
+        for (MovieCandidate candidate : candidates) {
+            evaluatedCandidateCount[0]++;
+            Eligibility eligibility = evaluateEligibility(candidate.movieId(), excludedItems, filterCtx);
+            partitioned.get(eligibility.eligible()).add(candidate);
+            if (eligibility.safetyDecision() != null) {
+                filterDecisions.add(eligibility.safetyDecision());
+            }
+        }
         return new CandidateFilterResult(
             partitioned.getOrDefault(Boolean.TRUE, List.of()),
             partitioned.getOrDefault(Boolean.FALSE, List.of())
@@ -108,7 +128,7 @@ public class ContentCandidateRetriever {
 
     private List<MovieCandidate> fetchColdStartCandidates(
         Set<String> excludedItems, Set<String> userGenres, Set<String> userTags,
-        FilterContext filterCtx, int resultSize) {
+        FilterContext filterCtx, int resultSize, List<FilterDecision> filterDecisions, int[] evaluatedCandidateCount) {
         Map<String, MovieProfile> catalog = properties.getCatalog();
         if (catalog.isEmpty()) {
             return List.of();
@@ -121,7 +141,8 @@ public class ContentCandidateRetriever {
             poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()
         ));
         List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
-            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx))
+            .filter(entry -> isEligibleCandidate(
+                entry.getKey(), excludedItems, filterCtx, filterDecisions, evaluatedCandidateCount))
             .map(entry -> {
                 NormalizedProfile np = normalizedCatalog.get(entry.getKey());
                 double cs = np == null ? 0.0 : catalogContentScoring.contentScore(np, userGenres, userTags);
@@ -178,39 +199,73 @@ public class ContentCandidateRetriever {
             .toList();
     }
 
-    private boolean isEligibleCandidate(String itemId, Set<String> recentItems, FilterContext filterCtx) {
+    private boolean isEligibleCandidate(
+        String itemId,
+        Set<String> recentItems,
+        FilterContext filterCtx,
+        List<FilterDecision> filterDecisions,
+        int[] evaluatedCandidateCount
+    ) {
+        evaluatedCandidateCount[0]++;
+        Eligibility eligibility = evaluateEligibility(itemId, recentItems, filterCtx);
+        if (eligibility.safetyDecision() != null) {
+            filterDecisions.add(eligibility.safetyDecision());
+        }
+        return eligibility.eligible();
+    }
+
+    private Eligibility evaluateEligibility(String itemId, Set<String> recentItems, FilterContext filterCtx) {
         if (recentItems.contains(itemId)) {
-            return false;
+            // History and serving exclusions are not catalog safety decisions.
+            return Eligibility.excludedWithoutSafetyDecision();
         }
 
         NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
         if (profile == null) {
-            return true;
+            // An incomplete catalog profile remains eligible, but is observable as
+            // a bounded unclassified safety outcome rather than a rejection.
+            return Eligibility.allowedWithSafetyDecision("unknown");
         }
 
         if (profile.expiresAtEpochMillis() > 0 && profile.expiresAtEpochMillis() <= System.currentTimeMillis()) {
-            return false;
+            return Eligibility.excludedFor("expired");
         }
 
         if (!filterCtx.mutedProductTypes().isEmpty() && filterCtx.mutedProductTypes().contains(profile.productType())) {
-            return false;
+            return Eligibility.excludedFor("muted_product_type");
         }
 
         if (!filterCtx.mutedGenres().isEmpty() && !Collections.disjoint(filterCtx.mutedGenres(), profile.genres())) {
-            return false;
+            return Eligibility.excludedFor("muted_genre");
         }
 
         if (filterCtx.mutedKeywords().isEmpty()) {
-            return true;
+            return Eligibility.allowed();
         }
         if (!Collections.disjoint(filterCtx.mutedKeywords(), profile.allKeywords())) {
-            return false;
+            return Eligibility.excludedFor("muted_keyword");
         }
-        return filterCtx.mutedKeywords().stream().noneMatch(k -> !k.isBlank() && profile.title().contains(k));
+        return filterCtx.mutedKeywords().stream().anyMatch(k -> !k.isBlank() && profile.title().contains(k))
+            ? Eligibility.excludedFor("muted_title")
+            : Eligibility.allowed();
     }
 
-    private boolean isEligibleCandidate(MovieCandidate candidate, Set<String> recentItems, FilterContext filterCtx) {
-        return isEligibleCandidate(candidate.movieId(), recentItems, filterCtx);
+    private record Eligibility(boolean eligible, FilterDecision safetyDecision) {
+        private static Eligibility allowed() {
+            return new Eligibility(true, null);
+        }
+
+        private static Eligibility allowedWithSafetyDecision(String reason) {
+            return new Eligibility(true, new FilterDecision(reason));
+        }
+
+        private static Eligibility excludedWithoutSafetyDecision() {
+            return new Eligibility(false, null);
+        }
+
+        private static Eligibility excludedFor(String reason) {
+            return new Eligibility(false, new FilterDecision(reason));
+        }
     }
 
     private long readLong(Object raw) {

@@ -62,4 +62,56 @@ class RecommendationResponseStatsJobSpec extends AnyFlatSpec with Matchers with 
 
     metrics(Map("type" -> "empty_ads", "stage" -> "response", "subscription" -> "none", "blender" -> "default")) shouldBe 1L
   }
+
+  it should "emit non-negative feedback and Kafka ingest delay measurements with bounded tags" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val rawKafka = Seq(
+      ("""{"slate_id":"slate-1","request_id":"request-secret","user_id":"user-secret","request_ts":100,"user_features":{"subscription_level":"gold"},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-1","clicked":1,"ordered":0,"label":1.0,"feedback_delay_ms":5000},{"position":1,"item_id":"item-2","clicked":0,"ordered":0,"label":0.0,"feedback_delay_ms":0},{"position":2,"item_id":"item-3","clicked":0,"ordered":0,"label":0.0,"feedback_delay_ms":-1}]}""", new java.sql.Timestamp(105000L))
+    ).toDF("value", "timestamp")
+
+    val metrics = RecommendationResponseStatsJob.buildMetricEvents(
+      RecommendationResponseStatsJob.parseSlates(rawKafka)
+    ).collect().map { row =>
+      row.getAs[Map[String, String]]("tags") -> row.getAs[Long]("value")
+    }.toSeq
+
+    metrics.collect {
+      case (tags, value) if tags.get("type").contains("feedback_delay_ms") => value
+    }.toSet shouldBe Set(0L, 5000L)
+    metrics.collect {
+      case (tags, value) if tags.get("type").contains("kafka_ingest_lag_ms") => value
+    } shouldBe Seq(5000L)
+    metrics.exists(_._1.get("type").contains("feedback_delay_ms")) shouldBe true
+    metrics.map(_._1).foreach { tags =>
+      tags should not contain key ("request_id")
+      tags should not contain key ("user_id")
+      tags.values should not contain "request-secret"
+      tags.values should not contain "user-secret"
+    }
+  }
+
+  it should "normalize delay metric subscription tags to a fixed allowlist" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val rawKafka = Seq(
+      ("""{"slate_id":"known","request_id":"request-known","user_id":"user-known","request_ts":100,"user_features":{"subscription_level":"GoLd"},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-known","feedback_delay_ms":5000}]}""", new java.sql.Timestamp(105000L)),
+      ("""{"slate_id":"blank","request_id":"request-blank","user_id":"user-blank","request_ts":100,"user_features":{"subscription_level":"  "},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-blank","feedback_delay_ms":5000}]}""", new java.sql.Timestamp(105000L)),
+      ("""{"slate_id":"unknown","request_id":"request-unknown","user_id":"user-unknown","request_ts":100,"user_features":{"subscription":"customer-123456789"},"context_features":{"country_code":"US"},"items":[{"position":0,"item_id":"item-unknown","feedback_delay_ms":5000}]}""", new java.sql.Timestamp(105000L))
+    ).toDF("value", "timestamp")
+
+    val delayTags = RecommendationResponseStatsJob.buildMetricEvents(
+      RecommendationResponseStatsJob.parseSlates(rawKafka)
+    ).collect().map(_.getAs[Map[String, String]]("tags"))
+      .filter(_.get("type").contains("feedback_delay_ms"))
+
+    delayTags.map(_("subscription")).toSet shouldBe Set("gold", "unknown", "other")
+    val allowed = Set("none", "free", "basic", "standard", "premium", "gold", "unknown", "other")
+    delayTags.foreach { tags =>
+      tags.keySet shouldBe Set("type", "subscription", "country")
+      allowed should contain (tags("subscription"))
+    }
+  }
 }

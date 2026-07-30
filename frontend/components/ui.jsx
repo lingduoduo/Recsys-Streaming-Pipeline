@@ -89,7 +89,8 @@ export function DataTable({ rows, columns }) {
 }
 
 function formatCell(v) {
-  if (v === null || v === undefined) return "";
+  if (v === null || v === undefined) return "N/A";
   if (typeof v === "number") return String(round4(v));
+  if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }

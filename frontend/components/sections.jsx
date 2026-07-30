@@ -2,6 +2,7 @@ import { Section, NaCard, BarChart, DataTable } from "./ui";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const pct = (v) => (v === null || v === undefined ? "N/A" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
+const share = (v) => (v === null || v === undefined ? "N/A" : `${(v * 100).toFixed(1)}%`);
 const ci = (lo, hi, asPct = false) =>
   lo === null || lo === undefined || hi === null || hi === undefined
     ? "N/A"
@@ -9,8 +10,147 @@ const ci = (lo, hi, asPct = false) =>
       ? `[${pct(lo)}, ${pct(hi)}]`
       : `[${num(lo)}, ${num(hi)}]`;
 
+// One consistent presentation for every measurement envelope: headline, the support it
+// was calculated from, any warnings, then the rows. Never invents a value for N/A.
+function MeasurementSection({ title, data, columns, children }) {
+  if (!data || data.status !== "available") {
+    return <NaCard title={title} reason={data?.warnings?.[0] || "measurement unavailable"} />;
+  }
+  return (
+    <Section title={title} headline={data.headline}>
+      <p className="fine-print">
+        sample size {data.sampleSize?.toLocaleString() ?? "N/A"} · coverage {share(data.coverage)}
+        {data.window ? ` · window ${data.window}` : ""}
+      </p>
+      {data.warnings?.length ? <p className="na">{data.warnings.join(" · ")}</p> : null}
+      <DataTable rows={data.rows || []} columns={columns} />
+      {children}
+    </Section>
+  );
+}
+
 export function RelevanceSection({ data }) {
-  if (!data) return <NaCard title="Engagement funnel" reason="no relevance data" />;
+  return (
+    <MeasurementSection
+      title="Relevance"
+      data={data}
+      columns={[
+        "k", "ndcg_at_k", "mrr_at_k", "recall_at_k", "hit_rate_at_k",
+        "evaluated_slate_count", "evaluated_user_count", "label_coverage",
+      ]}
+    />
+  );
+}
+
+export function SatisfactionSection({ data }) {
+  return (
+    <MeasurementSection
+      title="Satisfaction"
+      data={data}
+      columns={[
+        "scope", "ctr", "order_rate", "mean_reward", "mean_rating", "rating_coverage",
+        "negative_feedback_rate", "negative_feedback_coverage", "mean_dwell_millis",
+        "dwell_coverage", "mean_completion_rate", "completion_coverage", "feedback_events",
+      ]}
+    />
+  );
+}
+
+export function FreshnessSection({ data }) {
+  return (
+    <MeasurementSection
+      title="Freshness"
+      data={data}
+      columns={[
+        "scope", "freshness_source", "fresh_share", "freshness_coverage",
+        "mean_content_age_days", "median_content_age_days", "fresh_ctr", "established_ctr",
+        "fresh_mean_reward", "established_mean_reward", "exposures",
+      ]}
+    />
+  );
+}
+
+export function DiversitySection({ data }) {
+  return (
+    <MeasurementSection
+      title="Diversity"
+      data={data}
+      columns={[
+        "scope", "slate_id", "unique_genres_at_k", "normalized_genre_entropy",
+        "intra_list_genre_distance", "long_tail_exposure_share",
+        "long_tail_popularity_cutoff", "genre_coverage", "popularity_coverage",
+      ]}
+    />
+  );
+}
+
+export function FairnessSection({ data }) {
+  return (
+    <MeasurementSection
+      title="Fairness"
+      data={data}
+      columns={[
+        "dimension", "evaluated_candidates", "overall_ctr", "overall_order_rate",
+        "overall_mean_reward", "overall_ndcg", "evaluated_group_count",
+        "suppressed_group_count", "ctr_max_min_gap", "ctr_disparity_ratio",
+        "ndcg_max_min_gap", "ndcg_disparity_ratio",
+      ]}
+    >
+      {(data?.rows || []).map((row) =>
+        row.groups?.length ? (
+          <div className="measurement-groups" key={row.dimension}>
+            <p className="fine-print">
+              {row.dimension} groups above the support threshold ({row.suppressed_group_count} suppressed)
+            </p>
+            <DataTable
+              rows={row.groups}
+              columns={[
+                "group", "support", "exposure_share", "ctr", "order_rate", "mean_reward",
+                "ndcg", "ndcg_evaluated_slate_count",
+              ]}
+            />
+          </div>
+        ) : null,
+      )}
+      <p className="fine-print">
+        Observational only: groups differ in catalog and intent, so a gap is not evidence of
+        discriminatory treatment. Groups below the configured support are suppressed.
+      </p>
+    </MeasurementSection>
+  );
+}
+
+export function SafetySection({ data }) {
+  return (
+    <MeasurementSection
+      title="Safety"
+      data={data}
+      columns={[
+        "scope", "policy_version", "evaluated_candidates", "filter_decisions",
+        "filter_decision_rate", "reason_counts", "unknown_share",
+        "unsafe_exposure_rate", "unsafe_label_coverage",
+      ]}
+    />
+  );
+}
+
+export function LatencySection({ data }) {
+  return (
+    <MeasurementSection
+      title="Latency"
+      data={data}
+      columns={["scope", "name", "unit", "p50", "p95", "p99", "count", "error_rate", "timeout_rate"]}
+    >
+      <p className="fine-print">
+        Live service request and stage latency from the retrieval service. Stream lag
+        (feedback delay, Kafka ingest lag) is measured separately in the Spark metric events.
+      </p>
+    </MeasurementSection>
+  );
+}
+
+export function EngagementSection({ data }) {
+  if (!data) return <NaCard title="Engagement funnel" reason="no engagement data" />;
   const labels = ["impression", "click", "order"];
   return (
     <Section title="Engagement funnel" headline={data.headline}>

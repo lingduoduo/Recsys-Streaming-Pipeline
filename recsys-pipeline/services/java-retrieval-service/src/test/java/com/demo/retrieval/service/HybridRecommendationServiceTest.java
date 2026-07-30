@@ -1,6 +1,7 @@
 package com.demo.retrieval.service;
 
 import com.demo.retrieval.model.FeatureCache;
+import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.model.MovieLensUserFeatures;
 import com.demo.retrieval.model.RecommendationResult;
 import com.demo.retrieval.config.RecommendationProperties;
@@ -14,6 +15,7 @@ import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -54,7 +56,8 @@ class HybridRecommendationServiceTest {
             .thenReturn(new LinkedHashSet<>(List.of(
                 ZSetOperations.TypedTuple.of("watched", 100.0),
                 ZSetOperations.TypedTuple.of("rated", 90.0),
-                ZSetOperations.TypedTuple.of("fresh", 80.0)
+                ZSetOperations.TypedTuple.of("fresh", 80.0),
+                ZSetOperations.TypedTuple.of("unclassified", 1.0)
             )));
         when(values.multiGet(any())).thenAnswer(invocation -> {
             List<String> keys = invocation.getArgument(0);
@@ -79,6 +82,7 @@ class HybridRecommendationServiceTest {
         when(predictionService.predict(any(), any())).thenReturn(Optional.empty());
         TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
         when(twoTowerPredictionService.isEnabled()).thenReturn(false);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         HybridRecommendationService service = new HybridRecommendationService(
             redis,
             properties,
@@ -88,7 +92,8 @@ class HybridRecommendationServiceTest {
             List.of(new MovieLensUserHistoryQueryHydrator(
                 userId -> new UserMovieHistory(List.of("watched"), List.of("rated"))
             )),
-            twoTowerPredictionService
+            twoTowerPredictionService,
+            new RecommendationMeasurementService(meterRegistry, properties)
         );
 
         RecommendationResult result = service.recommend("u1", 1);
@@ -96,6 +101,11 @@ class HybridRecommendationServiceTest {
         assertEquals(List.of("fresh"), result.recommendations());
         assertFalse(result.recommendations().contains("watched"));
         assertFalse(result.recommendations().contains("rated"));
+        assertEquals(1.0, meterRegistry.find("recommendation.filter.decisions")
+            .tag("reason", "unknown").counter().count());
+        for (String stage : List.of("hydration", "redis_fetch", "scoring", "selection", "side_effects")) {
+            assertEquals(1L, meterRegistry.find("recommendation.stage.latency").tag("stage", stage).timer().count());
+        }
         // deep-learning-weight defaults to 0.0, so the ONNX model must not run.
         verify(predictionService, never()).predictBatch(any(), any());
     }

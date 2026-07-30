@@ -1,6 +1,15 @@
 package com.demo.retrieval.config;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -9,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 @ConfigurationProperties(prefix = "recsys")
+@Validated
 public class RecommendationProperties {
     private Cache cache = new Cache();
     private Embeddings embeddings = new Embeddings();
@@ -18,6 +28,8 @@ public class RecommendationProperties {
     private ReplayBuffer replayBuffer = new ReplayBuffer();
     private RewardModel rewardModel = new RewardModel();
     private Sequence sequence = new Sequence();
+    @Valid
+    private Measurements measurements = new Measurements();
     private Map<String, MovieProfile> catalog = new LinkedHashMap<>();
     // Optional path to a catalog JSON file ({itemId: MovieProfile}). When set, its entries are
     // merged on top of the inline `catalog` at startup so the catalog can outgrow application.yml
@@ -78,6 +90,14 @@ public class RecommendationProperties {
 
     public void setSequence(Sequence sequence) {
         this.sequence = sequence;
+    }
+
+    public Measurements getMeasurements() {
+        return measurements;
+    }
+
+    public void setMeasurements(Measurements measurements) {
+        this.measurements = measurements;
     }
 
     public Cache getCache() {
@@ -437,6 +457,62 @@ public class RecommendationProperties {
 
         public void setBucketFetchChunk(int bucketFetchChunk) {
             this.bucketFetchChunk = bucketFetchChunk;
+        }
+    }
+
+    public static class Measurements {
+        @Min(1)
+        private int fairnessMinSupport = 100;
+        @Min(1)
+        private int freshnessWindowDays = 30;
+        @DecimalMin("0.0")
+        @DecimalMax("1.0")
+        private double longTailPercentile = 0.80;
+        @NotBlank
+        @Pattern(regexp = "[a-zA-Z0-9._-]{1,64}")
+        private String safetyPolicyVersion = "catalog-filter-v1";
+        @Size(min = 1, max = 20)
+        private List<@Positive Long> latencyBucketsMs =
+            new ArrayList<>(List.of(5L, 10L, 25L, 50L, 100L, 250L, 500L, 1000L, 2500L));
+
+        public int getFairnessMinSupport() {
+            return fairnessMinSupport;
+        }
+
+        public void setFairnessMinSupport(int fairnessMinSupport) {
+            this.fairnessMinSupport = fairnessMinSupport;
+        }
+
+        public int getFreshnessWindowDays() {
+            return freshnessWindowDays;
+        }
+
+        public void setFreshnessWindowDays(int freshnessWindowDays) {
+            this.freshnessWindowDays = freshnessWindowDays;
+        }
+
+        public double getLongTailPercentile() {
+            return longTailPercentile;
+        }
+
+        public void setLongTailPercentile(double longTailPercentile) {
+            this.longTailPercentile = longTailPercentile;
+        }
+
+        public String getSafetyPolicyVersion() {
+            return safetyPolicyVersion;
+        }
+
+        public void setSafetyPolicyVersion(String safetyPolicyVersion) {
+            this.safetyPolicyVersion = safetyPolicyVersion;
+        }
+
+        public List<Long> getLatencyBucketsMs() {
+            return latencyBucketsMs;
+        }
+
+        public void setLatencyBucketsMs(List<Long> latencyBucketsMs) {
+            this.latencyBucketsMs = latencyBucketsMs;
         }
     }
 

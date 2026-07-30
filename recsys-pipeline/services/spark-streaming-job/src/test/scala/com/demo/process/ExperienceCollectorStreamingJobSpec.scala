@@ -1,6 +1,7 @@
 package com.demo.process
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions.{col, lit, when}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -40,5 +41,60 @@ class ExperienceCollectorStreamingJobSpec extends AnyFlatSpec with Matchers with
     row.getAs[Double]("slate_reward") shouldBe 1.0
     row.getAs[Int]("slate_size") shouldBe 2
     items.map(_.getAs[String]("item_id")) shouldBe Seq("item_1", "item_2")
+  }
+
+  it should "preserve measurement fields in their ordered item attribution" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val baseSamples = Seq(
+      ("s2", "sess_1", "req_1", "user_1", "item_2", 1, 100L, 0, 0, 0.0,
+        Map.empty[String, String], Map.empty[String, String], Map.empty[String, String]),
+      ("s1", "sess_1", "req_1", "user_1", "item_1", 0, 100L, 1, 0, 1.0,
+        Map.empty[String, String], Map.empty[String, String], Map.empty[String, String])
+    ).toDF(
+      "sample_id", "session_id", "request_id", "user_id", "item_id", "position", "impression_ts",
+      "clicked", "ordered", "label", "user_features", "item_features", "context_features"
+    )
+    val enrichedItem = col("item_id") === "item_1"
+    val samples = baseSamples
+      .withColumn("model_version", when(enrichedItem, lit("model-v2")))
+      .withColumn("policy_version", when(enrichedItem, lit("policy-v3")))
+      .withColumn("algorithm_version", when(enrichedItem, lit("algo-v4")))
+      .withColumn("rating", when(enrichedItem, lit(4.5)))
+      .withColumn("negative_feedback_reason", when(enrichedItem, lit("not_interested")))
+      .withColumn("dwell_millis", when(enrichedItem, lit(12000L)))
+      .withColumn("completion_rate", when(enrichedItem, lit(0.75)))
+      .withColumn("published_at", when(enrichedItem, lit(50L)))
+      .withColumn("new_release", when(enrichedItem, lit(true)))
+      .withColumn("filter_reason", when(enrichedItem, lit("muted_genre")))
+      .withColumn("unsafe_label", when(enrichedItem, lit(false)))
+      .withColumn("last_feedback_ts", when(enrichedItem, lit(105L)))
+      .withColumn("feedback_delay_ms", when(enrichedItem, lit(5000L)))
+
+    val items = ExperienceCollectorStreamingJob.buildSlates(samples).first()
+      .getAs[Seq[org.apache.spark.sql.Row]]("items")
+
+    val legacy = items(1)
+    Seq(
+      "model_version", "policy_version", "algorithm_version", "rating", "negative_feedback_reason",
+      "dwell_millis", "completion_rate", "published_at", "new_release", "filter_reason", "unsafe_label",
+      "last_feedback_ts", "feedback_delay_ms"
+    ).foreach(field => legacy.getAs[AnyRef](field) shouldBe null)
+
+    val enriched = items.head
+    enriched.getAs[String]("model_version") shouldBe "model-v2"
+    enriched.getAs[String]("policy_version") shouldBe "policy-v3"
+    enriched.getAs[String]("algorithm_version") shouldBe "algo-v4"
+    enriched.getAs[Double]("rating") shouldBe 4.5
+    enriched.getAs[String]("negative_feedback_reason") shouldBe "not_interested"
+    enriched.getAs[Long]("dwell_millis") shouldBe 12000L
+    enriched.getAs[Double]("completion_rate") shouldBe 0.75
+    enriched.getAs[Long]("published_at") shouldBe 50L
+    enriched.getAs[Boolean]("new_release") shouldBe true
+    enriched.getAs[String]("filter_reason") shouldBe "muted_genre"
+    enriched.getAs[Boolean]("unsafe_label") shouldBe false
+    enriched.getAs[Long]("last_feedback_ts") shouldBe 105L
+    enriched.getAs[Long]("feedback_delay_ms") shouldBe 5000L
   }
 }
