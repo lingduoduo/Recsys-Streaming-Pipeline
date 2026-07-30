@@ -1,6 +1,8 @@
 package com.demo.retrieval.controller;
 
 import com.demo.retrieval.model.FeedbackRequest;
+import com.demo.retrieval.measurement.MeasurementSnapshot;
+import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.ModelIndexOutOfRangeException;
@@ -16,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -42,6 +45,9 @@ class RecommendationControllerTest {
 
     @MockBean
     private DeepLearningPredictionService predictionService;
+
+    @MockBean
+    private RecommendationMeasurementService measurementService;
 
     // --- /embedding ---
 
@@ -207,6 +213,8 @@ class RecommendationControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ok"))
             .andExpect(jsonPath("$.clicked").value(true));
+
+        verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(false));
     }
 
     @Test
@@ -266,10 +274,25 @@ class RecommendationControllerTest {
     @Test
     void metricsEndpointReturnsAggregateMetrics() throws Exception {
         when(recommendationService.getAggregateMetrics()).thenReturn(Map.of("ctr", 0.25, "requests", 4));
+        when(measurementService.snapshot()).thenReturn(new MeasurementSnapshot(
+            "2.0", Map.of(), Map.of(), Map.of(), Map.of()));
 
         mockMvc.perform(get("/metrics"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.ctr").value(0.25))
-            .andExpect(jsonPath("$.requests").value(4));
+            .andExpect(jsonPath("$.requests").value(4))
+            .andExpect(jsonPath("$.measurements.schemaVersion").value("2.0"));
+    }
+
+    @Test
+    void recommendEndpointRecordsBoundedRequestMeasurement() throws Exception {
+        when(recommendationService.recommend("u1", 6)).thenReturn(
+            new RecommendationResult("u1", List.of(), List.of(), List.of(), Map.of())
+        );
+
+        mockMvc.perform(get("/recommend/u1"))
+            .andExpect(status().isOk());
+
+        verify(measurementService).recordRequest(eq("recommend"), any(Duration.class), eq(false));
     }
 }

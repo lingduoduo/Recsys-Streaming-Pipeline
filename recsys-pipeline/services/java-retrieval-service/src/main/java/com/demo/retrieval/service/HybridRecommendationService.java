@@ -1,6 +1,7 @@
 package com.demo.retrieval.service;
 
 import com.demo.retrieval.model.FeatureCache;
+import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.model.FeedbackRequest;
 import com.demo.retrieval.model.MovieLensUserFeatures;
 import com.demo.retrieval.model.RecommendationResult;
@@ -37,6 +38,7 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -93,6 +95,7 @@ public class HybridRecommendationService {
     private final MovieLensServingSideEffects servingSideEffects;
     private final CatalogContentScoring catalogContentScoring;
     private final ContentCandidateRetriever contentCandidateRetriever;
+    private final RecommendationMeasurementService measurementService;
 
     public HybridRecommendationService(
         StringRedisTemplate redis,
@@ -102,6 +105,22 @@ public class HybridRecommendationService {
         FeatureCache featureCache,
         List<QueryHydrator<ScoredMoviesQuery>> queryHydrators,
         TwoTowerPredictionService twoTowerPredictionService
+    ) {
+        this(
+            redis, properties, predictionService, onlineLearningService, featureCache, queryHydrators,
+            twoTowerPredictionService, RecommendationMeasurementService.noOp());
+    }
+
+    @Autowired
+    public HybridRecommendationService(
+        StringRedisTemplate redis,
+        RecommendationProperties properties,
+        DeepLearningPredictionService predictionService,
+        OnlineLearningService onlineLearningService,
+        FeatureCache featureCache,
+        List<QueryHydrator<ScoredMoviesQuery>> queryHydrators,
+        TwoTowerPredictionService twoTowerPredictionService,
+        RecommendationMeasurementService measurementService
     ) {
         this.redis = redis;
         this.properties = properties;
@@ -113,6 +132,7 @@ public class HybridRecommendationService {
         this.servingSideEffects = new MovieLensServingSideEffects(redis, objectMapper, properties.getReplayBuffer().getPendingTtl());
         this.catalogContentScoring = new CatalogContentScoring(properties);
         this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
+        this.measurementService = measurementService;
     }
 
     public RecommendationResult recommend(String user, int limit) {
@@ -123,11 +143,11 @@ public class HybridRecommendationService {
         ScoredMoviesQuery hydratedQuery;
         Set<ZSetOperations.TypedTuple<String>> popularWithScores;
         try {
-            hydratedQuery = hydrateQuery(query);
+            hydratedQuery = measurementService.timeStage("hydration", () -> hydrateQuery(query));
             int fetchSize = Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit);
-            popularWithScores = Optional.ofNullable(
+            popularWithScores = measurementService.timeStage("redis_fetch", () -> Optional.ofNullable(
                 redis.opsForZSet().reverseRangeWithScores(GLOBAL_POPULARITY_KEY, 0, fetchSize - 1L)
-            ).orElseGet(Set::of);
+            ).orElseGet(Set::of));
         } catch (Exception e) {
             log.error("Recommendation fetch failed for user {}", user, e);
             return new RecommendationResult(user, List.of(), List.of(), List.of(), Map.of());
@@ -170,6 +190,7 @@ public class HybridRecommendationService {
             filterCtx,
             limit
         );
+        measurementService.recordFilterDecisions(candidateGeneration.filterDecisions());
         Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
             .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, MovieCandidate::merge, LinkedHashMap::new));
         List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
@@ -209,14 +230,14 @@ public class HybridRecommendationService {
         // subsequent onlineLearningService.score() call is a pure in-memory read.
         onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
 
-        List<ScoredCandidate> scored = movieLensOutcomeScorer.applyDiversity(eligibleList.stream()
+        List<ScoredCandidate> scored = measurementService.timeStage("scoring", () -> movieLensOutcomeScorer.applyDiversity(eligibleList.stream()
             .map(item -> {
                 long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
                 return scoreCandidate(candidateById.get(item), item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
                     popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
                     dlScores.getOrDefault(item, 0.0), qValues.get(item), tabularRl);
             })
-            .toList());
+            .toList()));
 
         if (scored.isEmpty()) {
             return new RecommendationResult(
@@ -229,12 +250,16 @@ public class HybridRecommendationService {
         }
 
         String requestId = UUID.randomUUID().toString();
-        SelectionResult<ScoredCandidate> selection = topKScoreSelector.select(scored, limit);
+        SelectionResult<ScoredCandidate> selection = measurementService.timeStage(
+            "selection", () -> topKScoreSelector.select(scored, limit));
         List<ScoredCandidate> selected = selection.selected();
         List<ScoredCandidate> candidateSnapshot = topKScoreSelector
             .select(scored, Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
             .selected();
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
+        measurementService.recordFreshness(recommendations.stream()
+            .map(itemId -> properties.getCatalog().get(itemId))
+            .toList());
         double pseudoRegret = computePseudoRegret(scored, selected, limit);
         double avgEstimatedReward = selected.stream().mapToDouble(ScoredCandidate::estimatedReward).average().orElse(0.0);
         double avgExplorationBonus = selected.stream().mapToDouble(ScoredCandidate::explorationBonus).average().orElse(0.0);
@@ -244,7 +269,8 @@ public class HybridRecommendationService {
         double noveltyTotal = selected.stream().mapToDouble(ScoredCandidate::noveltyScore).sum();
         long servedCount = selected.size();
         double estimatedRewardTotal = avgEstimatedReward * servedCount;
-        servingSideEffects.recordServed(new ServingSideEffectRequest(
+        measurementService.timeStage("side_effects", () -> {
+            servingSideEffects.recordServed(new ServingSideEffectRequest(
             requestId,
             user,
             algorithm,
@@ -258,8 +284,10 @@ public class HybridRecommendationService {
             servedCount,
             estimatedRewardTotal,
             pseudoRegret,
-            noveltyTotal
-        ));
+                noveltyTotal
+            ));
+            return null;
+        });
 
         List<Map<String, Object>> diagnostics = selected.stream()
             .map(candidate -> {
@@ -324,6 +352,7 @@ public class HybridRecommendationService {
         List<String> cacheKeysToInvalidate = new ArrayList<>();
 
         // Batch ALL feedback writes into one pipeline: ~22+ round-trips → 1.
+        measurementService.recordFeedbackCoverage(request);
         redis.executePipelined(new SessionCallback<Object>() {
             @Override
             public Object execute(RedisOperations operations) {

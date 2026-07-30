@@ -2,6 +2,7 @@ package com.demo.retrieval.controller;
 
 import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.model.FeedbackRequest;
+import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.ModelIndexOutOfRangeException;
 import com.demo.retrieval.model.ModelPrediction;
@@ -26,6 +27,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Arrays;
+import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,15 +45,18 @@ public class RecommendationController {
     private final StringRedisTemplate redis;
     private final HybridRecommendationService recommendationService;
     private final DeepLearningPredictionService predictionService;
+    private final RecommendationMeasurementService measurementService;
 
     public RecommendationController(
         StringRedisTemplate redis,
         HybridRecommendationService recommendationService,
-        DeepLearningPredictionService predictionService
+        DeepLearningPredictionService predictionService,
+        RecommendationMeasurementService measurementService
     ) {
         this.redis = redis;
         this.recommendationService = recommendationService;
         this.predictionService = predictionService;
+        this.measurementService = measurementService;
     }
 
     @GetMapping("/embedding/{item}")
@@ -84,15 +90,22 @@ public class RecommendationController {
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user,
         @RequestParam(defaultValue = DEFAULT_LIMIT) int limit
     ) {
-        int boundedLimit = Math.max(1, Math.min(limit, MAX_LIMIT));
-        RecommendationResult result = recommendationService.recommend(user, boundedLimit);
-        return Map.of(
-            "user", result.user(),
-            "recent", result.recent(),
-            "recommendations", result.recommendations(),
-            "diagnostics", result.candidateDiagnostics(),
-            "metrics", result.metrics()
-        );
+        long started = System.nanoTime();
+        boolean error = true;
+        try {
+            int boundedLimit = Math.max(1, Math.min(limit, MAX_LIMIT));
+            RecommendationResult result = recommendationService.recommend(user, boundedLimit);
+            error = false;
+            return Map.of(
+                "user", result.user(),
+                "recent", result.recent(),
+                "recommendations", result.recommendations(),
+                "diagnostics", result.candidateDiagnostics(),
+                "metrics", result.metrics()
+            );
+        } finally {
+            measurementService.recordRequest("recommend", Duration.ofNanos(System.nanoTime() - started), error);
+        }
     }
 
     @GetMapping("/predict/{user}/{item}")
@@ -125,12 +138,22 @@ public class RecommendationController {
 
     @PostMapping("/feedback")
     public Map<String, Object> feedback(@Valid @RequestBody FeedbackRequest request) {
-        return recommendationService.recordFeedback(request);
+        long started = System.nanoTime();
+        boolean error = true;
+        try {
+            Map<String, Object> response = recommendationService.recordFeedback(request);
+            error = false;
+            return response;
+        } finally {
+            measurementService.recordRequest("feedback", Duration.ofNanos(System.nanoTime() - started), error);
+        }
     }
 
     @GetMapping("/metrics")
     public Map<String, Object> metrics() {
-        return recommendationService.getAggregateMetrics();
+        Map<String, Object> aggregate = new LinkedHashMap<>(recommendationService.getAggregateMetrics());
+        aggregate.put("measurements", measurementService.snapshot().asMap());
+        return aggregate;
     }
 
     @ExceptionHandler(ConstraintViolationException.class)

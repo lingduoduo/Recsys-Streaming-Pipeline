@@ -2,6 +2,7 @@ package com.demo.retrieval.service.retrieval;
 
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.measurement.FilterDecision;
 import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.demo.retrieval.service.content.NormalizedProfile;
@@ -51,8 +52,9 @@ public class ContentCandidateRetriever {
         int limit
     ) {
         List<MovieCandidate> retrieved = new ArrayList<>();
+        List<FilterDecision> filterDecisions = new ArrayList<>();
         retrieved.addAll(fetchPopularCandidates(popularityMap, userGenres, userTags));
-        retrieved.addAll(fetchColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit));
+        retrieved.addAll(fetchColdStartCandidates(excludedItems, userGenres, userTags, filterCtx, limit, filterDecisions));
 
         List<MovieCandidate> kept = List.copyOf(retrieved);
         List<MovieCandidate> removed = new ArrayList<>();
@@ -66,13 +68,14 @@ public class ContentCandidateRetriever {
                 removed.addAll(result.removed());
             }
         }
-        CandidateFilterResult eligible = filterEligibleCandidates(kept, excludedItems, filterCtx);
+        CandidateFilterResult eligible = filterEligibleCandidates(kept, excludedItems, filterCtx, filterDecisions);
         kept = eligible.kept();
         removed.addAll(eligible.removed());
 
         List<MovieCandidate> scored = preRankCandidates(kept, limit);
         List<MovieCandidate> selected = selectDistinctCandidates(scored);
-        return new RetrievalOutcome(List.copyOf(retrieved), List.copyOf(removed), scored, selected);
+        return new RetrievalOutcome(
+            List.copyOf(retrieved), List.copyOf(removed), scored, selected, List.copyOf(filterDecisions));
     }
 
     private List<MovieCandidate> fetchPopularCandidates(
@@ -88,10 +91,21 @@ public class ContentCandidateRetriever {
     }
 
     private CandidateFilterResult filterEligibleCandidates(
-        List<MovieCandidate> candidates, Set<String> excludedItems, FilterContext filterCtx) {
-        Map<Boolean, List<MovieCandidate>> partitioned = candidates.stream()
-            .collect(Collectors.partitioningBy(candidate ->
-                isEligibleCandidate(candidate, excludedItems, filterCtx)));
+        List<MovieCandidate> candidates,
+        Set<String> excludedItems,
+        FilterContext filterCtx,
+        List<FilterDecision> filterDecisions
+    ) {
+        Map<Boolean, List<MovieCandidate>> partitioned = new LinkedHashMap<>();
+        partitioned.put(Boolean.TRUE, new ArrayList<>());
+        partitioned.put(Boolean.FALSE, new ArrayList<>());
+        for (MovieCandidate candidate : candidates) {
+            FilterDecision decision = rejectionFor(candidate.movieId(), excludedItems, filterCtx);
+            partitioned.get(decision == null).add(candidate);
+            if (decision != null) {
+                filterDecisions.add(decision);
+            }
+        }
         return new CandidateFilterResult(
             partitioned.getOrDefault(Boolean.TRUE, List.of()),
             partitioned.getOrDefault(Boolean.FALSE, List.of())
@@ -108,7 +122,7 @@ public class ContentCandidateRetriever {
 
     private List<MovieCandidate> fetchColdStartCandidates(
         Set<String> excludedItems, Set<String> userGenres, Set<String> userTags,
-        FilterContext filterCtx, int resultSize) {
+        FilterContext filterCtx, int resultSize, List<FilterDecision> filterDecisions) {
         Map<String, MovieProfile> catalog = properties.getCatalog();
         if (catalog.isEmpty()) {
             return List.of();
@@ -121,7 +135,7 @@ public class ContentCandidateRetriever {
             poolSize * properties.getCandidateGeneration().getPopularityFetchMultiplier()
         ));
         List<MovieCandidate> probeCandidates = catalog.entrySet().stream()
-            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx))
+            .filter(entry -> isEligibleCandidate(entry.getKey(), excludedItems, filterCtx, filterDecisions))
             .map(entry -> {
                 NormalizedProfile np = normalizedCatalog.get(entry.getKey());
                 double cs = np == null ? 0.0 : catalogContentScoring.contentScore(np, userGenres, userTags);
@@ -178,39 +192,51 @@ public class ContentCandidateRetriever {
             .toList();
     }
 
-    private boolean isEligibleCandidate(String itemId, Set<String> recentItems, FilterContext filterCtx) {
-        if (recentItems.contains(itemId)) {
+    private boolean isEligibleCandidate(
+        String itemId,
+        Set<String> recentItems,
+        FilterContext filterCtx,
+        List<FilterDecision> filterDecisions
+    ) {
+        FilterDecision decision = rejectionFor(itemId, recentItems, filterCtx);
+        if (decision != null) {
+            filterDecisions.add(decision);
             return false;
+        }
+        return true;
+    }
+
+    private FilterDecision rejectionFor(String itemId, Set<String> recentItems, FilterContext filterCtx) {
+        if (recentItems.contains(itemId)) {
+            return new FilterDecision("unknown");
         }
 
         NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
         if (profile == null) {
-            return true;
+            return null;
         }
 
         if (profile.expiresAtEpochMillis() > 0 && profile.expiresAtEpochMillis() <= System.currentTimeMillis()) {
-            return false;
+            return new FilterDecision("expired");
         }
 
         if (!filterCtx.mutedProductTypes().isEmpty() && filterCtx.mutedProductTypes().contains(profile.productType())) {
-            return false;
+            return new FilterDecision("muted_product_type");
         }
 
         if (!filterCtx.mutedGenres().isEmpty() && !Collections.disjoint(filterCtx.mutedGenres(), profile.genres())) {
-            return false;
+            return new FilterDecision("muted_genre");
         }
 
         if (filterCtx.mutedKeywords().isEmpty()) {
-            return true;
+            return null;
         }
         if (!Collections.disjoint(filterCtx.mutedKeywords(), profile.allKeywords())) {
-            return false;
+            return new FilterDecision("muted_keyword");
         }
-        return filterCtx.mutedKeywords().stream().noneMatch(k -> !k.isBlank() && profile.title().contains(k));
-    }
-
-    private boolean isEligibleCandidate(MovieCandidate candidate, Set<String> recentItems, FilterContext filterCtx) {
-        return isEligibleCandidate(candidate.movieId(), recentItems, filterCtx);
+        return filterCtx.mutedKeywords().stream().anyMatch(k -> !k.isBlank() && profile.title().contains(k))
+            ? new FilterDecision("muted_title")
+            : null;
     }
 
     private long readLong(Object raw) {
