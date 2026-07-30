@@ -1,8 +1,18 @@
-def safe_ratio(numerator, denominator):
+from collections.abc import Iterable
+
+
+def safe_ratio(numerator: float, denominator: float) -> float | None:
     return None if denominator <= 0 else numerator / denominator
 
 
-def available(headline, rows, sample_size, coverage, window=None, warnings=()):
+def available(
+    headline: str,
+    rows: Iterable[dict[str, object]],
+    sample_size: int,
+    coverage: float,
+    window: object | None = None,
+    warnings: Iterable[str] = (),
+) -> dict[str, object]:
     return {
         "status": "available",
         "headline": headline,
@@ -14,7 +24,7 @@ def available(headline, rows, sample_size, coverage, window=None, warnings=()):
     }
 
 
-def unavailable(reason, warnings=()):
+def unavailable(reason: str, warnings: Iterable[str] = ()) -> dict[str, object]:
     return {
         "status": "unavailable",
         "headline": "N/A",
