@@ -292,7 +292,15 @@ def test_measurement_config_rejects_out_of_range_values(tmp_path):
 
 
 def test_scorecard_headline_fields_exist_in_the_published_rows(tmp_path, monkeypatch):
-    """Every field the scorecard reads must be a real key in that section's rows."""
+    """Every field the scorecard reads must be a real key at the specific row it indexes.
+
+    Checking the pooled union of columns across every row (as an earlier version of this
+    test did) can't tell "the field exists at rows[rowIndex]" from "the field exists
+    somewhere in the section" — a reordered `ks` list or an extra endpoint sorted ahead of
+    /recommend would silently point HEADLINES at the wrong row and this test would still
+    pass. So it also pins the identity of the rows HEADLINES indexes, and checks the field
+    at that exact row.
+    """
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     monkeypatch.setenv("REDIS_PORT", "6399")
@@ -308,9 +316,45 @@ def test_scorecard_headline_fields_exist_in_the_published_rows(tmp_path, monkeyp
     headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
     assert headlines, "sections.jsx must declare a HEADLINES map"
 
-    declared = re.findall(r'(\w+):\s*\{[^}]*field:\s*"([^"]+)"', headlines.group(1))
-    assert {key for key, _ in declared} == MEASUREMENT_KEYS
+    declared = re.findall(r'(\w+):\s*\{\s*rowIndex:\s*(\d+),\s*field:\s*"([^"]+)"', headlines.group(1))
+    assert {key for key, _, _ in declared} == MEASUREMENT_KEYS
 
-    for key, field in declared:
-        published = {column for row in output[key]["rows"] for column in row}
-        assert field in published, f"scorecard reads {key}.{field}, which no row publishes"
+    # HEADLINES assumes these specific row identities; if the exporter ever reorders them,
+    # this must fail loudly instead of the scorecard silently mislabeling the wrong row.
+    assert output["relevance"]["rows"][1]["k"] == 10
+    assert output["latency"]["rows"][1]["name"] == "recommend"
+
+    for key, row_index, field in declared:
+        row = output[key]["rows"][int(row_index)]
+        assert field in row, f"scorecard reads {key}.rows[{row_index}].{field}, which that row does not publish"
+
+
+def test_live_only_safety_row_omits_the_scorecard_headline_field(tmp_path):
+    """A section can be "available" via a live-only merge without publishing every field.
+
+    `_merge_live_row` promotes a section to "available" from the live row alone when the
+    offline calculation is unavailable (see `analysis_dashboard_report._merge_live_row`).
+    For safety, `_live_safety` never emits `unsafe_exposure_rate` — the offline-only
+    field HEADLINES.safety reads. This proves the exporter really produces that shape, so
+    the frontend fix (Scorecard falling back to the "na" tile state when the headline
+    field is absent from the indexed row, not just when the section is unavailable) has a
+    real payload to guard against.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    # No filter_reason/unsafe_label columns at all: compute_safety is unavailable offline.
+    samples = pd.DataFrame({
+        "user_id": ["u1"], "item_id": ["item_1"], "label": [1.0], "clicked": [1],
+    })
+    live = _live_metrics()  # measurements.safety.availability == "available"
+
+    output = dash.build_measurement_dashboard(samples, None, live, None)
+
+    safety = output["safety"]
+    assert safety["status"] == "available"
+    assert safety["rows"][0]["scope"] == "live_service"
+    assert "unsafe_exposure_rate" not in safety["rows"][0]
+    # The offline unavailability reason survives the merge as a warning — the scorecard's
+    # "na" tile reuses it as the reason text for this exact case.
+    assert safety["warnings"] == ["missing filter_reason and unsafe_label safety signals"]

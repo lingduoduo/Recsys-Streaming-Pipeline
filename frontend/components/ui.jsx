@@ -106,6 +106,9 @@ export function MetricTile({ title, value, label, sampleSize, status, reason, hr
       <span className="metric-support">
         {status === "na" ? reason : `n=${(sampleSize ?? 0).toLocaleString()}`}
       </span>
+      {/* Border color alone can't convey the low-coverage flag to screen readers or
+          color-vision-deficient users, so state it as text too. */}
+      {status === "low" ? <span className="sr-only">Low coverage — below 50%</span> : null}
     </a>
   );
 }

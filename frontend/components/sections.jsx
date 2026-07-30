@@ -31,9 +31,21 @@ const TITLES = {
 
 const LOW_COVERAGE = 0.5;
 
+function headlineRow(section, spec) {
+  return section.rows?.[spec.rowIndex] ?? section.rows?.[0];
+}
+
+// A merged live-only row (see `_merge_live_row` in analysis_dashboard_report.py) can make a
+// section "available" without publishing every offline field — e.g. the live safety row has
+// no `unsafe_exposure_rate`. Check the key itself, not just its value, so a merged row that
+// omits the headline field is never mistaken for a published-but-null one.
+function headlineFieldPublished(section, spec) {
+  const row = headlineRow(section, spec);
+  return !!row && Object.prototype.hasOwnProperty.call(row, spec.field);
+}
+
 function headlineValue(section, spec) {
-  const row = section.rows?.[spec.rowIndex] ?? section.rows?.[0];
-  const value = row?.[spec.field];
+  const value = headlineRow(section, spec)?.[spec.field];
   if (value === null || value === undefined) return "N/A";
   if (spec.format === "pct") return share(value);
   if (spec.format === "ms") return `${num(value, 1)} ms`;
@@ -46,17 +58,18 @@ export function Scorecard({ data }) {
       {Object.entries(HEADLINES).map(([key, spec]) => {
         const section = data[key];
         const available = section?.status === "available";
-        const status = !available ? "na" : (section.coverage ?? 1) < LOW_COVERAGE ? "low" : "ok";
+        const published = available && headlineFieldPublished(section, spec);
+        const status = !published ? "na" : (section.coverage ?? 1) < LOW_COVERAGE ? "low" : "ok";
         return (
           <MetricTile
             key={key}
             href={`#${key}`}
             title={TITLES[key]}
-            value={available ? headlineValue(section, spec) : "N/A"}
+            value={published ? headlineValue(section, spec) : "N/A"}
             label={spec.label}
             sampleSize={section?.sampleSize}
             status={status}
-            reason={section?.warnings?.[0] || "measurement unavailable"}
+            reason={published ? null : section?.warnings?.[0] || "measurement unavailable"}
           />
         );
       })}
