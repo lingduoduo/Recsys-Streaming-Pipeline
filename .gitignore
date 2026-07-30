@@ -35,3 +35,4 @@ recsys-pipeline/**/*.pyc
 
 # Isolated feature worktrees
 /.worktrees/
+.worktrees/
