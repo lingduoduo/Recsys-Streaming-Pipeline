@@ -141,13 +141,8 @@ public class HybridRecommendationService {
         FilterContext filterCtx = buildFilterContext();
         ScoredMoviesQuery query = ScoredMoviesQuery.forUser(user);
         ScoredMoviesQuery hydratedQuery;
-        Set<ZSetOperations.TypedTuple<String>> popularWithScores;
         try {
             hydratedQuery = measurementService.timeStage("hydration", () -> hydrateQuery(query));
-            int fetchSize = Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit);
-            popularWithScores = measurementService.timeStage("redis_fetch", () -> Optional.ofNullable(
-                redis.opsForZSet().reverseRangeWithScores(GLOBAL_POPULARITY_KEY, 0, fetchSize - 1L)
-            ).orElseGet(Set::of));
         } catch (Exception e) {
             log.error("Recommendation fetch failed for user {}", user, e);
             return new RecommendationResult(user, List.of(), List.of(), List.of(), Map.of());
@@ -156,88 +151,90 @@ public class HybridRecommendationService {
         List<String> rated = hydratedQuery.ratedMovieIds();
         MovieLensUserFeatures userFeatures = hydratedQuery.userFeatures();
 
-        // Build popularity map from a single ZREVRANGE WITHSCORES call (eliminates per-item ZSCORE N+1)
-        Map<String, Double> popularityMap = popularWithScores.stream()
-            .filter(t -> t.getValue() != null && t.getScore() != null)
-            .collect(Collectors.toMap(
-                ZSetOperations.TypedTuple::getValue,
-                t -> Math.log1p(t.getScore()),
-                Math::max,
-                LinkedHashMap::new
-            ));
-        Set<String> popular = popularityMap.keySet();
-        // popularityMap is ZREVRANGE-ordered (descending score) so the first entry is the max.
-        double maxPopularity = popularityMap.isEmpty() ? 0.0 : popularityMap.values().iterator().next();
-
-        Set<String> historySet = new HashSet<>(recent);
-        historySet.addAll(rated);
-        historySet.addAll(userFeatures.recentlyRatedMovieIds());
-        historySet.addAll(userFeatures.actionSequenceMovieIds());
-        historySet.addAll(userFeatures.servedMovieIds());
-        historySet.addAll(userFeatures.impressedMovieIds());
-        TasteProfile tasteProfile = deriveTasteProfile(recent, rated, userFeatures, popular);
-        Set<String> userGenres = tasteProfile.genres();
-        Set<String> userTags = tasteProfile.tags();
-        Map<String, Object> state = buildState(recent, userGenres, userTags);
-        String stateKey = stateKey(state);
-
-        RetrievalOutcome candidateGeneration = generateCandidates(
-            hydratedQuery,
-            popularityMap,
-            historySet,
-            userGenres,
-            userTags,
-            filterCtx,
-            limit
-        );
-        measurementService.recordFilterDecisions(candidateGeneration.filterDecisions());
-        Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
-            .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, MovieCandidate::merge, LinkedHashMap::new));
-        List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
-            .map(MovieCandidate::movieId)
-            .toList();
-
-        // Warm item-vector cache for candidates + full history (watched + rated) so the
-        // rating-weighted user-vector fallback and scoring loop are pure cache reads.
-        batchWarmItemVectors(eligibleList, Stream.concat(recent.stream(), rated.stream()).distinct().toList());
-
-        double[] userVector = resolveUserVector(user, recent, rated);
-        Map<String, Double> relevanceScores = batchRelevanceScores(userVector, eligibleList);
-        long totalImpressions = resolveLongMetric("recommendations_served");
-
-        // Batch-fetch all impression + click counters (eliminates per-candidate GET N+1)
-        Map<String, long[]> counters = batchFetchCounters(eligibleList);
-        Map<String, Double> qValues = tabularRl
-            ? batchFetchQValues(stateKey, eligibleList)
-            : Map.of();
-        boolean deepLearningEnabled = properties.getBandit().getDeepLearningWeight() > 0.0;
-        Map<String, Double> dlScoresRaw = deepLearningEnabled
-            ? predictionService.predictBatch(user, eligibleList)
-            : Map.of();
-        if (deepLearningEnabled && twoTowerPredictionService.isEnabled()) {
-            Map<String, Double> twoTowerScores = twoTowerPredictionService.predictBatch(user, eligibleList);
-            if (!twoTowerScores.isEmpty()) {
-                Map<String, Double> merged = new HashMap<>();
-                dlScoresRaw.forEach((item, score) -> merged.put(item, RecommendationConstants.clamp(score)));
-                twoTowerScores.forEach((item, score) ->
-                    merged.merge(item, RecommendationConstants.clamp(score), Math::max));
-                dlScoresRaw = Map.copyOf(merged);
+        RedisFetchOutputs redisFetch;
+        try {
+            redisFetch = measurementService.timeStage("redis_fetch", () -> {
+            int fetchSize = Math.max(limit * properties.getCandidateGeneration().getPopularityFetchMultiplier(), limit);
+            Set<ZSetOperations.TypedTuple<String>> popularWithScores;
+            try {
+                popularWithScores = Optional.ofNullable(
+                    redis.opsForZSet().reverseRangeWithScores(GLOBAL_POPULARITY_KEY, 0, fetchSize - 1L)
+                ).orElseGet(Set::of);
+            } catch (Exception e) {
+                throw new PopularityFetchException(e);
             }
+            Map<String, Double> popularityMap = popularWithScores.stream()
+                .filter(t -> t.getValue() != null && t.getScore() != null)
+                .collect(Collectors.toMap(
+                    ZSetOperations.TypedTuple::getValue,
+                    t -> Math.log1p(t.getScore()),
+                    Math::max,
+                    LinkedHashMap::new
+                ));
+            double maxPopularity = popularityMap.isEmpty() ? 0.0 : popularityMap.values().iterator().next();
+            Set<String> historySet = new HashSet<>(recent);
+            historySet.addAll(rated);
+            historySet.addAll(userFeatures.recentlyRatedMovieIds());
+            historySet.addAll(userFeatures.actionSequenceMovieIds());
+            historySet.addAll(userFeatures.servedMovieIds());
+            historySet.addAll(userFeatures.impressedMovieIds());
+            TasteProfile tasteProfile = deriveTasteProfile(recent, rated, userFeatures, popularityMap.keySet());
+            Set<String> userGenres = tasteProfile.genres();
+            Set<String> userTags = tasteProfile.tags();
+            Map<String, Object> state = buildState(recent, userGenres, userTags);
+            String stateKey = stateKey(state);
+            RetrievalOutcome candidateGeneration = generateCandidates(
+                hydratedQuery, popularityMap, historySet, userGenres, userTags, filterCtx, limit);
+            measurementService.recordFilterDecisions(
+                candidateGeneration.evaluatedCandidateCount(), candidateGeneration.filterDecisions());
+            Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
+                .collect(Collectors.toMap(MovieCandidate::movieId, candidate -> candidate, MovieCandidate::merge, LinkedHashMap::new));
+            List<String> eligibleList = candidateGeneration.selectedCandidates().stream()
+                .map(MovieCandidate::movieId)
+                .toList();
+            batchWarmItemVectors(eligibleList, Stream.concat(recent.stream(), rated.stream()).distinct().toList());
+            long totalImpressions = resolveLongMetric("recommendations_served");
+            Map<String, long[]> counters = batchFetchCounters(eligibleList);
+            Map<String, Double> qValues = tabularRl ? batchFetchQValues(stateKey, eligibleList) : Map.of();
+            onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
+            return new RedisFetchOutputs(
+                popularityMap, maxPopularity, userGenres, userTags, state, stateKey, candidateGeneration,
+                candidateById, eligibleList, totalImpressions, counters, qValues);
+            });
+        } catch (PopularityFetchException e) {
+            log.error("Recommendation fetch failed for user {}", user, e.getCause());
+            return new RecommendationResult(user, List.of(), List.of(), List.of(), Map.of());
         }
-        final Map<String, Double> dlScores = dlScoresRaw;
 
-        // Warm reward-stats cache for all candidates in one pipeline flush so every
-        // subsequent onlineLearningService.score() call is a pure in-memory read.
-        onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
-
-        List<ScoredCandidate> scored = measurementService.timeStage("scoring", () -> movieLensOutcomeScorer.applyDiversity(eligibleList.stream()
-            .map(item -> {
-                long[] c = counters.getOrDefault(item, new long[]{0L, 0L});
-                return scoreCandidate(candidateById.get(item), item, relevanceScores.getOrDefault(item, 0.0), userGenres, userTags,
-                    popularityMap.getOrDefault(item, 0.0), maxPopularity, totalImpressions, c[0], c[1],
-                    dlScores.getOrDefault(item, 0.0), qValues.get(item), tabularRl);
-            })
-            .toList()));
+        List<ScoredCandidate> scored = measurementService.timeStage("scoring", () -> {
+            double[] userVector = resolveUserVector(user, recent, rated);
+            Map<String, Double> relevanceScores = batchRelevanceScores(userVector, redisFetch.eligibleList());
+            boolean deepLearningEnabled = properties.getBandit().getDeepLearningWeight() > 0.0;
+            Map<String, Double> dlScoresRaw = deepLearningEnabled
+                ? predictionService.predictBatch(user, redisFetch.eligibleList())
+                : Map.of();
+            if (deepLearningEnabled && twoTowerPredictionService.isEnabled()) {
+                Map<String, Double> twoTowerScores = twoTowerPredictionService.predictBatch(user, redisFetch.eligibleList());
+                if (!twoTowerScores.isEmpty()) {
+                    Map<String, Double> merged = new HashMap<>();
+                    dlScoresRaw.forEach((item, score) -> merged.put(item, RecommendationConstants.clamp(score)));
+                    twoTowerScores.forEach((item, score) ->
+                        merged.merge(item, RecommendationConstants.clamp(score), Math::max));
+                    dlScoresRaw = Map.copyOf(merged);
+                }
+            }
+            final Map<String, Double> dlScores = dlScoresRaw;
+            return movieLensOutcomeScorer.applyDiversity(redisFetch.eligibleList().stream()
+                .map(item -> {
+                    long[] c = redisFetch.counters().getOrDefault(item, new long[]{0L, 0L});
+                    return scoreCandidate(
+                        redisFetch.candidateById().get(item), item, relevanceScores.getOrDefault(item, 0.0),
+                        redisFetch.userGenres(), redisFetch.userTags(), redisFetch.popularityMap().getOrDefault(item, 0.0),
+                        redisFetch.maxPopularity(), redisFetch.totalImpressions(), c[0], c[1],
+                        dlScores.getOrDefault(item, 0.0), redisFetch.qValues().get(item), tabularRl);
+                })
+                .toList());
+        });
 
         if (scored.isEmpty()) {
             return new RecommendationResult(
@@ -250,12 +247,15 @@ public class HybridRecommendationService {
         }
 
         String requestId = UUID.randomUUID().toString();
-        SelectionResult<ScoredCandidate> selection = measurementService.timeStage(
-            "selection", () -> topKScoreSelector.select(scored, limit));
-        List<ScoredCandidate> selected = selection.selected();
-        List<ScoredCandidate> candidateSnapshot = topKScoreSelector
-            .select(scored, Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
-            .selected();
+        SelectionOutputs selectionOutputs = measurementService.timeStage("selection", () -> {
+            SelectionResult<ScoredCandidate> selection = topKScoreSelector.select(scored, limit);
+            List<ScoredCandidate> candidateSnapshot = topKScoreSelector
+                .select(scored, Math.max(limit, properties.getReplayBuffer().getCandidateSnapshotSize()))
+                .selected();
+            return new SelectionOutputs(selection.selected(), candidateSnapshot);
+        });
+        List<ScoredCandidate> selected = selectionOutputs.selected();
+        List<ScoredCandidate> candidateSnapshot = selectionOutputs.candidateSnapshot();
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
         measurementService.recordFreshness(recommendations.stream()
             .map(itemId -> properties.getCatalog().get(itemId))
@@ -274,7 +274,7 @@ public class HybridRecommendationService {
             requestId,
             user,
             algorithm,
-            state,
+            redisFetch.state(),
             candidateSnapshot.stream().map(this::toServedMovie).toList(),
             selected.stream().map(this::toServedMovie).toList(),
             userFeatures.servedMovieIds(),
@@ -313,10 +313,10 @@ public class HybridRecommendationService {
 
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("algorithm", algorithm);
-        metrics.put("retrievedCandidateCount", candidateGeneration.retrievedCandidates().size());
-        metrics.put("filteredCandidateCount", candidateGeneration.filteredCandidates().size());
-        metrics.put("scoredCandidateCount", candidateGeneration.scoredCandidates().size());
-        metrics.put("eligibleCandidateCount", eligibleList.size());
+        metrics.put("retrievedCandidateCount", redisFetch.candidateGeneration().retrievedCandidates().size());
+        metrics.put("filteredCandidateCount", redisFetch.candidateGeneration().filteredCandidates().size());
+        metrics.put("scoredCandidateCount", redisFetch.candidateGeneration().scoredCandidates().size());
+        metrics.put("eligibleCandidateCount", redisFetch.eligibleList().size());
         metrics.put("selectionStrategy", "top_k_final_score");
         metrics.put("pseudoRegret", round(pseudoRegret));
         metrics.put("avgEstimatedReward", round(avgEstimatedReward));
@@ -1105,6 +1105,34 @@ public class HybridRecommendationService {
             if (Math.log(u) < (0.5 * x * x) + d * (1.0 - v + Math.log(v))) {
                 return d * v;
             }
+        }
+    }
+
+    private record SelectionOutputs(
+        List<ScoredCandidate> selected,
+        List<ScoredCandidate> candidateSnapshot
+    ) {
+    }
+
+    private record RedisFetchOutputs(
+        Map<String, Double> popularityMap,
+        double maxPopularity,
+        Set<String> userGenres,
+        Set<String> userTags,
+        Map<String, Object> state,
+        String stateKey,
+        RetrievalOutcome candidateGeneration,
+        Map<String, MovieCandidate> candidateById,
+        List<String> eligibleList,
+        long totalImpressions,
+        Map<String, long[]> counters,
+        Map<String, Double> qValues
+    ) {
+    }
+
+    private static final class PopularityFetchException extends RuntimeException {
+        private PopularityFetchException(Exception cause) {
+            super(cause);
         }
     }
 

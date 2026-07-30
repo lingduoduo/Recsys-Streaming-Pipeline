@@ -6,7 +6,6 @@ import com.demo.retrieval.model.FeedbackRequest;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.distribution.ValueAtPercentile;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +19,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.OptionalDouble;
 
 @Service
 public class RecommendationMeasurementService {
@@ -37,41 +36,52 @@ public class RecommendationMeasurementService {
 
     private final MeterRegistry registry;
     private final Duration[] latencyBuckets;
+    private final String safetyPolicyVersion;
     private final boolean noOp;
-    private final LongAdder freshnessTotal = new LongAdder();
-    private final LongAdder freshnessObserved = new LongAdder();
-    private final LongAdder freshnessFresh = new LongAdder();
-    private final Map<String, LongAdder> filterDecisionCounts = new ConcurrentHashMap<>();
-    private final Map<String, LongAdder> feedbackPresenceCounts = new ConcurrentHashMap<>();
+    private final Object freshnessLock = new Object();
+    private final Object safetyLock = new Object();
+    private final Object feedbackLock = new Object();
+    private long freshnessTotal;
+    private long freshnessObserved;
+    private long freshnessFresh;
+    private long evaluatedCandidates;
+    private final Map<String, Long> filterDecisionCounts = new LinkedHashMap<>();
+    private long feedbackTotal;
+    private final Map<String, Long> feedbackPresenceCounts = new LinkedHashMap<>();
 
     @Autowired
     public RecommendationMeasurementService(MeterRegistry registry, RecommendationProperties properties) {
-        this(registry, latencyBuckets(properties), false);
+        this(registry, latencyBuckets(properties), safetyPolicyVersion(properties), false);
     }
 
-    private RecommendationMeasurementService(MeterRegistry registry, Duration[] latencyBuckets, boolean noOp) {
+    private RecommendationMeasurementService(
+        MeterRegistry registry, Duration[] latencyBuckets, String safetyPolicyVersion, boolean noOp
+    ) {
         this.registry = registry;
         this.latencyBuckets = latencyBuckets;
+        this.safetyPolicyVersion = safetyPolicyVersion;
         this.noOp = noOp;
     }
 
-    /** For compatibility constructors and tests that must prove instrumentation cannot affect selection. */
     public static RecommendationMeasurementService noOp() {
-        return new RecommendationMeasurementService(new SimpleMeterRegistry(), new Duration[0], true);
+        return new RecommendationMeasurementService(new SimpleMeterRegistry(), new Duration[0], "unknown", true);
     }
 
     public void recordRequest(String endpoint, Duration duration, boolean error) {
+        recordRequest(endpoint, duration, error, false);
+    }
+
+    public void recordRequest(String endpoint, Duration duration, boolean error, boolean timeout) {
         try {
             if (noOp || !ENDPOINTS.contains(endpoint)) {
                 return;
             }
-            String outcome = error ? "error" : "success";
-            requestTimer(endpoint, outcome).record(safeDuration(duration));
+            requestTimer(endpoint).record(safeDuration(duration));
             if (error) {
-                Counter.builder("recommendation.request.errors")
-                    .tag("endpoint", endpoint)
-                    .register(registry)
-                    .increment();
+                incrementRequestCounter("recommendation.request.errors", endpoint);
+            }
+            if (timeout) {
+                incrementRequestCounter("recommendation.request.timeouts", endpoint);
             }
         } catch (RuntimeException e) {
             log.warn("Unable to record recommendation request measurement", e);
@@ -95,21 +105,27 @@ public class RecommendationMeasurementService {
             if (noOp || selectedProfiles == null) {
                 return;
             }
+            long total = 0;
+            long observed = 0;
+            long fresh = 0;
             for (MovieProfile profile : selectedProfiles) {
-                freshnessTotal.increment();
+                total++;
                 if (profile == null) {
                     continue;
                 }
-                // The current live catalog exposes the documented boolean fallback. A later optional
-                // timestamp can be added without changing this aggregate-only schema.
-                freshnessObserved.increment();
+                observed++;
                 if (profile.isNewRelease()) {
-                    freshnessFresh.increment();
+                    fresh++;
                 }
                 Counter.builder("recommendation.freshness.exposures")
                     .tags("source", "boolean_new_release", "fresh", Boolean.toString(profile.isNewRelease()))
                     .register(registry)
                     .increment();
+            }
+            synchronized (freshnessLock) {
+                freshnessTotal += total;
+                freshnessObserved += observed;
+                freshnessFresh += fresh;
             }
         } catch (RuntimeException e) {
             log.warn("Unable to record recommendation freshness measurement", e);
@@ -117,17 +133,29 @@ public class RecommendationMeasurementService {
     }
 
     public void recordFilterDecisions(Collection<FilterDecision> decisions) {
+        // This legacy entry point does not know how many candidates were evaluated,
+        // so retain the decisions while leaving their rates intentionally undefined.
+        recordFilterDecisions(0, decisions);
+    }
+
+    public void recordFilterDecisions(int candidatesEvaluated, Collection<FilterDecision> decisions) {
         try {
-            if (noOp || decisions == null) {
+            if (noOp) {
                 return;
             }
-            for (FilterDecision decision : decisions) {
-                String reason = decision == null ? "unknown" : boundedReason(decision.reason());
-                Counter.builder("recommendation.filter.decisions")
-                    .tag("reason", reason)
-                    .register(registry)
-                    .increment();
-                filterDecisionCounts.computeIfAbsent(reason, ignored -> new LongAdder()).increment();
+            synchronized (safetyLock) {
+                evaluatedCandidates += Math.max(0, candidatesEvaluated);
+                if (decisions == null) {
+                    return;
+                }
+                for (FilterDecision decision : decisions) {
+                    String reason = decision == null ? "unknown" : boundedReason(decision.reason());
+                    Counter.builder("recommendation.filter.decisions")
+                        .tag("reason", reason)
+                        .register(registry)
+                        .increment();
+                    filterDecisionCounts.merge(reason, 1L, Long::sum);
+                }
             }
         } catch (RuntimeException e) {
             log.warn("Unable to record recommendation filter measurement", e);
@@ -139,11 +167,14 @@ public class RecommendationMeasurementService {
             if (noOp || request == null) {
                 return;
             }
-            recordPresent("request_id", request.requestId() != null);
-            recordPresent("rating", request.rating() != null);
-            recordPresent("negative_feedback_reason", request.negativeFeedbackReason() != null);
-            recordPresent("dwell_millis", request.dwellMillis() != null);
-            recordPresent("completion_rate", request.completionRate() != null);
+            synchronized (feedbackLock) {
+                feedbackTotal++;
+                recordPresent("request_id", request.requestId() != null);
+                recordPresent("rating", request.rating() != null);
+                recordPresent("negative_feedback_reason", request.negativeFeedbackReason() != null);
+                recordPresent("dwell_millis", request.dwellMillis() != null);
+                recordPresent("completion_rate", request.completionRate() != null);
+            }
         } catch (RuntimeException e) {
             log.warn("Unable to record recommendation feedback coverage", e);
         }
@@ -172,12 +203,16 @@ public class RecommendationMeasurementService {
         }
     }
 
-    private Timer requestTimer(String endpoint, String outcome) {
+    private Timer requestTimer(String endpoint) {
         return Timer.builder("recommendation.request.latency")
-            .tags("endpoint", endpoint, "outcome", outcome)
+            .tag("endpoint", endpoint)
             .serviceLevelObjectives(latencyBuckets)
             .publishPercentiles(0.50, 0.95, 0.99)
             .register(registry);
+    }
+
+    private void incrementRequestCounter(String name, String endpoint) {
+        Counter.builder(name).tag("endpoint", endpoint).register(registry).increment();
     }
 
     private void recordPresent(String signal, boolean present) {
@@ -188,60 +223,130 @@ public class RecommendationMeasurementService {
             .tag("signal", signal)
             .register(registry)
             .increment();
-        feedbackPresenceCounts.computeIfAbsent(signal, ignored -> new LongAdder()).increment();
+        feedbackPresenceCounts.merge(signal, 1L, Long::sum);
     }
 
     private Map<String, Object> latencySnapshot() {
-        Collection<Timer> timers = registry.find("recommendation.request.latency").timers();
-        long count = timers.stream().mapToLong(Timer::count).sum();
+        Map<String, Object> endpoints = new LinkedHashMap<>();
+        ENDPOINTS.stream().sorted().forEach(endpoint -> endpoints.put(endpoint, endpointLatency(endpoint)));
+        Map<String, Object> stages = new LinkedHashMap<>();
+        STAGES.stream().sorted().forEach(stage -> stages.put(stage, stageLatency(stage)));
         Map<String, Object> latency = new LinkedHashMap<>();
-        latency.put("count", count);
-        latency.put("p50", percentile(timers, 0.50));
-        latency.put("p95", percentile(timers, 0.95));
-        latency.put("p99", percentile(timers, 0.99));
+        latency.put("unit", "milliseconds");
+        latency.put("endpoints", endpoints);
+        latency.put("stages", stages);
         return latency;
+    }
+
+    private Map<String, Object> endpointLatency(String endpoint) {
+        Timer timer = registry.find("recommendation.request.latency").tag("endpoint", endpoint).timer();
+        long count = timer == null ? 0L : timer.count();
+        long errors = Math.round(counterCount("recommendation.request.errors", endpoint));
+        long timeouts = Math.round(counterCount("recommendation.request.timeouts", endpoint));
+        Map<String, Object> values = timerLatency(timer);
+        values.put("count", count);
+        values.put("errorCount", errors);
+        values.put("errorRate", rate(errors, count));
+        values.put("timeoutCount", timeouts);
+        values.put("timeoutRate", rate(timeouts, count));
+        return values;
+    }
+
+    private Map<String, Object> stageLatency(String stage) {
+        Timer timer = registry.find("recommendation.stage.latency").tag("stage", stage).timer();
+        Map<String, Object> values = timerLatency(timer);
+        values.put("count", timer == null ? 0L : timer.count());
+        return values;
+    }
+
+    private Map<String, Object> timerLatency(Timer timer) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("p50", percentile(timer, 0.50));
+        values.put("p95", percentile(timer, 0.95));
+        values.put("p99", percentile(timer, 0.99));
+        return values;
     }
 
     private Map<String, Object> emptyLatency() {
+        Map<String, Object> endpoints = new LinkedHashMap<>();
+        ENDPOINTS.stream().sorted().forEach(endpoint -> endpoints.put(endpoint, emptyEndpointLatency()));
+        Map<String, Object> stages = new LinkedHashMap<>();
+        STAGES.stream().sorted().forEach(stage -> stages.put(stage, emptyStageLatency()));
         Map<String, Object> latency = new LinkedHashMap<>();
-        latency.put("count", 0L);
-        latency.put("p50", null);
-        latency.put("p95", null);
-        latency.put("p99", null);
+        latency.put("unit", "milliseconds");
+        latency.put("endpoints", endpoints);
+        latency.put("stages", stages);
         return latency;
     }
 
+    private Map<String, Object> emptyEndpointLatency() {
+        Map<String, Object> values = timerLatency(null);
+        values.put("count", 0L);
+        values.put("errorCount", 0L);
+        values.put("errorRate", null);
+        values.put("timeoutCount", 0L);
+        values.put("timeoutRate", null);
+        return values;
+    }
+
+    private Map<String, Object> emptyStageLatency() {
+        Map<String, Object> values = timerLatency(null);
+        values.put("count", 0L);
+        return values;
+    }
+
     private Map<String, Object> freshnessSnapshot() {
-        long total = freshnessTotal.sum();
-        long observed = freshnessObserved.sum();
-        Map<String, Object> freshness = new LinkedHashMap<>();
-        freshness.put("exposures", total);
-        freshness.put("coverage", total == 0 ? null : (double) observed / total);
-        freshness.put("freshShare", observed == 0 ? null : (double) freshnessFresh.sum() / observed);
-        freshness.put("source", "boolean_new_release");
-        return freshness;
+        synchronized (freshnessLock) {
+            Map<String, Object> freshness = new LinkedHashMap<>();
+            freshness.put("exposures", freshnessTotal);
+            freshness.put("coverage", rate(freshnessObserved, freshnessTotal));
+            freshness.put("freshShare", rate(freshnessFresh, freshnessObserved));
+            freshness.put("source", "boolean_new_release");
+            return freshness;
+        }
     }
 
     private Map<String, Object> safetySnapshot() {
-        Map<String, Object> decisions = new LinkedHashMap<>();
-        FILTER_REASONS.stream().sorted().forEach(reason -> {
-            LongAdder count = filterDecisionCounts.get(reason);
-            if (count != null) {
-                decisions.put(reason, count.sum());
-            }
-        });
-        return Map.of("filterDecisions", Map.copyOf(decisions));
+        synchronized (safetyLock) {
+            long totalDecisions = filterDecisionCounts.values().stream().mapToLong(Long::longValue).sum();
+            Map<String, Object> reasons = new LinkedHashMap<>();
+            FILTER_REASONS.stream().sorted().forEach(reason -> {
+                long count = filterDecisionCounts.getOrDefault(reason, 0L);
+                Map<String, Object> reasonValues = new LinkedHashMap<>();
+                reasonValues.put("count", count);
+                reasonValues.put("rate", rate(count, evaluatedCandidates));
+                reasons.put(reason, reasonValues);
+            });
+            Map<String, Object> safety = new LinkedHashMap<>();
+            safety.put("policyVersion", safetyPolicyVersion);
+            safety.put("evaluatedCandidates", evaluatedCandidates);
+            safety.put("totalDecisions", totalDecisions);
+            safety.put("reasons", reasons);
+            safety.put("unknownShare", rate(filterDecisionCounts.getOrDefault("unknown", 0L), totalDecisions));
+            return safety;
+        }
     }
 
     private Map<String, Object> feedbackSnapshot() {
-        Map<String, Object> presence = new LinkedHashMap<>();
-        FEEDBACK_SIGNALS.forEach(signal -> {
-            LongAdder count = feedbackPresenceCounts.get(signal);
-            if (count != null) {
-                presence.put(signal, count.sum());
-            }
-        });
-        return Map.of("present", Map.copyOf(presence));
+        synchronized (feedbackLock) {
+            Map<String, Object> signals = new LinkedHashMap<>();
+            FEEDBACK_SIGNALS.forEach(signal -> {
+                long present = feedbackPresenceCounts.getOrDefault(signal, 0L);
+                Map<String, Object> value = new LinkedHashMap<>();
+                value.put("present", present);
+                value.put("coverage", rate(present, feedbackTotal));
+                signals.put(signal, value);
+            });
+            Map<String, Object> feedback = new LinkedHashMap<>();
+            feedback.put("total", feedbackTotal);
+            feedback.put("signals", signals);
+            return feedback;
+        }
+    }
+
+    private double counterCount(String name, String endpoint) {
+        Counter counter = registry.find(name).tag("endpoint", endpoint).counter();
+        return counter == null ? 0.0 : counter.count();
     }
 
     private static Duration[] latencyBuckets(RecommendationProperties properties) {
@@ -256,6 +361,11 @@ public class RecommendationMeasurementService {
             .toArray(Duration[]::new);
     }
 
+    private static String safetyPolicyVersion(RecommendationProperties properties) {
+        return properties == null || properties.getMeasurements() == null
+            ? "unknown" : properties.getMeasurements().getSafetyPolicyVersion();
+    }
+
     private static Duration safeDuration(Duration duration) {
         return duration == null || duration.isNegative() ? Duration.ZERO : duration;
     }
@@ -264,12 +374,18 @@ public class RecommendationMeasurementService {
         return FILTER_REASONS.contains(reason) ? reason : "unknown";
     }
 
-    private static Double percentile(Collection<Timer> timers, double target) {
-        java.util.OptionalDouble percentileValue = timers.stream()
-            .flatMap(timer -> java.util.Arrays.stream(timer.takeSnapshot().percentileValues()))
+    private static Double percentile(Timer timer, double target) {
+        if (timer == null) {
+            return null;
+        }
+        OptionalDouble value = java.util.Arrays.stream(timer.takeSnapshot().percentileValues())
             .filter(percentile -> Double.compare(percentile.percentile(), target) == 0)
-            .mapToDouble(ValueAtPercentile::value)
+            .mapToDouble(percentile -> percentile.value(TimeUnit.MILLISECONDS))
             .max();
-        return percentileValue.isPresent() ? percentileValue.getAsDouble() : null;
+        return value.isPresent() ? value.getAsDouble() : null;
+    }
+
+    private static Double rate(long numerator, long denominator) {
+        return denominator == 0 ? null : (double) numerator / denominator;
     }
 }

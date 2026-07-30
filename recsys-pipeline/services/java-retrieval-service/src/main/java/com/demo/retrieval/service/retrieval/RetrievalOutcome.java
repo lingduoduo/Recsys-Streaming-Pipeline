@@ -8,5 +8,6 @@ public record RetrievalOutcome(
     List<MovieCandidate> filteredCandidates,
     List<MovieCandidate> scoredCandidates,
     List<MovieCandidate> selectedCandidates,
-    List<FilterDecision> filterDecisions) {
+    List<FilterDecision> filterDecisions,
+    int evaluatedCandidateCount) {
 }
