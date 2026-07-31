@@ -44,6 +44,9 @@ const TITLES = {
   diversity: "Diversity", fairness: "Fairness", safety: "Safety", latency: "Latency",
 };
 
+// Coverage AT or below this is amber: half the envelope missing is not a green tile. The
+// safety section is the live example — with only `unsafe_label` instrumented offline, its
+// coverage lands on exactly 0.50.
 const LOW_COVERAGE = 0.5;
 
 function headlineRow(section, spec) {
@@ -76,7 +79,7 @@ export function Scorecard({ data }) {
         const section = data[key];
         const available = section?.status === "available";
         const published = available && headlineFieldPublished(section, spec);
-        const status = !published ? "na" : (section.coverage ?? 1) < LOW_COVERAGE ? "low" : "ok";
+        const status = !published ? "na" : (section.coverage ?? 1) <= LOW_COVERAGE ? "low" : "ok";
         return (
           <MetricTile
             key={key}

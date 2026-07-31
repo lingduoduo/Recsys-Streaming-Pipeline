@@ -457,6 +457,28 @@ def test_readme_documents_that_an_uncovered_catalog_makes_every_decision_unknown
     assert "follow-up" in section
 
 
+def test_scorecard_treats_exactly_half_coverage_as_low_not_ok():
+    """Half the envelope missing is amber, not green (partner ruling on the boundary).
+
+    Safety is the live example: with `filter_reason` never logged, only the `unsafe_label`
+    half of the envelope is instrumented, so the section lands on exactly 0.50 — the value a
+    strict `<` comparison would have colored green.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    samples = pd.DataFrame([
+        {"user_id": "u1", "item_id": "i1", "clicked": 1, "filter_reason": None, "unsafe_label": True},
+        {"user_id": "u2", "item_id": "i2", "clicked": 0, "filter_reason": None, "unsafe_label": False},
+    ])
+    assert dash.build_measurement_dashboard(samples, None, None, None)["safety"]["coverage"] == 0.5
+
+    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    assert "<= LOW_COVERAGE" in sections, "coverage of exactly 0.50 must read as low, not ok"
+    # The amber border is not perceivable to every reader, so the text has to agree too.
+    assert "at or below 50%" in (_REPO / "frontend" / "components" / "ui.jsx").read_text()
+
+
 def test_live_only_safety_row_omits_the_scorecard_headline_field(tmp_path):
     """A section can be "available" via a live-only merge without publishing every field.
 

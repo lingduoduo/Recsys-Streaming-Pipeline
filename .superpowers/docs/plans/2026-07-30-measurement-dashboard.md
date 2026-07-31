@@ -18,7 +18,7 @@
 - Every producer effect is documented as a named constant so the dashboard can be validated against what was generated.
 - Existing events, Kafka payloads, and dashboard JSON remain readable; every new sim step degrades to N/A rather than failing the run.
 - Freshness window is 30 days; the freshness/unsafe/negative-feedback shares are the constants in Task 1.
-- A scorecard tile never colors by whether a value is good — only by availability (`coverage < 0.50` is amber).
+- A scorecard tile never colors by whether a value is good — only by availability (`coverage <= 0.50` is amber).
 - Java and Spark builds require JDK 17 at `/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home`.
 
 ---

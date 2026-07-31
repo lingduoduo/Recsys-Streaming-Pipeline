@@ -114,7 +114,7 @@ sections must not turn it red on a machine without a spare port.
 **Scorecard.** A new `Scorecard` renders seven `MetricTile`s above the detail
 sections. Each tile carries the dimension name, one headline number, its label,
 the sample size, and a status dot: green for available, amber for available with
-`coverage` below 0.50, grey for N/A with the reason. A tile never
+`coverage` at or below 0.50, grey for N/A with the reason. A tile never
 colors by whether a number is *good* — no targets have been set for CTR or for a
 fairness gap, and a red tile would invent one. Tiles anchor-link to their section.
 
