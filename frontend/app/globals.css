@@ -497,3 +497,135 @@ table.rpt.compact th {
     grid-template-columns: minmax(60px, 100px) 1fr;
   }
 }
+
+/* --- Keyword report ---------------------------------------------------- */
+
+.keyword-report-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.keyword-main-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.token-heatmap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Sequential ramp: one hue, light to dark. Relevance is also printed on each
+   chip and available in the table, so the encoding is never colour alone. */
+.token-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--indigo) calc(var(--token-score) * 100%), var(--indigo-soft));
+  color: var(--token-ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.token-chip.unscored {
+  background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 4px, #eef2f7 4px, #eef2f7 8px);
+}
+
+.token-chip.selected {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.token-chip small {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.token-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.token-legend-gradient {
+  flex: 1;
+  max-width: 190px;
+  height: 9px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--indigo-soft), var(--indigo));
+}
+
+.keyword-detail-panel {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfcff;
+}
+
+.keyword-detail-title {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.keyword-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.keyword-detail-metrics .metric-card {
+  padding: 10px 12px;
+}
+
+.keyword-detail-metrics .card-value {
+  font-size: 1.05rem;
+}
+
+.keyword-detail-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.select-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.select-control select {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .keyword-report-layout {
+    grid-template-columns: 1fr;
+  }
+}

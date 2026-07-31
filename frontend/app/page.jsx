@@ -15,6 +15,7 @@ import {
   OpeSection,
   MdpSection,
 } from "../components/sections";
+import { KeywordSection } from "../components/keyword-report";
 
 export default function Page() {
   return (
@@ -41,6 +42,7 @@ export default function Page() {
         <SafetySection data={data.safety} />
         <LatencySection data={data.latency} />
         <EngagementSection data={data.engagement} />
+        <KeywordSection data={data.keyword} />
         <QuerySection data={data.query} />
         <RecallSection data={data.recall} />
         <RankingSection data={data.ranking} />
