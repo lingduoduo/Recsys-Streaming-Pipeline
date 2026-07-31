@@ -60,7 +60,11 @@ Three decisions frame the work:
 
 ## Data contract
 
-`schemaVersion` goes from `2.0` to `2.1`.
+`schemaVersion` stays `2.0`. It is emitted from `MEASUREMENT_SCHEMA_VERSION` in
+`analysis_dashboard_report.py`, which versions the seven **measurement** sections; those are
+not changed here. Bumping it would signal a measurement-contract change that did not happen
+and would falsify the assertions in `test_dashboard_measurement_contract.py`. The new
+diagnostic fields are asserted directly by `validate_measurements.mjs` instead.
 
 ### Added
 
@@ -70,10 +74,28 @@ Three decisions frame the work:
 | `keyword.by_keyword`, `keyword.by_subkeyword` | `mean_score`, `query_orders`, `ctr`, `cvr` | `mean_score` is the mean model score over impressions carrying the keyword |
 | `query` | `average_query_length` | impression-weighted mean of `query_len` |
 | `query.by_length` | `queries` | distinct query count per bucket |
-| `ranking.rows` | `positive_rate` | `positives / n` |
+| `ranking.rows` | `positive_rate` | `positives / n`, null when `n` is 0 |
 
 `keyword.mean_score` is the quantity the color-token heatmap encodes and the Top-K selector
-sorts on. Without it neither feature conveys anything.
+sorts on. Without it neither feature conveys anything. It is the mean `label` over the
+keyword's impressions — the same definition `compute_relevance` already publishes as
+`mean_score` for queries and genres.
+
+### Rate definitions the UI must not redefine
+
+`_rates` in `analysis_dashboard_report.py` computes `cvr` as `orders / impressions`, not
+`orders / clicks`. The sampled UI recomputes CVR as `orders / clicks`, which would put two
+different quantities under one column name on the same page. The UI renders the `ctr` and
+`cvr` the exporter publishes and never derives them client-side.
+
+### Export depth
+
+`by_keyword` and `by_subkeyword` are currently exported with `.head(10)`. A Top-K selector
+offering 10/20/30/50 over ten rows is inert, so both go to `.head(50)`. Because `dist()`
+sorts by `movie_impressions`, the pool is the fifty most-shown keywords and the Top-K sort by
+`mean_score` happens within it; the section states this in fine print rather than implying a
+catalog-wide ranking. The selector offers only options that do not exceed the rows available,
+plus an "All" option.
 
 ### Not added
 
@@ -190,6 +212,13 @@ properties: `report-section`, `section-header`, `section-content`, `section-desc
 `keyword-detail-subtitle`, `report-subtitle`, `na-card`, `empty-state`, `select-control`,
 `muted`.
 
+Two collisions with existing rules must be avoided:
+
+- `.metric-value` and `.metric-label` already style `MetricTile` on the Scorecard. The card
+  styles are scoped under `.metric-card` so the tiles keep their own type scale.
+- `.report-grid` is already the page-level section wrapper in `page.jsx`. The new two-up chart
+  layout emits `.chart-grid` instead, so `ReportGrid` does not restyle the whole page.
+
 The heatmap's `--token-score` needs a sequential color ramp that stays legible in light and
 dark and does not rely on hue alone.
 
@@ -200,8 +229,8 @@ dark and does not rely on hue alone.
 2. Contract tests for each added field, against a synthetic frame, written failing first and
    added to the existing `test_dashboard_measurement_contract.py` and
    `test_analysis_dashboard.py`.
-3. `validate_measurements.mjs` extended to assert `schemaVersion` `2.1` and the presence of
-   the new fields; `npm run validate:data` passes.
+3. `validate_measurements.mjs` extended to assert the presence of the new diagnostic fields;
+   `npm run validate:data` passes. `schemaVersion` remains `2.0`.
 4. `data/dashboard.json` regenerated from the run data on disk at
    `/tmp/spark-recsys/movie-category-sim` with Redis running, then diffed against the
    committed snapshot. Only the new keys may appear. Any movement in an existing number is
