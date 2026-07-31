@@ -112,22 +112,28 @@ def compute_relevance(df) -> dict:
 
 def compute_keyword(df) -> dict:
     import feature_derivations as mc
-    import pandas as pd
 
     d = df.assign(keyword=df["genres"].apply(mc.primary_genre),
                   subkeyword=df["genres"].apply(mc.secondary_genre))
 
     def dist(col):
-        movie = d.groupby(col).size().rename("movie_impressions")
-        query = d[d["label"] >= 1].groupby(col).size().rename("query_clicks")
-        out = pd.concat([movie, query], axis=1).fillna(0).reset_index()
-        out[["movie_impressions", "query_clicks"]] = out[["movie_impressions", "query_clicks"]].astype(int)
-        tot_m = out["movie_impressions"].sum() or 1
-        tot_q = out["query_clicks"].sum() or 1
-        out["movie_share"] = (out["movie_impressions"] / tot_m).round(4)
-        out["query_share"] = (out["query_clicks"] / tot_q).round(4)
-        out["divergence"] = (out["query_share"] - out["movie_share"]).round(4)
-        return out.sort_values("movie_impressions", ascending=False)
+        agg = (d.assign(clk=(d["label"] >= 1).astype(int),
+                        ord=(d["label"] >= 2).astype(int))
+                .groupby(col)
+                .agg(movie_impressions=("label", "size"), query_clicks=("clk", "sum"),
+                     query_orders=("ord", "sum"), mean_score=("label", "mean"))
+                .reset_index())
+        counts = ["movie_impressions", "query_clicks", "query_orders"]
+        agg[counts] = agg[counts].astype(int)
+        agg["mean_score"] = agg["mean_score"].round(4)
+        tot_m = agg["movie_impressions"].sum() or 1
+        tot_q = agg["query_clicks"].sum() or 1
+        agg["movie_share"] = (agg["movie_impressions"] / tot_m).round(4)
+        agg["query_share"] = (agg["query_clicks"] / tot_q).round(4)
+        agg["divergence"] = (agg["query_share"] - agg["movie_share"]).round(4)
+        agg["ctr"] = (agg["query_clicks"] / agg["movie_impressions"]).round(4)
+        agg["cvr"] = (agg["query_orders"] / agg["movie_impressions"]).round(4)
+        return agg.sort_values("movie_impressions", ascending=False)
 
     by_keyword = dist("keyword")
     by_subkeyword = dist("subkeyword")
@@ -145,6 +151,7 @@ def compute_keyword(df) -> dict:
         g = (ex.groupby([level, "genres"])
                .agg(movie_impressions=("clk", "size"), query_clicks=("clk", "sum"))
                .reset_index().rename(columns={"genres": "keyword"}))
+        g["ctr"] = (g["query_clicks"] / g["movie_impressions"]).round(4)
         g["rank"] = (g.groupby(level)["movie_impressions"]
                        .rank(method="first", ascending=False).astype(int))
         return g[g["rank"] <= 10].sort_values([level, "rank"])

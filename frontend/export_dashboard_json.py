@@ -87,10 +87,12 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
     }
 
     kw = dash.compute_keyword(df)
+    # The Top-K keyword report selects from this pool, so it needs more than a
+    # top-ten: 50 rows keeps the snapshot small while making the selector real.
     keyword = {
         "headline": kw["headline"],
-        "by_keyword": _records(kw["by_keyword"].head(10)),
-        "by_subkeyword": _records(kw["by_subkeyword"].head(10)),
+        "by_keyword": _records(kw["by_keyword"].head(50)),
+        "by_subkeyword": _records(kw["by_subkeyword"].head(50)),
         "tops": {lvl: _records(kw["tops"][lvl].head(10)) for lvl in ("l1", "l2", "l3")},
     }
 

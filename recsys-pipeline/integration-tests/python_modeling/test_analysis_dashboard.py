@@ -424,3 +424,23 @@ def test_compute_relevance_publishes_clicks_orders_and_rates():
     by_genre = {row["genre"]: row for _, row in result["by_genre"].iterrows()}
     assert (by_genre["Drama"]["clicks"], by_genre["Drama"]["orders"]) == (1, 0)
     assert (by_genre["Action"]["clicks"], by_genre["Action"]["orders"]) == (1, 1)
+
+
+def test_compute_keyword_publishes_relevance_and_rates():
+    """The heatmap colours by mean_score and the Top-K selector sorts by it."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    result = dash.compute_keyword(_df(pd))
+    rows = {row["keyword"]: row for _, row in result["by_keyword"].iterrows()}
+
+    drama = rows["Drama"]
+    assert (drama["movie_impressions"], drama["query_clicks"], drama["query_orders"]) == (2, 1, 0)
+    assert drama["mean_score"] == 0.5
+    assert (drama["ctr"], drama["cvr"]) == (0.5, 0.0)
+
+    for row in result["by_keyword"].to_dict(orient="records"):
+        assert row["mean_score"] is not None
+
+    for level in ("l1", "l2", "l3"):
+        assert "ctr" in result["tops"][level].columns
