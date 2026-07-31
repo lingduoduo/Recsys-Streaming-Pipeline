@@ -86,16 +86,22 @@ def compute_relevance(df) -> dict:
     orders = int((df["label"] >= 2).sum())
     ctr = round(clicks / n, 4) if n else 0.0
     cvr = round(orders / n, 4) if n else 0.0
-    q = df.assign(query=df["genres"].apply(query_of))
-    by_query = (q.groupby("query")
-                 .agg(impressions=("label", "size"), mean_score=("label", "mean"))
-                 .reset_index()
-                 .sort_values(["mean_score", "impressions"], ascending=[False, False]))
-    ex = df.explode("genres").dropna(subset=["genres"])
+    d = df.assign(query=df["genres"].apply(query_of),
+                  clk=(df["label"] >= 1).astype(int),
+                  ord=(df["label"] >= 2).astype(int))
+    by_query = (d.groupby("query")
+                 .agg(impressions=("label", "size"), clicks=("clk", "sum"),
+                      orders=("ord", "sum"), mean_score=("label", "mean"))
+                 .reset_index())
+    by_query = _rates(by_query).sort_values(["mean_score", "impressions"],
+                                            ascending=[False, False])
+    ex = d.explode("genres").dropna(subset=["genres"])
     by_genre = (ex.groupby("genres")
-                  .agg(impressions=("label", "size"), mean_score=("label", "mean"))
-                  .reset_index().rename(columns={"genres": "genre"})
-                  .sort_values(["mean_score", "impressions"], ascending=[False, False]))
+                  .agg(impressions=("label", "size"), clicks=("clk", "sum"),
+                       orders=("ord", "sum"), mean_score=("label", "mean"))
+                  .reset_index().rename(columns={"genres": "genre"}))
+    by_genre = _rates(by_genre).sort_values(["mean_score", "impressions"],
+                                            ascending=[False, False])
     return {
         "headline": f"impressions {n} · CTR {ctr:.0%} · CVR {cvr:.0%}",
         "ctr": ctr, "cvr": cvr,

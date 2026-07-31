@@ -403,3 +403,24 @@ def test_keyword_clicks_use_the_same_predicate_as_query_clicks():
     query_clicks = int(dash.compute_query(frame)["top_queries"]["clicks"].sum())
 
     assert keyword_clicks == query_clicks == 1
+
+
+def test_compute_relevance_publishes_clicks_orders_and_rates():
+    """by_query and by_genre carry the rates the engagement tables display."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    result = dash.compute_relevance(_df(pd))
+
+    by_query = {row["query"]: row for _, row in result["by_query"].iterrows()}
+    drama = by_query["Drama"]
+    assert (drama["impressions"], drama["clicks"], drama["orders"]) == (2, 1, 0)
+    assert (drama["ctr"], drama["cvr"]) == (0.5, 0.0)
+
+    scifi = by_query["Sci-Fi Action"]
+    assert (scifi["impressions"], scifi["clicks"], scifi["orders"]) == (1, 1, 1)
+    assert (scifi["ctr"], scifi["cvr"]) == (1.0, 1.0)
+
+    by_genre = {row["genre"]: row for _, row in result["by_genre"].iterrows()}
+    assert (by_genre["Drama"]["clicks"], by_genre["Drama"]["orders"]) == (1, 0)
+    assert (by_genre["Action"]["clicks"], by_genre["Action"]["orders"]) == (1, 1)
