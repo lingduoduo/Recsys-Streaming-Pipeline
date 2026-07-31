@@ -503,3 +503,1034 @@ export function MdpSection({ data }) {
     </Section>
   );
 }
+
+
+
+
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  Section,
+  NaCard,
+  BarChart,
+  DataTable,
+  MetricCard,
+  MetricGrid,
+  TokenHeatmap,
+  ReportGrid,
+  Select,
+} from "./ui";
+
+const num = (value, digits = 4) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "N/A";
+  }
+
+  return (
+    Math.round(Number(value) * 10 ** digits) /
+    10 ** digits
+  ).toString();
+};
+
+const pct = (value, showSign = false) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "N/A";
+  }
+
+  const sign = showSign && value >= 0 ? "+" : "";
+  return `${sign}${(Number(value) * 100).toFixed(1)}%`;
+};
+
+const ci = (low, high, asPct = false) => {
+  if (
+    low === null ||
+    low === undefined ||
+    high === null ||
+    high === undefined
+  ) {
+    return "N/A";
+  }
+
+  return asPct
+    ? `[${pct(low, true)}, ${pct(high, true)}]`
+    : `[${num(low)}, ${num(high)}]`;
+};
+
+const safeDivide = (numerator, denominator) => {
+  if (!denominator) return null;
+  return numerator / denominator;
+};
+
+const sortDesc = (rows, field) =>
+  [...(rows ?? [])].sort(
+    (a, b) => Number(b[field] ?? 0) - Number(a[field] ?? 0)
+  );
+
+export function RelevanceSection({ data }) {
+  if (!data) {
+    return (
+      <NaCard
+        title="Engagement funnel"
+        reason="No relevance data was returned."
+      />
+    );
+  }
+
+  const funnel = data.funnel ?? {};
+  const impressions = funnel.impression ?? 0;
+  const clicks = funnel.click ?? 0;
+  const orders = funnel.order ?? 0;
+
+  const ctr = safeDivide(clicks, impressions);
+  const cvr = safeDivide(orders, clicks);
+
+  const queryRows = (data.by_query ?? []).map((row) => ({
+    ...row,
+    ctr:
+      row.ctr ??
+      safeDivide(row.clicks ?? 0, row.impressions ?? 0),
+    cvr:
+      row.cvr ??
+      safeDivide(row.orders ?? 0, row.clicks ?? 0),
+  }));
+
+  return (
+    <Section
+      title="Engagement funnel"
+      headline={data.headline}
+      description="Traffic progression from recommendation impression to click and downstream order."
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Impressions"
+          value={impressions.toLocaleString()}
+        />
+
+        <MetricCard
+          label="Clicks"
+          value={clicks.toLocaleString()}
+          detail={`${pct(ctr)} CTR`}
+        />
+
+        <MetricCard
+          label="Orders"
+          value={orders.toLocaleString()}
+          detail={`${pct(cvr)} CVR`}
+        />
+
+        <MetricCard
+          label="Mean relevance"
+          value={num(data.mean_score ?? data.summary?.mean_score, 3)}
+        />
+      </MetricGrid>
+
+      <ReportGrid>
+        <BarChart
+          labels={["Impression", "Click", "Order"]}
+          values={[impressions, clicks, orders]}
+          title="Engagement funnel"
+          valueFormatter={(value) => Number(value).toLocaleString()}
+        />
+
+        <BarChart
+          labels={sortDesc(queryRows, "mean_score")
+            .slice(0, 10)
+            .map((row) => row.query)}
+          values={sortDesc(queryRows, "mean_score")
+            .slice(0, 10)
+            .map((row) => row.mean_score)}
+          title="Top queries by relevance"
+          horizontal
+        />
+      </ReportGrid>
+
+      <h3 className="report-subtitle">Query performance</h3>
+
+      <DataTable
+        rows={queryRows}
+        columns={[
+          "query",
+          "impressions",
+          "clicks",
+          "orders",
+          "ctr",
+          "cvr",
+          "mean_score",
+        ]}
+        formatters={{
+          impressions: (value) => Number(value ?? 0).toLocaleString(),
+          clicks: (value) => Number(value ?? 0).toLocaleString(),
+          orders: (value) => Number(value ?? 0).toLocaleString(),
+          ctr: (value) => pct(value),
+          cvr: (value) => pct(value),
+          mean_score: (value) => num(value, 4),
+        }}
+      />
+
+      <h3 className="report-subtitle">Genre performance</h3>
+
+      <DataTable
+        rows={data.by_genre ?? []}
+        columns={[
+          "genre",
+          "impressions",
+          "clicks",
+          "orders",
+          "ctr",
+          "cvr",
+          "mean_score",
+        ]}
+        formatters={{
+          impressions: (value) => Number(value ?? 0).toLocaleString(),
+          clicks: (value) => Number(value ?? 0).toLocaleString(),
+          orders: (value) => Number(value ?? 0).toLocaleString(),
+          ctr: (value) => pct(value),
+          cvr: (value) => pct(value),
+          mean_score: (value) => num(value, 4),
+        }}
+      />
+    </Section>
+  );
+}
+
+export function KeywordSection({ data }) {
+  const [topK, setTopK] = useState(20);
+  const [selectedKeyword, setSelectedKeyword] = useState(null);
+
+  const keywords = useMemo(() => {
+    if (!data?.by_keyword) return [];
+
+    return sortDesc(data.by_keyword, "mean_score")
+      .slice(0, topK)
+      .map((row, index) => ({
+        ...row,
+        rank: index + 1,
+        score:
+          row.mean_score ??
+          row.relevance ??
+          row.score ??
+          0,
+      }));
+  }, [data, topK]);
+
+  const selected =
+    keywords.find((row) => row.keyword === selectedKeyword) ??
+    keywords[0] ??
+    null;
+
+  if (!data) {
+    return (
+      <NaCard
+        title="Keyword relevance"
+        reason="No keyword data was returned."
+      />
+    );
+  }
+
+  const mostRelevant = keywords[0];
+  const totalMovieImpressions = keywords.reduce(
+    (sum, row) => sum + Number(row.movie_impressions ?? 0),
+    0
+  );
+
+  const averageDivergence =
+    keywords.length > 0
+      ? keywords.reduce(
+          (sum, row) => sum + Number(row.divergence ?? 0),
+          0
+        ) / keywords.length
+      : null;
+
+  return (
+    <Section
+      title="Top-K keyword relevance"
+      headline={data.headline}
+      description="Keywords extracted from movie titles and colored by their relevance score."
+      actions={
+        <Select
+          label="Top K"
+          value={topK}
+          onChange={(event) => setTopK(Number(event.target.value))}
+          options={[
+            { value: 10, label: "Top 10" },
+            { value: 20, label: "Top 20" },
+            { value: 30, label: "Top 30" },
+            { value: 50, label: "Top 50" },
+          ]}
+        />
+      }
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Keywords shown"
+          value={keywords.length}
+        />
+
+        <MetricCard
+          label="Highest relevance"
+          value={num(mostRelevant?.score, 3)}
+          detail={mostRelevant?.keyword ?? "N/A"}
+        />
+
+        <MetricCard
+          label="Movie impressions"
+          value={totalMovieImpressions.toLocaleString()}
+        />
+
+        <MetricCard
+          label="Mean divergence"
+          value={num(averageDivergence, 3)}
+        />
+      </MetricGrid>
+
+      <div className="keyword-report-layout">
+        <div className="keyword-main-panel">
+          <TokenHeatmap
+            items={keywords}
+            labelKey="keyword"
+            scoreKey="score"
+            selectedKey={selected?.keyword}
+            onSelect={(item) => setSelectedKeyword(item.keyword)}
+          />
+
+          <div className="token-legend">
+            <span>Lower relevance</span>
+            <div className="token-legend-gradient" />
+            <span>Higher relevance</span>
+          </div>
+        </div>
+
+        <KeywordDetailPanel keyword={selected} />
+      </div>
+
+      <ReportGrid>
+        <BarChart
+          labels={keywords.slice(0, 12).map((row) => row.keyword)}
+          values={keywords
+            .slice(0, 12)
+            .map((row) => row.movie_impressions)}
+          title="Movie impressions by keyword"
+          horizontal
+        />
+
+        <BarChart
+          labels={keywords.slice(0, 12).map((row) => row.keyword)}
+          values={keywords
+            .slice(0, 12)
+            .map((row) => row.divergence)}
+          title="Query-to-catalog divergence"
+          horizontal
+        />
+      </ReportGrid>
+
+      <h3 className="report-subtitle">Keyword performance</h3>
+
+      <DataTable
+        rows={keywords}
+        columns={[
+          "rank",
+          "keyword",
+          "score",
+          "movie_impressions",
+          "query_impressions",
+          "query_clicks",
+          "query_orders",
+          "ctr",
+          "cvr",
+          "divergence",
+        ]}
+        formatters={{
+          score: (value) => num(value, 4),
+          movie_impressions: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          query_impressions: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          query_clicks: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          query_orders: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          ctr: (value) => pct(value),
+          cvr: (value) => pct(value),
+          divergence: (value) => num(value, 4),
+        }}
+      />
+
+      {["l1", "l2", "l3"].map((level) => {
+        const rows = data.tops?.[level] ?? [];
+
+        if (!rows.length) return null;
+
+        return (
+          <div key={level}>
+            <h3 className="report-subtitle">
+              Taxonomy level {level.toUpperCase()}
+            </h3>
+
+            <DataTable
+              rows={rows}
+              columns={[
+                level,
+                "keyword",
+                "movie_impressions",
+                "query_clicks",
+                "ctr",
+                "divergence",
+              ]}
+              formatters={{
+                movie_impressions: (value) =>
+                  Number(value ?? 0).toLocaleString(),
+                query_clicks: (value) =>
+                  Number(value ?? 0).toLocaleString(),
+                ctr: (value) => pct(value),
+                divergence: (value) => num(value, 4),
+              }}
+            />
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
+
+function KeywordDetailPanel({ keyword }) {
+  if (!keyword) {
+    return (
+      <div className="keyword-detail-panel">
+        <p className="muted">Select a keyword to inspect its metrics.</p>
+      </div>
+    );
+  }
+
+  const tokens =
+    keyword.tokens?.map((token) =>
+      typeof token === "string"
+        ? {
+            token,
+            score: keyword.score,
+          }
+        : token
+    ) ??
+    keyword.keyword.split(/\s+/).map((token, index, arr) => ({
+      token,
+      score:
+        keyword.token_scores?.[index] ??
+        keyword.score * (0.75 + 0.25 * ((index + 1) / arr.length)),
+    }));
+
+  return (
+    <aside className="keyword-detail-panel">
+      <span className="eyebrow">Keyword details</span>
+
+      <h3 className="keyword-detail-title">{keyword.keyword}</h3>
+
+      <div className="keyword-detail-metrics">
+        <MetricCard
+          label="Rank"
+          value={`#${keyword.rank}`}
+        />
+
+        <MetricCard
+          label="Relevance"
+          value={num(keyword.score, 3)}
+        />
+
+        <MetricCard
+          label="Impressions"
+          value={Number(
+            keyword.movie_impressions ?? 0
+          ).toLocaleString()}
+        />
+
+        <MetricCard
+          label="Clicks"
+          value={Number(
+            keyword.query_clicks ?? 0
+          ).toLocaleString()}
+        />
+
+        <MetricCard
+          label="CTR"
+          value={pct(keyword.ctr)}
+        />
+
+        <MetricCard
+          label="Divergence"
+          value={num(keyword.divergence, 3)}
+        />
+      </div>
+
+      <h4 className="keyword-detail-subtitle">Token relevance</h4>
+
+      <TokenHeatmap
+        items={tokens}
+        labelKey="token"
+        scoreKey="score"
+        compact
+      />
+
+      {keyword.related_movies?.length ? (
+        <>
+          <h4 className="keyword-detail-subtitle">
+            Top matched movies
+          </h4>
+
+          <DataTable
+            rows={keyword.related_movies}
+            columns={[
+              "movie",
+              "score",
+              "impressions",
+              "clicks",
+              "ctr",
+            ]}
+            compact
+            formatters={{
+              score: (value) => num(value, 3),
+              impressions: (value) =>
+                Number(value ?? 0).toLocaleString(),
+              clicks: (value) =>
+                Number(value ?? 0).toLocaleString(),
+              ctr: (value) => pct(value),
+            }}
+          />
+        </>
+      ) : null}
+    </aside>
+  );
+}
+
+export function QuerySection({ data }) {
+  if (!data) {
+    return (
+      <NaCard
+        title="Query intent"
+        reason="No query data was returned."
+      />
+    );
+  }
+
+  const queryRows = (data.top_queries ?? []).map((row) => ({
+    ...row,
+    ctr:
+      row.ctr ??
+      safeDivide(row.clicks ?? 0, row.impressions ?? 0),
+    cvr:
+      row.cvr ??
+      safeDivide(row.orders ?? 0, row.clicks ?? 0),
+  }));
+
+  const highestCtr = sortDesc(queryRows, "ctr")[0];
+  const highestCvr = sortDesc(queryRows, "cvr")[0];
+
+  return (
+    <Section
+      title="Query intent"
+      headline={data.headline}
+      description="Query demand, engagement, conversion, and intent depth."
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Queries analyzed"
+          value={queryRows.length}
+        />
+
+        <MetricCard
+          label="Highest CTR"
+          value={pct(highestCtr?.ctr)}
+          detail={highestCtr?.query}
+        />
+
+        <MetricCard
+          label="Highest CVR"
+          value={pct(highestCvr?.cvr)}
+          detail={highestCvr?.query}
+        />
+
+        <MetricCard
+          label="Average query length"
+          value={num(data.average_query_length, 2)}
+        />
+      </MetricGrid>
+
+      <ReportGrid>
+        <BarChart
+          labels={queryRows.slice(0, 12).map((row) => row.query)}
+          values={queryRows
+            .slice(0, 12)
+            .map((row) => row.impressions)}
+          title="Top queries by impressions"
+          horizontal
+        />
+
+        <BarChart
+          labels={sortDesc(queryRows, "ctr")
+            .slice(0, 12)
+            .map((row) => row.query)}
+          values={sortDesc(queryRows, "ctr")
+            .slice(0, 12)
+            .map((row) => row.ctr)}
+          title="Top queries by CTR"
+          horizontal
+          percentage
+        />
+      </ReportGrid>
+
+      <DataTable
+        rows={queryRows}
+        columns={[
+          "query",
+          "impressions",
+          "clicks",
+          "orders",
+          "query_len",
+          "ctr",
+          "cvr",
+          "mean_score",
+        ]}
+        formatters={{
+          impressions: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          clicks: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          orders: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          ctr: (value) => pct(value),
+          cvr: (value) => pct(value),
+          mean_score: (value) => num(value, 4),
+        }}
+      />
+
+      <h3 className="report-subtitle">Performance by query length</h3>
+
+      <DataTable
+        rows={data.by_length ?? []}
+        columns={[
+          "bucket",
+          "queries",
+          "impressions",
+          "clicks",
+          "orders",
+          "ctr",
+          "cvr",
+        ]}
+        formatters={{
+          queries: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          impressions: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          clicks: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          orders: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          ctr: (value) => pct(value),
+          cvr: (value) => pct(value),
+        }}
+      />
+    </Section>
+  );
+}
+
+export function RecallSection({ data }) {
+  if (!data) {
+    return (
+      <NaCard
+        title="Recall"
+        reason="No movie feature records were found in Redis."
+      />
+    );
+  }
+
+  const rows = data.rows ?? [];
+  const bestRecall = sortDesc(rows, "recall_at_k")[0];
+  const bestHitRate = sortDesc(rows, "hitrate_at_k")[0];
+
+  return (
+    <Section
+      title="Candidate recall"
+      headline={data.headline}
+      description="Candidate-generation quality across retrieval strategies and cutoff values."
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Best Recall@K"
+          value={pct(bestRecall?.recall_at_k)}
+          detail={
+            bestRecall
+              ? `${bestRecall.method}, K=${bestRecall.k}`
+              : "N/A"
+          }
+        />
+
+        <MetricCard
+          label="Best HitRate@K"
+          value={pct(bestHitRate?.hitrate_at_k)}
+          detail={
+            bestHitRate
+              ? `${bestHitRate.method}, K=${bestHitRate.k}`
+              : "N/A"
+          }
+        />
+
+        <MetricCard
+          label="Methods"
+          value={new Set(rows.map((row) => row.method)).size}
+        />
+
+        <MetricCard
+          label="Users evaluated"
+          value={Math.max(
+            0,
+            ...rows.map((row) => Number(row.users_evaluated ?? 0))
+          ).toLocaleString()}
+        />
+      </MetricGrid>
+
+      <ReportGrid>
+        <BarChart
+          labels={rows.map(
+            (row) => `${row.method} @ ${row.k}`
+          )}
+          values={rows.map((row) => row.recall_at_k)}
+          title="Recall@K"
+          percentage
+          horizontal
+        />
+
+        <BarChart
+          labels={rows.map(
+            (row) => `${row.method} @ ${row.k}`
+          )}
+          values={rows.map((row) => row.hitrate_at_k)}
+          title="HitRate@K"
+          percentage
+          horizontal
+        />
+      </ReportGrid>
+
+      <DataTable
+        rows={rows}
+        columns={[
+          "method",
+          "k",
+          "recall_at_k",
+          "hitrate_at_k",
+          "coverage_at_k",
+          "users_evaluated",
+        ]}
+        formatters={{
+          recall_at_k: (value) => pct(value),
+          hitrate_at_k: (value) => pct(value),
+          coverage_at_k: (value) => pct(value),
+          users_evaluated: (value) =>
+            Number(value ?? 0).toLocaleString(),
+        }}
+      />
+    </Section>
+  );
+}
+
+export function RankingSection({ data }) {
+  if (!data) {
+    return (
+      <NaCard
+        title="Ranking"
+        reason="No ranking signals were found."
+      />
+    );
+  }
+
+  const rows = data.rows ?? [];
+
+  const scored = rows.filter(
+    (row) => row.auc !== null && row.auc !== undefined
+  );
+
+  const bestAuc = sortDesc(scored, "auc")[0];
+  const bestCoverage = sortDesc(rows, "coverage")[0];
+  const lowestLogloss = [...scored]
+    .filter((row) => row.logloss !== null && row.logloss !== undefined)
+    .sort((a, b) => a.logloss - b.logloss)[0];
+
+  return (
+    <Section
+      title="Ranking quality"
+      headline={data.headline}
+      description="Predictive quality and signal coverage for available ranking features."
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Best AUC"
+          value={num(bestAuc?.auc, 3)}
+          detail={bestAuc?.signal}
+        />
+
+        <MetricCard
+          label="Lowest log loss"
+          value={num(lowestLogloss?.logloss, 3)}
+          detail={lowestLogloss?.signal}
+        />
+
+        <MetricCard
+          label="Best coverage"
+          value={pct(bestCoverage?.coverage)}
+          detail={bestCoverage?.signal}
+        />
+
+        <MetricCard
+          label="Signals evaluated"
+          value={rows.length}
+        />
+      </MetricGrid>
+
+      {scored.length ? (
+        <ReportGrid>
+          <BarChart
+            labels={scored.map((row) => row.signal)}
+            values={scored.map((row) => row.auc)}
+            title="AUC by signal"
+            horizontal
+          />
+
+          <BarChart
+            labels={rows.map((row) => row.signal)}
+            values={rows.map((row) => row.coverage)}
+            title="Coverage by signal"
+            percentage
+            horizontal
+          />
+        </ReportGrid>
+      ) : null}
+
+      <DataTable
+        rows={rows}
+        columns={[
+          "signal",
+          "n",
+          "positives",
+          "positive_rate",
+          "coverage",
+          "auc",
+          "logloss",
+        ]}
+        formatters={{
+          n: (value) => Number(value ?? 0).toLocaleString(),
+          positives: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          positive_rate: (value) => pct(value),
+          coverage: (value) => pct(value),
+          auc: (value) => num(value, 4),
+          logloss: (value) => num(value, 4),
+        }}
+      />
+    </Section>
+  );
+}
+
+export function OpeSection({ data }) {
+  if (!data) {
+    return (
+      <NaCard
+        title="Off-policy evaluation"
+        reason="No replay-buffer events with rewards were found."
+      />
+    );
+  }
+
+  const rows = data.rows ?? [];
+
+  const displayRows = rows.map((row) => ({
+    policy: row.policy,
+    value: num(row.value),
+    value_95ci: ci(row.value_ci_low, row.value_ci_high),
+    lift_vs_logging: pct(row.lift_vs_logging, true),
+    lift_95ci: ci(
+      row.lift_ci_low,
+      row.lift_ci_high,
+      true
+    ),
+    n: Number(row.n_events ?? 0).toLocaleString(),
+  }));
+
+  const bestPolicy = sortDesc(rows, "value")[0];
+  const highestLift = sortDesc(rows, "lift_vs_logging")[0];
+  const calibration = data.calibration ?? {};
+
+  return (
+    <Section
+      title="Off-policy evaluation"
+      headline={data.headline}
+      description="Estimated policy value and lift from logged recommendation events."
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Best policy"
+          value={bestPolicy?.policy ?? "N/A"}
+          detail={`Value ${num(bestPolicy?.value, 3)}`}
+        />
+
+        <MetricCard
+          label="Highest lift"
+          value={pct(
+            highestLift?.lift_vs_logging,
+            true
+          )}
+          detail={highestLift?.policy}
+        />
+
+        <MetricCard
+          label="Reward model AUC"
+          value={num(calibration.auc, 3)}
+        />
+
+        <MetricCard
+          label="Reward model MSE"
+          value={num(calibration.mse, 4)}
+        />
+      </MetricGrid>
+
+      <ReportGrid>
+        <BarChart
+          labels={rows.map((row) => row.policy)}
+          values={rows.map((row) => row.value)}
+          title="Estimated policy value"
+          horizontal
+        />
+
+        <BarChart
+          labels={rows.map((row) => row.policy)}
+          values={rows.map((row) => row.lift_vs_logging)}
+          title="Lift versus logging policy"
+          percentage
+          horizontal
+        />
+      </ReportGrid>
+
+      <DataTable
+        rows={displayRows}
+        columns={[
+          "policy",
+          "value",
+          "value_95ci",
+          "lift_vs_logging",
+          "lift_95ci",
+          "n",
+        ]}
+      />
+
+      <p className="fine-print">
+        Direct Method · reward estimator AUC{" "}
+        {num(calibration.auc)} · MSE {num(calibration.mse)} ·
+        test observations{" "}
+        {Number(calibration.n_test ?? 0).toLocaleString()}.
+        Bootstrap intervals are conditional on the fitted reward
+        model and exclude model-fit uncertainty.
+      </p>
+    </Section>
+  );
+}
+
+export function MdpSection({ data }) {
+  if (!data) {
+    return (
+      <NaCard
+        title="MDP policy evaluation"
+        reason="No mdp_eval.csv data was found."
+      />
+    );
+  }
+
+  const rows = (data.rows ?? []).map((row) => ({
+    ...row,
+    ci95: `[${num(row.ci95_low, 3)}, ${num(
+      row.ci95_high,
+      3
+    )}]`,
+  }));
+
+  const bestPolicy = sortDesc(rows, "mean_return")[0];
+  const shortestPolicy = [...rows].sort(
+    (a, b) =>
+      Number(a.mean_steps ?? Infinity) -
+      Number(b.mean_steps ?? Infinity)
+  )[0];
+
+  return (
+    <Section
+      title="MDP policy evaluation"
+      headline={data.headline}
+      description="Finite-horizon policy returns measured across seeded episodes."
+    >
+      <MetricGrid>
+        <MetricCard
+          label="Best mean return"
+          value={num(bestPolicy?.mean_return, 3)}
+          detail={bestPolicy?.policy}
+        />
+
+        <MetricCard
+          label="Shortest trajectory"
+          value={num(shortestPolicy?.mean_steps, 2)}
+          detail={shortestPolicy?.policy}
+        />
+
+        <MetricCard
+          label="Policies evaluated"
+          value={rows.length}
+        />
+
+        <MetricCard
+          label="Total episodes"
+          value={rows
+            .reduce(
+              (sum, row) =>
+                sum + Number(row.episodes ?? 0),
+              0
+            )
+            .toLocaleString()}
+        />
+      </MetricGrid>
+
+      <ReportGrid>
+        <BarChart
+          labels={rows.map((row) => row.policy)}
+          values={rows.map((row) => row.mean_return)}
+          title="Mean return by policy"
+          horizontal
+        />
+
+        <BarChart
+          labels={rows.map((row) => row.policy)}
+          values={rows.map((row) => row.mean_steps)}
+          title="Mean episode length"
+          horizontal
+        />
+      </ReportGrid>
+
+      <DataTable
+        rows={rows}
+        columns={[
+          "policy",
+          "episodes",
+          "mean_return",
+          "mean_steps",
+          "standard_error",
+          "ci95",
+        ]}
+        formatters={{
+          episodes: (value) =>
+            Number(value ?? 0).toLocaleString(),
+          mean_return: (value) => num(value, 4),
+          mean_steps: (value) => num(value, 2),
+          standard_error: (value) => num(value, 4),
+        }}
+      />
+
+      <p className="fine-print">
+        Returns are finite-horizon discounted returns over seeded
+        episodes. The 95% bootstrap confidence intervals quantify
+        episode-sampling uncertainty for this fixed dataset.
+      </p>
+    </Section>
+  );
+}

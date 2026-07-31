@@ -149,3 +149,326 @@ export function MetricTile({ title, value, label, sampleSize, status, reason, hr
     </a>
   );
 }
+
+
+"use client";
+
+import { useId } from "react";
+
+export function Section({
+  title,
+  headline,
+  description,
+  actions,
+  children,
+}) {
+  return (
+    <section className="report-section">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Recommender analytics</p>
+          <h2>{title}</h2>
+
+          {headline ? (
+            <div className="headline-chip">{headline}</div>
+          ) : null}
+
+          {description ? (
+            <p className="section-description">{description}</p>
+          ) : null}
+        </div>
+
+        {actions ? (
+          <div className="section-actions">{actions}</div>
+        ) : null}
+      </div>
+
+      <div className="section-content">{children}</div>
+    </section>
+  );
+}
+
+export function NaCard({ title, reason }) {
+  return (
+    <div className="na-card">
+      <h2>{title}</h2>
+      <p>{reason}</p>
+    </div>
+  );
+}
+
+export function MetricGrid({ children }) {
+  return <div className="metric-grid">{children}</div>;
+}
+
+export function MetricCard({
+  label,
+  value,
+  detail,
+  trend,
+}) {
+  return (
+    <div className="metric-card">
+      <span className="metric-label">{label}</span>
+      <strong className="metric-value">{value ?? "N/A"}</strong>
+
+      {detail ? (
+        <span className="metric-detail">{detail}</span>
+      ) : null}
+
+      {trend ? (
+        <span
+          className={
+            trend >= 0
+              ? "metric-trend positive"
+              : "metric-trend negative"
+          }
+        >
+          {trend >= 0 ? "▲" : "▼"}{" "}
+          {Math.abs(trend * 100).toFixed(1)}%
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function ReportGrid({ children }) {
+  return <div className="report-grid">{children}</div>;
+}
+
+export function Select({
+  label,
+  value,
+  onChange,
+  options,
+}) {
+  const id = useId();
+
+  return (
+    <label className="select-control" htmlFor={id}>
+      <span>{label}</span>
+
+      <select id={id} value={value} onChange={onChange}>
+        {options.map((option) => (
+          <option
+            key={option.value}
+            value={option.value}
+          >
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function BarChart({
+  labels,
+  values,
+  title,
+  horizontal = false,
+  percentage = false,
+  valueFormatter,
+}) {
+  const maxValue = Math.max(
+    1,
+    ...values.map((value) =>
+      Math.abs(Number(value ?? 0))
+    )
+  );
+
+  const formatValue = (value) => {
+    if (valueFormatter) return valueFormatter(value);
+
+    if (percentage) {
+      return `${(Number(value ?? 0) * 100).toFixed(1)}%`;
+    }
+
+    return Number(value ?? 0).toLocaleString();
+  };
+
+  return (
+    <div className="chart-card">
+      <h3>{title}</h3>
+
+      <div
+        className={
+          horizontal ? "bar-chart horizontal" : "bar-chart"
+        }
+      >
+        {labels.map((label, index) => {
+          const value = Number(values[index] ?? 0);
+          const width = `${Math.max(
+            2,
+            (Math.abs(value) / maxValue) * 100
+          )}%`;
+
+          return (
+            <div
+              className="bar-row"
+              key={`${label}-${index}`}
+            >
+              <span className="bar-label" title={label}>
+                {label}
+              </span>
+
+              <div className="bar-track">
+                <div
+                  className={
+                    value < 0
+                      ? "bar-fill negative"
+                      : "bar-fill"
+                  }
+                  style={{ width }}
+                />
+              </div>
+
+              <span className="bar-value">
+                {formatValue(value)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function DataTable({
+  rows = [],
+  columns = [],
+  formatters = {},
+  compact = false,
+}) {
+  if (!rows.length) {
+    return <p className="empty-state">No rows available.</p>;
+  }
+
+  return (
+    <div className="table-wrapper">
+      <table
+        className={compact ? "data-table compact" : "data-table"}
+      >
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column}>
+                {column
+                  .replaceAll("_", " ")
+                  .replace(/\b\w/g, (char) =>
+                    char.toUpperCase()
+                  )}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={row.id ?? rowIndex}>
+              {columns.map((column) => {
+                const formatter = formatters[column];
+                const rawValue = row[column];
+                const value = formatter
+                  ? formatter(rawValue, row)
+                  : rawValue;
+
+                return (
+                  <td key={column}>
+                    {value === null ||
+                    value === undefined ||
+                    value === ""
+                      ? "N/A"
+                      : String(value)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function TokenHeatmap({
+  items = [],
+  labelKey,
+  scoreKey,
+  selectedKey,
+  onSelect,
+  compact = false,
+}) {
+  const scores = items.map((item) =>
+    Number(item[scoreKey] ?? 0)
+  );
+
+  const min = Math.min(...scores, 0);
+  const max = Math.max(...scores, 1);
+
+  const normalizedScore = (score) => {
+    if (max === min) return 0.5;
+    return (Number(score ?? 0) - min) / (max - min);
+  };
+
+  return (
+    <div
+      className={
+        compact
+          ? "token-heatmap compact"
+          : "token-heatmap"
+      }
+    >
+      {items.map((item, index) => {
+        const label = item[labelKey];
+        const score = Number(item[scoreKey] ?? 0);
+        const normalized = normalizedScore(score);
+
+        const style = {
+          "--token-score": normalized,
+          "--token-size": compact
+            ? "1rem"
+            : `${0.92 + normalized * 0.26}rem`,
+        };
+
+        const selected = selectedKey === label;
+
+        if (onSelect) {
+          return (
+            <button
+              key={`${label}-${index}`}
+              type="button"
+              className={
+                selected
+                  ? "token-chip selected"
+                  : "token-chip"
+              }
+              style={style}
+              onClick={() => onSelect(item)}
+              title={`${label}: ${score.toFixed(4)}`}
+            >
+              <span>{label}</span>
+              {!compact ? (
+                <small>{score.toFixed(3)}</small>
+              ) : null}
+            </button>
+          );
+        }
+
+        return (
+          <span
+            key={`${label}-${index}`}
+            className="token-chip static"
+            style={style}
+            title={`${label}: ${score.toFixed(4)}`}
+          >
+            <span>{label}</span>
+            {!compact ? (
+              <small>{score.toFixed(3)}</small>
+            ) : null}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
