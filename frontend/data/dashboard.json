@@ -69,12 +69,12 @@
         "reward_coverage": 0.0,
         "mean_rating": 4.1705,
         "rating_coverage": 0.0424,
-        "negative_feedback_rate": 0.0004,
-        "negative_feedback_coverage": 0.0004,
-        "mean_dwell_millis": 69718.6786,
-        "dwell_coverage": 0.1502,
-        "mean_completion_rate": 0.581,
-        "completion_coverage": 0.1502
+        "negative_feedback_rate": 0.0005,
+        "negative_feedback_coverage": 0.0005,
+        "mean_dwell_millis": 69828.5467,
+        "dwell_coverage": 0.1926,
+        "mean_completion_rate": 0.5819,
+        "completion_coverage": 0.1926
       },
       {
         "scope": "live_service",
@@ -100,8 +100,8 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1344,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 417.4171,
-        "median_content_age_days": 418.5644,
+        "mean_content_age_days": 417.4161,
+        "median_content_age_days": 418.5633,
         "fresh_ctr": 0.1857,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1937,
@@ -142,39 +142,19 @@
       },
       {
         "scope": "slate",
-        "slate_id": "req_000d819cfe9e",
+        "slate_id": "req_00006783b79b",
         "unique_genres_at_k": 7.0,
-        "normalized_genre_entropy": 0.9708357627258161,
-        "intra_list_genre_distance": 0.9333,
-        "long_tail_exposure_share": 0.8,
+        "normalized_genre_entropy": 0.973214633425146,
+        "intra_list_genre_distance": 0.85,
+        "long_tail_exposure_share": 1.0,
         "genre_coverage": 1.0,
         "popularity_coverage": 1.0
       },
       {
         "scope": "slate",
-        "slate_id": "req_0018739cf248",
-        "unique_genres_at_k": 7.0,
-        "normalized_genre_entropy": 0.9708357627258161,
-        "intra_list_genre_distance": 0.9167,
-        "long_tail_exposure_share": 0.8,
-        "genre_coverage": 1.0,
-        "popularity_coverage": 1.0
-      },
-      {
-        "scope": "slate",
-        "slate_id": "req_0041b0269d35",
-        "unique_genres_at_k": 7.0,
-        "normalized_genre_entropy": 0.9708357627258161,
-        "intra_list_genre_distance": 0.9417,
-        "long_tail_exposure_share": 0.8,
-        "genre_coverage": 1.0,
-        "popularity_coverage": 1.0
-      },
-      {
-        "scope": "slate",
-        "slate_id": "req_00533b1352f2",
-        "unique_genres_at_k": 10.0,
-        "normalized_genre_entropy": 0.978837914159631,
+        "slate_id": "req_0050a4644fd7",
+        "unique_genres_at_k": 9.0,
+        "normalized_genre_entropy": 0.9848586617875463,
         "intra_list_genre_distance": 0.95,
         "long_tail_exposure_share": 0.6,
         "genre_coverage": 1.0,
@@ -182,61 +162,81 @@
       },
       {
         "scope": "slate",
-        "slate_id": "req_005ad386c330",
-        "unique_genres_at_k": 9.0,
-        "normalized_genre_entropy": 0.9766146686727132,
-        "intra_list_genre_distance": 0.955,
-        "long_tail_exposure_share": 0.8,
-        "genre_coverage": 1.0,
-        "popularity_coverage": 1.0
-      },
-      {
-        "scope": "slate",
-        "slate_id": "req_006d7c6c1822",
+        "slate_id": "req_005813c0d60d",
         "unique_genres_at_k": 9.0,
         "normalized_genre_entropy": 0.9848586617875463,
+        "intra_list_genre_distance": 0.9667,
+        "long_tail_exposure_share": 1.0,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_005f2c85d118",
+        "unique_genres_at_k": 5.0,
+        "normalized_genre_entropy": 0.9697238998682473,
         "intra_list_genre_distance": 0.95,
-        "long_tail_exposure_share": 0.8,
+        "long_tail_exposure_share": 0.4,
         "genre_coverage": 1.0,
         "popularity_coverage": 1.0
       },
       {
         "scope": "slate",
-        "slate_id": "req_00a0c0c8a7f6",
+        "slate_id": "req_008ec9305bd9",
         "unique_genres_at_k": 9.0,
-        "normalized_genre_entropy": 0.9766146686727132,
-        "intra_list_genre_distance": 0.9467,
+        "normalized_genre_entropy": 0.9848586617875463,
+        "intra_list_genre_distance": 0.975,
         "long_tail_exposure_share": 1.0,
         "genre_coverage": 1.0,
         "popularity_coverage": 1.0
       },
       {
         "scope": "slate",
-        "slate_id": "req_00b0ebd96069",
-        "unique_genres_at_k": 8.0,
-        "normalized_genre_entropy": 0.9825675930733636,
-        "intra_list_genre_distance": 0.98,
+        "slate_id": "req_0092d4cef45a",
+        "unique_genres_at_k": 3.0,
+        "normalized_genre_entropy": 0.920619835714305,
+        "intra_list_genre_distance": 0.7,
         "long_tail_exposure_share": 1.0,
         "genre_coverage": 1.0,
         "popularity_coverage": 1.0
       },
       {
         "scope": "slate",
-        "slate_id": "req_00b498924f1d",
-        "unique_genres_at_k": 8.0,
-        "normalized_genre_entropy": 0.9713256910609176,
-        "intra_list_genre_distance": 0.9083,
+        "slate_id": "req_00be0318ff7b",
+        "unique_genres_at_k": 6.0,
+        "normalized_genre_entropy": 0.935944697445866,
+        "intra_list_genre_distance": 0.8,
         "long_tail_exposure_share": 0.8,
         "genre_coverage": 1.0,
         "popularity_coverage": 1.0
       },
       {
         "scope": "slate",
-        "slate_id": "req_00da23fda619",
-        "unique_genres_at_k": 11.0,
-        "normalized_genre_entropy": 0.9807239409418417,
-        "intra_list_genre_distance": 0.955,
+        "slate_id": "req_00e5d3598181",
+        "unique_genres_at_k": 3.0,
+        "normalized_genre_entropy": 0.920619835714305,
+        "intra_list_genre_distance": 0.75,
         "long_tail_exposure_share": 1.0,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_00ef2a8be9f9",
+        "unique_genres_at_k": 7.0,
+        "normalized_genre_entropy": 1.0,
+        "intra_list_genre_distance": 1.0,
+        "long_tail_exposure_share": 0.8,
+        "genre_coverage": 1.0,
+        "popularity_coverage": 1.0
+      },
+      {
+        "scope": "slate",
+        "slate_id": "req_0103fbe6630c",
+        "unique_genres_at_k": 5.0,
+        "normalized_genre_entropy": 0.9690222556651344,
+        "intra_list_genre_distance": 0.8667,
+        "long_tail_exposure_share": 0.4,
         "genre_coverage": 1.0,
         "popularity_coverage": 1.0
       }
@@ -582,7 +582,7 @@
     "status": "available",
     "headline": "Candidate safety policy accounting",
     "sampleSize": 100000,
-    "coverage": 1.0,
+    "coverage": 0.5,
     "window": null,
     "warnings": [],
     "rows": [
@@ -590,17 +590,17 @@
         "scope": "offline",
         "policy_version": "catalog-filter-v1",
         "evaluated_candidates": 100000,
-        "filter_decisions": 0,
-        "filter_decision_rate": 0.0,
+        "filter_decisions": null,
+        "filter_decision_rate": null,
         "reason_counts": {
-          "expired": 0,
-          "muted_product_type": 0,
-          "muted_genre": 0,
-          "muted_keyword": 0,
-          "muted_title": 0,
-          "unknown": 0
+          "expired": null,
+          "muted_product_type": null,
+          "muted_genre": null,
+          "muted_keyword": null,
+          "muted_title": null,
+          "unknown": null
         },
-        "unknown_share": 0.0,
+        "unknown_share": null,
         "unsafe_exposure_rate": 0.02235,
         "unsafe_label_coverage": 1.0
       },
@@ -634,9 +634,9 @@
         "scope": "endpoint",
         "name": "feedback",
         "unit": "milliseconds",
-        "p50": 24.641536,
-        "p95": 83.361792,
-        "p99": 125.304832,
+        "p50": 23.59296,
+        "p95": 51.904512,
+        "p99": 60.29312,
         "count": 25,
         "error_rate": 0.0,
         "timeout_rate": 0.0
@@ -645,9 +645,9 @@
         "scope": "endpoint",
         "name": "recommend",
         "unit": "milliseconds",
-        "p50": 36.70016,
-        "p95": 158.334976,
-        "p99": 602.9312,
+        "p50": 29.360128,
+        "p95": 112.197632,
+        "p99": 351.27296,
         "count": 50,
         "error_rate": 0.0,
         "timeout_rate": 0.0
@@ -656,9 +656,9 @@
         "scope": "stage",
         "name": "hydration",
         "unit": "milliseconds",
-        "p50": 13.1072,
-        "p95": 47.710208,
-        "p99": 167.247872,
+        "p50": 11.272192,
+        "p95": 33.292288,
+        "p99": 100.401152,
         "count": 50,
         "error_rate": null,
         "timeout_rate": null
@@ -667,9 +667,9 @@
         "scope": "stage",
         "name": "redis_fetch",
         "unit": "milliseconds",
-        "p50": 9.699328,
-        "p95": 37.486592,
-        "p99": 150.7328,
+        "p50": 9.306112,
+        "p95": 26.083328,
+        "p99": 92.143616,
         "count": 50,
         "error_rate": null,
         "timeout_rate": null
@@ -678,9 +678,9 @@
         "scope": "stage",
         "name": "scoring",
         "unit": "milliseconds",
-        "p50": 1.998848,
-        "p95": 12.550144,
-        "p99": 32.473088,
+        "p50": 1.736704,
+        "p95": 12.025856,
+        "p99": 41.910272,
         "count": 50,
         "error_rate": null,
         "timeout_rate": null
@@ -689,9 +689,9 @@
         "scope": "stage",
         "name": "selection",
         "unit": "milliseconds",
-        "p50": 0.036352,
-        "p95": 0.114176,
-        "p99": 1.375744,
+        "p50": 0.029184,
+        "p95": 0.122368,
+        "p99": 0.720384,
         "count": 50,
         "error_rate": null,
         "timeout_rate": null
@@ -700,9 +700,9 @@
         "scope": "stage",
         "name": "side_effects",
         "unit": "milliseconds",
-        "p50": 7.602176,
-        "p95": 64.749568,
-        "p99": 142.344192,
+        "p50": 7.340032,
+        "p95": 41.680896,
+        "p99": 83.623936,
         "count": 50,
         "error_rate": null,
         "timeout_rate": null
@@ -1322,7 +1322,7 @@
     ]
   },
   "recall": {
-    "headline": "hybrid recall@10 0.039 vs BM25 0.036",
+    "headline": "hybrid recall@10 0.037 vs BM25 0.036",
     "rows": [
       {
         "method": "bm25",
@@ -1351,47 +1351,47 @@
       {
         "method": "embedding",
         "k": 5,
-        "recall_at_k": 0.0195,
-        "hitrate_at_k": 0.74,
+        "recall_at_k": 0.0174,
+        "hitrate_at_k": 0.71,
         "users_evaluated": 200,
         "instances": 17018
       },
       {
         "method": "embedding",
         "k": 10,
-        "recall_at_k": 0.0389,
-        "hitrate_at_k": 0.955,
+        "recall_at_k": 0.0359,
+        "hitrate_at_k": 0.945,
         "users_evaluated": 200,
         "instances": 17018
       },
       {
         "method": "embedding",
         "k": 20,
-        "recall_at_k": 0.0776,
-        "hitrate_at_k": 1.0,
+        "recall_at_k": 0.0712,
+        "hitrate_at_k": 0.985,
         "users_evaluated": 200,
         "instances": 17018
       },
       {
         "method": "hybrid",
         "k": 5,
-        "recall_at_k": 0.02,
-        "hitrate_at_k": 0.765,
+        "recall_at_k": 0.0199,
+        "hitrate_at_k": 0.745,
         "users_evaluated": 200,
         "instances": 17018
       },
       {
         "method": "hybrid",
         "k": 10,
-        "recall_at_k": 0.0391,
-        "hitrate_at_k": 0.94,
+        "recall_at_k": 0.0367,
+        "hitrate_at_k": 0.925,
         "users_evaluated": 200,
         "instances": 17018
       },
       {
         "method": "hybrid",
         "k": 20,
-        "recall_at_k": 0.0759,
+        "recall_at_k": 0.0721,
         "hitrate_at_k": 0.995,
         "users_evaluated": 200,
         "instances": 17018
@@ -1422,8 +1422,8 @@
         "coverage": 1.0,
         "n": 100000,
         "positives": 19260,
-        "auc": 0.5585364586428084,
-        "logloss": 0.7733
+        "auc": 0.5578130643700495,
+        "logloss": 0.7741
       }
     ]
   },
@@ -1612,7 +1612,7 @@
       }
     ],
     "calibration": {
-      "n_test": 6,
+      "n_test": 4,
       "mse": 0.0,
       "auc": null
     }
