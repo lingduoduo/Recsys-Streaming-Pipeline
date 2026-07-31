@@ -212,9 +212,10 @@ export function SatisfactionSection({ data }) {
       }}
     >
       <p className="fine-print">
-        Negative feedback is charted nowhere because its coverage and its rate are the same
-        measurement — a sample only carries a reason when the feedback fired — so a coverage bar
-        would show an instrumented signal as uninstrumented. Both columns are in the table.
+        Negative feedback <em>coverage</em> is charted nowhere because it is the same
+        expression as the negative feedback rate — a sample only carries a reason when the
+        feedback fired — so a coverage bar would show an instrumented signal as
+        uninstrumented. The rate itself is charted above, and both columns are in the table.
       </p>
     </MeasurementSection>
   );

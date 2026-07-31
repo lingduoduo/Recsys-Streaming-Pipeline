@@ -2,7 +2,12 @@ const round4 = (v) => (typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v);
 
 // A value that is not a finite number is missing, not zero. Charts omit its bar
 // and label it N/A rather than drawing a zero-height mark that reads as measured.
-const finite = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+// Note null and "" must be rejected BEFORE Number(), which maps both to 0.
+const finite = (v) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 export function Section({ title, headline, description, actions, id, children }) {
   return (
