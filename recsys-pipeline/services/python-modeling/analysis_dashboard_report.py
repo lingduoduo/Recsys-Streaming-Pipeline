@@ -86,16 +86,22 @@ def compute_relevance(df) -> dict:
     orders = int((df["label"] >= 2).sum())
     ctr = round(clicks / n, 4) if n else 0.0
     cvr = round(orders / n, 4) if n else 0.0
-    q = df.assign(query=df["genres"].apply(query_of))
-    by_query = (q.groupby("query")
-                 .agg(impressions=("label", "size"), mean_score=("label", "mean"))
-                 .reset_index()
-                 .sort_values(["mean_score", "impressions"], ascending=[False, False]))
-    ex = df.explode("genres").dropna(subset=["genres"])
+    d = df.assign(query=df["genres"].apply(query_of),
+                  clk=(df["label"] >= 1).astype(int),
+                  ord=(df["label"] >= 2).astype(int))
+    by_query = (d.groupby("query")
+                 .agg(impressions=("label", "size"), clicks=("clk", "sum"),
+                      orders=("ord", "sum"), mean_score=("label", "mean"))
+                 .reset_index())
+    by_query = _rates(by_query).sort_values(["mean_score", "impressions"],
+                                            ascending=[False, False])
+    ex = d.explode("genres").dropna(subset=["genres"])
     by_genre = (ex.groupby("genres")
-                  .agg(impressions=("label", "size"), mean_score=("label", "mean"))
-                  .reset_index().rename(columns={"genres": "genre"})
-                  .sort_values(["mean_score", "impressions"], ascending=[False, False]))
+                  .agg(impressions=("label", "size"), clicks=("clk", "sum"),
+                       orders=("ord", "sum"), mean_score=("label", "mean"))
+                  .reset_index().rename(columns={"genres": "genre"}))
+    by_genre = _rates(by_genre).sort_values(["mean_score", "impressions"],
+                                            ascending=[False, False])
     return {
         "headline": f"impressions {n} · CTR {ctr:.0%} · CVR {cvr:.0%}",
         "ctr": ctr, "cvr": cvr,
@@ -106,22 +112,28 @@ def compute_relevance(df) -> dict:
 
 def compute_keyword(df) -> dict:
     import feature_derivations as mc
-    import pandas as pd
 
     d = df.assign(keyword=df["genres"].apply(mc.primary_genre),
                   subkeyword=df["genres"].apply(mc.secondary_genre))
 
     def dist(col):
-        movie = d.groupby(col).size().rename("movie_impressions")
-        query = d[d["clicked"] == 1].groupby(col).size().rename("query_clicks")
-        out = pd.concat([movie, query], axis=1).fillna(0).reset_index()
-        out[["movie_impressions", "query_clicks"]] = out[["movie_impressions", "query_clicks"]].astype(int)
-        tot_m = out["movie_impressions"].sum() or 1
-        tot_q = out["query_clicks"].sum() or 1
-        out["movie_share"] = (out["movie_impressions"] / tot_m).round(4)
-        out["query_share"] = (out["query_clicks"] / tot_q).round(4)
-        out["divergence"] = (out["query_share"] - out["movie_share"]).round(4)
-        return out.sort_values("movie_impressions", ascending=False)
+        agg = (d.assign(clk=(d["label"] >= 1).astype(int),
+                        ord=(d["label"] >= 2).astype(int))
+                .groupby(col)
+                .agg(movie_impressions=("label", "size"), query_clicks=("clk", "sum"),
+                     query_orders=("ord", "sum"), mean_score=("label", "mean"))
+                .reset_index())
+        counts = ["movie_impressions", "query_clicks", "query_orders"]
+        agg[counts] = agg[counts].astype(int)
+        agg["mean_score"] = agg["mean_score"].round(4)
+        tot_m = agg["movie_impressions"].sum() or 1
+        tot_q = agg["query_clicks"].sum() or 1
+        agg["movie_share"] = (agg["movie_impressions"] / tot_m).round(4)
+        agg["query_share"] = (agg["query_clicks"] / tot_q).round(4)
+        agg["divergence"] = (agg["query_share"] - agg["movie_share"]).round(4)
+        agg["ctr"] = (agg["query_clicks"] / agg["movie_impressions"]).round(4)
+        agg["cvr"] = (agg["query_orders"] / agg["movie_impressions"]).round(4)
+        return agg.sort_values("movie_impressions", ascending=False)
 
     by_keyword = dist("keyword")
     by_subkeyword = dist("subkeyword")
@@ -134,10 +146,12 @@ def compute_keyword(df) -> dict:
     )
 
     def top_keywords(level):
-        ex = lv[[level, "genres", "clicked"]].explode("genres").dropna(subset=["genres"])
+        ex = lv[[level, "genres", "label"]].explode("genres").dropna(subset=["genres"])
+        ex = ex.assign(clk=(ex["label"] >= 1).astype(int))
         g = (ex.groupby([level, "genres"])
-               .agg(movie_impressions=("clicked", "size"), query_clicks=("clicked", "sum"))
+               .agg(movie_impressions=("clk", "size"), query_clicks=("clk", "sum"))
                .reset_index().rename(columns={"genres": "keyword"}))
+        g["ctr"] = (g["query_clicks"] / g["movie_impressions"]).round(4)
         g["rank"] = (g.groupby(level)["movie_impressions"]
                        .rank(method="first", ascending=False).astype(int))
         return g[g["rank"] <= 10].sort_values([level, "rank"])
@@ -175,14 +189,15 @@ def compute_query(df) -> dict:
     d["bucket"] = d["query_len"].apply(
         lambda n: "short (<=10)" if n <= SHORT_MAX_CHARS else "long (>10)")
     bylen = (d.groupby("bucket")
-               .agg(impressions=("label", "size"), clicks=("clk", "sum"), orders=("ord", "sum"))
+               .agg(impressions=("label", "size"), clicks=("clk", "sum"), orders=("ord", "sum"), queries=("query", "nunique"))
                .reset_index())
     bylen = _rates(bylen).sort_values("bucket")
 
     lead = top.iloc[0] if len(top) else None
     headline = ("no queries" if lead is None else
                 f"top query '{lead['query']}' ({int(lead['impressions'])} impr, CTR {lead['ctr']:.0%})")
-    return {"headline": headline, "top_queries": top, "by_length": bylen}
+    return {"headline": headline, "top_queries": top, "by_length": bylen,
+            "average_query_length": round(float(d["query_len"].mean()), 2) if len(d) else None}
 
 
 def compute_recall(df, host: str, port: int, ks=(5, 10, 20)):
@@ -233,6 +248,8 @@ def compute_ranking(df, host: str, port: int):
             continue
         m = evaluate_signal([s for s, _ in sl], [y for _, y in sl])
         rows.append({"signal": name, "coverage": coverage, **m})
+    for row in rows:
+        row["positive_rate"] = round(row["positives"] / row["n"], 4) if row["n"] else None
     best = max((r for r in rows if r["auc"] is not None), key=lambda r: r["auc"], default=None)
     headline = ("no scorable signal" if best is None else
                 f"best signal '{best['signal']}' AUC {best['auc']:.3f}")

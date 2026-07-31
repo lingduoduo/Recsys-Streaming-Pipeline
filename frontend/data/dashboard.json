@@ -100,8 +100,8 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1344,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 417.4161,
-        "median_content_age_days": 418.5633,
+        "mean_content_age_days": 417.5246,
+        "median_content_age_days": 418.6718,
         "fresh_ctr": 0.1857,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1937,
@@ -722,104 +722,184 @@
       {
         "query": "Fantasy Thriller",
         "impressions": 275,
-        "mean_score": 0.3890909090909091
+        "clicks": 84,
+        "orders": 23,
+        "mean_score": 0.3890909090909091,
+        "ctr": 0.3055,
+        "cvr": 0.0836
       },
       {
         "query": "Adventure Animation Drama",
         "impressions": 255,
-        "mean_score": 0.35294117647058826
+        "clicks": 68,
+        "orders": 22,
+        "mean_score": 0.35294117647058826,
+        "ctr": 0.2667,
+        "cvr": 0.0863
       },
       {
         "query": "Sci-Fi Crime Action",
         "impressions": 256,
-        "mean_score": 0.34765625
+        "clicks": 71,
+        "orders": 18,
+        "mean_score": 0.34765625,
+        "ctr": 0.2773,
+        "cvr": 0.0703
       },
       {
         "query": "Fantasy War Horror",
         "impressions": 239,
-        "mean_score": 0.34309623430962344
+        "clicks": 65,
+        "orders": 17,
+        "mean_score": 0.34309623430962344,
+        "ctr": 0.272,
+        "cvr": 0.0711
       },
       {
         "query": "Fantasy Documentary",
         "impressions": 216,
-        "mean_score": 0.3425925925925926
+        "clicks": 60,
+        "orders": 14,
+        "mean_score": 0.3425925925925926,
+        "ctr": 0.2778,
+        "cvr": 0.0648
       },
       {
         "query": "Animation Thriller Documentary",
         "impressions": 260,
-        "mean_score": 0.33076923076923076
+        "clicks": 65,
+        "orders": 21,
+        "mean_score": 0.33076923076923076,
+        "ctr": 0.25,
+        "cvr": 0.0808
       },
       {
         "query": "Fantasy Western Sci-Fi",
         "impressions": 250,
-        "mean_score": 0.324
+        "clicks": 63,
+        "orders": 18,
+        "mean_score": 0.324,
+        "ctr": 0.252,
+        "cvr": 0.072
       },
       {
         "query": "Animation Thriller",
         "impressions": 241,
-        "mean_score": 0.3236514522821577
+        "clicks": 62,
+        "orders": 16,
+        "mean_score": 0.3236514522821577,
+        "ctr": 0.2573,
+        "cvr": 0.0664
       },
       {
         "query": "Film-Noir Sci-Fi Horror",
         "impressions": 235,
-        "mean_score": 0.3148936170212766
+        "clicks": 58,
+        "orders": 16,
+        "mean_score": 0.3148936170212766,
+        "ctr": 0.2468,
+        "cvr": 0.0681
       },
       {
         "query": "Action Animation",
         "impressions": 248,
-        "mean_score": 0.31451612903225806
+        "clicks": 58,
+        "orders": 20,
+        "mean_score": 0.31451612903225806,
+        "ctr": 0.2339,
+        "cvr": 0.0806
       }
     ],
     "by_genre": [
       {
         "genre": "Animation",
         "impressions": 11576,
-        "mean_score": 0.2662404975812025
+        "clicks": 2450,
+        "orders": 632,
+        "mean_score": 0.2662404975812025,
+        "ctr": 0.2116,
+        "cvr": 0.0546
       },
       {
         "genre": "Fantasy",
         "impressions": 12474,
-        "mean_score": 0.2638287638287638
+        "clicks": 2690,
+        "orders": 601,
+        "mean_score": 0.2638287638287638,
+        "ctr": 0.2156,
+        "cvr": 0.0482
       },
       {
         "genre": "Sci-Fi",
         "impressions": 8813,
-        "mean_score": 0.26041075683649156
+        "clicks": 1885,
+        "orders": 410,
+        "mean_score": 0.26041075683649156,
+        "ctr": 0.2139,
+        "cvr": 0.0465
       },
       {
         "genre": "War",
         "impressions": 10312,
-        "mean_score": 0.2533941039565555
+        "clicks": 2111,
+        "orders": 502,
+        "mean_score": 0.2533941039565555,
+        "ctr": 0.2047,
+        "cvr": 0.0487
       },
       {
         "genre": "Action",
         "impressions": 10888,
-        "mean_score": 0.2500918442321822
+        "clicks": 2205,
+        "orders": 518,
+        "mean_score": 0.2500918442321822,
+        "ctr": 0.2025,
+        "cvr": 0.0476
       },
       {
         "genre": "Western",
         "impressions": 11902,
-        "mean_score": 0.24752142497059318
+        "clicks": 2393,
+        "orders": 553,
+        "mean_score": 0.24752142497059318,
+        "ctr": 0.2011,
+        "cvr": 0.0465
       },
       {
         "genre": "Thriller",
         "impressions": 8202,
-        "mean_score": 0.23543038283345524
+        "clicks": 1605,
+        "orders": 326,
+        "mean_score": 0.23543038283345524,
+        "ctr": 0.1957,
+        "cvr": 0.0397
       },
       {
         "genre": "Film-Noir",
         "impressions": 11218,
-        "mean_score": 0.23533606703512214
+        "clicks": 2176,
+        "orders": 464,
+        "mean_score": 0.23533606703512214,
+        "ctr": 0.194,
+        "cvr": 0.0414
       },
       {
         "genre": "Crime",
         "impressions": 10091,
-        "mean_score": 0.23317807947676147
+        "clicks": 1956,
+        "orders": 397,
+        "mean_score": 0.23317807947676147,
+        "ctr": 0.1938,
+        "cvr": 0.0393
       },
       {
         "genre": "Mystery",
         "impressions": 10378,
-        "mean_score": 0.23280015417228753
+        "clicks": 1962,
+        "orders": 454,
+        "mean_score": 0.23280015417228753,
+        "ctr": 0.1891,
+        "cvr": 0.0437
       }
     ]
   },
@@ -830,81 +910,217 @@
         "keyword": "Drama",
         "movie_impressions": 7501,
         "query_clicks": 1286,
+        "query_orders": 267,
+        "mean_score": 0.207,
         "movie_share": 0.075,
         "query_share": 0.0668,
-        "divergence": -0.0082
+        "divergence": -0.0082,
+        "ctr": 0.1714,
+        "cvr": 0.0356
       },
       {
         "keyword": "Documentary",
         "movie_impressions": 7395,
         "query_clicks": 1059,
+        "query_orders": 208,
+        "mean_score": 0.1713,
         "movie_share": 0.074,
         "query_share": 0.055,
-        "divergence": -0.019
+        "divergence": -0.019,
+        "ctr": 0.1432,
+        "cvr": 0.0281
       },
       {
         "keyword": "Fantasy",
         "movie_impressions": 6929,
         "query_clicks": 1604,
+        "query_orders": 380,
+        "mean_score": 0.2863,
         "movie_share": 0.0693,
         "query_share": 0.0833,
-        "divergence": 0.014
+        "divergence": 0.014,
+        "ctr": 0.2315,
+        "cvr": 0.0548
       },
       {
         "keyword": "Romance",
         "movie_impressions": 6528,
         "query_clicks": 1158,
+        "query_orders": 235,
+        "mean_score": 0.2134,
         "movie_share": 0.0653,
         "query_share": 0.0601,
-        "divergence": -0.0052
+        "divergence": -0.0052,
+        "ctr": 0.1774,
+        "cvr": 0.036
       },
       {
         "keyword": "Musical",
         "movie_impressions": 6008,
         "query_clicks": 1078,
+        "query_orders": 235,
+        "mean_score": 0.2185,
         "movie_share": 0.0601,
         "query_share": 0.056,
-        "divergence": -0.0041
+        "divergence": -0.0041,
+        "ctr": 0.1794,
+        "cvr": 0.0391
       },
       {
         "keyword": "Action",
         "movie_impressions": 5902,
         "query_clicks": 1259,
+        "query_orders": 319,
+        "mean_score": 0.2674,
         "movie_share": 0.059,
         "query_share": 0.0654,
-        "divergence": 0.0064
+        "divergence": 0.0064,
+        "ctr": 0.2133,
+        "cvr": 0.054
       },
       {
         "keyword": "Animation",
         "movie_impressions": 5823,
         "query_clicks": 1277,
+        "query_orders": 335,
+        "mean_score": 0.2768,
         "movie_share": 0.0582,
         "query_share": 0.0663,
-        "divergence": 0.0081
+        "divergence": 0.0081,
+        "ctr": 0.2193,
+        "cvr": 0.0575
       },
       {
         "keyword": "Film-Noir",
         "movie_impressions": 5511,
         "query_clicks": 1050,
+        "query_orders": 215,
+        "mean_score": 0.2295,
         "movie_share": 0.0551,
         "query_share": 0.0545,
-        "divergence": -0.0006
+        "divergence": -0.0006,
+        "ctr": 0.1905,
+        "cvr": 0.039
       },
       {
         "keyword": "Horror",
         "movie_impressions": 5368,
         "query_clicks": 1070,
+        "query_orders": 200,
+        "mean_score": 0.2366,
         "movie_share": 0.0537,
         "query_share": 0.0556,
-        "divergence": 0.0019
+        "divergence": 0.0019,
+        "ctr": 0.1993,
+        "cvr": 0.0373
       },
       {
         "keyword": "Crime",
         "movie_impressions": 5278,
         "query_clicks": 987,
+        "query_orders": 176,
+        "mean_score": 0.2203,
         "movie_share": 0.0528,
         "query_share": 0.0512,
-        "divergence": -0.0016
+        "divergence": -0.0016,
+        "ctr": 0.187,
+        "cvr": 0.0333
+      },
+      {
+        "keyword": "Comedy",
+        "movie_impressions": 5214,
+        "query_clicks": 951,
+        "query_orders": 179,
+        "mean_score": 0.2167,
+        "movie_share": 0.0521,
+        "query_share": 0.0494,
+        "divergence": -0.0027,
+        "ctr": 0.1824,
+        "cvr": 0.0343
+      },
+      {
+        "keyword": "Children",
+        "movie_impressions": 5002,
+        "query_clicks": 838,
+        "query_orders": 159,
+        "mean_score": 0.1993,
+        "movie_share": 0.05,
+        "query_share": 0.0435,
+        "divergence": -0.0065,
+        "ctr": 0.1675,
+        "cvr": 0.0318
+      },
+      {
+        "keyword": "Western",
+        "movie_impressions": 4973,
+        "query_clicks": 1062,
+        "query_orders": 281,
+        "mean_score": 0.2701,
+        "movie_share": 0.0497,
+        "query_share": 0.0551,
+        "divergence": 0.0054,
+        "ctr": 0.2136,
+        "cvr": 0.0565
+      },
+      {
+        "keyword": "War",
+        "movie_impressions": 4920,
+        "query_clicks": 1038,
+        "query_orders": 268,
+        "mean_score": 0.2654,
+        "movie_share": 0.0492,
+        "query_share": 0.0539,
+        "divergence": 0.0047,
+        "ctr": 0.211,
+        "cvr": 0.0545
+      },
+      {
+        "keyword": "Mystery",
+        "movie_impressions": 4586,
+        "query_clicks": 862,
+        "query_orders": 196,
+        "mean_score": 0.2307,
+        "movie_share": 0.0459,
+        "query_share": 0.0448,
+        "divergence": -0.0011,
+        "ctr": 0.188,
+        "cvr": 0.0427
+      },
+      {
+        "keyword": "Sci-Fi",
+        "movie_impressions": 4474,
+        "query_clicks": 1007,
+        "query_orders": 224,
+        "mean_score": 0.2751,
+        "movie_share": 0.0447,
+        "query_share": 0.0523,
+        "divergence": 0.0076,
+        "ctr": 0.2251,
+        "cvr": 0.0501
+      },
+      {
+        "keyword": "Adventure",
+        "movie_impressions": 4399,
+        "query_clicks": 886,
+        "query_orders": 228,
+        "mean_score": 0.2532,
+        "movie_share": 0.044,
+        "query_share": 0.046,
+        "divergence": 0.002,
+        "ctr": 0.2014,
+        "cvr": 0.0518
+      },
+      {
+        "keyword": "Thriller",
+        "movie_impressions": 4189,
+        "query_clicks": 788,
+        "query_orders": 134,
+        "mean_score": 0.2201,
+        "movie_share": 0.0419,
+        "query_share": 0.0409,
+        "divergence": -0.001,
+        "ctr": 0.1881,
+        "cvr": 0.032
       }
     ],
     "by_subkeyword": [
@@ -912,81 +1128,229 @@
         "subkeyword": "none",
         "movie_impressions": 33894,
         "query_clicks": 6441,
+        "query_orders": 1380,
+        "mean_score": 0.2307,
         "movie_share": 0.3389,
         "query_share": 0.3344,
-        "divergence": -0.0045
+        "divergence": -0.0045,
+        "ctr": 0.19,
+        "cvr": 0.0407
       },
       {
         "subkeyword": "Documentary",
         "movie_impressions": 5205,
         "query_clicks": 1033,
+        "query_orders": 258,
+        "mean_score": 0.248,
         "movie_share": 0.052,
         "query_share": 0.0536,
-        "divergence": 0.0016
+        "divergence": 0.0016,
+        "ctr": 0.1985,
+        "cvr": 0.0496
       },
       {
         "subkeyword": "Horror",
         "movie_impressions": 4581,
         "query_clicks": 785,
+        "query_orders": 168,
+        "mean_score": 0.208,
         "movie_share": 0.0458,
         "query_share": 0.0408,
-        "divergence": -0.005
+        "divergence": -0.005,
+        "ctr": 0.1714,
+        "cvr": 0.0367
       },
       {
         "subkeyword": "Western",
         "movie_impressions": 4450,
         "query_clicks": 897,
+        "query_orders": 183,
+        "mean_score": 0.2427,
         "movie_share": 0.0445,
         "query_share": 0.0466,
-        "divergence": 0.0021
+        "divergence": 0.0021,
+        "ctr": 0.2016,
+        "cvr": 0.0411
       },
       {
         "subkeyword": "Children",
         "movie_impressions": 4346,
         "query_clicks": 832,
+        "query_orders": 185,
+        "mean_score": 0.234,
         "movie_share": 0.0435,
         "query_share": 0.0432,
-        "divergence": -0.0003
+        "divergence": -0.0003,
+        "ctr": 0.1914,
+        "cvr": 0.0426
       },
       {
         "subkeyword": "Film-Noir",
         "movie_impressions": 4265,
         "query_clicks": 847,
+        "query_orders": 178,
+        "mean_score": 0.2403,
         "movie_share": 0.0426,
         "query_share": 0.044,
-        "divergence": 0.0014
+        "divergence": 0.0014,
+        "ctr": 0.1986,
+        "cvr": 0.0417
       },
       {
         "subkeyword": "War",
         "movie_impressions": 3907,
         "query_clicks": 770,
+        "query_orders": 171,
+        "mean_score": 0.2408,
         "movie_share": 0.0391,
         "query_share": 0.04,
-        "divergence": 0.0009
+        "divergence": 0.0009,
+        "ctr": 0.1971,
+        "cvr": 0.0438
       },
       {
         "subkeyword": "Animation",
         "movie_impressions": 3762,
         "query_clicks": 807,
+        "query_orders": 213,
+        "mean_score": 0.2711,
         "movie_share": 0.0376,
         "query_share": 0.0419,
-        "divergence": 0.0043
+        "divergence": 0.0043,
+        "ctr": 0.2145,
+        "cvr": 0.0566
       },
       {
         "subkeyword": "Fantasy",
         "movie_impressions": 3752,
         "query_clicks": 746,
+        "query_orders": 149,
+        "mean_score": 0.2385,
         "movie_share": 0.0375,
         "query_share": 0.0387,
-        "divergence": 0.0012
+        "divergence": 0.0012,
+        "ctr": 0.1988,
+        "cvr": 0.0397
       },
       {
         "subkeyword": "Romance",
         "movie_impressions": 3733,
         "query_clicks": 734,
+        "query_orders": 168,
+        "mean_score": 0.2416,
         "movie_share": 0.0373,
         "query_share": 0.0381,
-        "divergence": 0.0008
+        "divergence": 0.0008,
+        "ctr": 0.1966,
+        "cvr": 0.045
+      },
+      {
+        "subkeyword": "Comedy",
+        "movie_impressions": 3596,
+        "query_clicks": 693,
+        "query_orders": 160,
+        "mean_score": 0.2372,
+        "movie_share": 0.036,
+        "query_share": 0.036,
+        "divergence": 0.0,
+        "ctr": 0.1927,
+        "cvr": 0.0445
+      },
+      {
+        "subkeyword": "Thriller",
+        "movie_impressions": 3504,
+        "query_clicks": 727,
+        "query_orders": 177,
+        "mean_score": 0.258,
+        "movie_share": 0.035,
+        "query_share": 0.0377,
+        "divergence": 0.0027,
+        "ctr": 0.2075,
+        "cvr": 0.0505
+      },
+      {
+        "subkeyword": "Adventure",
+        "movie_impressions": 3477,
+        "query_clicks": 596,
+        "query_orders": 139,
+        "mean_score": 0.2114,
+        "movie_share": 0.0348,
+        "query_share": 0.0309,
+        "divergence": -0.0039,
+        "ctr": 0.1714,
+        "cvr": 0.04
+      },
+      {
+        "subkeyword": "Crime",
+        "movie_impressions": 3289,
+        "query_clicks": 661,
+        "query_orders": 157,
+        "mean_score": 0.2487,
+        "movie_share": 0.0329,
+        "query_share": 0.0343,
+        "divergence": 0.0014,
+        "ctr": 0.201,
+        "cvr": 0.0477
+      },
+      {
+        "subkeyword": "Drama",
+        "movie_impressions": 3238,
+        "query_clicks": 617,
+        "query_orders": 118,
+        "mean_score": 0.227,
+        "movie_share": 0.0324,
+        "query_share": 0.032,
+        "divergence": -0.0004,
+        "ctr": 0.1905,
+        "cvr": 0.0364
+      },
+      {
+        "subkeyword": "Musical",
+        "movie_impressions": 3226,
+        "query_clicks": 629,
+        "query_orders": 139,
+        "mean_score": 0.2381,
+        "movie_share": 0.0323,
+        "query_share": 0.0327,
+        "divergence": 0.0004,
+        "ctr": 0.195,
+        "cvr": 0.0431
+      },
+      {
+        "subkeyword": "Action",
+        "movie_impressions": 2712,
+        "query_clicks": 504,
+        "query_orders": 102,
+        "mean_score": 0.2235,
+        "movie_share": 0.0271,
+        "query_share": 0.0262,
+        "divergence": -0.0009,
+        "ctr": 0.1858,
+        "cvr": 0.0376
+      },
+      {
+        "subkeyword": "Sci-Fi",
+        "movie_impressions": 2552,
+        "query_clicks": 482,
+        "query_orders": 94,
+        "mean_score": 0.2257,
+        "movie_share": 0.0255,
+        "query_share": 0.025,
+        "divergence": -0.0005,
+        "ctr": 0.1889,
+        "cvr": 0.0368
+      },
+      {
+        "subkeyword": "Mystery",
+        "movie_impressions": 2511,
+        "query_clicks": 459,
+        "query_orders": 100,
+        "mean_score": 0.2226,
+        "movie_share": 0.0251,
+        "query_share": 0.0238,
+        "divergence": -0.0013,
+        "ctr": 0.1828,
+        "cvr": 0.0398
       }
     ],
     "tops": {
@@ -996,6 +1360,7 @@
           "keyword": "Action",
           "movie_impressions": 6926,
           "query_clicks": 1468,
+          "ctr": 0.212,
           "rank": 1
         },
         {
@@ -1003,6 +1368,7 @@
           "keyword": "Western",
           "movie_impressions": 5947,
           "query_clicks": 1274,
+          "ctr": 0.2142,
           "rank": 2
         },
         {
@@ -1010,6 +1376,7 @@
           "keyword": "War",
           "movie_impressions": 5390,
           "query_clicks": 1143,
+          "ctr": 0.2121,
           "rank": 3
         },
         {
@@ -1017,6 +1384,7 @@
           "keyword": "Adventure",
           "movie_impressions": 4645,
           "query_clicks": 931,
+          "ctr": 0.2004,
           "rank": 4
         },
         {
@@ -1024,6 +1392,7 @@
           "keyword": "Mystery",
           "movie_impressions": 2047,
           "query_clicks": 436,
+          "ctr": 0.213,
           "rank": 5
         },
         {
@@ -1031,6 +1400,7 @@
           "keyword": "Documentary",
           "movie_impressions": 2020,
           "query_clicks": 421,
+          "ctr": 0.2084,
           "rank": 6
         },
         {
@@ -1038,6 +1408,7 @@
           "keyword": "Animation",
           "movie_impressions": 1769,
           "query_clicks": 406,
+          "ctr": 0.2295,
           "rank": 7
         },
         {
@@ -1045,6 +1416,7 @@
           "keyword": "Comedy",
           "movie_impressions": 1738,
           "query_clicks": 388,
+          "ctr": 0.2232,
           "rank": 8
         },
         {
@@ -1052,6 +1424,7 @@
           "keyword": "Romance",
           "movie_impressions": 1474,
           "query_clicks": 305,
+          "ctr": 0.2069,
           "rank": 9
         },
         {
@@ -1059,6 +1432,7 @@
           "keyword": "Film-Noir",
           "movie_impressions": 1451,
           "query_clicks": 301,
+          "ctr": 0.2074,
           "rank": 10
         }
       ],
@@ -1068,6 +1442,7 @@
           "keyword": "Action",
           "movie_impressions": 5902,
           "query_clicks": 1259,
+          "ctr": 0.2133,
           "rank": 1
         },
         {
@@ -1075,6 +1450,7 @@
           "keyword": "Documentary",
           "movie_impressions": 1016,
           "query_clicks": 206,
+          "ctr": 0.2028,
           "rank": 2
         },
         {
@@ -1082,6 +1458,7 @@
           "keyword": "Comedy",
           "movie_impressions": 974,
           "query_clicks": 220,
+          "ctr": 0.2259,
           "rank": 3
         },
         {
@@ -1089,6 +1466,7 @@
           "keyword": "Western",
           "movie_impressions": 725,
           "query_clicks": 161,
+          "ctr": 0.2221,
           "rank": 4
         },
         {
@@ -1096,6 +1474,7 @@
           "keyword": "Fantasy",
           "movie_impressions": 522,
           "query_clicks": 119,
+          "ctr": 0.228,
           "rank": 5
         },
         {
@@ -1103,6 +1482,7 @@
           "keyword": "Horror",
           "movie_impressions": 497,
           "query_clicks": 88,
+          "ctr": 0.1771,
           "rank": 6
         },
         {
@@ -1110,6 +1490,7 @@
           "keyword": "Sci-Fi",
           "movie_impressions": 476,
           "query_clicks": 104,
+          "ctr": 0.2185,
           "rank": 7
         },
         {
@@ -1117,6 +1498,7 @@
           "keyword": "Romance",
           "movie_impressions": 267,
           "query_clicks": 52,
+          "ctr": 0.1948,
           "rank": 8
         },
         {
@@ -1124,6 +1506,7 @@
           "keyword": "Mystery",
           "movie_impressions": 256,
           "query_clicks": 45,
+          "ctr": 0.1758,
           "rank": 9
         },
         {
@@ -1131,6 +1514,7 @@
           "keyword": "Children",
           "movie_impressions": 251,
           "query_clicks": 43,
+          "ctr": 0.1713,
           "rank": 10
         }
       ],
@@ -1140,6 +1524,7 @@
           "keyword": "Action",
           "movie_impressions": 5902,
           "query_clicks": 1259,
+          "ctr": 0.2133,
           "rank": 1
         },
         {
@@ -1147,6 +1532,7 @@
           "keyword": "Documentary",
           "movie_impressions": 1016,
           "query_clicks": 206,
+          "ctr": 0.2028,
           "rank": 2
         },
         {
@@ -1154,6 +1540,7 @@
           "keyword": "Comedy",
           "movie_impressions": 974,
           "query_clicks": 220,
+          "ctr": 0.2259,
           "rank": 3
         },
         {
@@ -1161,6 +1548,7 @@
           "keyword": "Western",
           "movie_impressions": 725,
           "query_clicks": 161,
+          "ctr": 0.2221,
           "rank": 4
         },
         {
@@ -1168,6 +1556,7 @@
           "keyword": "Fantasy",
           "movie_impressions": 522,
           "query_clicks": 119,
+          "ctr": 0.228,
           "rank": 5
         },
         {
@@ -1175,6 +1564,7 @@
           "keyword": "Horror",
           "movie_impressions": 497,
           "query_clicks": 88,
+          "ctr": 0.1771,
           "rank": 6
         },
         {
@@ -1182,6 +1572,7 @@
           "keyword": "Sci-Fi",
           "movie_impressions": 476,
           "query_clicks": 104,
+          "ctr": 0.2185,
           "rank": 7
         },
         {
@@ -1189,6 +1580,7 @@
           "keyword": "Romance",
           "movie_impressions": 267,
           "query_clicks": 52,
+          "ctr": 0.1948,
           "rank": 8
         },
         {
@@ -1196,6 +1588,7 @@
           "keyword": "Mystery",
           "movie_impressions": 256,
           "query_clicks": 45,
+          "ctr": 0.1758,
           "rank": 9
         },
         {
@@ -1203,6 +1596,7 @@
           "keyword": "Children",
           "movie_impressions": 251,
           "query_clicks": 43,
+          "ctr": 0.1713,
           "rank": 10
         }
       ]
@@ -1210,6 +1604,7 @@
   },
   "query": {
     "headline": "top query 'Horror' (3054 impr, CTR 19%)",
+    "average_query_length": 14.99,
     "top_queries": [
       {
         "query": "Horror",
@@ -1308,6 +1703,7 @@
         "impressions": 67817,
         "clicks": 13000,
         "orders": 2881,
+        "queries": 229,
         "ctr": 0.1917,
         "cvr": 0.0425
       },
@@ -1316,6 +1712,7 @@
         "impressions": 32183,
         "clicks": 6260,
         "orders": 1358,
+        "queries": 22,
         "ctr": 0.1945,
         "cvr": 0.0422
       }
@@ -1407,7 +1804,8 @@
         "n": 100000,
         "positives": 19260,
         "auc": 0.5622333800455857,
-        "logloss": 0.772
+        "logloss": 0.772,
+        "positive_rate": 0.1926
       },
       {
         "signal": "position",
@@ -1415,7 +1813,8 @@
         "n": 100000,
         "positives": 19260,
         "auc": 0.5007845394791841,
-        "logloss": 0.8098
+        "logloss": 0.8098,
+        "positive_rate": 0.1926
       },
       {
         "signal": "embedding",
@@ -1423,7 +1822,8 @@
         "n": 100000,
         "positives": 19260,
         "auc": 0.5578130643700495,
-        "logloss": 0.7741
+        "logloss": 0.7741,
+        "positive_rate": 0.1926
       }
     ]
   },

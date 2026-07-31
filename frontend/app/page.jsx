@@ -9,13 +9,13 @@ import {
   SafetySection,
   LatencySection,
   EngagementSection,
-  KeywordSection,
   QuerySection,
   RecallSection,
   RankingSection,
   OpeSection,
   MdpSection,
 } from "../components/sections";
+import { KeywordSection } from "../components/keyword-report";
 
 export default function Page() {
   return (
