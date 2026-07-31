@@ -1,9 +1,23 @@
-export function Section({ title, headline, children, id }) {
+const round4 = (v) => (typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v);
+
+// A value that is not a finite number is missing, not zero. Charts omit its bar
+// and label it N/A rather than drawing a zero-height mark that reads as measured.
+const finite = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+
+export function Section({ title, headline, description, actions, id, children }) {
   return (
     <section className="report-card" id={id}>
+      {/* The flex row is its own element: `.section-heading` is shared with NaCard,
+          whose heading is a plain h2 + paragraph that must keep stacking. */}
       <div className="section-heading">
-        <h2>{title}</h2>
-        {headline ? <p className="insight">{headline}</p> : null}
+        <div className="section-heading-row">
+          <div className="section-heading-main">
+            <h2>{title}</h2>
+            {headline ? <p className="insight">{headline}</p> : null}
+            {description ? <p className="section-description">{description}</p> : null}
+          </div>
+          {actions ? <div className="section-actions">{actions}</div> : null}
+        </div>
       </div>
       <div className="section-body">{children}</div>
     </section>
@@ -21,102 +35,136 @@ export function NaCard({ title, reason, id }) {
   );
 }
 
-const round4 = (v) => (typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v);
+export function MetricGrid({ children }) {
+  return <div className="metric-grid">{children}</div>;
+}
 
-// Horizontal SVG bar chart — mirrors the Python dashboard's svg_bar.
-export function BarChart({ labels, values, title, width = 520, barH = 22, gap = 6 }) {
-  const vmax = Math.max(...values.filter((v) => Number.isFinite(v)), 0) || 1;
-  const h = Math.max(labels.length, 1) * (barH + gap);
+export function MetricCard({ label, value, detail }) {
   return (
-    <svg
-      className="chart"
-      role="img"
-      viewBox={`0 -20 ${width} ${h + 24}`}
-      width={width}
-      fontFamily="sans-serif"
-    >
-      {title ? (
-        <text x="0" y="-6" fontSize="13" fontWeight="bold">
-          {title}
-        </text>
-      ) : null}
-      {labels.map((lab, i) => {
-        const v = values[i] ?? 0;
-        const y = i * (barH + gap);
-        const w = Math.max(0, Math.round((v / vmax) * (width - 160)));
-        return (
-          <g key={`${lab}-${i}`}>
-            <title>{`${lab}: ${round4(v)}`}</title>
-            <text x="0" y={y + barH - 6} fontSize="12">
-              {lab}
-            </text>
-            <rect x="150" y={y} width={w} height={barH} rx="6" fill="#4f46e5" />
-            <text x={155 + w} y={y + barH - 6} fontSize="11">
-              {round4(v)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div className="metric-card">
+      <span className="card-label">{label}</span>
+      <strong className="card-value">{value ?? "N/A"}</strong>
+      {detail ? <span className="card-detail">{detail}</span> : null}
+    </div>
   );
 }
 
-// Two-series horizontal bars sharing one scale — for comparisons where a single
-// series would hide the relationship (ndcg vs mrr, fresh vs established).
-export function GroupedBarChart({ series, labels, title, width = 520, barH = 14, gap = 6 }) {
-  const colors = ["#4f46e5", "#eb6834"];
-  const all = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v));
-  const vmax = Math.max(...all, 0) || 1;
-  const groupH = series.length * (barH + 2) + gap;
-  const h = Math.max(labels.length, 1) * groupH;
+// Two-up layout for charts that read together. Named for what it lays out, so it
+// cannot be confused with `.report-grid`, which is the page's section stack.
+export function ChartGrid({ children }) {
+  return <div className="chart-grid">{children}</div>;
+}
+
+function formatter({ percentage, valueFormatter }) {
+  return (v) => {
+    if (v === null) return "N/A";
+    if (valueFormatter) return valueFormatter(v);
+    if (percentage) return `${(v * 100).toFixed(1)}%`;
+    return round4(v).toLocaleString();
+  };
+}
+
+export function BarChart({ labels, values, title, horizontal = false, percentage = false, valueFormatter }) {
+  const numeric = labels.map((_, i) => finite(values[i]));
+  const observed = numeric.filter((v) => v !== null).map(Math.abs);
+  const scale = (observed.length ? Math.max(...observed) : 0) || 1;
+  const format = formatter({ percentage, valueFormatter });
   return (
-    <svg className="chart" role="img" viewBox={`0 -20 ${width} ${h + 24}`} width={width} fontFamily="sans-serif">
-      {title ? <text x="0" y="-6" fontSize="13" fontWeight="bold">{title}</text> : null}
-      {series.map((s, si) => (
-        <text key={s.name} x={String(60 + si * 110)} y="-6" fontSize="11" fill={colors[si % colors.length]}>
-          {s.name}
-        </text>
-      ))}
-      {labels.map((label, li) => (
-        <g key={`${label}-${li}`}>
-          <text x="0" y={li * groupH + barH} fontSize="12">{label}</text>
-          {series.map((s, si) => {
-            const v = s.values[li] ?? 0;
-            const w = Math.max(0, Math.round((v / vmax) * (width - 200)));
-            return (
-              <g key={s.name}>
-                <title>{`${s.name} ${label}: ${v}`}</title>
-                <rect x="150" y={li * groupH + si * (barH + 2)} width={w} height={barH} rx="4"
-                      fill={colors[si % colors.length]} />
-                <text x={155 + w} y={li * groupH + si * (barH + 2) + barH - 2} fontSize="10">{v}</text>
-              </g>
-            );
-          })}
-        </g>
-      ))}
-    </svg>
+    <div className="chart-card">
+      {title ? <h3>{title}</h3> : null}
+      <div className={horizontal ? "bar-chart horizontal" : "bar-chart"}>
+        {labels.map((label, i) => {
+          const v = numeric[i];
+          return (
+            <div className="bar-row" key={`${label}-${i}`}>
+              <span className="bar-label" title={String(label)}>{label}</span>
+              <div className="bar-track">
+                {v === null ? null : (
+                  <div
+                    className={v < 0 ? "bar-fill negative" : "bar-fill"}
+                    style={{ width: `${Math.max(1, (Math.abs(v) / scale) * 100)}%` }}
+                    title={`${label}: ${format(v)}`}
+                  />
+                )}
+              </div>
+              <span className="bar-value">{format(v)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
-// Render a list of record objects as a table over the given columns.
-export function DataTable({ rows, columns }) {
+// Two or three series sharing one scale, for comparisons a single series hides
+// (ndcg vs mrr, fresh vs established). Series colour is fixed by index, never
+// cycled; a fourth series needs a different chart, not a fourth hue.
+export function GroupedBarChart({ labels, series, title, percentage = false, valueFormatter }) {
+  const observed = series.flatMap((s) => s.values).map(finite).filter((v) => v !== null).map(Math.abs);
+  const scale = (observed.length ? Math.max(...observed) : 0) || 1;
+  const format = formatter({ percentage, valueFormatter });
+  return (
+    <div className="chart-card">
+      {title ? <h3>{title}</h3> : null}
+      <div className="chart-legend">
+        {series.map((s, si) => (
+          <span className="legend-item" key={s.name}>
+            <span className={`legend-swatch series-${si}`} />
+            {s.name}
+          </span>
+        ))}
+      </div>
+      <div className="bar-chart grouped">
+        {labels.map((label, li) => (
+          <div className="bar-group" key={`${label}-${li}`}>
+            <span className="bar-label" title={String(label)}>{label}</span>
+            <div className="bar-group-bars">
+              {series.map((s, si) => {
+                const v = finite(s.values[li]);
+                return (
+                  <div className="bar-row" key={s.name}>
+                    <div className="bar-track">
+                      {v === null ? null : (
+                        <div
+                          className={`bar-fill series-${si}`}
+                          style={{ width: `${Math.max(1, (Math.abs(v) / scale) * 100)}%` }}
+                          title={`${s.name} ${label}: ${format(v)}`}
+                        />
+                      )}
+                    </div>
+                    <span className="bar-value">{format(v)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function DataTable({ rows = [], columns, formatters = {}, compact = false }) {
   const cols = columns || (rows.length ? Object.keys(rows[0]) : []);
+  if (!rows.length) return <p className="empty-state">No rows available.</p>;
   return (
     <div className="table-shell">
-      <table className="rpt">
+      <table className={compact ? "rpt compact" : "rpt"}>
         <thead>
           <tr>
             {cols.map((c) => (
-              <th key={c}>{c}</th>
+              <th key={c}>{c.replaceAll("_", " ")}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              {cols.map((c) => (
-                <td key={c}>{formatCell(r[c])}</td>
-              ))}
+              {cols.map((c) => {
+                const format = formatters[c];
+                const value = format ? format(r[c], r) : formatCell(r[c]);
+                return <td key={c}>{value === null || value === undefined || value === "" ? "N/A" : value}</td>;
+              })}
             </tr>
           ))}
         </tbody>
