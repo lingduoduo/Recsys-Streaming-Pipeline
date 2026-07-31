@@ -99,6 +99,7 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
     qy = dash.compute_query(df)
     query = {
         "headline": qy["headline"],
+        "average_query_length": qy["average_query_length"],
         "top_queries": _records(qy["top_queries"].head(10)),
         "by_length": _records(qy["by_length"]),
     }

@@ -444,3 +444,17 @@ def test_compute_keyword_publishes_relevance_and_rates():
 
     for level in ("l1", "l2", "l3"):
         assert "ctr" in result["tops"][level].columns
+
+
+def test_compute_query_publishes_average_length_and_bucket_query_counts():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    result = dash.compute_query(_df(pd))
+
+    # "Drama" (5 chars) twice, "Sci-Fi Action" (13 chars) once.
+    assert result["average_query_length"] == round((5 + 5 + 13) / 3, 2)
+
+    buckets = {row["bucket"]: row for _, row in result["by_length"].iterrows()}
+    assert buckets["short (<=10)"]["queries"] == 1
+    assert buckets["long (>10)"]["queries"] == 1

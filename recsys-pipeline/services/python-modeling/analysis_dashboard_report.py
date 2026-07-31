@@ -189,14 +189,15 @@ def compute_query(df) -> dict:
     d["bucket"] = d["query_len"].apply(
         lambda n: "short (<=10)" if n <= SHORT_MAX_CHARS else "long (>10)")
     bylen = (d.groupby("bucket")
-               .agg(impressions=("label", "size"), clicks=("clk", "sum"), orders=("ord", "sum"))
+               .agg(impressions=("label", "size"), clicks=("clk", "sum"), orders=("ord", "sum"), queries=("query", "nunique"))
                .reset_index())
     bylen = _rates(bylen).sort_values("bucket")
 
     lead = top.iloc[0] if len(top) else None
     headline = ("no queries" if lead is None else
                 f"top query '{lead['query']}' ({int(lead['impressions'])} impr, CTR {lead['ctr']:.0%})")
-    return {"headline": headline, "top_queries": top, "by_length": bylen}
+    return {"headline": headline, "top_queries": top, "by_length": bylen,
+            "average_query_length": round(float(d["query_len"].mean()), 2) if len(d) else None}
 
 
 def compute_recall(df, host: str, port: int, ks=(5, 10, 20)):
