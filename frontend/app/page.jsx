@@ -9,7 +9,6 @@ import {
   SafetySection,
   LatencySection,
   EngagementSection,
-  KeywordSection,
   QuerySection,
   RecallSection,
   RankingSection,
@@ -42,7 +41,6 @@ export default function Page() {
         <SafetySection data={data.safety} />
         <LatencySection data={data.latency} />
         <EngagementSection data={data.engagement} />
-        <KeywordSection data={data.keyword} />
         <QuerySection data={data.query} />
         <RecallSection data={data.recall} />
         <RankingSection data={data.ranking} />
