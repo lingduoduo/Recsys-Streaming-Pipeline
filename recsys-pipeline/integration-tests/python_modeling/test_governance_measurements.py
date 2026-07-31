@@ -92,6 +92,37 @@ def test_safety_keeps_missing_filter_signals_unavailable_instead_of_zero():
     assert all(count is None for count in row["reason_counts"].values())
 
 
+def test_safety_treats_a_null_filled_filter_column_as_absent_not_as_zero_decisions():
+    """The joiner materializes filter_reason on every sample, logged or not.
+
+    `OnlineJoinerStreamingJob.MeasurementFields` adds a null-filled `filter_reason`
+    (and `unsafe_label`) column to every training sample, so column presence proves
+    nothing about whether a filter decision was ever recorded. Counting that shape as
+    a measured zero publishes six all-zero reason counts and a 1.0 filter-log coverage
+    for a signal that was never instrumented.
+    """
+    joiner_shape = pd.DataFrame([
+        {"filter_reason": None, "unsafe_label": True},
+        {"filter_reason": None, "unsafe_label": False},
+    ])
+
+    result = compute_safety(joiner_shape)
+    row = result["rows"][0]
+
+    assert row["filter_decisions"] is None
+    assert row["filter_decision_rate"] is None
+    assert row["unknown_share"] is None
+    assert all(count is None for count in row["reason_counts"].values())
+    # Only the unsafe-label half of the envelope is instrumented, so coverage is 0.5.
+    assert result["coverage"] == pytest.approx(0.5)
+    assert row["unsafe_exposure_rate"] == 0.5
+
+    # Both columns present but entirely unobserved is no safety signal at all.
+    empty = compute_safety(pd.DataFrame([{"filter_reason": None, "unsafe_label": None}]))
+    assert empty["status"] == "unavailable"
+    assert empty["warnings"] == ["missing filter_reason and unsafe_label safety signals"]
+
+
 def test_safety_keeps_missing_unsafe_labels_unavailable_and_bounds_unknown_reasons():
     """Absent labels remain null and arbitrary filter values collapse to unknown."""
     row = compute_safety(pd.DataFrame([{"filter_reason": "new_unreviewed_reason"}]))["rows"][0]
@@ -259,9 +290,10 @@ def test_fairness_accepts_only_boolean_or_zero_one_outcome_encodings():
 @pytest.mark.parametrize(
     ("samples", "expected_coverage"),
     [
-        (pd.DataFrame([{"unsafe_label": None}, {"unsafe_label": None}]), 0.0),
+        # Columns with nothing observed carry no signal, so there is no envelope at all.
+        (pd.DataFrame([{"unsafe_label": None}, {"unsafe_label": None}]), None),
+        (pd.DataFrame([{"filter_reason": None}, {"filter_reason": None}]), None),
         (pd.DataFrame([{"unsafe_label": True}, {"unsafe_label": None}]), 0.25),
-        (pd.DataFrame([{"filter_reason": None}, {"filter_reason": None}]), 0.5),
         (pd.DataFrame([
             {"filter_reason": None, "unsafe_label": False},
             {"filter_reason": "expired", "unsafe_label": True},
@@ -269,5 +301,9 @@ def test_fairness_accepts_only_boolean_or_zero_one_outcome_encodings():
     ],
 )
 def test_safety_coverage_uses_observed_label_fraction_and_filter_log_availability(samples, expected_coverage):
-    """Envelope coverage is the mean of complete filter logging and label coverage."""
-    assert compute_safety(samples)["coverage"] == pytest.approx(expected_coverage)
+    """Envelope coverage is the mean of observed filter logging and label coverage."""
+    result = compute_safety(samples)
+    if expected_coverage is None:
+        assert result["status"] == "unavailable"
+    else:
+        assert result["coverage"] == pytest.approx(expected_coverage)

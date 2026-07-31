@@ -35,14 +35,15 @@ match the Python HTML dashboard; the seven measurement sections are exported for
 # relevance and diversity need. ExperienceCollectorStreamingJob writes slates to Parquet when
 # EXPERIENCE_COLLECTOR_OUTPUT_PATH is set — run-movie-category-sim.sh sets it and captures both
 # inputs automatically as part of its one-command run (see recsys-pipeline/README.md).
-curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
+# Paths below are what run-movie-category-sim.sh writes; it also captures /metrics itself.
+curl -s http://localhost:8080/metrics > /tmp/spark-recsys/movie-category-sim/live-metrics.json
 
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
-  --input /tmp/spark-recsys/training-samples \
+  --input /tmp/spark-recsys/movie-category-sim/training-samples \
   --output frontend/data/dashboard.json \
-  --experiences /tmp/spark-recsys/slates \
-  --live-metrics /tmp/spark-recsys/live-metrics.json \
-  --mdp-csv /tmp/spark-recsys/mdp_eval.csv
+  --experiences /tmp/spark-recsys/movie-category-sim/slates \
+  --live-metrics /tmp/spark-recsys/movie-category-sim/live-metrics.json \
+  --mdp-csv /tmp/spark-recsys/mdp_eval.csv   # optional; MovieLensPolicyEvaluation writes it
 ```
 
 Measurement configuration flags (defaults shown): `--fairness-min-support 100`,

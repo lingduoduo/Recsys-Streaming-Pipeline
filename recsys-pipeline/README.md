@@ -554,6 +554,18 @@ that need whole ranked slates.
   `muted_product_type`, `muted_genre`, `muted_keyword`, `muted_title`, and `unknown`. It records
   which policy rule rejected a candidate under `policy_version`; it is not a content-moderation
   verdict. `unsafe_exposure_rate` requires independently supplied `unsafe_label` values.
+- **A filter decision is recorded for allowed candidates too, so `filter_decision_rate` is not a
+  rejection rate.** `unknown` is the reason recorded when the policy has no catalog profile for a
+  candidate and therefore could not classify it — the candidate still passes through.
+  `ContentCandidateRetriever` returns `unknown` for any candidate missing from the catalog, so a
+  service started without `RECSYS_CATALOG_PATH` covering the served items reports **100%
+  `unknown`**. That is exactly what `run-movie-category-sim.sh` currently produces: it starts the
+  retrieval service with the built-in demo catalog, which contains none of the sim's `movie_*`
+  ids, so no expiry, muted-genre, or muted-keyword rule ever fires and the live safety row is
+  entirely `unknown` (the inline catalog in `application.yml` holds `item1`…`itemN`). Read
+  `unknown_share` alongside `filter_decision_rate` before drawing any
+  conclusion from either. *Known follow-up: wire the sim's generated catalog into the service so
+  the live safety row exercises the real rules.*
 - **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
   Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback) and
   `kafka_ingest_lag_ms` (event time → Kafka record time) are emitted as Spark metric events.

@@ -132,6 +132,31 @@ def test_slate_events_carry_measurement_signals_on_the_right_event_types():
         assert 3.0 <= event["rating"] <= 5.0
 
 
+def test_orders_repeat_their_click_engagement_fields_so_the_joiner_cannot_drop_them():
+    """The joiner keeps only the latest feedback event's struct, so the order must repeat them.
+
+    `OnlineJoinerStreamingJob.buildTrainingSamples` aggregates feedback with a single
+    `max_by` over the whole struct keyed on the latest feedback event. An order that
+    carried only `rating` would erase the preceding click's dwell, completion, and
+    negative-feedback signals for every converted click.
+    """
+    import movie_segment_producer as producer
+    rng = random.Random(11)
+    movies = producer.assign_movies(20, rng)
+    items = list(movies)
+    user_meta = {"gender": "male", "age_band": "35-44", "country": "us", "subscription": "premium"}
+
+    events = [e for _ in range(200) for e in producer.make_slate("user_1", user_meta, items, movies, rng)]
+    clicks = {(e["request_id"], e["item_id"]): e for e in events if e["event_type"] == "click"}
+    orders = [e for e in events if e["event_type"] == "order"]
+    assert orders
+
+    for order in orders:
+        click = clicks[(order["request_id"], order["item_id"])]
+        for field in ("completion_rate", "dwell_millis", "negative_feedback_reason"):
+            assert order[field] == click[field], field
+
+
 def test_user_click_bias_creates_a_documented_subscription_gap():
     import movie_segment_producer as producer
     assert producer.user_click_bias({"subscription": "premium"}) > producer.user_click_bias({"subscription": "free"})

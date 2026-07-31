@@ -10,14 +10,29 @@ const ci = (lo, hi, asPct = false) =>
       ? `[${pct(lo)}, ${pct(hi)}]`
       : `[${num(lo)}, ${num(hi)}]`;
 
+// The row a section's headline is read from, when it is not a fixed index. Fairness emits one
+// row per demographic dimension in DEFAULT_DIMENSIONS order, not in gap order, so rows[0] is
+// whichever dimension sorts first — never "the largest gap" the tile claims to show.
+function maxByField(rows, field) {
+  return rows.reduce(
+    (best, row) =>
+      row?.[field] !== null && row?.[field] !== undefined && (best === null || row[field] > best[field])
+        ? row
+        : best,
+    null,
+  );
+}
+
 // Which single number represents each measurement on the scorecard. `field` must be a
-// key the calculator actually publishes — the contract test enforces that.
+// key the calculator actually publishes — the contract test enforces that. `select: "max"`
+// resolves the row by the largest value of `field` instead of by `rowIndex`, which stays as
+// the fallback for a section where no row published the field.
 const HEADLINES = {
   relevance: { rowIndex: 1, field: "ndcg_at_k", label: "NDCG@10", format: "num" },
   satisfaction: { rowIndex: 0, field: "ctr", label: "CTR", format: "pct" },
   freshness: { rowIndex: 0, field: "fresh_share", label: "fresh share", format: "pct" },
   diversity: { rowIndex: 0, field: "normalized_genre_entropy", label: "genre entropy", format: "num" },
-  fairness: { rowIndex: 0, field: "ctr_max_min_gap", label: "largest CTR gap", format: "num" },
+  fairness: { rowIndex: 0, field: "ctr_max_min_gap", select: "max", label: "largest CTR gap", format: "num" },
   safety: { rowIndex: 0, field: "unsafe_exposure_rate", label: "unsafe exposure", format: "pct" },
   // Endpoint rows are emitted in sorted order over the fixed {feedback, recommend}
   // allowlist, so index 1 is always /recommend.
@@ -32,7 +47,9 @@ const TITLES = {
 const LOW_COVERAGE = 0.5;
 
 function headlineRow(section, spec) {
-  return section.rows?.[spec.rowIndex] ?? section.rows?.[0];
+  const rows = section.rows ?? [];
+  const selected = spec.select === "max" ? maxByField(rows, spec.field) : null;
+  return selected ?? rows[spec.rowIndex] ?? rows[0];
 }
 
 // A merged live-only row (see `_merge_live_row` in analysis_dashboard_report.py) can make a
@@ -116,7 +133,7 @@ export function RelevanceSection({ data }) {
       data={data}
       columns={[
         "k", "ndcg_at_k", "mrr_at_k", "recall_at_k", "hit_rate_at_k",
-        "evaluated_slate_count", "evaluated_user_count", "label_coverage",
+        "evaluated_slate_count", "ndcg_evaluated_slate_count", "evaluated_user_count", "label_coverage",
       ]}
       kpis={(rows) => {
         const row = rows.find((r) => r.k === 10) || rows[0] || {};
@@ -125,6 +142,9 @@ export function RelevanceSection({ data }) {
           { label: "MRR@10", value: num(row.mrr_at_k, 3) },
           { label: "recall@10", value: num(row.recall_at_k, 3) },
           { label: "slates", value: (row.evaluated_slate_count ?? 0).toLocaleString() },
+          // NDCG is undefined for a slate with no positive label, so those slates are dropped:
+          // this, not the slate count above, is the denominator the NDCG mean is taken over.
+          { label: "NDCG slates (≥1 positive)", value: (row.ndcg_evaluated_slate_count ?? 0).toLocaleString() },
         ];
       }}
       chart={(rows) => (
@@ -162,14 +182,24 @@ export function SatisfactionSection({ data }) {
       }}
       chart={(rows) => {
         const row = rows[0] || {};
-        const fields = ["rating_coverage", "negative_feedback_coverage", "dwell_coverage", "completion_coverage"];
+        // negative_feedback_coverage is the same expression as negative_feedback_rate (both count
+        // the samples carrying a reason), so plotting it here would read as "not instrumented"
+        // for a signal that is instrumented and simply did not fire. It stays in the table
+        // beside its rate, where the two are legible together.
+        const fields = ["rating_coverage", "dwell_coverage", "completion_coverage"];
         return (
           <BarChart title="Optional signal coverage"
             labels={fields.map((f) => f.replace("_coverage", ""))}
             values={fields.map((f) => row[f] ?? 0)} />
         );
       }}
-    />
+    >
+      <p className="fine-print">
+        Negative feedback is charted nowhere because its coverage and its rate are the same
+        measurement — a sample only carries a reason when the feedback fired — so a coverage bar
+        would show an instrumented signal as uninstrumented. Both columns are in the table.
+      </p>
+    </MeasurementSection>
   );
 }
 
@@ -248,18 +278,20 @@ export function FairnessSection({ data }) {
         "ndcg_max_min_gap", "ndcg_disparity_ratio",
       ]}
       kpis={(rows) => {
-        const row = rows[0] || {};
+        // Same row the scorecard headlines: the widest CTR gap, not the first dimension.
+        const row = maxByField(rows, "ctr_max_min_gap") || rows[0] || {};
         return [
           { label: "overall CTR", value: share(row.overall_ctr) },
-          { label: "CTR gap", value: num(row.ctr_max_min_gap, 3) },
+          { label: `largest CTR gap (${row.dimension ?? "N/A"})`, value: num(row.ctr_max_min_gap, 3) },
           { label: "groups", value: String(row.evaluated_group_count ?? 0) },
           { label: "suppressed", value: String(row.suppressed_group_count ?? 0) },
         ];
       }}
       chart={(rows) => {
-        const groups = rows[0]?.groups || [];
+        const row = maxByField(rows, "ctr_max_min_gap") || rows[0] || {};
+        const groups = row.groups || [];
         return groups.length ? (
-          <BarChart title={`CTR by ${rows[0].dimension} (overall ${num(rows[0].overall_ctr, 3)})`}
+          <BarChart title={`CTR by ${row.dimension} (overall ${num(row.overall_ctr, 3)})`}
             labels={groups.map((g) => g.group)} values={groups.map((g) => g.ctr ?? 0)} />
         ) : null;
       }}
@@ -304,19 +336,34 @@ export function SafetySection({ data }) {
         return [
           { label: "unsafe exposure", value: share(offline.unsafe_exposure_rate) },
           { label: "label coverage", value: share(offline.unsafe_label_coverage) },
-          { label: "filter rate", value: share(filtered.filter_decision_rate) },
+          // Not a rejection rate: a decision is recorded for allowed candidates too, and an
+          // `unknown` decision means the policy could not classify the candidate at all.
+          { label: "candidates with a logged decision", value: share(filtered.filter_decision_rate) },
+          { label: "candidates unclassified (unknown)", value: share(filtered.unknown_share) },
           { label: "policy", value: String(offline.policy_version ?? filtered.policy_version ?? "N/A") },
         ];
       }}
       chart={(rows) => {
-        const counts = rows.map((r) => r.reason_counts).find((c) => c && Object.keys(c).length) || {};
+        // A row can carry the reason keys with every count null (nothing was logged); pick the
+        // first row that actually observed decisions rather than the first row that has the keys.
+        const counts = rows
+          .map((r) => r.reason_counts)
+          .find((c) => c && Object.values(c).some((v) => v !== null && v !== undefined)) || {};
         const entries = Object.entries(counts).filter(([, v]) => v !== null && v !== undefined);
         return entries.length ? (
           <BarChart title="Filter decisions by reason"
             labels={entries.map(([k]) => k)} values={entries.map(([, v]) => v)} />
         ) : null;
       }}
-    />
+    >
+      <p className="fine-print">
+        A filter decision is recorded for every evaluated candidate, allowed or rejected, so the
+        decision share is not a rejection rate. <code>unknown</code> means the policy had no
+        catalog profile for the candidate and could not classify it — a service running against a
+        catalog that does not cover the served items reports every decision as{" "}
+        <code>unknown</code>.
+      </p>
+    </MeasurementSection>
   );
 }
 

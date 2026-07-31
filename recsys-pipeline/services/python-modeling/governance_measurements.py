@@ -82,12 +82,19 @@ def compute_safety(
     present field with observed false values is a measured zero, not missing
     data. Unrecognized non-empty filter reasons are counted under ``unknown``.
     Envelope coverage is the mean of complete filter-log availability (one
-    when the ``filter_reason`` column is present) and unsafe-label coverage.
+    when filter reasons were observed) and unsafe-label coverage.
+
+    A signal counts as present only when a value was actually observed. The
+    pipeline materializes ``filter_reason`` and ``unsafe_label`` columns on
+    every training sample whether or not anything was logged, so an
+    entirely-null column is treated as absent rather than as a measured zero.
     """
     if samples.empty:
         return unavailable("missing safety samples")
-    has_filter_reasons = "filter_reason" in samples.columns
-    has_unsafe_labels = "unsafe_label" in samples.columns
+    reasons = _observed_reasons(samples)
+    observed_labels = _observed_labels(samples)
+    has_filter_reasons = bool(reasons)
+    has_unsafe_labels = bool(observed_labels)
     if not has_filter_reasons and not has_unsafe_labels:
         return unavailable("missing filter_reason and unsafe_label safety signals")
 
@@ -96,17 +103,10 @@ def compute_safety(
         if has_filter_reasons
         else {reason: None for reason in SAFETY_REASONS}
     )
-    filter_decisions: int | None = 0 if has_filter_reasons else None
-    if has_filter_reasons:
-        for value in samples["filter_reason"]:
-            reason = _safety_reason(value)
-            if reason is None:
-                continue
-            filter_decisions = (filter_decisions or 0) + 1
-            reason_counts[reason] = (reason_counts[reason] or 0) + 1
+    for reason in reasons:
+        reason_counts[reason] = (reason_counts[reason] or 0) + 1
+    filter_decisions: int | None = len(reasons) if has_filter_reasons else None
 
-    labels = [_boolean_value(value) for value in samples["unsafe_label"]] if has_unsafe_labels else []
-    observed_labels = [label for label in labels if label is not None]
     unsafe_exposed = sum(label is True for label in observed_labels)
     total = len(samples)
     row = {
@@ -321,6 +321,20 @@ def _boolean_value(value: object) -> bool | None:
         if normalized == "false":
             return False
     return None
+
+
+def _observed_reasons(samples: pd.DataFrame) -> list[str]:
+    """Return the filter reasons actually recorded; a null-filled column records none."""
+    if "filter_reason" not in samples.columns:
+        return []
+    return [reason for value in samples["filter_reason"] if (reason := _safety_reason(value)) is not None]
+
+
+def _observed_labels(samples: pd.DataFrame) -> list[bool]:
+    """Return the unsafe labels actually recorded; a null-filled column records none."""
+    if "unsafe_label" not in samples.columns:
+        return []
+    return [label for value in samples["unsafe_label"] if (label := _boolean_value(value)) is not None]
 
 
 def _safety_reason(value: object) -> str | None:

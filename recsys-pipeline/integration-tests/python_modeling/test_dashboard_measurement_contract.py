@@ -329,6 +329,134 @@ def test_scorecard_headline_fields_exist_in_the_published_rows(tmp_path, monkeyp
         assert field in row, f"scorecard reads {key}.rows[{row_index}].{field}, which that row does not publish"
 
 
+def test_relevance_publishes_the_denominator_its_ndcg_mean_is_taken_over():
+    """NDCG drops slates with no positive label, so its denominator is not the slate count.
+
+    `evaluated_slate_count` is what the section already showed; the NDCG mean is over
+    `ndcg_evaluated_slate_count`. Stating a rate beside a denominator that is not its own
+    breaks the global "every rate carries its denominator" rule, so the column and the KPI
+    both have to surface it.
+    """
+    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    relevance = re.search(r'title="Relevance"([\s\S]*?)\n    />', sections)
+    assert relevance, "no Relevance section in sections.jsx"
+
+    columns = re.search(r"columns=\{\[(.*?)\]\}", relevance.group(1), re.S)
+    assert "ndcg_evaluated_slate_count" in re.findall(r'"([^"]+)"', columns.group(1))
+    kpis = re.search(r"kpis=\{(.*?)\n      \}\}", relevance.group(1), re.S)
+    assert "ndcg_evaluated_slate_count" in kpis.group(1), "the NDCG denominator is not shown as a KPI"
+
+
+def test_fairness_scorecard_headlines_the_widest_gap_not_the_first_dimension(tmp_path):
+    """The fairness tile claims "largest CTR gap", so it must not read a fixed row.
+
+    `compute_fairness` emits one row per dimension in DEFAULT_DIMENSIONS order, which has
+    nothing to do with gap size: here `gender` (rows[0]) has no gap at all while
+    `subscription` has the largest one. A fixed `rowIndex` would report 0.0 under a label
+    asserting it is the largest.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    samples = pd.DataFrame([
+        {"user_id": "u1", "item_id": "i1", "gender": "f", "subscription": "free", "clicked": 0},
+        {"user_id": "u2", "item_id": "i2", "gender": "f", "subscription": "premium", "clicked": 1},
+        {"user_id": "u3", "item_id": "i3", "gender": "m", "subscription": "free", "clicked": 0},
+        {"user_id": "u4", "item_id": "i4", "gender": "m", "subscription": "premium", "clicked": 1},
+    ])
+    rows = dash.build_measurement_dashboard(
+        samples, None, None, {"fairness_min_support": 1})["fairness"]["rows"]
+
+    gaps = {row["dimension"]: row["ctr_max_min_gap"] for row in rows}
+    assert rows[0]["dimension"] == "gender" and gaps["gender"] == 0.0
+    assert gaps["subscription"] == 1.0
+
+    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
+    fairness = re.search(r"fairness:\s*\{([^}]*)\}", headlines.group(1))
+    assert 'select: "max"' in fairness.group(1), (
+        "the fairness headline resolves by row index, so it reports the first dimension's gap "
+        "under a label claiming it is the largest"
+    )
+    # The section's own KPI and chart must agree with the tile rather than re-reading rows[0].
+    section = re.search(r'title="Fairness"([\s\S]*?)\n    >', sections)
+    assert section.group(1).count('maxByField(rows, "ctr_max_min_gap")') == 2
+
+
+def test_null_filled_filter_column_keeps_the_offline_safety_row_out_of_the_filter_lookups(tmp_path):
+    """The frontend's safety `find` lookups must land on the row that measured decisions.
+
+    The joiner materializes `filter_reason` on every training sample, so the offline row's
+    filter fields have to stay null when nothing was logged — otherwise the Safety KPI's
+    `filter_decision_rate` lookup and the chart's `reason_counts` lookup both resolve to a
+    fabricated all-zero offline row and the live service's real decisions never render.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    samples = pd.DataFrame([
+        {"user_id": "u1", "item_id": "i1", "clicked": 1, "filter_reason": None, "unsafe_label": True},
+        {"user_id": "u2", "item_id": "i2", "clicked": 0, "filter_reason": None, "unsafe_label": False},
+    ])
+    rows = dash.build_measurement_dashboard(samples, None, _live_metrics(), None)["safety"]["rows"]
+    offline, live = rows[0], rows[1]
+
+    assert offline["scope"] == "offline" and live["scope"] == "live_service"
+    assert offline["filter_decisions"] is None and offline["filter_decision_rate"] is None
+    assert all(count is None for count in offline["reason_counts"].values())
+    # Which is what makes both frontend lookups resolve to the live row.
+    assert next(r for r in rows if r.get("filter_decision_rate") is not None) is live
+    assert next(r for r in rows
+                if any(v is not None for v in (r.get("reason_counts") or {}).values())) is live
+
+
+def test_satisfaction_coverage_chart_omits_the_series_that_cannot_show_coverage():
+    """`negative_feedback_coverage` is the same expression as `negative_feedback_rate`.
+
+    A sample only carries a `negative_feedback_reason` when the feedback fired, so its
+    "coverage" is its rate. Plotted next to dwell and completion coverage it reads as "not
+    instrumented" for a signal that is instrumented. It stays in the table beside its rate.
+    """
+    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    satisfaction = re.search(r'title="Satisfaction"([\s\S]*?)\n    >', sections)
+    assert satisfaction, "no Satisfaction section in sections.jsx"
+
+    chart = re.search(r"chart=\{(.*?)\n      \}\}", satisfaction.group(1), re.S)
+    fields = re.search(r"const fields = \[(.*?)\]", chart.group(1), re.S)
+    assert "negative_feedback_coverage" not in re.findall(r'"([^"]+)"', fields.group(1))
+    # Both columns stay in the table, where rate and coverage are legible together.
+    columns = re.search(r"columns=\{\[(.*?)\]\}", satisfaction.group(1), re.S)
+    assert {"negative_feedback_rate", "negative_feedback_coverage"} <= set(
+        re.findall(r'"([^"]+)"', columns.group(1)))
+
+
+def test_frontend_readme_points_at_the_paths_a_run_actually_writes():
+    """`run-movie-category-sim.sh` writes under $SIM_ROOT, not directly under /tmp/spark-recsys."""
+    readme = (_REPO / "frontend" / "README.md").read_text()
+
+    assert "/tmp/spark-recsys/training-samples" not in readme
+    assert "/tmp/spark-recsys/slates" not in readme
+    assert "/tmp/spark-recsys/movie-category-sim/training-samples" in readme
+    assert "/tmp/spark-recsys/movie-category-sim/slates" in readme
+
+
+def test_readme_documents_that_an_uncovered_catalog_makes_every_decision_unknown():
+    """The sim's live safety row is 100% `unknown`; that has to be written down.
+
+    `ContentCandidateRetriever` records an `unknown` safety decision for any candidate with
+    no catalog profile, and the decision is recorded for allowed candidates too — so
+    `filter_decision_rate` is not a rejection rate.
+    """
+    readme = " ".join((_REPO / "recsys-pipeline" / "README.md").read_text().split())
+    taxonomy = readme.index("Safety accounting is scoped to the catalog filter taxonomy")
+    section = readme[taxonomy:taxonomy + 2000]
+
+    assert "not a rejection rate" in section
+    assert "RECSYS_CATALOG_PATH" in section
+    assert "unknown_share" in section
+    assert "follow-up" in section
+
+
 def test_live_only_safety_row_omits_the_scorecard_headline_field(tmp_path):
     """A section can be "available" via a live-only merge without publishing every field.
 
