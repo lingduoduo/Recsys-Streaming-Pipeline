@@ -113,7 +113,7 @@ def compute_keyword(df) -> dict:
 
     def dist(col):
         movie = d.groupby(col).size().rename("movie_impressions")
-        query = d[d["clicked"] == 1].groupby(col).size().rename("query_clicks")
+        query = d[d["label"] >= 1].groupby(col).size().rename("query_clicks")
         out = pd.concat([movie, query], axis=1).fillna(0).reset_index()
         out[["movie_impressions", "query_clicks"]] = out[["movie_impressions", "query_clicks"]].astype(int)
         tot_m = out["movie_impressions"].sum() or 1
@@ -134,9 +134,10 @@ def compute_keyword(df) -> dict:
     )
 
     def top_keywords(level):
-        ex = lv[[level, "genres", "clicked"]].explode("genres").dropna(subset=["genres"])
+        ex = lv[[level, "genres", "label"]].explode("genres").dropna(subset=["genres"])
+        ex = ex.assign(clk=(ex["label"] >= 1).astype(int))
         g = (ex.groupby([level, "genres"])
-               .agg(movie_impressions=("clicked", "size"), query_clicks=("clicked", "sum"))
+               .agg(movie_impressions=("clk", "size"), query_clicks=("clk", "sum"))
                .reset_index().rename(columns={"genres": "keyword"}))
         g["rank"] = (g.groupby(level)["movie_impressions"]
                        .rank(method="first", ascending=False).astype(int))

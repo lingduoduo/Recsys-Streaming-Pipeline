@@ -380,3 +380,26 @@ def test_demographic_hoisting_is_a_no_op_without_user_features():
 
     samples = pd.DataFrame({"user_id": ["u1"], "clicked": [1]})
     assert dash._with_demographic_columns(samples) is samples
+
+
+def test_keyword_clicks_use_the_same_predicate_as_query_clicks():
+    """An order logged without `clicked` still counts as a click everywhere.
+
+    Keyword CTR and query CTR appear on the same page, so they must count the
+    same events; `clicked` is an upstream column that may not track `label`.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    frame = pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "item_id": ["item_1", "item_2"],
+        "label": [2.0, 0.0],
+        "clicked": [0, 0],
+        "genres": [["Drama"], ["Drama"]],
+    })
+
+    keyword_clicks = int(dash.compute_keyword(frame)["by_keyword"]["query_clicks"].sum())
+    query_clicks = int(dash.compute_query(frame)["top_queries"]["clicks"].sum())
+
+    assert keyword_clicks == query_clicks == 1
