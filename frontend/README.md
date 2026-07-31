@@ -50,6 +50,9 @@ Measurement configuration flags (defaults shown): `--fairness-min-support 100`,
 `--freshness-window-days 30`, `--long-tail-percentile 0.80`,
 `--safety-policy-version catalog-filter-v1`.
 
+The keyword report selects from the 50 most-shown keywords, so `by_keyword` and
+`by_subkeyword` are exported 50 rows deep while the other diagnostic tables stay at 10.
+
 Sections whose inputs are unavailable serialize with `"status": "unavailable"` and an explicit
 warning, and render an **N/A** card; the diagnostic sections (recall, ranking, OPE, MDP)
 serialize as `null` and do the same. Nothing is zero-filled.
@@ -73,8 +76,10 @@ frontend/
 │   ├── page.jsx          # server component: imports data/dashboard.json, renders sections
 │   └── globals.css       # design tokens (shared look with the Python dashboard)
 ├── components/
-│   ├── ui.jsx            # Section, NaCard, BarChart (SVG), DataTable
-│   └── sections.jsx      # MeasurementSection + the measurement and diagnostic sections
+│   ├── ui.jsx            # Section, NaCard, MetricTile, MetricGrid/MetricCard,
+│   │                     #   ChartGrid, BarChart, GroupedBarChart, DataTable
+│   ├── sections.jsx      # Scorecard + the measurement and diagnostic sections
+│   └── keyword-report.jsx # "use client": the Top-K keyword report
 ├── data/dashboard.json   # committed snapshot (regenerate with export_dashboard_json.py)
 ├── validate_measurements.mjs  # data-contract gate for `npm run build`
 └── export_dashboard_json.py
