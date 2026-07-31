@@ -471,7 +471,7 @@ export function EngagementSection({ data }) {
         <MetricCard label="Impressions" value={count(funnel.impression)} />
         <MetricCard label="Clicks" value={count(funnel.click)} detail={`${share(data.ctr)} CTR`} />
         <MetricCard label="Orders" value={count(funnel.order)} detail={`${share(data.cvr)} CVR`} />
-        <MetricCard label="Queries" value={count((data.by_query || []).length)} />
+        <MetricCard label="Queries shown" value={count((data.by_query || []).length)} detail="top by relevance" />
       </MetricGrid>
       <ChartGrid>
         <BarChart title="Funnel"
@@ -520,6 +520,10 @@ export function QuerySection({ data }) {
       <h3 className="report-subtitle">By query length</h3>
       <DataTable rows={data.by_length} formatters={{ ...COUNT_COLUMNS, ...RATE_COLUMNS }}
         columns={["bucket", "queries", "impressions", "clicks", "orders", "ctr", "cvr"]} />
+      <p className="fine-print">
+        The pool is the {(data.top_queries || []).length} most-shown queries, so the CTR and CVR
+        highs above are the best within them rather than across every query observed.
+      </p>
     </Section>
   );
 }
@@ -609,7 +613,7 @@ export function OpeSection({ data }) {
       <ChartGrid>
         <BarChart title="Estimated policy value" horizontal
           labels={rows.map((r) => r.policy)} values={rows.map((r) => r.value)} />
-        <BarChart title="Lift vs logging policy" horizontal percentage
+        <BarChart title="Lift vs logging policy" horizontal signed valueFormatter={pct}
           labels={rows.map((r) => r.policy)} values={rows.map((r) => r.lift_vs_logging)} />
       </ChartGrid>
       <DataTable rows={disp} columns={["policy", "value", "value_95ci", "lift_vs_logging", "lift_95ci", "n"]} />

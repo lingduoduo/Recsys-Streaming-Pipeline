@@ -69,7 +69,7 @@ function formatter({ percentage, valueFormatter }) {
   };
 }
 
-export function BarChart({ labels, values, title, horizontal = false, percentage = false, valueFormatter }) {
+export function BarChart({ labels, values, title, horizontal = false, percentage = false, valueFormatter, signed = false }) {
   const numeric = labels.map((_, i) => finite(values[i]));
   const observed = numeric.filter((v) => v !== null).map(Math.abs);
   const scale = (observed.length ? Math.max(...observed) : 0) || 1;
@@ -83,11 +83,18 @@ export function BarChart({ labels, values, title, horizontal = false, percentage
           return (
             <div className="bar-row" key={`${label}-${i}`}>
               <span className="bar-label" title={String(label)}>{label}</span>
-              <div className="bar-track">
+              <div className={signed ? "bar-track signed" : "bar-track"}>
                 {v === null ? null : (
                   <div
                     className={v < 0 ? "bar-fill negative" : "bar-fill"}
-                    style={{ width: `${Math.max(1, (Math.abs(v) / scale) * 100)}%` }}
+                    style={
+                      signed
+                        ? {
+                            width: `${Math.max(0.5, (Math.abs(v) / scale) * 50)}%`,
+                            marginLeft: v < 0 ? `${50 - Math.max(0.5, (Math.abs(v) / scale) * 50)}%` : "50%",
+                          }
+                        : { width: `${Math.max(1, (Math.abs(v) / scale) * 100)}%` }
+                    }
                     title={`${label}: ${format(v)}`}
                   />
                 )}

@@ -117,6 +117,7 @@ export function KeywordSection({ data }) {
   const selected = keywords.find((r) => r.keyword === selectedKeyword) ?? keywords[0] ?? null;
   const best = keywords[0];
   const impressions = keywords.reduce((sum, r) => sum + Number(r.movie_impressions ?? 0), 0);
+  const byDivergence = [...keywords].sort((a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0));
 
   return (
     <Section title="Keyword relevance" headline={data.headline} id="keyword"
@@ -127,8 +128,8 @@ export function KeywordSection({ data }) {
         <MetricCard label="Highest relevance" value={num(best?.mean_score, 3)} detail={best?.keyword} />
         <MetricCard label="Impressions covered" value={count(impressions)} />
         <MetricCard label="Widest divergence"
-          value={num([...keywords].sort((a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0))[0]?.divergence, 3)}
-          detail={[...keywords].sort((a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0))[0]?.keyword} />
+          value={num(byDivergence[0]?.divergence, 3)}
+          detail={byDivergence[0]?.keyword} />
       </MetricGrid>
 
       <div className="keyword-report-layout">
@@ -147,7 +148,7 @@ export function KeywordSection({ data }) {
       <ChartGrid>
         <BarChart title="Impressions by keyword" horizontal
           labels={keywords.map((r) => r.keyword)} values={keywords.map((r) => r.movie_impressions)} />
-        <BarChart title="Click-to-exposure divergence" horizontal
+        <BarChart title="Click-to-exposure divergence" horizontal signed
           labels={keywords.map((r) => r.keyword)} values={keywords.map((r) => r.divergence)} />
       </ChartGrid>
 

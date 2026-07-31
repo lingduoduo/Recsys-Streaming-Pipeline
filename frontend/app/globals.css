@@ -126,13 +126,6 @@ body {
   gap: 8px;
 }
 
-.chart {
-  display: block;
-  width: min(100%, 720px);
-  height: auto;
-  overflow: visible;
-}
-
 .table-shell {
   width: 100%;
   overflow-x: auto;
@@ -260,27 +253,6 @@ table.rpt tbody tr:hover {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-.kpi-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 28px;
-}
-
-.kpi { display: grid; gap: 2px; }
-
-.kpi-value {
-  font-size: 1.25rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.kpi-label {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
 }
 
 /* --- Expanded report primitives --------------------------------------- */
@@ -434,6 +406,26 @@ table.rpt tbody tr:hover {
 .bar-fill.series-1 { background: var(--series-1); }
 .bar-fill.series-2 { background: var(--series-2); }
 .bar-fill.negative { background: var(--amber); }
+
+/* Signed series anchor at a centre origin, so bar length reads as magnitude in a
+   direction rather than ranking the most negative value longest. */
+.bar-track.signed {
+  position: relative;
+}
+
+.bar-track.signed::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--line);
+}
+
+.bar-track.signed .bar-fill {
+  position: relative;
+}
 
 .bar-value {
   text-align: right;

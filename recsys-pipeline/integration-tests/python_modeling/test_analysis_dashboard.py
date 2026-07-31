@@ -460,6 +460,63 @@ def test_compute_query_publishes_average_length_and_bucket_query_counts():
     assert buckets["long (>10)"]["queries"] == 1
 
 
+def test_cvr_is_orders_per_impression_not_per_click():
+    """The whole dashboard reads cvr as orders/impressions; the two differ here.
+
+    4 impressions, 2 clicks, 1 order: orders/impressions is 0.25, orders/clicks
+    would be 0.5. Every other fixture in this file is degenerate for that
+    distinction, so this is the test that pins it.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    frame = pd.DataFrame({
+        "user_id": ["u1", "u2", "u3", "u4"],
+        "item_id": ["i1", "i2", "i3", "i4"],
+        "label": [2.0, 1.0, 0.0, 0.0],
+        "genres": [["Horror"], ["Horror"], ["Horror"], ["Horror"]],
+    })
+
+    engagement = dash.compute_relevance(frame)
+    row = engagement["by_query"].iloc[0]
+    assert (row["impressions"], row["clicks"], row["orders"]) == (4, 2, 1)
+    assert row["ctr"] == 0.5
+    assert row["cvr"] == 0.25
+
+    keyword = dash.compute_keyword(frame)["by_keyword"].iloc[0]
+    assert (keyword["movie_impressions"], keyword["query_clicks"], keyword["query_orders"]) == (4, 2, 1)
+    assert keyword["ctr"] == 0.5
+    assert keyword["cvr"] == 0.25
+
+
+def test_keyword_shown_but_never_clicked_yields_zero_not_nan():
+    """The single-groupby dist() must reproduce the old fillna(0) behaviour.
+
+    A keyword with impressions and no clicks previously came back absent from the
+    clicks groupby and was filled with 0. It must still be a real 0, and never NaN.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    frame = pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "item_id": ["i1", "i2"],
+        "label": [1.0, 0.0],
+        "genres": [["Drama"], ["Horror"]],
+    })
+
+    rows = {r["keyword"]: r for _, r in dash.compute_keyword(frame)["by_keyword"].iterrows()}
+    horror = rows["Horror"]
+    assert horror["movie_impressions"] == 1
+    assert horror["query_clicks"] == 0
+    assert horror["ctr"] == 0.0
+    assert horror["cvr"] == 0.0
+    assert horror["query_share"] == 0.0
+    assert horror["mean_score"] == 0.0
+    for field in ("query_clicks", "ctr", "cvr", "query_share", "divergence"):
+        assert not pd.isna(horror[field]), f"{field} is NaN"
+
+
 def test_compute_ranking_reports_a_null_positive_rate_when_nothing_was_scored():
     """A signal with no scored rows has no positive rate — not a rate of zero."""
     pd = pytest.importorskip("pandas")
