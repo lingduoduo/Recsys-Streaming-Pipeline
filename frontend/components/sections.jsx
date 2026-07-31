@@ -1,4 +1,7 @@
-import { Section, NaCard, BarChart, GroupedBarChart, DataTable, MetricTile } from "./ui";
+import {
+  Section, NaCard, BarChart, GroupedBarChart, DataTable, MetricTile,
+  MetricGrid, MetricCard, ChartGrid,
+} from "./ui";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const pct = (v) => (v === null || v === undefined ? "N/A" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
@@ -99,28 +102,25 @@ export function Scorecard({ data }) {
 
 // One consistent presentation for every measurement envelope: headline, the support it
 // was calculated from, any warnings, then the rows. Never invents a value for N/A.
-function MeasurementSection({ title, data, columns, kpis, chart, children }) {
+function MeasurementSection({ title, data, columns, kpis, chart, description, children }) {
   if (!data || data.status !== "available") {
     return <NaCard title={title} id={title.toLowerCase()} reason={data?.warnings?.[0] || "measurement unavailable"} />;
   }
   const rows = data.rows || [];
   const values = kpis ? kpis(rows) : [];
   return (
-    <Section title={title} headline={data.headline} id={title.toLowerCase()}>
+    <Section title={title} headline={data.headline} description={description} id={title.toLowerCase()}>
       <p className="fine-print">
         sample size {data.sampleSize?.toLocaleString() ?? "N/A"} · coverage {share(data.coverage)}
         {data.window ? ` · window ${data.window}` : ""}
       </p>
       {data.warnings?.length ? <p className="na">{data.warnings.join(" · ")}</p> : null}
       {values.length ? (
-        <div className="kpi-row">
+        <MetricGrid>
           {values.map((kpi) => (
-            <div className="kpi" key={kpi.label}>
-              <span className="kpi-value">{kpi.value}</span>
-              <span className="kpi-label">{kpi.label}</span>
-            </div>
+            <MetricCard key={kpi.label} label={kpi.label} value={kpi.value} detail={kpi.detail} />
           ))}
-        </div>
+        </MetricGrid>
       ) : null}
       {chart ? chart(rows) : null}
       <DataTable rows={rows} columns={columns} />
@@ -150,15 +150,23 @@ export function RelevanceSection({ data }) {
           { label: "NDCG slates (≥1 positive)", value: (row.ndcg_evaluated_slate_count ?? 0).toLocaleString() },
         ];
       }}
+      description="Ranking quality of the served slates at each cutoff, over slates that carry at least one positive label."
       chart={(rows) => (
-        <GroupedBarChart
-          title="Relevance by cutoff"
-          labels={rows.map((r) => `k=${r.k}`)}
-          series={[
-            { name: "ndcg", values: rows.map((r) => r.ndcg_at_k ?? 0) },
-            { name: "mrr", values: rows.map((r) => r.mrr_at_k ?? 0) },
-          ]}
-        />
+        <ChartGrid>
+          <GroupedBarChart
+            title="Relevance by cutoff"
+            labels={rows.map((r) => `k=${r.k}`)}
+            series={[
+              { name: "ndcg", values: rows.map((r) => r.ndcg_at_k) },
+              { name: "mrr", values: rows.map((r) => r.mrr_at_k) },
+            ]}
+          />
+          <BarChart
+            title="Recall by cutoff"
+            labels={rows.map((r) => `k=${r.k}`)}
+            values={rows.map((r) => r.recall_at_k)}
+          />
+        </ChartGrid>
       )}
     />
   );
@@ -183,6 +191,7 @@ export function SatisfactionSection({ data }) {
           { label: "mean dwell", value: num(row.mean_dwell_millis, 0) },
         ];
       }}
+      description="Observed engagement and the coverage of each optional feedback signal."
       chart={(rows) => {
         const row = rows[0] || {};
         // negative_feedback_coverage is the same expression as negative_feedback_rate (both count
@@ -191,9 +200,14 @@ export function SatisfactionSection({ data }) {
         // beside its rate, where the two are legible together.
         const fields = ["rating_coverage", "dwell_coverage", "completion_coverage"];
         return (
-          <BarChart title="Optional signal coverage"
-            labels={fields.map((f) => f.replace("_coverage", ""))}
-            values={fields.map((f) => row[f] ?? 0)} />
+          <ChartGrid>
+            <BarChart title="Optional signal coverage" percentage
+              labels={fields.map((f) => f.replace("_coverage", ""))}
+              values={fields.map((f) => row[f])} />
+            <BarChart title="Engagement rates" percentage
+              labels={["ctr", "order rate", "negative feedback"]}
+              values={[row.ctr, row.order_rate, row.negative_feedback_rate]} />
+          </ChartGrid>
         );
       }}
     >
@@ -225,12 +239,18 @@ export function FreshnessSection({ data }) {
           { label: "established CTR", value: share(row.established_ctr) },
         ];
       }}
+      description="How much of what was shown is recent, and whether recency tracks engagement."
       chart={(rows) => {
         const row = rows[0] || {};
         return (
-          <BarChart title="CTR by content age"
-            labels={["fresh", "established"]}
-            values={[row.fresh_ctr ?? 0, row.established_ctr ?? 0]} />
+          <ChartGrid>
+            <BarChart title="CTR by content age" percentage
+              labels={["fresh", "established"]}
+              values={[row.fresh_ctr, row.established_ctr]} />
+            <BarChart title="Mean reward by content age"
+              labels={["fresh", "established"]}
+              values={[row.fresh_mean_reward, row.established_mean_reward]} />
+          </ChartGrid>
         );
       }}
     />
@@ -256,13 +276,14 @@ export function DiversitySection({ data }) {
           { label: "long-tail share", value: share(row.long_tail_exposure_share) },
         ];
       }}
+      description="Genre spread and long-tail exposure within a slate, on a 0–1 scale."
       chart={(rows) => {
         const row = rows.find((r) => r.scope === "aggregate") || rows[0] || {};
         return (
           <BarChart title="Diversity (0–1)"
             labels={["genre entropy", "intra-list distance", "long-tail share"]}
-            values={[row.normalized_genre_entropy ?? 0, row.intra_list_genre_distance ?? 0,
-                     row.long_tail_exposure_share ?? 0]} />
+            values={[row.normalized_genre_entropy, row.intra_list_genre_distance,
+                     row.long_tail_exposure_share]} />
         );
       }}
     />
@@ -290,12 +311,17 @@ export function FairnessSection({ data }) {
           { label: "suppressed", value: String(row.suppressed_group_count ?? 0) },
         ];
       }}
+      description="Engagement and ranking quality by demographic group, for the dimension with the widest CTR gap."
       chart={(rows) => {
         const row = maxByField(rows, "ctr_max_min_gap") || rows[0] || {};
         const groups = row.groups || [];
         return groups.length ? (
-          <BarChart title={`CTR by ${row.dimension} (overall ${num(row.overall_ctr, 3)})`}
-            labels={groups.map((g) => g.group)} values={groups.map((g) => g.ctr ?? 0)} />
+          <ChartGrid>
+            <BarChart title={`CTR by ${row.dimension} (overall ${num(row.overall_ctr, 3)})`}
+              labels={groups.map((g) => g.group)} values={groups.map((g) => g.ctr)} percentage />
+            <BarChart title={`NDCG by ${row.dimension} (overall ${num(row.overall_ndcg, 3)})`}
+              labels={groups.map((g) => g.group)} values={groups.map((g) => g.ndcg)} />
+          </ChartGrid>
         ) : null;
       }}
     >
@@ -346,6 +372,7 @@ export function SafetySection({ data }) {
           { label: "policy", value: String(offline.policy_version ?? filtered.policy_version ?? "N/A") },
         ];
       }}
+      description="Policy filter decisions over evaluated candidates, and the share the policy could not classify."
       chart={(rows) => {
         // A row can carry the reason keys with every count null (nothing was logged); pick the
         // first row that actually observed decisions rather than the first row that has the keys.
@@ -385,12 +412,27 @@ export function LatencySection({ data }) {
           { label: "requests", value: (row.count ?? 0).toLocaleString() },
         ];
       }}
+      description="Live request and stage latency from the retrieval service."
       chart={(rows) => {
         const stages = rows.filter((r) => r.scope === "stage");
-        return stages.length ? (
-          <BarChart title="p95 by stage (ms)"
-            labels={stages.map((r) => r.name)} values={stages.map((r) => r.p95 ?? 0)} />
-        ) : null;
+        const endpoints = rows.filter((r) => r.scope === "endpoint");
+        return (
+          <ChartGrid>
+            {stages.length ? (
+              <BarChart title="p95 by stage (ms)"
+                labels={stages.map((r) => r.name)} values={stages.map((r) => r.p95)} />
+            ) : null}
+            {endpoints.length ? (
+              <GroupedBarChart title="Percentiles by endpoint (ms)"
+                labels={endpoints.map((r) => r.name)}
+                series={[
+                  { name: "p50", values: endpoints.map((r) => r.p50) },
+                  { name: "p95", values: endpoints.map((r) => r.p95) },
+                  { name: "p99", values: endpoints.map((r) => r.p99) },
+                ]} />
+            ) : null}
+          </ChartGrid>
+        );
       }}
     >
       <p className="fine-print">
