@@ -458,3 +458,20 @@ def test_compute_query_publishes_average_length_and_bucket_query_counts():
     buckets = {row["bucket"]: row for _, row in result["by_length"].iterrows()}
     assert buckets["short (<=10)"]["queries"] == 1
     assert buckets["long (>10)"]["queries"] == 1
+
+
+def test_compute_ranking_reports_a_null_positive_rate_when_nothing_was_scored():
+    """A signal with no scored rows has no positive rate — not a rate of zero."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    frame = _df(pd).assign(position=[0, 1, 0])
+    # Port 1 refuses connections, so popularity and embeddings come back empty.
+    result = dash.compute_ranking(frame, "localhost", 1)
+
+    rows = {row["signal"]: row for row in result["rows"]}
+    assert rows["popularity"]["n"] == 0
+    assert rows["popularity"]["positive_rate"] is None
+
+    # `position` is derived from the frame, so it is always scorable.
+    assert rows["position"]["positive_rate"] == round(2 / 3, 4)

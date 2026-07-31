@@ -248,6 +248,8 @@ def compute_ranking(df, host: str, port: int):
             continue
         m = evaluate_signal([s for s, _ in sl], [y for _, y in sl])
         rows.append({"signal": name, "coverage": coverage, **m})
+    for row in rows:
+        row["positive_rate"] = round(row["positives"] / row["n"], 4) if row["n"] else None
     best = max((r for r in rows if r["auc"] is not None), key=lambda r: r["auc"], default=None)
     headline = ("no scorable signal" if best is None else
                 f"best signal '{best['signal']}' AUC {best['auc']:.3f}")
