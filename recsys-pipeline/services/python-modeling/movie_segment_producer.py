@@ -54,25 +54,75 @@ FAMILY_EFF = {"SciFi&Fantasy": 0.06, "Action&Adventure": 0.04, "Crime&Thriller":
               "Comedy": 0.01, "Drama&Romance": 0.0, "Other": -0.03}
 DECADE_EFF = {"2020s": 0.04, "2010s": 0.03, "2000s": 0.02, "1990s": 0.01, "1980s": 0.0}
 
+# Measurement ground truth (recoverable from the dashboard's measurement sections).
+# Catalog availability is deliberately independent of release_year: an old film can
+# enter the catalog last week, which is what freshness measures.
+FRESHNESS_WINDOW_DAYS = 30
+FRESH_SHARE = 0.15                 # share of items published inside the window
+MAX_CATALOG_AGE_DAYS = 900         # oldest catalog availability instant
+UNSAFE_SHARE = 0.02                # share of items an independent labeler flags unsafe
+NEGATIVE_COMPLETION_CUTOFF = 0.10  # clicks below this completion report not_interested
+GENDERS = ("female", "male", "unknown")
+AGE_BANDS = ("18-24", "25-34", "35-49", "50+")
+COUNTRIES = ("us", "ca", "gb", "de")
+# Additive per-user click effect, so fairness has one explainable gap to report.
+SUBSCRIPTION_EFF = {"premium": 0.03, "basic": 0.0, "free": -0.02}
+
 
 def assign_movies(num_items: int, rng: random.Random) -> dict[str, dict]:
-    """Per-movie metadata: 1-3 genres (primary first), releaseYear 1980-2024, title."""
+    """Per-movie metadata: 1-3 genres (primary first), releaseYear 1980-2024, title,
+    catalog availability instant, and an independent safety label."""
     movies = {}
+    now = int(time.time())
     for i in range(1, num_items + 1):
         primary = rng.choice(GENRES)
         extras = rng.sample([g for g in GENRES if g != primary], rng.randint(0, 2))
         year = rng.randint(1980, 2024)
+        fresh = rng.random() < FRESH_SHARE
+        age_days = (rng.uniform(0, FRESHNESS_WINDOW_DAYS) if fresh
+                    else rng.uniform(FRESHNESS_WINDOW_DAYS + 1, MAX_CATALOG_AGE_DAYS))
         movies[f"movie_{i}"] = {
             "title": f"Movie {i}",
             "genres": [primary] + extras,
             "release_year": year,
+            "published_at": now - int(age_days * 86400),
+            "new_release": fresh,
+            "unsafe": rng.random() < UNSAFE_SHARE,
         }
     return movies
+
+
+def assign_users(num_users: int, rng: random.Random) -> dict[str, dict]:
+    """Per-user demographics, stable across every slate that user appears in.
+
+    Only dimensions in governance_measurements.DEFAULT_DIMENSIONS are emitted, so
+    nothing unbounded can reach a published fairness group.
+    """
+    return {
+        f"user_{i}": {
+            "gender": rng.choice(GENDERS),
+            "age_band": rng.choice(AGE_BANDS),
+            "country": rng.choice(COUNTRIES),
+            "subscription": rng.choice(tuple(SUBSCRIPTION_EFF)),
+        }
+        for i in range(1, num_users + 1)
+    }
 
 
 def item_click_prob(meta: dict) -> float:
     p = BASE_CTR + FAMILY_EFF[l1(meta["genres"])] + DECADE_EFF.get(decade(meta["release_year"]), 0.0)
     return min(0.6, max(0.02, p))
+
+
+def user_click_bias(user_meta: dict) -> float:
+    """Documented additive click effect of the user's subscription tier."""
+    return SUBSCRIPTION_EFF.get(user_meta.get("subscription"), 0.0)
+
+
+def click_completion(meta: dict, rng: random.Random) -> float:
+    """Completion tracks the item's appeal: higher-CTR items get watched further."""
+    center = min(0.95, item_click_prob(meta) * 3.0)
+    return min(1.0, max(0.0, rng.gauss(center, 0.15)))
 
 
 def order_prob(meta: dict) -> float:
@@ -90,35 +140,51 @@ def movie_event(item_id: str, meta: dict) -> dict:
     }
 
 
-def make_slate(user: str, items, movies: dict, rng: random.Random) -> list[dict]:
+def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Random) -> list[dict]:
     now_ms = int(time.time() * 1000)
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
 
+    def base(item: str, event_type: str, timestamp_ms: int, position: int) -> dict:
+        return {
+            "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
+            "user_id": user, "item_id": item, "event_type": event_type,
+            "timestamp_ms": timestamp_ms, "position": position,
+            "user_features": dict(user_meta), "item_features": {}, "context_features": {},
+        }
+
     events = []
     for position, item in enumerate(slate_items):
-        events.append({
-            "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
-            "user_id": user, "item_id": item, "event_type": "impression",
-            "timestamp_ms": now_ms, "position": position,
-            "user_features": {}, "item_features": {}, "context_features": {},
-        })
-        # independent per-item click decision → per-item CTR reflects the item's category
-        if rng.random() < item_click_prob(movies[item]):
-            events.append({
-                "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
-                "user_id": user, "item_id": item, "event_type": "click",
-                "timestamp_ms": now_ms + rng.randint(1, 20) * 1000, "position": position,
-                "user_features": {}, "item_features": {}, "context_features": {},
-            })
-            if rng.random() < order_prob(movies[item]):
-                events.append({
-                    "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
-                    "user_id": user, "item_id": item, "event_type": "order",
-                    "timestamp_ms": now_ms + rng.randint(21, 120) * 1000, "position": position,
-                    "user_features": {}, "item_features": {}, "context_features": {},
-                })
+        meta = movies[item]
+        impression = base(item, "impression", now_ms, position)
+        impression["published_at"] = meta["published_at"]
+        impression["new_release"] = meta["new_release"]
+        impression["unsafe_label"] = meta["unsafe"]
+        events.append(impression)
+
+        # independent per-item click decision → per-item CTR reflects the item's category,
+        # shifted by the user's documented subscription effect
+        click_prob = min(0.6, max(0.02, item_click_prob(meta) + user_click_bias(user_meta)))
+        if rng.random() < click_prob:
+            completion = click_completion(meta, rng)
+            click = base(item, "click", now_ms + rng.randint(1, 20) * 1000, position)
+            click["completion_rate"] = round(completion, 4)
+            click["dwell_millis"] = int(completion * 120_000)
+            click["negative_feedback_reason"] = (
+                "not_interested" if click["completion_rate"] < NEGATIVE_COMPLETION_CUTOFF else None)
+            events.append(click)
+
+            if rng.random() < order_prob(meta):
+                order = base(item, "order", now_ms + rng.randint(21, 120) * 1000, position)
+                order["rating"] = round(min(5.0, 3.0 + 2.0 * completion), 1)
+                # OnlineJoinerStreamingJob attributes the whole feedback struct to the latest
+                # feedback event (one max_by over the event timestamp), so an order carrying
+                # only `rating` erases the click's engagement signals. Carry them forward —
+                # this is the same shape OnlineJoinerStreamingJobSpec's fixture asserts.
+                for field in ("completion_rate", "dwell_millis", "negative_feedback_reason"):
+                    order[field] = click[field]
+                events.append(order)
     return events
 
 
@@ -126,7 +192,8 @@ def main() -> None:
     rng = random.Random(SEED)
     movies = assign_movies(NUM_ITEMS, rng)
     items = list(movies.keys())
-    users = [f"user_{i}" for i in range(1, NUM_USERS + 1)]
+    user_meta = assign_users(NUM_USERS, rng)
+    users = list(user_meta)
 
     print(f"movie metadata → {CONTEXT_TOPIC} ({NUM_ITEMS} movies); "
           f"behavior → {RECSYS_TOPIC} ({NUM_SLATES} slates)", flush=True)
@@ -147,7 +214,7 @@ def main() -> None:
             sent += 1
         for s in range(NUM_SLATES):
             user = rng.choice(users)
-            events = make_slate(user, items, movies, rng)
+            events = make_slate(user, user_meta[user], items, movies, rng)
             if ratings_writer:
                 ratings_writer.writerows(ratings_from_events(events))
             for event in events:

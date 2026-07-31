@@ -97,4 +97,28 @@ class ExperienceCollectorStreamingJobSpec extends AnyFlatSpec with Matchers with
     enriched.getAs[Long]("last_feedback_ts") shouldBe 105L
     enriched.getAs[Long]("feedback_delay_ms") shouldBe 5000L
   }
+
+  it should "not create a Parquet sink when no output path is configured" in {
+    ExperienceCollectorStreamingJob.parquetSink("", 1) shouldBe None
+  }
+
+  it should "write slates as date-partitioned Parquet when an output path is configured" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val samples = Seq(
+      """{"sample_id":"s1","request_id":"r1","user_id":"u1","item_id":"item_1","position":0,"impression_ts":1753000000,"clicked":1,"ordered":0,"label":1.0}""",
+      """{"sample_id":"s2","request_id":"r1","user_id":"u1","item_id":"item_2","position":1,"impression_ts":1753000000,"clicked":0,"ordered":0,"label":0.0}"""
+    ).toDF("value")
+    val slates = ExperienceCollectorStreamingJob.buildSlates(
+      ExperienceCollectorStreamingJob.parseSamples(samples))
+
+    val target = java.nio.file.Files.createTempDirectory("slate-sink").resolve("slates").toString
+    ExperienceCollectorStreamingJob.parquetSink(target, 1).get.write(slates, 0L)
+
+    val written = sparkSession.read.parquet(target)
+    written.count() shouldBe 1
+    written.columns should contain allOf ("slate_id", "request_id", "items", "date")
+    written.select("items").first().getAs[Seq[org.apache.spark.sql.Row]](0).size shouldBe 2
+  }
 }

@@ -1,6 +1,6 @@
-export function Section({ title, headline, children }) {
+export function Section({ title, headline, children, id }) {
   return (
-    <section className="report-card">
+    <section className="report-card" id={id}>
       <div className="section-heading">
         <h2>{title}</h2>
         {headline ? <p className="insight">{headline}</p> : null}
@@ -10,9 +10,9 @@ export function Section({ title, headline, children }) {
   );
 }
 
-export function NaCard({ title, reason }) {
+export function NaCard({ title, reason, id }) {
   return (
-    <section className="report-card status-card">
+    <section className="report-card status-card" id={id}>
       <div className="section-heading">
         <h2>{title}</h2>
         <p className="na">N/A — {reason}</p>
@@ -61,6 +61,43 @@ export function BarChart({ labels, values, title, width = 520, barH = 22, gap = 
   );
 }
 
+// Two-series horizontal bars sharing one scale — for comparisons where a single
+// series would hide the relationship (ndcg vs mrr, fresh vs established).
+export function GroupedBarChart({ series, labels, title, width = 520, barH = 14, gap = 6 }) {
+  const colors = ["#4f46e5", "#eb6834"];
+  const all = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v));
+  const vmax = Math.max(...all, 0) || 1;
+  const groupH = series.length * (barH + 2) + gap;
+  const h = Math.max(labels.length, 1) * groupH;
+  return (
+    <svg className="chart" role="img" viewBox={`0 -20 ${width} ${h + 24}`} width={width} fontFamily="sans-serif">
+      {title ? <text x="0" y="-6" fontSize="13" fontWeight="bold">{title}</text> : null}
+      {series.map((s, si) => (
+        <text key={s.name} x={String(60 + si * 110)} y="-6" fontSize="11" fill={colors[si % colors.length]}>
+          {s.name}
+        </text>
+      ))}
+      {labels.map((label, li) => (
+        <g key={`${label}-${li}`}>
+          <text x="0" y={li * groupH + barH} fontSize="12">{label}</text>
+          {series.map((s, si) => {
+            const v = s.values[li] ?? 0;
+            const w = Math.max(0, Math.round((v / vmax) * (width - 200)));
+            return (
+              <g key={s.name}>
+                <title>{`${s.name} ${label}: ${v}`}</title>
+                <rect x="150" y={li * groupH + si * (barH + 2)} width={w} height={barH} rx="4"
+                      fill={colors[si % colors.length]} />
+                <text x={155 + w} y={li * groupH + si * (barH + 2) + barH - 2} fontSize="10">{v}</text>
+              </g>
+            );
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 // Render a list of record objects as a table over the given columns.
 export function DataTable({ rows, columns }) {
   const cols = columns || (rows.length ? Object.keys(rows[0]) : []);
@@ -93,4 +130,22 @@ function formatCell(v) {
   if (typeof v === "number") return String(round4(v));
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+// One scorecard tile. Status reflects DATA AVAILABILITY only — never whether the
+// number is good, because no targets have been set for these measurements.
+export function MetricTile({ title, value, label, sampleSize, status, reason, href }) {
+  return (
+    <a className={`metric-tile status-${status}`} href={href}>
+      <span className="metric-title">{title}</span>
+      <span className="metric-value">{value}</span>
+      <span className="metric-label">{label}</span>
+      <span className="metric-support">
+        {status === "na" ? reason : `n=${(sampleSize ?? 0).toLocaleString()}`}
+      </span>
+      {/* Border color alone can't convey the low-coverage flag to screen readers or
+          color-vision-deficient users, so state it as text too. */}
+      {status === "low" ? <span className="sr-only">Low coverage — at or below 50%</span> : null}
+    </a>
+  );
 }

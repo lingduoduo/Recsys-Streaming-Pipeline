@@ -350,3 +350,33 @@ def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
     # New offline-evaluation cards: OPE has no Redis buffer (N/A); MDP renders from the CSV.
     assert "N/A — no replay-buffer events with reward in Redis" in page
     assert "<h2>MDP policy evaluation</h2>" in page and "<td>uniform</td>" in page
+
+
+def test_demographics_are_hoisted_from_user_features_within_the_allowlist():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    samples = pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "clicked": [1, 0],
+        # dict shape (JSON input) and key/value-pair shape (pyarrow map) both occur
+        "user_features": [
+            {"gender": "female", "subscription": "premium", "email": "a@b.c"},
+            [("gender", "male"), ("subscription", "free"), ("email", "d@e.f")],
+        ],
+    })
+
+    hoisted = dash._with_demographic_columns(samples)
+
+    assert list(hoisted["gender"]) == ["female", "male"]
+    assert list(hoisted["subscription"]) == ["premium", "free"]
+    assert "email" not in hoisted.columns          # outside DEFAULT_DIMENSIONS: never published
+    assert "gender" not in samples.columns         # the input frame is not mutated
+
+
+def test_demographic_hoisting_is_a_no_op_without_user_features():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    samples = pd.DataFrame({"user_id": ["u1"], "clicked": [1]})
+    assert dash._with_demographic_columns(samples) is samples

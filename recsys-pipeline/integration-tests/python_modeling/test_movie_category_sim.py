@@ -1,4 +1,6 @@
+import random
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -50,7 +52,7 @@ def test_assign_movies_shape_and_deterministic():
     b = mp.assign_movies(30, random.Random(3))
     assert a == b and len(a) == 30
     for m in a.values():
-        assert set(m) == {"title", "genres", "release_year"}
+        assert set(m) == {"title", "genres", "release_year", "published_at", "new_release", "unsafe"}
         assert 1 <= len(m["genres"]) <= 3
         assert 1980 <= m["release_year"] <= 2024
 
@@ -70,3 +72,92 @@ def test_ratings_from_events_prefers_order_and_ignores_impressions():
     ])
     assert rows == [{"userId": "user_1", "movieId": "movie_7",
                      "rating": 5.0, "timestamp": 5}]
+
+
+def test_assign_movies_carries_freshness_and_safety_ground_truth():
+    import movie_segment_producer as producer
+    rng = random.Random(17)
+    movies = producer.assign_movies(400, rng)
+
+    fresh = [m for m in movies.values() if m["new_release"]]
+    unsafe = [m for m in movies.values() if m["unsafe"]]
+    assert 0.08 <= len(fresh) / len(movies) <= 0.24        # FRESH_SHARE 0.15 with sampling slack
+    assert 0.00 <= len(unsafe) / len(movies) <= 0.06       # UNSAFE_SHARE 0.02 with sampling slack
+
+    window_seconds = producer.FRESHNESS_WINDOW_DAYS * 86400
+    now = int(time.time())
+    for movie in movies.values():
+        age = now - movie["published_at"]
+        assert age >= 0
+        assert (age <= window_seconds) == movie["new_release"]
+
+
+def test_assign_users_is_stable_and_uses_only_allowlisted_dimensions():
+    import movie_segment_producer as producer
+    users = producer.assign_users(50, random.Random(17))
+    again = producer.assign_users(50, random.Random(17))
+
+    assert users == again                                   # seeded: same demographics every run
+    assert set(next(iter(users.values()))) == {"gender", "age_band", "country", "subscription"}
+    assert {u["subscription"] for u in users.values()} <= set(producer.SUBSCRIPTION_EFF)
+
+
+def test_slate_events_carry_measurement_signals_on_the_right_event_types():
+    import movie_segment_producer as producer
+    rng = random.Random(3)
+    movies = producer.assign_movies(20, rng)
+    items = list(movies)
+    user_meta = {"gender": "female", "age_band": "25-34", "country": "us", "subscription": "premium"}
+
+    events = [e for _ in range(200) for e in producer.make_slate("user_1", user_meta, items, movies, rng)]
+    impressions = [e for e in events if e["event_type"] == "impression"]
+    clicks = [e for e in events if e["event_type"] == "click"]
+    orders = [e for e in events if e["event_type"] == "order"]
+    assert impressions and clicks and orders
+
+    for event in impressions:
+        assert event["user_features"] == user_meta
+        assert isinstance(event["published_at"], int)
+        assert isinstance(event["new_release"], bool)
+        assert isinstance(event["unsafe_label"], bool)
+        assert "dwell_millis" not in event and "rating" not in event
+
+    for event in clicks:
+        assert 0.0 <= event["completion_rate"] <= 1.0
+        assert event["dwell_millis"] >= 0
+        expected = "not_interested" if event["completion_rate"] < producer.NEGATIVE_COMPLETION_CUTOFF else None
+        assert event["negative_feedback_reason"] == expected
+
+    for event in orders:
+        assert 3.0 <= event["rating"] <= 5.0
+
+
+def test_orders_repeat_their_click_engagement_fields_so_the_joiner_cannot_drop_them():
+    """The joiner keeps only the latest feedback event's struct, so the order must repeat them.
+
+    `OnlineJoinerStreamingJob.buildTrainingSamples` aggregates feedback with a single
+    `max_by` over the whole struct keyed on the latest feedback event. An order that
+    carried only `rating` would erase the preceding click's dwell, completion, and
+    negative-feedback signals for every converted click.
+    """
+    import movie_segment_producer as producer
+    rng = random.Random(11)
+    movies = producer.assign_movies(20, rng)
+    items = list(movies)
+    user_meta = {"gender": "male", "age_band": "35-44", "country": "us", "subscription": "premium"}
+
+    events = [e for _ in range(200) for e in producer.make_slate("user_1", user_meta, items, movies, rng)]
+    clicks = {(e["request_id"], e["item_id"]): e for e in events if e["event_type"] == "click"}
+    orders = [e for e in events if e["event_type"] == "order"]
+    assert orders
+
+    for order in orders:
+        click = clicks[(order["request_id"], order["item_id"])]
+        for field in ("completion_rate", "dwell_millis", "negative_feedback_reason"):
+            assert order[field] == click[field], field
+
+
+def test_user_click_bias_creates_a_documented_subscription_gap():
+    import movie_segment_producer as producer
+    assert producer.user_click_bias({"subscription": "premium"}) > producer.user_click_bias({"subscription": "free"})
+    assert producer.user_click_bias({"subscription": "unknown_tier"}) == 0.0

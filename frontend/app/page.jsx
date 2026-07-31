@@ -1,4 +1,5 @@
 import data from "../data/dashboard.json";
+import { Scorecard } from "../components/sections";
 import {
   RelevanceSection,
   SatisfactionSection,
@@ -32,6 +33,7 @@ export default function Page() {
       </header>
 
       <div className="report-grid">
+        <Scorecard data={data} />
         <RelevanceSection data={data.relevance} />
         <SatisfactionSection data={data.satisfaction} />
         <FreshnessSection data={data.freshness} />

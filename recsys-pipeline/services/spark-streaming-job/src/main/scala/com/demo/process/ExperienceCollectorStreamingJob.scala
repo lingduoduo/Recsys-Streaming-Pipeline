@@ -1,11 +1,13 @@
 package com.demo.process
 
+import com.demo.engine.ParquetSink
 import com.demo.event.EventParsing
 import com.demo.util.{BatchMetricsListener, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
+import org.apache.spark.storage.StorageLevel
 
 object ExperienceCollectorStreamingJob {
 
@@ -58,6 +60,9 @@ object ExperienceCollectorStreamingJob {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     val inputTopic = sys.env.getOrElse("EXPERIENCE_COLLECTOR_INPUT_TOPIC", "training_samples")
     val outputTopic = sys.env.getOrElse("EXPERIENCE_COLLECTOR_OUTPUT_TOPIC", "training_experiences")
+    val outputPath  = sys.env.getOrElse("EXPERIENCE_COLLECTOR_OUTPUT_PATH", "")
+    val outputFiles = sys.env.get("EXPERIENCE_COLLECTOR_OUTPUT_FILES").map(_.toInt).getOrElse(1)
+    val slateSink   = parquetSink(outputPath, outputFiles)
     val checkpointLocation = sys.env.getOrElse(
       "SPARK_CHECKPOINT_LOCATION",
       "/tmp/spark-recsys/experience-collector"
@@ -82,23 +87,37 @@ object ExperienceCollectorStreamingJob {
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
         val slates = buildSlates(parseSamples(batch))
           .withColumn("batch_id", lit(batchId))
+          .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-        slates
-          .select(
-            col("slate_id").as("key"),
-            to_json(struct(slates.columns.map(col): _*)).as("value")
-          )
-          .write
-          .format("kafka")
-          .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-          .option("topic", outputTopic)
-          .save()
+        try {
+          slates
+            .select(
+              col("slate_id").as("key"),
+              to_json(struct(slates.columns.map(col): _*)).as("value")
+            )
+            .write
+            .format("kafka")
+            .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+            .option("topic", outputTopic)
+            .save()
+
+          slateSink.foreach(_.write(slates, batchId))
+        } finally {
+          slates.unpersist()
+        }
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
       .start()
       .awaitTermination()
   }
+
+  /** Optional Parquet sink for slate experiences, mirroring the joiner's training-sample
+    * sink. Returns None when no path is configured, leaving the Kafka path untouched. */
+  def parquetSink(outputPath: String, outputFiles: Int): Option[ParquetSink] =
+    if (outputPath.isEmpty) None
+    else Some(new ParquetSink(outputPath, "date", math.max(1, outputFiles),
+      (df: DataFrame) => df.withColumn("date", to_date(from_unixtime(col("request_ts"))))))
 
   def parseSamples(rawKafka: DataFrame): DataFrame =
     EventParsing.fromJson(rawKafka, TrainingSampleSchema)

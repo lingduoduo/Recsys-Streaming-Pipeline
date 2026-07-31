@@ -31,20 +31,19 @@ match the Python HTML dashboard; the seven measurement sections are exported for
 ```bash
 # from the repo root (Redis up; a run's training_samples Parquet available)
 
-# optional inputs: live latency/freshness/safety/feedback coverage, and the ranked slates
-# (published to the training_experiences Kafka topic, not to disk) that relevance and
-# diversity need
-curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
-docker compose exec -T kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 --topic training_experiences \
-  --from-beginning --timeout-ms 10000 > /tmp/spark-recsys/slates.jsonl
+# optional inputs: live latency/freshness/safety/feedback coverage, and the ranked slates that
+# relevance and diversity need. ExperienceCollectorStreamingJob writes slates to Parquet when
+# EXPERIENCE_COLLECTOR_OUTPUT_PATH is set — run-movie-category-sim.sh sets it and captures both
+# inputs automatically as part of its one-command run (see recsys-pipeline/README.md).
+# Paths below are what run-movie-category-sim.sh writes; it also captures /metrics itself.
+curl -s http://localhost:8080/metrics > /tmp/spark-recsys/movie-category-sim/live-metrics.json
 
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
-  --input /tmp/spark-recsys/training-samples \
+  --input /tmp/spark-recsys/movie-category-sim/training-samples \
   --output frontend/data/dashboard.json \
-  --experiences /tmp/spark-recsys/slates.jsonl \
-  --live-metrics /tmp/spark-recsys/live-metrics.json \
-  --mdp-csv /tmp/spark-recsys/mdp_eval.csv
+  --experiences /tmp/spark-recsys/movie-category-sim/slates \
+  --live-metrics /tmp/spark-recsys/movie-category-sim/live-metrics.json \
+  --mdp-csv /tmp/spark-recsys/mdp_eval.csv   # optional; MovieLensPolicyEvaluation writes it
 ```
 
 Measurement configuration flags (defaults shown): `--fairness-min-support 100`,

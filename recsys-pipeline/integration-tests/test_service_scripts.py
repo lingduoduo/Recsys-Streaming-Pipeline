@@ -169,3 +169,27 @@ def test_user_embedding_requires_item_embedding():
     )
     assert result.returncode == 1
     assert "ITEM2VEC_EMBEDDING_PATH" in result.stderr
+
+
+SIM_SCRIPT = Path(__file__).parents[1] / "run-movie-category-sim.sh"
+
+
+def test_movie_category_sim_wires_every_measurement_input() -> None:
+    script = SIM_SCRIPT.read_text(encoding="utf-8")
+
+    # slates: the collector must run and land Parquet the exporter can read
+    assert "com.demo.process.ExperienceCollectorStreamingJob" in script
+    assert "EXPERIENCE_COLLECTOR_OUTPUT_PATH" in script
+    # latency: a real /metrics capture from the running service
+    assert "/metrics" in script and "live-metrics.json" in script
+    # export: both optional inputs reach the exporter, and the snapshot is validated
+    assert "--experiences" in script and "--live-metrics" in script
+    assert "validate:data" in script
+
+
+def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:
+    script = SIM_SCRIPT.read_text(encoding="utf-8")
+    burst = script.split("SERVICE BURST")[1]
+    # the service block must not abort the sim: every failure path continues
+    assert "|| true" in burst or "continue" in burst
+    assert "set -e" not in burst

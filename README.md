@@ -187,6 +187,14 @@ npm --version
 
 Each command must print a version and exit successfully before continuing.
 
+`spark-submit` must resolve to a **Spark 3.5.1 / Scala 2.12** distribution matching
+`recsys-pipeline/services/spark-streaming-job/build.sbt` — set `SPARK_HOME` to that install, not
+to a pip-installed `pyspark`. A Scala 2.13 build (e.g. conda's `pyspark` 4.1.1) fails every
+streaming job with `NoSuchMethodError: ...wrapRefArray...`, which presents as a silent multi-minute
+timeout rather than a startup error — see [Troubleshooting](#troubleshooting-the-local-workflow).
+`docker compose version` only needs a working Docker daemon; a Colima VM (`colima start`) is a
+drop-in for Docker Desktop here and needs no extra configuration.
+
 #### 2. Check host-port conflicts
 
 From the repository root, inspect the local ports before starting infrastructure:
@@ -263,15 +271,12 @@ From the repository root:
 # Optional: capture live latency/freshness/safety/feedback coverage while the service runs.
 curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
 
-# Optional: dump the ranked slates (Kafka-only output) that relevance and diversity need.
-cd recsys-pipeline && docker compose exec -T kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 --topic training_experiences \
-  --from-beginning --timeout-ms 10000 > /tmp/spark-recsys/slates.jsonl
-cd ..
-
+# The ranked slates that relevance and diversity need: ExperienceCollectorStreamingJob writes
+# them straight to Parquet under $EXPERIENCE_COLLECTOR_OUTPUT_PATH — run-movie-category-sim.sh
+# sets this (and captures /metrics above) automatically, so no manual Kafka dump is needed.
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --input /tmp/spark-recsys/movie-category-sim/training-samples \
-  --experiences /tmp/spark-recsys/slates.jsonl \
+  --experiences /tmp/spark-recsys/movie-category-sim/slates \
   --live-metrics /tmp/spark-recsys/live-metrics.json \
   --output frontend/data/dashboard.json
 
@@ -400,6 +405,7 @@ the remaining diagnostics use the paths shown.
 | Keyword Gap is `unknown`; L1/L2/L3 empty | `docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features' \| wc -l` | snapshot exported without movie metadata | keep Redis running and export from the movie-category path |
 | Dashboard still shows old row count | inspect `input` and `rows` in `frontend/data/dashboard.json` | stale static snapshot/browser | rerun exporter, hard-refresh, or restart `npm run dev` |
 | ONNX Gather index error | `GET /predict/metadata` | raw numeric ID exceeds lookup size | use string IDs or indices within metadata bounds |
+| A drain step (e.g. `[redis]`/`[parquet]`) polls for minutes and never reaches its target | `grep -i wrapRefArray /tmp/spark-recsys/movie-category-sim/*.log` | `SPARK_HOME` is a Scala 2.13 build (mismatched vs. `build.sbt`'s Scala 2.12); the job crashed on startup and the drain loop is polling a job that already died | point `SPARK_HOME` at a Spark 3.5.1 / Scala 2.12 install and rerun |
 
 ---
 
