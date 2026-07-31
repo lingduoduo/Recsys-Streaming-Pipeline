@@ -1645,9 +1645,9 @@ export function MdpSection({ data }) {
 }
 ```
 
-- [ ] **Step 10: Temporarily stub the keyword import so the build can run**
+- [ ] **Step 10: Remove the keyword import so the build can run**
 
-`page.jsx` still imports `KeywordSection` from `./sections`, which no longer exports it. Comment out both the import and the `<KeywordSection … />` line in `frontend/app/page.jsx`; Task 12 restores them.
+`page.jsx` still imports `KeywordSection` from `./sections`, which no longer exports it. **Delete** — do not comment out — the `KeywordSection,` entry from the `../components/sections` import list and the `<KeywordSection data={data.keyword} />` line in `frontend/app/page.jsx`. Task 12 adds both back, importing from the new module. The keyword section is absent from the page for exactly one task; leaving commented-out code behind instead would be dead code in the committed tree.
 
 - [ ] **Step 11: Verify the build and look at the page**
 
