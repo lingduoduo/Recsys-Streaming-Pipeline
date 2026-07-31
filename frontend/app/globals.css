@@ -528,8 +528,11 @@ table.rpt.compact th {
   padding: 7px 11px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: color-mix(in oklab, var(--indigo) calc(var(--token-score) * 100%), var(--indigo-soft));
-  color: var(--token-ink);
+  /* Sequential ramp capped at 70% of the hue: dark ink stays at 5.18:1 or better
+     across the whole scale, so the chip needs no ink flip. Going to full --indigo
+     would drop label contrast to 2.8:1. */
+  background: color-mix(in oklab, var(--indigo) calc(var(--token-score) * 70%), var(--indigo-soft));
+  color: var(--ink);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -563,7 +566,8 @@ table.rpt.compact th {
   max-width: 190px;
   height: 9px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--indigo-soft), var(--indigo));
+  background: linear-gradient(90deg, var(--indigo-soft),
+              color-mix(in oklab, var(--indigo) 70%, var(--indigo-soft)));
 }
 
 .keyword-detail-panel {

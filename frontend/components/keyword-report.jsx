@@ -9,10 +9,6 @@ const count = (v) => (v === null || v === undefined ? "N/A" : Number(v).toLocale
 
 const TOP_K_CHOICES = [10, 20, 30, 50];
 
-// Text must stay legible as the chip darkens, so it flips at the point the ramp
-// crosses into its dark half rather than relying on one ink for the whole scale.
-const INK_FLIP = 0.55;
-
 function Select({ label, value, onChange, options }) {
   return (
     <label className="select-control">
@@ -40,9 +36,7 @@ function TokenHeatmap({ items, labelKey, scoreKey, selectedKey, onSelect }) {
         const t = normalize(score);
         // A keyword with no score is rendered unfilled rather than at the cold end
         // of the ramp, which would read as "measured, and lowest".
-        const style = t === null
-          ? { "--token-score": 0, "--token-ink": "var(--muted)" }
-          : { "--token-score": t, "--token-ink": t > INK_FLIP ? "#fff" : "var(--ink)" };
+        const style = { "--token-score": t === null ? 0 : t };
         const className = [
           "token-chip",
           t === null ? "unscored" : "",
