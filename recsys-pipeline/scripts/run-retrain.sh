@@ -20,7 +20,7 @@
 #   DRY_RUN                   Set to 1 to print steps without executing (default: 0)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON_MODELING="${SCRIPT_DIR}/services/python-modeling"
 
 REDIS_HOST="${REDIS_HOST:-localhost}"
@@ -88,7 +88,7 @@ run python3 "${PYTHON_MODELING}/replay_export.py" \
 if [[ "${SKIP_SPARK}" == "0" ]]; then
   echo "Step 2: Running Item2Vec embedding job → ${ITEM_EMB_PATH}"
   run env RATINGS_INPUT_PATH="${RATINGS_CSV}" ITEM2VEC_EMBEDDING_PATH="${ITEM_EMB_PATH}" \
-      bash "${SCRIPT_DIR}/run-offline-pipeline.sh"
+      bash "${SCRIPT_DIR}/scripts/run-offline-pipeline.sh"
 else
   echo "Step 2: Skipped (--skip-spark)"
 fi
@@ -97,7 +97,7 @@ fi
 if [[ "${SKIP_SPARK}" == "0" ]]; then
   echo "Step 3: Running ALS embedding job"
   run env RATINGS_INPUT_PATH="${RATINGS_CSV}" ALS_SAVE_TO_REDIS="${ALS_SAVE_TO_REDIS:-true}" \
-      bash "${SCRIPT_DIR}/run-als-pipeline.sh"
+      bash "${SCRIPT_DIR}/scripts/run-als-pipeline.sh"
 else
   echo "Step 3: Skipped (--skip-spark)"
 fi
@@ -106,7 +106,7 @@ fi
 if [[ "${SKIP_SPARK}" == "0" ]]; then
   echo "Step 4: Running UserEmbedding job"
   run env RATINGS_INPUT_PATH="${RATINGS_CSV}" ITEM2VEC_EMBEDDING_PATH="${ITEM_EMB_PATH}" \
-      bash "${SCRIPT_DIR}/run-user-embedding-pipeline.sh"
+      bash "${SCRIPT_DIR}/scripts/run-user-embedding-pipeline.sh"
 else
   echo "Step 4: Skipped (--skip-spark)"
 fi

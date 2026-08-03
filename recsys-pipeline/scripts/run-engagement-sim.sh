@@ -5,7 +5,7 @@
 #     • UserEventStreamingJob     → Redis global:item_popularity  (Kafka → Redis path)
 # The Parquet output under $SIM_ROOT/training-samples is what EngagementReportJob (Scala) reads.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 SIM_ROOT="${SIM_ROOT:-/tmp/spark-recsys/engagement-sim}"
 OUT_DIR="$SIM_ROOT/training-samples"
@@ -41,7 +41,7 @@ run_and_drain() {
     EVENT_WATERMARK_DELAY="3650 days" \
     MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-500000}" \
     TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
-    ./run-streaming-job.sh >"$log" 2>&1 &
+    ./scripts/run-streaming-job.sh >"$log" 2>&1 &
   local pid=$!
   trap 'kill "$pid" 2>/dev/null || true' EXIT
   wait_stable "$label" "$probe"
@@ -94,5 +94,5 @@ redis_cli ZREVRANGE global:item_popularity 0 9 WITHSCORES | paste - - | sed 's/^
 parts="$(find "$OUT_DIR" -maxdepth 1 -type d -name 'date=*' 2>/dev/null | wc -l | tr -d ' ' || true)"
 echo
 echo "==> done. $parts date partitions under $OUT_DIR; Redis populated with $zcard items."
-echo "    report:  SPARK_MAIN_CLASS=com.demo.report.EngagementReportJob ENGAGEMENT_REPORT_INPUT_PATH=$OUT_DIR ./run-streaming-job.sh"
+echo "    report:  SPARK_MAIN_CLASS=com.demo.report.EngagementReportJob ENGAGEMENT_REPORT_INPUT_PATH=$OUT_DIR ./scripts/run-streaming-job.sh"
 echo "    stop:    docker compose down"

@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 if [[ -z "${RATINGS_INPUT_PATH:-}" ]]; then
   echo "Error: RATINGS_INPUT_PATH is required." >&2

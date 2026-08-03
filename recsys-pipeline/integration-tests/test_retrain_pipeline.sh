@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 echo "=== run-retrain.sh integration test (dry-run) ==="
 
-DRY_RUN=1 bash "${REPO_ROOT}/run-retrain.sh" 2>&1 | tee /tmp/retrain-test-output.txt
+DRY_RUN=1 bash "${REPO_ROOT}/scripts/run-retrain.sh" 2>&1 | tee /tmp/retrain-test-output.txt
 
 if grep -q "DRY RUN: skip" /tmp/retrain-test-output.txt; then
   echo "PASS: dry-run mode activated"

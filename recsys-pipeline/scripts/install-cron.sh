@@ -15,7 +15,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RETRAIN_SCRIPT="$(cd "${SCRIPT_DIR}/.." && pwd)/run-retrain.sh"
+RETRAIN_SCRIPT="${SCRIPT_DIR}/run-retrain.sh"
 MARKER="# RECSYS_RETRAIN_JOB"
 SCHEDULE="0 */6 * * *"
 LOG_FILE="/var/log/recsys-retrain.log"

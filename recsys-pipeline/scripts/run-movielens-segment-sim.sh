@@ -5,7 +5,7 @@
 #     → recsys_events     → OnlineJoinerStreamingJob              → Parquet (engagement)
 #   → SegmentReportJob (Scala) joins Parquet engagement with Redis demographics.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 SIM_ROOT="${SIM_ROOT:-/tmp/spark-recsys/movielens-segment-sim}"
 OUT_DIR="$SIM_ROOT/training-samples"
@@ -47,7 +47,7 @@ run_and_drain() {  # $1=class $2=ckpt $3=label $4=probe $5=target ; remaining: K
     KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
     MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
     TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
-    ./run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
+    ./scripts/run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
   local pid=$!
   trap 'kill "$pid" 2>/dev/null || true' EXIT
   drain "$label" "$probe" "$target"
@@ -91,7 +91,7 @@ echo
 echo "==> SEGMENT REPORT (Parquet engagement ⨝ Redis demographics)"
 SPARK_MAIN_CLASS=com.demo.report.SegmentReportJob \
 SEGMENT_REPORT_INPUT_PATH="$OUT_DIR" REDIS_HOST=localhost \
-  ./run-streaming-job.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
+  ./scripts/run-streaming-job.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 echo
 echo "==> done. CSVs under $SIM_ROOT/report-segments ; stop infra with: docker compose down"

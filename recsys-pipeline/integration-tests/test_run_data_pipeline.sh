@@ -15,7 +15,7 @@ export RECORD="$tmp/record.txt"
 : > "$RECORD"
 
 # DRY_RUN makes the script use the stubbed launcher and not wait/trap.
-DRY_RUN=1 RUN_STREAMING_JOB="$tmp/run-streaming-job.sh" bash run-data-pipeline.sh
+DRY_RUN=1 RUN_STREAMING_JOB="$tmp/run-streaming-job.sh" bash scripts/run-data-pipeline.sh
 
 grep -q "com.demo.task.UserEventStreamingJob" "$RECORD"          || { echo "FAIL: UserEvent not launched"; exit 1; }
 grep -q "com.demo.process.OnlineJoinerStreamingJob" "$RECORD"    || { echo "FAIL: OnlineJoiner not launched"; exit 1; }

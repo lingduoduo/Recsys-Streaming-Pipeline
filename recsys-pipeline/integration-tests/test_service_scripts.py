@@ -14,11 +14,16 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+
+
 def copy_pipeline_scripts(tmp_path: Path) -> Path:
+    """Mirror the real layout: scripts live in scripts/ and cd up to the pipeline root."""
     pipeline = tmp_path / "recsys-pipeline"
-    pipeline.mkdir()
-    shutil.copy2(REPO_ROOT / "run-streaming-job.sh", pipeline / "run-streaming-job.sh")
-    shutil.copy2(REPO_ROOT / "run-offline-pipeline.sh", pipeline / "run-offline-pipeline.sh")
+    scripts = pipeline / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(SCRIPTS_DIR / "run-streaming-job.sh", scripts / "run-streaming-job.sh")
+    shutil.copy2(SCRIPTS_DIR / "run-offline-pipeline.sh", scripts / "run-offline-pipeline.sh")
     return pipeline
 
 
@@ -98,7 +103,7 @@ def test_streaming_script_uses_consolidated_spark_service_path(tmp_path: Path) -
 
     with listening_socket() as bootstrap:
         env["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap
-        result = run_script(pipeline / "run-streaming-job.sh", env)
+        result = run_script(pipeline / "scripts" / "run-streaming-job.sh", env)
 
     assert result.returncode == 0
     args = Path(env["SPARK_SUBMIT_LOG"]).read_text(encoding="utf-8").splitlines()
@@ -111,7 +116,7 @@ def test_streaming_script_reports_missing_consolidated_jar(tmp_path: Path) -> No
     pipeline = copy_pipeline_scripts(tmp_path)
     env = base_env(tmp_path)
 
-    result = run_script(pipeline / "run-streaming-job.sh", env)
+    result = run_script(pipeline / "scripts" / "run-streaming-job.sh", env)
 
     assert result.returncode == 127
     assert "services/spark-streaming-job" in result.stderr
@@ -127,7 +132,7 @@ def test_streaming_script_fails_fast_when_broker_unreachable(tmp_path: Path) -> 
     env["KAFKA_BOOTSTRAP_SERVERS"] = "127.0.0.1:1"
 
     start = time.monotonic()
-    result = run_script(pipeline / "run-streaming-job.sh", env)
+    result = run_script(pipeline / "scripts" / "run-streaming-job.sh", env)
     elapsed = time.monotonic() - start
 
     assert result.returncode == 1
@@ -144,7 +149,7 @@ def test_offline_script_requires_ratings_input_before_spark(tmp_path: Path) -> N
     env = base_env(tmp_path)
     env.pop("RATINGS_INPUT_PATH", None)
 
-    result = run_script(pipeline / "run-offline-pipeline.sh", env)
+    result = run_script(pipeline / "scripts" / "run-offline-pipeline.sh", env)
 
     assert result.returncode == 1
     assert "RATINGS_INPUT_PATH is required" in result.stderr
@@ -158,7 +163,7 @@ def test_offline_script_passes_ratings_and_embedding_paths_to_spark(tmp_path: Pa
     env["ITEM2VEC_EMBEDDING_PATH"] = "sampledata/custom_embedding.txt"
     env["ITEM2VEC_QUERY_ITEM"] = "42"
 
-    result = run_script(pipeline / "run-offline-pipeline.sh", env)
+    result = run_script(pipeline / "scripts" / "run-offline-pipeline.sh", env)
 
     assert result.returncode == 0
     args = Path(env["SPARK_SUBMIT_LOG"]).read_text(encoding="utf-8").splitlines()
@@ -171,17 +176,17 @@ PIPELINE_DIR = os.path.join(os.path.dirname(__file__), "..")
 
 
 def test_als_pipeline_script_exists():
-    script = os.path.join(PIPELINE_DIR, "run-als-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-als-pipeline.sh")
     assert os.path.isfile(script), "run-als-pipeline.sh not found"
 
 
 def test_als_pipeline_script_is_executable():
-    script = os.path.join(PIPELINE_DIR, "run-als-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-als-pipeline.sh")
     assert os.access(script, os.X_OK), "run-als-pipeline.sh is not executable"
 
 
 def test_als_pipeline_requires_ratings_input():
-    script = os.path.join(PIPELINE_DIR, "run-als-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-als-pipeline.sh")
     result = subprocess.run(
         ["bash", script],
         capture_output=True,
@@ -193,17 +198,17 @@ def test_als_pipeline_requires_ratings_input():
 
 
 def test_user_embedding_script_exists():
-    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-user-embedding-pipeline.sh")
     assert os.path.isfile(script), "run-user-embedding-pipeline.sh not found"
 
 
 def test_user_embedding_script_is_executable():
-    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-user-embedding-pipeline.sh")
     assert os.access(script, os.X_OK), "run-user-embedding-pipeline.sh is not executable"
 
 
 def test_user_embedding_requires_ratings_input():
-    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-user-embedding-pipeline.sh")
     result = subprocess.run(
         ["bash", script],
         capture_output=True,
@@ -215,7 +220,7 @@ def test_user_embedding_requires_ratings_input():
 
 
 def test_user_embedding_requires_item_embedding():
-    script = os.path.join(PIPELINE_DIR, "run-user-embedding-pipeline.sh")
+    script = os.path.join(PIPELINE_DIR, "scripts", "run-user-embedding-pipeline.sh")
     result = subprocess.run(
         ["bash", script],
         capture_output=True,
@@ -226,7 +231,7 @@ def test_user_embedding_requires_item_embedding():
     assert "ITEM2VEC_EMBEDDING_PATH" in result.stderr
 
 
-SIM_SCRIPT = Path(__file__).parents[1] / "run-movie-category-sim.sh"
+SIM_SCRIPT = Path(__file__).parents[1] / "scripts" / "run-movie-category-sim.sh"
 
 
 def test_movie_category_sim_wires_every_measurement_input() -> None:

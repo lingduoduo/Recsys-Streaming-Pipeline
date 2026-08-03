@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
-LAUNCHER="${RUN_STREAMING_JOB:-./run-streaming-job.sh}"
+LAUNCHER="${RUN_STREAMING_JOB:-./scripts/run-streaming-job.sh}"
 CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-/tmp/spark-recsys}"
 
 CLASSES=(
