@@ -115,6 +115,11 @@ colima start
 docker compose up -d
 ```
 
+### Dashboard
+```
+cd frontend && npm run validate:data
+```
+
 ### Step 1 — Offline embeddings
 
 > Run once before starting the retrieval service.
