@@ -111,6 +111,7 @@ Build the Spark job JAR (run from the repo root):
 Start Kafka, Zookeeper, and Redis:
 
 ```bash
+colima start
 docker compose up -d
 ```
 
