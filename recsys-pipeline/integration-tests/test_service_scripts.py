@@ -32,6 +32,15 @@ def add_fake_spark_submit(spark_home: Path) -> Path:
     return log_file
 
 
+def add_fake_kafka_topics(tmp_path: Path) -> Path:
+    bin_dir = tmp_path / "stub-bin"
+    bin_dir.mkdir()
+    kafka_topics = bin_dir / "kafka-topics"
+    kafka_topics.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    kafka_topics.chmod(kafka_topics.stat().st_mode | stat.S_IXUSR)
+    return bin_dir
+
+
 def add_spark_job_jar(pipeline: Path) -> Path:
     jar = pipeline / "services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar"
     jar.parent.mkdir(parents=True)
@@ -56,6 +65,9 @@ def base_env(tmp_path: Path) -> dict[str, str]:
     spark_home = tmp_path / "fake-spark"
     env["SPARK_HOME"] = str(spark_home)
     env["SPARK_SUBMIT_LOG"] = str(add_fake_spark_submit(spark_home))
+    # The streaming script bootstraps its Kafka input topic before spark-submit; stub
+    # the CLI so the test never blocks on a real broker.
+    env["PATH"] = os.pathsep.join([str(add_fake_kafka_topics(tmp_path)), env["PATH"]])
     return env
 
 
