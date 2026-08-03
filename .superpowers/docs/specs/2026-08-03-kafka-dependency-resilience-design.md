@@ -154,8 +154,14 @@ still hermetic.
 - `./run-streaming-job.sh` with the stack down exits 1 in under one second with a
   message naming the address and the fix, and no Java stack trace.
 - The full integration suite passes.
-- `docker kill` on the Kafka container is followed by the container returning
-  without manual intervention.
+- After a Docker daemon restart (`colima stop && colima start`), all three
+  services return to `Up` with no manual `docker compose up`.
+
+  `docker kill` is **not** a valid probe for this. Docker deliberately skips the
+  restart policy for user-initiated stops; measured on this host, a killed
+  container stays `Exited` with `RestartCount=0` for 60s+. The policy covers
+  container-initiated exits (such as the broker registration failure that caused
+  the incident) and daemon start.
 
 ## Branching
 

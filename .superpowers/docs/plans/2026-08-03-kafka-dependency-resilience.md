@@ -98,21 +98,28 @@ Run: `/Users/linghuang/miniconda3/envs/llm/bin/python -m pytest integration-test
 
 Expected: PASS
 
-- [ ] **Step 5: Verify the policy actually works against a live container**
+- [ ] **Step 5: Verify the policy against a Docker daemon restart**
 
-The unit test only proves the file says the right thing. Prove the behavior:
+The unit test only proves the file says the right thing. Prove the behavior against the scenario that actually caused the incident: a VM restart.
+
+**Do NOT use `docker kill` to test this.** Docker treats a user-initiated kill as a manual stop and deliberately skips the restart policy. Measured on this host, `docker kill` leaves the container `Exited` with `RestartCount=0` for 60s+. That is correct Docker behavior, not a failure of the policy.
 
 ```bash
-docker compose up -d
+cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
+docker compose up -d          # ensure containers are recreated with the new policy
 docker compose ps --format '{{.Service}} {{.Status}}'
-docker kill recsys-pipeline-kafka-1
-sleep 15
+
+colima stop
+colima start
+
+# wait for the daemon, then check WITHOUT running docker compose up
+for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 5; done
 docker compose ps --format '{{.Service}} {{.Status}}'
 ```
 
-Expected: after the kill, Kafka shows `Up` again (or `Restarting`, then `Up` within another few seconds) with no manual `docker compose up`. Before this change it would have stayed `Exited`.
+Expected: all three services report `Up`, with no `docker compose up` run after the restart.
 
-If Kafka comes back as `Restarting` repeatedly rather than reaching `Up`, stop and investigate — that means a genuine misconfiguration, not a transient race.
+If Kafka shows `Restarting`, wait up to 90s and re-check. That state reproduces the original incident (a stale `/brokers/ids/1` znode), and the restart policy is expected to heal it once the ZooKeeper session expires — that outcome is a PASS, and is the clearest possible proof the policy works. Only a container still not `Up` after 90s is a failure; report DONE_WITH_CONCERNS with the output rather than trying to fix the broker by hand.
 
 - [ ] **Step 6: Commit**
 
@@ -373,7 +380,7 @@ After both tasks, confirm each criterion from the spec:
 
 1. **Stack-down launch is fast and clear.** `KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:1 ./run-streaming-job.sh` exits 1 in under a second, names the address, suggests `docker compose up -d`, and prints no Java stack trace. Covered by `test_streaming_script_fails_fast_when_broker_unreachable`.
 2. **Full integration suite passes.** Task 2, Step 9.
-3. **Killed broker returns on its own.** Task 1, Step 5.
+3. **The stack returns after a daemon restart.** Task 1, Step 5. Note `docker kill` is not a valid probe for this — Docker skips the restart policy for user-initiated stops.
 
 ## Known limitation carried forward
 
