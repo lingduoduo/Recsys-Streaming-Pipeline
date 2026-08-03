@@ -50,38 +50,77 @@ Recsys-Streaming-Pipeline/
 
 ---
 
-## Sub-projects
+## spark-analysis
 
-Each sub-project owns its own documentation. This file is the index.
+Stream-processing notes and Spark code — from learning fundamentals to production-grade jobs — covering core APIs, Flink comparisons, user-behavior analysis, and binary classification.
 
-### [spark-analysis/](spark-analysis/README.md)
+### Files
 
-Spark/Flink concepts and production-grade Scala jobs: RDD and DataFrame fundamentals, window
-functions, user-behaviour analysis, binary-classification ML pipelines, and BigQuery retention
-labelling. Start here for the streaming concepts rather than the running platform.
+| File | Object | Description |
+|------|--------|-------------|
+| `spark_report.scala` | `ScalaBasics` | Scala and Spark RDD fundamentals: collections, pair RDDs, `reduceByKey`, `groupByKey` |
+| `spark_report.scala` | `SparkDataFrameBasics` | DataFrame and Dataset APIs: Spark SQL, joins, window functions, Hive integration |
+| `spark_report.scala` | `UserSuspensionReport` | User suspension analysis: groupBy/pivot breakdowns by geo, email domain, device type |
+| `spark_report.scala` | `ActiveUserSuspensionModel` | Logistic regression pipeline (StringIndexer → OneHotEncoder → VectorAssembler → LR) |
+| `spark_report.scala` | `ContentClassificationReport` | Content classification metrics: confidence bucketing, appeal and post breakdowns |
+| `spark_encoder.scala` | `ActiveUsersJob` | Active user feature engineering and binary classification per device type |
+| `spark_model.scala` | `ActiveUsersJob` | Extended version of spark_encoder with additional search-activity features |
+| `retention_label.scala` | `AdjustUserRetentionDataJob` | BigQuery → Spark retention labeling: D1, D2, L7, WAU flags from Adjust acquisition data |
 
-**Full docs → [spark-analysis/README.md](spark-analysis/README.md)** — file-by-file reference,
-key techniques, and how to submit each job.
+### Key Techniques
 
-### [recsys-pipeline/](recsys-pipeline/README.md)
+- **Catalyst-transparent transforms**: `isin`/`when`/`otherwise` instead of UDFs for geo and email domain bucketing
+- **DataFrame caching**: `cache()`/`unpersist()` for multi-scan reuse across device types and retention windows
+- **ML Pipeline**: end-to-end `Pipeline` with `StringIndexer`, `OneHotEncoder`, `VectorAssembler`, and `LogisticRegression`
+- **BigQuery integration**: `spark-bigquery` connector with `WRITE_EMPTY` disposition and `CREATE_IF_NEEDED`
+- **Structured Streaming concepts**: documented in `README.md` (Kafka, Spark Streaming, Flink, Druid)
 
-The streaming recommendation platform: a Kafka → Spark → Redis path for live user history, an
-online joiner and slate collector for training data, offline embedding trainers, and a Spring
-Boot retrieval service combining an ONNX model, an online-learning reward model, and a
-UCB/Thompson bandit policy.
+### Running
+
+From the repository root:
+
+```bash
+cd spark-analysis
+# Submit any job via spark-submit
+spark-submit --class com.demo.analysis.ActiveUsersJob \
+  --master yarn target/spark-analysis.jar
+
+# AdjustUserRetentionDataJob requires --date and --outputBq
+spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
+  target/spark-analysis.jar \
+  --date 20240101 \
+  --outputBq myproject.dataset.retention_labels
+```
+
+---
+
+## recsys-pipeline
+
+A streaming recommendation platform: a real-time Kafka → Spark Streaming → Redis path for live
+user history, a Kafka → Spark online joiner and slate collector for training data, offline
+embedding trainers, and a Spring Boot retrieval service that combines an offline ONNX model, a
+real-time online-learning reward model, and a UCB/Thompson bandit RL policy. Feature storage uses
+a three-tier design: offline files (ONNX model + Parquet training samples), Redis (real-time
+embeddings, counters, user history), and a Caffeine in-memory cache that collapses per-request
+Redis round-trips from O(N×features) to O(1).
 
 **Full docs → [recsys-pipeline/README.md](recsys-pipeline/README.md)** — architecture, service
-layout, configuration reference, simulation harnesses, and measurements.
+layout, scoring and storage design, configuration reference, simulation harnesses, and
+measurements.
 
 **Getting it running → [Local Workflow Reference](recsys-pipeline/README.md#local-workflow-reference)**
-— the one canonical path from a clean checkout to a populated dashboard, plus troubleshooting,
-port assignments, and the optional modeling / experiment / offline-policy-evaluation sequences.
+— the one canonical path from a clean checkout to a populated React dashboard, plus
+troubleshooting, port assignments, and the optional manual-pipeline, modeling, experiment, and
+offline-policy-evaluation sequences.
 
-### [frontend/](frontend/README.md)
+---
 
-A Next.js (app-router) rendering of the analysis dashboard — the same engagement, keyword, query,
-recall, ranking, off-policy, and MDP sections as the Python report, as React components. An
-optional way to view the committed snapshot without Redis or Spark.
+## frontend
+
+A Next.js (app-router) rendering of the analysis dashboard — the same engagement / keyword /
+query / recall / ranking / off-policy / MDP sections as the Python `analysis_dashboard_report.py`,
+as React components. This is an optional way to view the committed snapshot without Redis or
+Spark. Run it from the repository root:
 
 ```bash
 cd frontend
@@ -89,7 +128,12 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
-**Full docs → [frontend/README.md](frontend/README.md)**
+[`export_dashboard_json.py`](frontend/export_dashboard_json.py) reuses the pure `compute_*`
+functions from the Python dashboard, so the React UI shows exactly what the HTML dashboard would;
+sections with unavailable inputs render an explicit N/A card. Refresh the snapshot only through
+step 7 of the [canonical local workflow](recsys-pipeline/README.md#local-workflow-reference), which uses the
+movie-category input required for populated Keyword Gap tables. See
+[frontend/README.md](frontend/README.md).
 
 ---
 
