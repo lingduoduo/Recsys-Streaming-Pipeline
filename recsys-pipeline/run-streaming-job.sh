@@ -32,6 +32,23 @@ MAIN_CLASS="${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}"
 if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
   KAFKA_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"
   INPUT_TOPIC="${KAFKA_TOPIC:-recsys_events}"
+
+  # Bash's /dev/tcp builtin is the only bounded check available here: nc -w does not
+  # bound connect on macOS, curl telnet:// never returns on a live port, and timeout
+  # is not installed. A host that silently drops SYNs still waits on the OS TCP
+  # timeout; a refused connection returns in about 6ms.
+  kafka_reachable() {
+    local hostport="${1%%,*}"                       # first entry if a list
+    (exec 3<>"/dev/tcp/${hostport%:*}/${hostport##*:}") 2>/dev/null
+  }
+
+  if ! kafka_reachable "$KAFKA_SERVERS"; then
+    echo "Kafka unreachable at $KAFKA_SERVERS." >&2
+    echo "Start the local stack:  docker compose up -d" >&2
+    echo "Or set KAFKA_BOOTSTRAP_SERVERS to your broker." >&2
+    exit 1
+  fi
+
   if command -v kafka-topics >/dev/null 2>&1; then
     kafka-topics --bootstrap-server "$KAFKA_SERVERS" \
       --create --if-not-exists --topic "$INPUT_TOPIC"

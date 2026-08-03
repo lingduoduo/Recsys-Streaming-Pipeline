@@ -1,8 +1,12 @@
+import contextlib
 import os
 import shutil
+import socket
 import stat
 import subprocess
+import time
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 
@@ -71,12 +75,30 @@ def base_env(tmp_path: Path) -> dict[str, str]:
     return env
 
 
+@contextlib.contextmanager
+def listening_socket() -> Iterator[str]:
+    """Yield 'host:port' for a real socket that accepts connections.
+
+    The preflight uses a bash builtin, so it cannot be stubbed on PATH. A real
+    throwaway listener keeps the test hermetic without needing a broker.
+    """
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    try:
+        yield f"127.0.0.1:{sock.getsockname()[1]}"
+    finally:
+        sock.close()
+
+
 def test_streaming_script_uses_consolidated_spark_service_path(tmp_path: Path) -> None:
     pipeline = copy_pipeline_scripts(tmp_path)
     jar = add_spark_job_jar(pipeline)
     env = base_env(tmp_path)
 
-    result = run_script(pipeline / "run-streaming-job.sh", env)
+    with listening_socket() as bootstrap:
+        env["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap
+        result = run_script(pipeline / "run-streaming-job.sh", env)
 
     assert result.returncode == 0
     args = Path(env["SPARK_SUBMIT_LOG"]).read_text(encoding="utf-8").splitlines()
@@ -94,6 +116,27 @@ def test_streaming_script_reports_missing_consolidated_jar(tmp_path: Path) -> No
     assert result.returncode == 127
     assert "services/spark-streaming-job" in result.stderr
     assert "sbt assembly" in result.stderr
+
+
+def test_streaming_script_fails_fast_when_broker_unreachable(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    # The preflight runs after the spark-submit and jar checks, so without a jar
+    # the script would exit 127 and this test would pass for the wrong reason.
+    add_spark_job_jar(pipeline)
+    env = base_env(tmp_path)
+    env["KAFKA_BOOTSTRAP_SERVERS"] = "127.0.0.1:1"
+
+    start = time.monotonic()
+    result = run_script(pipeline / "run-streaming-job.sh", env)
+    elapsed = time.monotonic() - start
+
+    assert result.returncode == 1
+    # Guards the 64s AdminClient retry loop this replaced; loose enough not to flake.
+    assert elapsed < 5
+    assert "127.0.0.1:1" in result.stderr
+    assert "docker compose up -d" in result.stderr
+    assert "Exception" not in result.stderr
+    assert not Path(env["SPARK_SUBMIT_LOG"]).exists()
 
 
 def test_offline_script_requires_ratings_input_before_spark(tmp_path: Path) -> None:
