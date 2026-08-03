@@ -50,6 +50,11 @@ Measurement configuration flags (defaults shown): `--fairness-min-support 100`,
 `--freshness-window-days 30`, `--long-tail-percentile 0.80`,
 `--safety-policy-version catalog-filter-v1`.
 
+Sections whose inputs are unavailable render an explicit N/A card rather than being omitted, so a
+sparse dashboard is distinguishable from a broken one. Prefer refreshing the snapshot through step
+7 of the [canonical local workflow](../recsys-pipeline/README.md#local-workflow-reference): it uses
+the movie-category input, which is what populates the Keyword Gap tables.
+
 The keyword report selects from the 50 most-shown keywords, so `by_keyword` and
 `by_subkeyword` are exported 50 rows deep while the other diagnostic tables stay at 10.
 
