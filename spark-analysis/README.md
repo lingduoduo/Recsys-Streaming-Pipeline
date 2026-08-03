@@ -1,3 +1,51 @@
+# spark-analysis
+
+Stream-processing notes and Spark code — from learning fundamentals to production-grade
+jobs — covering core APIs, Flink comparisons, user-behaviour analysis, and binary
+classification.
+
+## Files
+
+| File | Object | Description |
+|------|--------|-------------|
+| `spark_report.scala` | `ScalaBasics` | Scala and Spark RDD fundamentals: collections, pair RDDs, `reduceByKey`, `groupByKey` |
+| `spark_report.scala` | `SparkDataFrameBasics` | DataFrame and Dataset APIs: Spark SQL, joins, window functions, Hive integration |
+| `spark_report.scala` | `UserSuspensionReport` | User suspension analysis: groupBy/pivot breakdowns by geo, email domain, device type |
+| `spark_report.scala` | `ActiveUserSuspensionModel` | Logistic regression pipeline (StringIndexer → OneHotEncoder → VectorAssembler → LR) |
+| `spark_report.scala` | `ContentClassificationReport` | Content classification metrics: confidence bucketing, appeal and post breakdowns |
+| `spark_encoder.scala` | `ActiveUsersJob` | Active user feature engineering and binary classification per device type |
+| `spark_model.scala` | `ActiveUsersJob` | Extended version of spark_encoder with additional search-activity features |
+| `retention_label.scala` | `AdjustUserRetentionDataJob` | BigQuery → Spark retention labeling: D1, D2, L7, WAU flags from Adjust acquisition data |
+
+## Key Techniques
+
+- **Catalyst-transparent transforms**: `isin`/`when`/`otherwise` instead of UDFs for geo and email domain bucketing
+- **DataFrame caching**: `cache()`/`unpersist()` for multi-scan reuse across device types and retention windows
+- **ML Pipeline**: end-to-end `Pipeline` with `StringIndexer`, `OneHotEncoder`, `VectorAssembler`, and `LogisticRegression`
+- **BigQuery integration**: `spark-bigquery` connector with `WRITE_EMPTY` disposition and `CREATE_IF_NEEDED`
+- **Structured Streaming concepts**: documented in `README.md` (Kafka, Spark Streaming, Flink, Druid)
+
+## Running
+
+From the repository root:
+
+```bash
+cd spark-analysis
+# Submit any job via spark-submit
+spark-submit --class com.demo.analysis.ActiveUsersJob \
+  --master yarn target/spark-analysis.jar
+
+# AdjustUserRetentionDataJob requires --date and --outputBq
+spark-submit --class com.demo.analysis.AdjustUserRetentionDataJob \
+  target/spark-analysis.jar \
+  --date 20240101 \
+  --outputBq myproject.dataset.retention_labels
+```
+
+---
+
+## Concepts and notes
+
 ## Querying the data stream
 
 First, what is a data stream? In computer science, a stream is a sequence of unbounded data elements made available over a span of time. You can think of a stream as items on a conveyor belt being processed one at a time, in a continuous flow, rather than in large batches, or, to continue the warehouse analogy, a delivery truck periodically dropping off a large load of items all at once. Streams are processed differently than batch data—most normal system functions can’t operate on streams, because they have potentially unlimited data.
