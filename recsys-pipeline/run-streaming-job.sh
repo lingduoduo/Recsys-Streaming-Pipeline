@@ -45,6 +45,7 @@ if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
   if ! kafka_reachable "$KAFKA_SERVERS"; then
     echo "Kafka unreachable at $KAFKA_SERVERS." >&2
     echo "Start the local stack:  docker compose up -d" >&2
+    echo "If the stack looks up, the broker may be crash-looping:  docker compose ps kafka" >&2
     echo "Or set KAFKA_BOOTSTRAP_SERVERS to your broker." >&2
     exit 1
   fi
