@@ -5,7 +5,7 @@
 #     → recsys_events     → OnlineJoinerStreamingJob              → Parquet (engagement)
 #   → MovieCategoryReportJob (Scala) joins Parquet engagement with Redis movie categories (l1/l2/l3).
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 SIM_ROOT="${SIM_ROOT:-/tmp/spark-recsys/movie-category-sim}"
 OUT_DIR="$SIM_ROOT/training-samples"
@@ -54,7 +54,7 @@ run_and_drain() {  # $1=class $2=ckpt $3=label $4=probe $5=target ; remaining: K
     KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
     MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
     TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
-    ./run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
+    ./scripts/run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
   local pid=$!
   trap 'kill "$pid" 2>/dev/null || true' EXIT
   drain "$label" "$probe" "$target"
@@ -111,7 +111,7 @@ echo
 echo "==> CATEGORY REPORT (Parquet engagement ⨝ Redis movie categories)"
 SPARK_MAIN_CLASS=com.demo.report.MovieCategoryReportJob \
 MOVIE_CATEGORY_INPUT_PATH="$OUT_DIR" REDIS_HOST=localhost \
-  ./run-streaming-job.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
+  ./scripts/run-streaming-job.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 if [[ "$GENERATE_EMBEDDINGS" == "true" ]]; then
   if [[ ! -s "$RATINGS_CSV" || "$(wc -l < "$RATINGS_CSV")" -le 1 ]]; then
@@ -123,14 +123,14 @@ if [[ "$GENERATE_EMBEDDINGS" == "true" ]]; then
   RATINGS_INPUT_PATH="$RATINGS_CSV" ITEM2VEC_EMBEDDING_PATH="$ITEM_EMB_FILE" \
   ITEM2VEC_QUERY_ITEM="$QUERY_ITEM" ITEM2VEC_SAVE_TO_REDIS=true \
   REDIS_HOST=localhost REDIS_PORT=6379 \
-    ./run-offline-pipeline.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
+    ./scripts/run-offline-pipeline.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
 
   echo
   echo "==> USER embeddings (uEmb:{userId})"
   RATINGS_INPUT_PATH="$RATINGS_CSV" ITEM2VEC_EMBEDDING_PATH="$ITEM_EMB_FILE" \
   USER_EMBEDDING_OUTPUT_PATH="$USER_EMB_OUT" USER_EMBEDDING_SAVE_TO_REDIS=true \
   REDIS_HOST=localhost REDIS_PORT=6379 \
-    ./run-user-embedding-pipeline.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
+    ./scripts/run-user-embedding-pipeline.sh 2>&1 | grep -vE "INFO|WARN|^[0-9]{2}/"
 fi
 
 echo

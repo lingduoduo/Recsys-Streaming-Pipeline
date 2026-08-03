@@ -130,7 +130,7 @@ Train Item2Vec embeddings and write them to Redis (`i2vEmb:{itemId}` keys):
 RATINGS_INPUT_PATH=sampledata/ratings.csv \
 ITEM2VEC_SAVE_TO_REDIS=true \
 REDIS_HOST=localhost \
-./run-offline-pipeline.sh
+./scripts/run-offline-pipeline.sh
 ```
 
 Train user embeddings from the item vectors above and write to Redis (`uEmb:{userId}` keys):
@@ -140,7 +140,7 @@ RATINGS_INPUT_PATH=sampledata/ratings.csv \
 ITEM2VEC_EMBEDDING_PATH=sampledata/item_embedding.txt \
 USER_EMBEDDING_SAVE_TO_REDIS=true \
 REDIS_HOST=localhost \
-./run-user-embedding-pipeline.sh
+./scripts/run-user-embedding-pipeline.sh
 ```
 
 **Optional** — train ALS collaborative-filtering embeddings (`alsItemEmb:*`, `alsUserEmb:*`):
@@ -149,7 +149,7 @@ REDIS_HOST=localhost \
 RATINGS_INPUT_PATH=sampledata/ratings.csv \
 ALS_SAVE_TO_REDIS=true \
 REDIS_HOST=localhost \
-./run-als-pipeline.sh
+./scripts/run-als-pipeline.sh
 ```
 
 To use ALS embeddings instead, set these before starting the retrieval service:
@@ -177,7 +177,7 @@ python services/python-modeling/producer.py
 ### Step 4 — Run the streaming job
 
 ```bash
-./run-streaming-job.sh
+./scripts/run-streaming-job.sh
 ```
 
 This populates `global:item_popularity` in Redis in real time; the retrieval service uses it as a popularity signal. (Per-user recency comes from `user:{id}:features`, written by `MovieLensContextCollectorStreamingJob`.)
@@ -237,7 +237,7 @@ The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX
 ### One-Off Run
 
 ```bash
-./run-retrain.sh
+./scripts/run-retrain.sh
 ```
 
 ### Scheduled Run (cron)
@@ -263,15 +263,15 @@ The script is idempotent — running it twice does not create duplicate entries.
 To add the entry manually instead:
 
 ```
-0 */6 * * * cd /path/to/recsys-pipeline && ./run-retrain.sh >> /var/log/recsys-retrain.log 2>&1
+0 */6 * * * cd /path/to/recsys-pipeline && ./scripts/run-retrain.sh >> /var/log/recsys-retrain.log 2>&1
 ```
 
 ### Skip Individual Stages
 
 ```bash
-./run-retrain.sh --skip-spark          # Only Python + reload
-./run-retrain.sh --skip-python         # Only Spark + reload
-./run-retrain.sh --skip-reload         # Train without hot-reload (offline mode)
+./scripts/run-retrain.sh --skip-spark          # Only Python + reload
+./scripts/run-retrain.sh --skip-python         # Only Spark + reload
+./scripts/run-retrain.sh --skip-reload         # Train without hot-reload (offline mode)
 ```
 
 ### Dry Run
@@ -279,7 +279,7 @@ To add the entry manually instead:
 Preview the stages without training, writing embeddings, or hitting the service:
 
 ```bash
-DRY_RUN=1 ./run-retrain.sh             # print each step; execute nothing
+DRY_RUN=1 ./scripts/run-retrain.sh             # print each step; execute nothing
 ```
 
 ### Environment Variables
@@ -495,7 +495,7 @@ Java service only observes the work it was already doing.
 
 ### Capture the inputs
 
-`./run-movie-category-sim.sh` runs the whole capture-and-export sequence below as its last two
+`./scripts/run-movie-category-sim.sh` runs the whole capture-and-export sequence below as its last two
 steps: it runs `ExperienceCollectorStreamingJob` with `EXPERIENCE_COLLECTOR_OUTPUT_PATH` set (so
 slates land as Parquet, not just on the `training_experiences` Kafka topic), bursts traffic
 against the retrieval service to populate `/metrics`, then exports and validates the snapshot —

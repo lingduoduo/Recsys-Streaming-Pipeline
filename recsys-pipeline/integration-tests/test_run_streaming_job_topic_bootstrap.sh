@@ -48,7 +48,7 @@ PATH="$tmp:$PATH" \
 SPARK_HOME="$tmp/spark" \
 KAFKA_BOOTSTRAP_SERVERS="$bootstrap" \
 KAFKA_TOPIC="events_for_test" \
-./run-streaming-job.sh
+./scripts/run-streaming-job.sh
 
 first_line="$(sed -n '1p' "$RECORD")"
 [[ "$first_line" == "kafka-topics --bootstrap-server $bootstrap --create --if-not-exists --topic events_for_test" ]] ||

@@ -27,18 +27,18 @@ Recsys-Streaming-Pipeline/
     │   ├── java-retrieval-service/    # Java/Spring Boot: ONNX scoring, bandit RL, REST API, offline MDP policy eval
     │   └── python-modeling/           # Python: event producer, two-tower training, ONNX export, off-policy eval
     ├── integration-tests/             # Cross-service integration tests (pytest + shell)
-    ├── scripts/
-    │   └── install-cron.sh            # Installs scheduled retraining cron job
+    ├── scripts/                        # All runnable scripts; each cd's up to recsys-pipeline/
+    │   ├── run-streaming-job.sh        # Submit a single Spark streaming job (SPARK_MAIN_CLASS)
+    │   ├── run-data-pipeline.sh        # Launch all core streaming jobs together
+    │   ├── run-offline-pipeline.sh     # Train Item2Vec embeddings
+    │   ├── run-user-embedding-pipeline.sh  # Train user embeddings
+    │   ├── run-als-pipeline.sh         # Train ALS collaborative-filtering embeddings
+    │   ├── run-retrain.sh              # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
+    │   ├── run-engagement-sim.sh       # E2E sim: engagement CTR time-series (+ report)
+    │   ├── run-movielens-segment-sim.sh    # E2E sim: engagement by user segment (+ report)
+    │   ├── run-movie-category-sim.sh   # E2E sim: engagement by movie category l1/l2/l3 (+ report)
+    │   └── install-cron.sh             # Installs scheduled retraining cron job
     ├── sampledata/                     # ratings.csv, catalog.json, sample embeddings
-    ├── run-streaming-job.sh            # Submit a single Spark streaming job (SPARK_MAIN_CLASS)
-    ├── run-data-pipeline.sh            # Launch all core streaming jobs together
-    ├── run-offline-pipeline.sh         # Train Item2Vec embeddings
-    ├── run-user-embedding-pipeline.sh  # Train user embeddings
-    ├── run-als-pipeline.sh             # Train ALS collaborative-filtering embeddings
-    ├── run-retrain.sh                  # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
-    ├── run-engagement-sim.sh           # E2E sim: engagement CTR time-series (+ report)
-    ├── run-movielens-segment-sim.sh    # E2E sim: engagement by user segment (+ report)
-    ├── run-movie-category-sim.sh       # E2E sim: engagement by movie category l1/l2/l3 (+ report)
     ├── recsys-streaming-pipeline.png   # Architecture diagram
     ├── recsys-streaming-pipeline.html  # Interactive architecture diagram
     └── docker-compose.yml              # Local Kafka + Redis
@@ -243,7 +243,7 @@ From the repository root:
 
 ```bash
 cd recsys-pipeline
-./run-movie-category-sim.sh
+./scripts/run-movie-category-sim.sh
 ```
 
 The harness is finite but can take several minutes. It resets this Compose project's volumes and
@@ -355,15 +355,15 @@ EVENTS_PER_SECOND=20 LOG_EVERY=10 MAX_EVENTS=100 \
   python services/python-modeling/producer.py
 
 # Individual long-running consumers:
-./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob ./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob ./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.process.RecallSampleStreamingJob    ./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob   ./run-streaming-job.sh
-SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./run-streaming-job.sh
+./scripts/run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.OnlineJoinerStreamingJob ./scripts/run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.ExperienceCollectorStreamingJob ./scripts/run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RecallSampleStreamingJob    ./scripts/run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob   ./scripts/run-streaming-job.sh
+SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./scripts/run-streaming-job.sh
 
 # Or launch the core long-running consumers together:
-./run-data-pipeline.sh
+./scripts/run-data-pipeline.sh
 ```
 
 Spark streaming jobs wait when `recsys_events` has no records. Zero Kafka offsets mean a producer
@@ -417,21 +417,21 @@ service serves. Run the block from the repository root.
 ```bash
 cd recsys-pipeline
 # Item2Vec item embeddings (writes sampledata/item_embedding.txt + Redis)
-RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-offline-pipeline.sh
+RATINGS_INPUT_PATH=sampledata/ratings.csv ./scripts/run-offline-pipeline.sh
 
 # ALS collaborative-filtering embeddings
-RATINGS_INPUT_PATH=sampledata/ratings.csv ./run-als-pipeline.sh
+RATINGS_INPUT_PATH=sampledata/ratings.csv ./scripts/run-als-pipeline.sh
 
 # User embeddings (needs the item embedding file from the offline step)
 RATINGS_INPUT_PATH=sampledata/ratings.csv \
   ITEM2VEC_EMBEDDING_PATH=sampledata/item_embedding.txt \
-  ./run-user-embedding-pipeline.sh
+  ./scripts/run-user-embedding-pipeline.sh
 
 # Export the Redis replay buffer back to a ratings CSV (for retraining)
 python services/python-modeling/replay_export.py
 
 # Full retrain: replay export → ALS → user emb → two-tower → hot-reload
-./run-retrain.sh                       # flags: --skip-spark --skip-python --skip-reload; DRY_RUN=1
+./scripts/run-retrain.sh                       # flags: --skip-spark --skip-python --skip-reload; DRY_RUN=1
 ```
 
 The retrain's final step hot-reloads the ONNX model in the running service (`:8080`):
