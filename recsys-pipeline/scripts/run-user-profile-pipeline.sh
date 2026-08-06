@@ -30,11 +30,11 @@ if [[ ! -f "$JAR" ]]; then
   exit 127
 fi
 
-OUTPUT_PATH="${USER_PROFILE_OUTPUT_PATH:-sampledata/user_profiles}"
+OUTPUT_ROOT="${USER_PROFILE_OUTPUT_PATH:-sampledata/user_profiles}"
 
 echo "=== Behavioral user-profile pipeline ==="
 echo "  Input path          : $USER_PROFILE_INPUT_PATH"
-echo "  Output path         : $OUTPUT_PATH"
+echo "  Output root         : $OUTPUT_ROOT"
 echo "  Redis host          : ${REDIS_HOST:-localhost}:${REDIS_PORT:-6379}"
 echo "  Redis key prefix    : ${USER_PROFILE_REDIS_KEY_PREFIX:-user-profile:v1}"
 echo "  Redis profile TTL   : ${USER_PROFILE_REDIS_TTL_SECONDS:-86400}"
@@ -51,4 +51,4 @@ exec "$SPARK_SUBMIT" \
   --class com.demo.profile.UserBehaviorProfileBatchJob \
   "$JAR" \
   "$USER_PROFILE_INPUT_PATH" \
-  "$OUTPUT_PATH"
+  "$OUTPUT_ROOT"

@@ -15,7 +15,7 @@ import java.util.Set;
 /**
  * Shared normalized-catalog + content-scoring core, used by both the candidate retriever and the
  * scorer. Owns the normalized-catalog cache (keyed on catalog-map identity) and the genre/tag
- * Jaccard content score. Extracted verbatim from HybridRecommendationService.
+ * Weighted genre/tag content score. Extracted from HybridRecommendationService.
  */
 public class CatalogContentScoring {
 

@@ -3,6 +3,7 @@ package com.demo.retrieval.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
+import java.util.Map;
 
 /** Read model for the versioned user-behavior profile emitted by the Spark profile job. */
 public record UserBehaviorProfile(
@@ -44,12 +45,9 @@ public record UserBehaviorProfile(
     ) {
     }
 
-    public record Persona(String type, String label, double confidence, Evidence evidence) {
-    }
-
-    public record Evidence(
-        @JsonProperty("evidence_count") Double evidenceCount,
-        @JsonProperty("minimum_evidence") Double minimumEvidence
-    ) {
+    public record Persona(String type, String label, double confidence, Map<String, Double> evidence) {
+        public Persona {
+            evidence = evidence == null ? Map.of() : Map.copyOf(evidence);
+        }
     }
 }

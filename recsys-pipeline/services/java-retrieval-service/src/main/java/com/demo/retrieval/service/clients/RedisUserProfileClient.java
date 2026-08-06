@@ -58,6 +58,9 @@ public class RedisUserProfileClient implements UserProfileClient {
             if (!userId.equals(profile.userId())) {
                 return fallback("user_mismatch");
             }
+            if (profile.runId() == null || profile.runId().isBlank() || !runId.equals(profile.runId())) {
+                return fallback("run_mismatch");
+            }
             return Optional.of(normalizePreferenceNames(profile));
         } catch (JsonProcessingException e) {
             log.warn("Unable to parse user profile for user {}", userId);

@@ -3,7 +3,7 @@ package com.demo.profile
 import com.demo.SparkTestSupport
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.functions.{col, sha2}
+import org.apache.spark.sql.functions.{col, sha2, struct, to_json}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -56,13 +56,26 @@ class UserBehaviorProfileBatchJobSpec extends AnyFlatSpec with Matchers with Spa
 
     val fallback = prepared.valid.filter(col("sample_id").isNull).select("dedupe_id").as[String].head()
     val expected = input.filter(col("sample_id").isNull && col("user_id") === "u2")
-      .select(sha2(org.apache.spark.sql.functions.concat_ws("\u001f", col("user_id"), col("request_id"), col("item_id"),
-        col("impression_ts"), col("clicked"), col("ordered"), col("rating")), 256).as("id"))
+      .select(sha2(to_json(struct(col("user_id"), col("request_id"), col("item_id"), col("impression_ts"),
+        col("clicked"), col("ordered"), col("rating")), Map("ignoreNullFields" -> "false")), 256).as("id"))
       .as[String].head()
     fallback shouldBe expected
     prepared.valid.filter(col("sample_id") === "explicit").select("genres", "tags").collect().head.toSeq shouldBe
       Seq(Seq("sci-fi"), Seq("space"))
     prepared.metrics.deduplicatedCount shouldBe 2L
+  }
+
+  it should "preserve null field positions in fallback identities" in {
+    val session = spark
+    import session.implicits._
+    val prepared = UserBehaviorProfileBatchJob.validateAndDeduplicate(samples(
+      ProfileSample(null, null, "u1", "shared", 900L, false, false, null, Seq("Drama"), null, false),
+      ProfileSample(null, "shared", "u1", null, 900L, false, false, null, Seq("Drama"), null, false)
+    ), config)
+
+    prepared.valid.count() shouldBe 2L
+    prepared.metrics.deduplicatedCount shouldBe 0L
+    prepared.valid.select("dedupe_id").as[String].collect().distinct.length shouldBe 2
   }
 
   "buildProfiles" should "aggregate decayed preference evidence and explicit null metrics per user" in {
@@ -134,8 +147,8 @@ class UserBehaviorProfileBatchJobSpec extends AnyFlatSpec with Matchers with Spa
     first.metrics.profileCount shouldBe 1L
     second.metrics.profileCount shouldBe 1L
 
-    val firstRow = spark.read.parquet(outputOne.toString).head()
-    val secondRow = spark.read.parquet(outputTwo.toString).head()
+    val firstRow = spark.read.parquet(first.outputPath).head()
+    val secondRow = spark.read.parquet(second.outputPath).head()
     firstRow.getAs[String]("profile_json") should include ("\"average_rating\":null")
     val parsed = new ObjectMapper().readTree(firstRow.getAs[String]("profile_json"))
     parsed.path("behavioral_features").path("average_rating").isNull shouldBe true
@@ -145,5 +158,23 @@ class UserBehaviorProfileBatchJobSpec extends AnyFlatSpec with Matchers with Spa
     val fixture = new String(Files.readAllBytes(java.nio.file.Paths.get(
       "../../integration-tests/fixtures/user_profile_v1.json")), StandardCharsets.UTF_8).trim
     firstRow.getAs[String]("profile_json") shouldBe fixture
+  }
+
+  it should "write each run beneath the configured output root" in {
+    val inputDir = Files.createTempDirectory("profile-input")
+    val outputRoot = Files.createTempDirectory("profile-output-root")
+    samples(ProfileSample("fixture-1", "request-1", "fixture-user", "item-1", 1000L,
+      true, false, null, Seq("Sci-Fi"), Seq("Space"), true))
+      .write.mode("overwrite").parquet(inputDir.toString)
+
+    val first = UserBehaviorProfileBatchJob.run(spark, inputDir.toString, outputRoot.toString, config,
+      "run-one", "1970-01-01T00:16:40Z")
+    val second = UserBehaviorProfileBatchJob.run(spark, inputDir.toString, outputRoot.toString, config,
+      "run-two", "1970-01-01T00:16:41Z")
+
+    first.outputPath shouldBe outputRoot.resolve("run-one").toString
+    second.outputPath shouldBe outputRoot.resolve("run-two").toString
+    spark.read.parquet(first.outputPath).head().getAs[String]("run_id") shouldBe "run-one"
+    spark.read.parquet(second.outputPath).head().getAs[String]("run_id") shouldBe "run-two"
   }
 }

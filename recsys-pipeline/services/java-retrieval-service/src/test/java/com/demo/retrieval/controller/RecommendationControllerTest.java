@@ -324,7 +324,8 @@ class RecommendationControllerTest {
             ),
             new UserBehaviorProfile.BehavioralFeatures(1.0, 0.0, 0.0, 1.0, 1.0, null, "low"),
             List.of(new UserBehaviorProfile.Persona(
-                "new_or_unknown", "New or unknown", 1.0, new UserBehaviorProfile.Evidence(1.0, 5.0)
+                "new_or_unknown", "New or unknown", 1.0,
+                java.util.Map.of("evidence_count", 1.0, "minimum_evidence", 5.0)
             ))
         );
     }

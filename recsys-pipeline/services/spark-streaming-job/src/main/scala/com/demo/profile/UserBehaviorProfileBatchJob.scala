@@ -1,6 +1,7 @@
 package com.demo.profile
 
 import com.demo.util.{Env, SparkSessions}
+import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.api.java.UDF1
 import org.apache.spark.sql.expressions.UserDefinedFunction
@@ -85,8 +86,9 @@ object UserBehaviorProfileBatchJob {
     val prepared = validateAndDeduplicate(spark.read.parquet(inputPath), config)
     val profiles = withMetadata(buildProfileBody(prepared.valid, config), config, runId, generatedAt)
     val profileCount = profiles.count()
-    profiles.write.mode("errorifexists").parquet(outputPath)
-    ProfileRunResult(runId, profiles, outputPath, prepared.metrics.copy(profileCount = profileCount))
+    val runOutputPath = new Path(outputPath, runId).toString
+    profiles.write.mode("errorifexists").parquet(runOutputPath)
+    ProfileRunResult(runId, profiles, runOutputPath, prepared.metrics.copy(profileCount = profileCount))
   }
 
   def main(args: Array[String]): Unit = {
@@ -102,7 +104,7 @@ object UserBehaviorProfileBatchJob {
     val spark = SparkSessions.create("UserBehaviorProfileBatchJob")
     try {
       val result = run(spark, inputPath, outputPath, profileConfig)
-      UserProfileRedisPublisher.publish(result.profiles, redisConfig)
+      UserProfileRedisPublisher.publish(spark.read.parquet(result.outputPath), redisConfig)
       println(s"""{"event":"user_profile_run_completed","run_id":"${result.runId}","input_count":${result.metrics.inputCount},"valid_count":${result.metrics.validCount},"rejected_count":${result.metrics.rejectedCount},"deduplicated_count":${result.metrics.deduplicatedCount},"profile_count":${result.metrics.profileCount},"output_path":"${result.outputPath}"}""")
     } finally {
       spark.stop()
@@ -140,8 +142,10 @@ object UserBehaviorProfileBatchJob {
       .withColumn("genres", normalizedTerms("genres"))
       .withColumn("tags", normalizedTerms("tags"))
       .withColumn("dedupe_id", when(col("sample_id").isNotNull && length(col("sample_id")) > 0, col("sample_id"))
-        .otherwise(sha2(concat_ws("\u001f", col("user_id"), col("request_id"), col("item_id"),
-          col("impression_ts"), col("clicked"), col("ordered"), col("rating")), 256)))
+        .otherwise(sha2(to_json(struct(
+          col("user_id"), col("request_id"), col("item_id"), col("impression_ts"),
+          col("clicked"), col("ordered"), col("rating")
+        ), Map("ignoreNullFields" -> "false")), 256)))
   }
 
   private def ensureColumn(frame: DataFrame, name: String, dataType: DataType): DataFrame =

@@ -22,7 +22,9 @@ import static org.mockito.Mockito.when;
 
 @SuppressWarnings("unchecked")
 class RedisUserProfileClientTest {
-    private static final String PROFILE_JSON = profileFixture().replace("fixture-user", "u1");
+    private static final String PROFILE_JSON = profileFixture()
+        .replace("fixture-user", "u1")
+        .replace("fixture-run", "run-7");
 
     @Test
     void readsTheActiveRunProfileAndPreservesExplicitNullMetrics() {
@@ -81,6 +83,19 @@ class RedisUserProfileClientTest {
         assertTrue(fixture.client.getProfile("u1").isEmpty());
 
         assertFallbackCount(fixture, "user_mismatch", 1);
+    }
+
+    @Test
+    void returnsEmptyAndRecordsRunMismatchFallback() {
+        Fixture fixture = fixture();
+        when(fixture.values.get("user-profile:v1:active-run")).thenReturn("run-7");
+        when(fixture.values.get("user-profile:v1:run-7:u1")).thenReturn(
+            PROFILE_JSON.replace("\"run-7\"", "\"run-8\"")
+        );
+
+        assertTrue(fixture.client.getProfile("u1").isEmpty());
+
+        assertFallbackCount(fixture, "run_mismatch", 1);
     }
 
     @Test
