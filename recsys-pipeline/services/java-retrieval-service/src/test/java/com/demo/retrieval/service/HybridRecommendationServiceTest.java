@@ -4,10 +4,13 @@ import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.model.MovieLensUserFeatures;
 import com.demo.retrieval.model.RecommendationResult;
+import com.demo.retrieval.model.UserBehaviorProfile;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.clients.UserMovieHistoryClient.UserMovieHistory;
+import com.demo.retrieval.service.clients.UserProfileClient;
 import com.demo.retrieval.service.query_hydrators.MovieLensUserHistoryQueryHydrator;
+import com.demo.retrieval.service.query_hydrators.UserBehaviorProfileQueryHydrator;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ListOperations;
@@ -128,7 +131,99 @@ class HybridRecommendationServiceTest {
         HybridRecommendationService.TasteProfile profile = service.deriveTasteProfile(
             List.of("watched"), List.of(), MovieLensUserFeatures.forUser("u1"), List.of());
 
-        assertTrue(profile.genres().contains("drama"));
+        assertTrue(profile.genres().containsKey("drama"));
+    }
+
+    @Test
+    void deriveTasteProfileKeepsExplicitAndSeedWeightsAheadOfBehavioralPreferences() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        RecommendationProperties properties = new RecommendationProperties();
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("watched", movie("sci-fi"));
+        properties.setCatalog(catalog);
+        FeatureCache featureCache = new FeatureCache(properties);
+        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
+        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
+        HybridRecommendationService service = new HybridRecommendationService(
+            redis, properties, predictionService,
+            new OnlineLearningService(redis, properties, featureCache),
+            featureCache, List.of(), twoTowerPredictionService);
+        MovieLensUserFeatures features = new MovieLensUserFeatures("u1", List.of("sci-fi"), 0.0, 0, List.of())
+            .withBehaviorPreferences(Map.of("sci-fi", 0.2, "drama", 0.3), Map.of("space", 0.4));
+
+        HybridRecommendationService.TasteProfile profile = service.deriveTasteProfile(
+            List.of("watched"), List.of(), features, List.of());
+
+        assertEquals(1.0, profile.genres().get("sci-fi"));
+        assertEquals(0.3, profile.genres().get("drama"));
+        assertEquals(0.4, profile.tags().get("space"));
+    }
+
+    @Test
+    void profiledUserRanksStrongerMatchingGenreAboveTiedPopularity() {
+        UserBehaviorProfile profile = new UserBehaviorProfile(
+            "u1", 1, "run", "now", null, 1L,
+            new UserBehaviorProfile.Preferences(
+                List.of(
+                    new UserBehaviorProfile.Preference("sci-fi", 0.9, 1L),
+                    new UserBehaviorProfile.Preference("drama", 0.3, 1L)
+                ),
+                List.of()),
+            null, List.of());
+
+        assertEquals(List.of("sci-fi", "drama"),
+            recommendForTiedGenres(userId -> Optional.of(profile)).recommendations());
+    }
+
+    @Test
+    void missingBehaviorProfilePreservesTiedPopularityBaselineOrdering() {
+        assertEquals(List.of("drama", "sci-fi"),
+            recommendForTiedGenres(userId -> Optional.empty()).recommendations());
+    }
+
+    private static RecommendationResult recommendForTiedGenres(UserProfileClient profileClient) {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
+        ListOperations<String, String> lists = mock(ListOperations.class);
+        SetOperations<String, String> sets = mock(SetOperations.class);
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        ZSetOperations<String, String> sortedSets = mock(ZSetOperations.class);
+        when(redis.opsForHash()).thenReturn(hashes);
+        when(redis.opsForList()).thenReturn(lists);
+        when(redis.opsForSet()).thenReturn(sets);
+        when(redis.opsForValue()).thenReturn(values);
+        when(redis.opsForZSet()).thenReturn(sortedSets);
+        when(sets.size(any())).thenReturn(1L);
+        when(sortedSets.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                ZSetOperations.TypedTuple.of("drama", 100.0),
+                ZSetOperations.TypedTuple.of("sci-fi", 100.0)
+            )));
+        when(values.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> key.startsWith("i2vEmb:") ? "1.0 0.0" : "0").toList();
+        });
+
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getCandidateGeneration().setColdStartPoolSize(2);
+        properties.getBandit().setRelevanceWeight(0.0);
+        properties.getBandit().setContentWeight(1.0);
+        properties.getBandit().setPopularityWeight(0.0);
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("drama", movie("drama"));
+        catalog.put("sci-fi", movie("sci-fi"));
+        properties.setCatalog(catalog);
+        FeatureCache featureCache = new FeatureCache(properties);
+        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
+        when(predictionService.predict(any(), any())).thenReturn(Optional.empty());
+        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
+        when(twoTowerPredictionService.isEnabled()).thenReturn(false);
+        HybridRecommendationService service = new HybridRecommendationService(
+            redis, properties, predictionService,
+            new OnlineLearningService(redis, properties, featureCache), featureCache,
+            List.of(new UserBehaviorProfileQueryHydrator(profileClient)), twoTowerPredictionService);
+
+        return service.recommend("u1", 2);
     }
 
     private static MovieProfile movie(String genre) {

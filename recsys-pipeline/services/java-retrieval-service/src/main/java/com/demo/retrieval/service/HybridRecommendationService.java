@@ -179,12 +179,12 @@ public class HybridRecommendationService {
             historySet.addAll(userFeatures.servedMovieIds());
             historySet.addAll(userFeatures.impressedMovieIds());
             TasteProfile tasteProfile = deriveTasteProfile(recent, rated, userFeatures, popularityMap.keySet());
-            Set<String> userGenres = tasteProfile.genres();
-            Set<String> userTags = tasteProfile.tags();
-            Map<String, Object> state = buildState(recent, userGenres, userTags);
+            Map<String, Double> genrePreferences = tasteProfile.genres();
+            Map<String, Double> tagPreferences = tasteProfile.tags();
+            Map<String, Object> state = buildState(recent, genrePreferences, tagPreferences);
             String stateKey = stateKey(state);
             RetrievalOutcome candidateGeneration = generateCandidates(
-                hydratedQuery, popularityMap, historySet, userGenres, userTags, filterCtx, limit);
+                hydratedQuery, popularityMap, historySet, genrePreferences, tagPreferences, filterCtx, limit);
             measurementService.recordFilterDecisions(
                 candidateGeneration.evaluatedCandidateCount(), candidateGeneration.filterDecisions());
             Map<String, MovieCandidate> candidateById = candidateGeneration.selectedCandidates().stream()
@@ -198,7 +198,7 @@ public class HybridRecommendationService {
             Map<String, Double> qValues = tabularRl ? batchFetchQValues(stateKey, eligibleList) : Map.of();
             onlineLearningService.batchWarmRewardStats(eligibleList, properties.getCatalog());
             return new RedisFetchOutputs(
-                popularityMap, maxPopularity, userGenres, userTags, state, stateKey, candidateGeneration,
+                popularityMap, maxPopularity, genrePreferences, tagPreferences, state, stateKey, candidateGeneration,
                 candidateById, eligibleList, totalImpressions, counters, qValues);
             });
         } catch (PopularityFetchException e) {
@@ -229,7 +229,8 @@ public class HybridRecommendationService {
                     long[] c = redisFetch.counters().getOrDefault(item, new long[]{0L, 0L});
                     return scoreCandidate(
                         redisFetch.candidateById().get(item), item, relevanceScores.getOrDefault(item, 0.0),
-                        redisFetch.userGenres(), redisFetch.userTags(), redisFetch.popularityMap().getOrDefault(item, 0.0),
+                        redisFetch.genrePreferences(), redisFetch.tagPreferences(),
+                        redisFetch.popularityMap().getOrDefault(item, 0.0),
                         redisFetch.maxPopularity(), redisFetch.totalImpressions(), c[0], c[1],
                         dlScores.getOrDefault(item, 0.0), redisFetch.qValues().get(item), tabularRl);
                 })
@@ -420,13 +421,13 @@ public class HybridRecommendationService {
         ScoredMoviesQuery query,
         Map<String, Double> popularityMap,
         Set<String> excludedItems,
-        Set<String> userGenres,
-        Set<String> userTags,
+        Map<String, Double> genrePreferences,
+        Map<String, Double> tagPreferences,
         FilterContext filterCtx,
         int limit
     ) {
         return contentCandidateRetriever.retrieve(
-            query, popularityMap, excludedItems, userGenres, userTags, filterCtx, limit);
+            query, popularityMap, excludedItems, genrePreferences, tagPreferences, filterCtx, limit);
     }
 
 
@@ -447,8 +448,8 @@ public class HybridRecommendationService {
         MovieCandidate candidate,
         String itemId,
         double relevance,
-        Set<String> userGenres,
-        Set<String> userTags,
+        Map<String, Double> genrePreferences,
+        Map<String, Double> tagPreferences,
         double itemPopularity,
         double maxPopularity,
         long totalImpressions,
@@ -461,7 +462,7 @@ public class HybridRecommendationService {
         NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
         MovieProfile movieProfile = properties.getCatalog().get(itemId);
 
-        double content = profile == null ? 0.0 : catalogContentScoring.contentScore(profile, userGenres, userTags);
+        double content = profile == null ? 0.0 : catalogContentScoring.contentScore(profile, genrePreferences, tagPreferences);
         double popularity = maxPopularity == 0.0 ? 0.0 : itemPopularity / maxPopularity;
 
         double offlineScore = RecommendationConstants.blendOfflineScore(
@@ -543,7 +544,7 @@ public class HybridRecommendationService {
         return buildState(recent, profile.genres(), profile.tags());
     }
 
-    record TasteProfile(Set<String> genres, Set<String> tags) {
+    record TasteProfile(Map<String, Double> genres, Map<String, Double> tags) {
     }
 
     TasteProfile deriveTasteProfile(List<String> recent, List<String> rated,
@@ -555,27 +556,39 @@ public class HybridRecommendationService {
             features.retrievalSequenceMovieIds(),
             features.scoringSequenceMovieIds(),
             rated,
-            List.copyOf(popular)
+            List.of()
         );
-        Set<String> genres = seedItems.stream()
+        Map<String, Double> genres = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
             .flatMap(p -> TextNormalization.normalize(p.getGenres()).stream())
-            .collect(Collectors.toCollection(LinkedHashSet::new));
-        genres.addAll(TextNormalization.normalize(features.favoriteGenres()));
-        Set<String> tags = seedItems.stream()
+            .collect(Collectors.toMap(genre -> genre, genre -> 1.0, (left, right) -> left, LinkedHashMap::new));
+        TextNormalization.normalize(features.favoriteGenres()).forEach(genre -> genres.putIfAbsent(genre, 1.0));
+        Map<String, Double> tags = seedItems.stream()
             .map(properties.getCatalog()::get)
             .filter(p -> p != null)
             .flatMap(p -> TextNormalization.normalize(p.getTags()).stream())
-            .collect(Collectors.toCollection(LinkedHashSet::new));
+            .collect(Collectors.toMap(tag -> tag, tag -> 1.0, (left, right) -> left, LinkedHashMap::new));
+        features.genrePreferences().forEach(genres::putIfAbsent);
+        features.tagPreferences().forEach(tags::putIfAbsent);
+        if (genres.isEmpty() && tags.isEmpty()) {
+            popular.stream()
+                .map(properties.getCatalog()::get)
+                .filter(p -> p != null)
+                .forEach(profile -> {
+                    TextNormalization.normalize(profile.getGenres()).forEach(genre -> genres.putIfAbsent(genre, 1.0));
+                    TextNormalization.normalize(profile.getTags()).forEach(tag -> tags.putIfAbsent(tag, 1.0));
+                });
+        }
         return new TasteProfile(genres, tags);
     }
 
-    private Map<String, Object> buildState(List<String> recent, Set<String> userGenres, Set<String> userTags) {
+    private Map<String, Object> buildState(
+        List<String> recent, Map<String, Double> genrePreferences, Map<String, Double> tagPreferences) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("recent", recent);
-        state.put("genres", userGenres.stream().sorted().toList());
-        state.put("tags", userTags.stream().sorted().toList());
+        state.put("genres", genrePreferences.keySet().stream().sorted().toList());
+        state.put("tags", tagPreferences.keySet().stream().sorted().toList());
         return state;
     }
 
@@ -1117,8 +1130,8 @@ public class HybridRecommendationService {
     private record RedisFetchOutputs(
         Map<String, Double> popularityMap,
         double maxPopularity,
-        Set<String> userGenres,
-        Set<String> userTags,
+        Map<String, Double> genrePreferences,
+        Map<String, Double> tagPreferences,
         Map<String, Object> state,
         String stateKey,
         RetrievalOutcome candidateGeneration,

@@ -50,4 +50,37 @@ class CatalogContentScoringTest {
         assertTrue(full > none);
         assertEquals(0.0, none, 1e-9);
     }
+
+    @Test
+    void contentScoreWeightsMatchingPreferencesAndIgnoresInvalidWeights() {
+        CatalogContentScoring sciFiScoring = scoringFor(movie(List.of("sci-fi"), List.of("space"), false));
+        CatalogContentScoring dramaScoring = scoringFor(movie(List.of("drama"), List.of("space"), false));
+
+        double strongGenre = sciFiScoring.contentScore(
+            sciFiScoring.profileFor("m1"), Map.of("sci-fi", 0.9, "drama", 0.3), Map.of());
+        double weakGenre = dramaScoring.contentScore(
+            dramaScoring.profileFor("m1"), Map.of("sci-fi", 0.9, "drama", 0.3), Map.of());
+        double genreAndTag = sciFiScoring.contentScore(
+            sciFiScoring.profileFor("m1"), Map.of("sci-fi", 0.9, "drama", 0.3), Map.of("space", 0.4, "other", 0.6));
+        double invalid = sciFiScoring.contentScore(
+            sciFiScoring.profileFor("m1"), Map.of("sci-fi", -1.0), Map.of("space", -1.0));
+        double unknown = sciFiScoring.contentScore(
+            sciFiScoring.profileFor("m1"), Map.of("unknown", 0.9), Map.of("unmatched", 0.4));
+
+        assertTrue(strongGenre > weakGenre);
+        assertTrue(genreAndTag > strongGenre);
+        assertEquals(0.0, invalid, 1e-9);
+        assertEquals(0.0, unknown, 1e-9);
+    }
+
+    @Test
+    void setOverloadDelegatesToUnitWeightPreferences() {
+        CatalogContentScoring scoring = scoringFor(movie(List.of("drama"), List.of("dark"), false));
+        NormalizedProfile profile = scoring.profileFor("m1");
+
+        assertEquals(
+            scoring.contentScore(profile, Map.of("drama", 1.0), Map.of("dark", 1.0)),
+            scoring.contentScore(profile, Set.of("drama"), Set.of("dark")),
+            1e-9);
+    }
 }
