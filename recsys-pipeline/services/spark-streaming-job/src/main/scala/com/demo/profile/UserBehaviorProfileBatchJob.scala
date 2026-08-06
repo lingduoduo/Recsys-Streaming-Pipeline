@@ -1,5 +1,6 @@
 package com.demo.profile
 
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.api.java.UDF1
 import org.apache.spark.sql.expressions.UserDefinedFunction
@@ -86,6 +87,26 @@ object UserBehaviorProfileBatchJob {
     val profileCount = profiles.count()
     profiles.write.mode("errorifexists").parquet(outputPath)
     ProfileRunResult(runId, profiles, outputPath, prepared.metrics.copy(profileCount = profileCount))
+  }
+
+  def main(args: Array[String]): Unit = {
+    val inputPath = Env.requiredArgOrEnv(args, 0, "USER_PROFILE_INPUT_PATH", "user profile input path")
+    val outputPath = Env.argOrEnv(args, 1, "USER_PROFILE_OUTPUT_PATH").getOrElse("sampledata/user_profiles")
+    val profileConfig = profileConfigFromEnvironment()
+    val redisConfig = RedisProfileConfig(
+      host = sys.env.getOrElse("REDIS_HOST", "localhost"),
+      port = intEnv("REDIS_PORT", 6379),
+      ttlSeconds = intEnv("USER_PROFILE_REDIS_TTL_SECONDS", 86400),
+      keyPrefix = sys.env.getOrElse("USER_PROFILE_REDIS_KEY_PREFIX", "user-profile:v1")
+    )
+    val spark = SparkSessions.create("UserBehaviorProfileBatchJob")
+    try {
+      val result = run(spark, inputPath, outputPath, profileConfig)
+      UserProfileRedisPublisher.publish(result.profiles, redisConfig)
+      println(s"""{"event":"user_profile_run_completed","run_id":"${result.runId}","input_count":${result.metrics.inputCount},"valid_count":${result.metrics.validCount},"rejected_count":${result.metrics.rejectedCount},"deduplicated_count":${result.metrics.deduplicatedCount},"profile_count":${result.metrics.profileCount},"output_path":"${result.outputPath}"}""")
+    } finally {
+      spark.stop()
+    }
   }
 
   private def prepareSource(input: DataFrame, config: ProfileConfig): DataFrame = {
@@ -275,4 +296,35 @@ object UserBehaviorProfileBatchJob {
   private def sourceWindowStart(config: ProfileConfig): Long = config.referenceEpochSeconds - config.sourceLookbackSeconds
   private def sourceWindowEndExclusive(config: ProfileConfig): Long = config.referenceEpochSeconds + 1L
   private def iso(epochSeconds: Long): String = Instant.ofEpochSecond(epochSeconds).toString
+
+  private def profileConfigFromEnvironment(): ProfileConfig = ProfileConfig(
+    referenceEpochSeconds = longEnv("USER_PROFILE_REFERENCE_EPOCH_SECONDS", Instant.now().getEpochSecond),
+    halfLifeSeconds = longEnv("USER_PROFILE_HALF_LIFE_SECONDS", 7L * 24L * 60L * 60L),
+    impressionWeight = doubleEnv("USER_PROFILE_IMPRESSION_WEIGHT", -0.1),
+    clickWeight = doubleEnv("USER_PROFILE_CLICK_WEIGHT", 1.0),
+    orderWeight = doubleEnv("USER_PROFILE_ORDER_WEIGHT", 3.0),
+    ratingMin = doubleEnv("USER_PROFILE_RATING_MIN", 1.0),
+    ratingMidpoint = doubleEnv("USER_PROFILE_RATING_MIDPOINT", 3.0),
+    ratingMax = doubleEnv("USER_PROFILE_RATING_MAX", 5.0),
+    shrinkage = doubleEnv("USER_PROFILE_SHRINKAGE", 5.0),
+    minimumEvidence = longEnv("USER_PROFILE_MINIMUM_EVIDENCE", 5L),
+    maxGenres = intEnv("USER_PROFILE_MAX_GENRES", 10),
+    maxTags = intEnv("USER_PROFILE_MAX_TAGS", 20),
+    genreEnthusiastThreshold = doubleEnv("USER_PROFILE_GENRE_ENTHUSIAST_THRESHOLD", 0.6),
+    genreExplorerDiversityThreshold = doubleEnv("USER_PROFILE_GENRE_EXPLORER_DIVERSITY_THRESHOLD", 0.6),
+    genreExplorerMaxConcentration = doubleEnv("USER_PROFILE_GENRE_EXPLORER_MAX_CONCENTRATION", 0.5),
+    focusedViewerConcentrationThreshold = doubleEnv("USER_PROFILE_FOCUSED_VIEWER_CONCENTRATION_THRESHOLD", 0.7),
+    recentReleaseAffinityThreshold = doubleEnv("USER_PROFILE_RECENT_RELEASE_AFFINITY_THRESHOLD", 0.6),
+    highIntentEngagementThreshold = doubleEnv("USER_PROFILE_HIGH_INTENT_ENGAGEMENT_THRESHOLD", 0.4),
+    highIntentConversionThreshold = doubleEnv("USER_PROFILE_HIGH_INTENT_CONVERSION_THRESHOLD", 0.1),
+    casualBrowserEngagementThreshold = doubleEnv("USER_PROFILE_CASUAL_BROWSER_ENGAGEMENT_THRESHOLD", 0.1),
+    casualBrowserConversionThreshold = doubleEnv("USER_PROFILE_CASUAL_BROWSER_CONVERSION_THRESHOLD", 0.02),
+    sourceLookbackSeconds = longEnv("USER_PROFILE_SOURCE_LOOKBACK_SECONDS", 30L * 24L * 60L * 60L),
+    recentReleaseAgeSeconds = longEnv("USER_PROFILE_RECENT_RELEASE_AGE_SECONDS", 365L * 24L * 60L * 60L)
+  )
+
+  private def intEnv(name: String, default: Int): Int = Env.int(name, default)
+  private def doubleEnv(name: String, default: Double): Double = Env.double(name, default)
+  private def longEnv(name: String, default: Long): Long =
+    sys.env.get(name).flatMap(value => scala.util.Try(value.toLong).toOption).getOrElse(default)
 }
