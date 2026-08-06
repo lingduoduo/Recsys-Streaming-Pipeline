@@ -310,6 +310,21 @@ def test_movie_category_sim_wires_every_measurement_input() -> None:
     assert "../frontend/" not in script
 
 
+def test_frontend_documentation_uses_relocated_paths() -> None:
+    pipeline_readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    analysis_report = (
+        REPO_ROOT / "docs" / "recommendation_architecture" / "Analysis_Report.md"
+    ).read_text(encoding="utf-8")
+    quick_start_dashboard = pipeline_readme.split("### Dashboard", 1)[1].split(
+        "### Step 1", 1
+    )[0]
+
+    assert "cd recsys-pipeline/frontend && npm run validate:data" in quick_start_dashboard
+    assert "cd frontend && npm run validate:data" not in quick_start_dashboard
+    assert "[pipeline README](../../README.md#canonical-finite-local-workflow)" in analysis_report
+    assert "../../../README.md#canonical-finite-local-workflow" not in analysis_report
+
+
 def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:
     script = SIM_SCRIPT.read_text(encoding="utf-8")
     burst = script.split("SERVICE BURST")[1]

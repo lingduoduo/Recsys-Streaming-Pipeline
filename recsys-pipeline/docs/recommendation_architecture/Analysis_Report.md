@@ -2,9 +2,8 @@
 
 This is the focused reference for choosing, generating, and interpreting offline analysis
 artifacts. For the only canonical end-to-end setup, movie-category simulation, React snapshot,
-and teardown sequence, follow the root
-[README](../../../README.md#canonical-finite-local-workflow). The commands here assume that
-workflow has already reached its literal `==> done` signal.
+and teardown sequence, follow the [pipeline README](../../README.md#canonical-finite-local-workflow).
+The commands here assume that workflow has already reached its literal `==> done` signal.
 
 ## Choose the artifact
 
