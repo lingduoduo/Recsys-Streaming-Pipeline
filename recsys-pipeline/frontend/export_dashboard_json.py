@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 _REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_REPO / "recsys-pipeline" / "services" / "python-modeling"))
+sys.path.insert(0, str(_REPO / "services" / "python-modeling"))
 
 import analysis_dashboard_report as dash  # noqa: E402
 

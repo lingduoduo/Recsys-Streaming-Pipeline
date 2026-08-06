@@ -304,6 +304,10 @@ def test_movie_category_sim_wires_every_measurement_input() -> None:
     # export: both optional inputs reach the exporter, and the snapshot is validated
     assert "--experiences" in script and "--live-metrics" in script
     assert "validate:data" in script
+    assert '--output "frontend/data/dashboard.json"' in script
+    assert 'python3 frontend/export_dashboard_json.py' in script
+    assert '(cd frontend && npm run validate:data)' in script
+    assert "../frontend/" not in script
 
 
 def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:
