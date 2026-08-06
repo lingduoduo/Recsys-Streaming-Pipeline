@@ -687,7 +687,8 @@ See [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md) for the cold-st
 
 # Local Workflow Reference
 
-> Commands in this section run from `recsys-pipeline/`.
+> The canonical finite workflow below runs from `recsys-pipeline/`; optional
+> reference workflows state their own working directories.
 
 ## End-to-end flow
 

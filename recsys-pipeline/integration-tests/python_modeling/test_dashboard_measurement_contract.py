@@ -124,6 +124,17 @@ def _export(tmp_path, *, experiences=None, live=None, extra_args=()):
     return json.loads(out.read_text())
 
 
+def test_exporter_default_output_is_the_relocated_frontend_snapshot():
+    """Parsing defaults must not write the committed dashboard snapshot."""
+    import export_dashboard_json as exporter
+
+    args = exporter.parse_args([])
+
+    assert Path(args.output) == (
+        _REPO / "recsys-pipeline" / "frontend" / "data" / "dashboard.json"
+    )
+
+
 def test_exporter_publishes_every_measurement_section(tmp_path, monkeypatch):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
