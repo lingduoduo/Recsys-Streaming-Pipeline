@@ -12,6 +12,8 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 recsys:
+  user-profile:
+    key-prefix: ${RECSYS_USER_PROFILE_KEY_PREFIX:user-profile:v1}
   measurements:
     fairness-min-support: ${RECSYS_FAIRNESS_MIN_SUPPORT:100}
     freshness-window-days: ${RECSYS_FRESHNESS_WINDOW_DAYS:30}
