@@ -13,6 +13,7 @@ real run with the export script.
 ## Run
 
 ```bash
+# from recsys-pipeline/
 cd frontend
 npm install
 npm run dev            # http://localhost:3000
@@ -29,7 +30,7 @@ match the Python HTML dashboard; the seven measurement sections are exported for
 (`analysis_dashboard_report.py`'s HTML report does not render them):
 
 ```bash
-# from the repo root (Redis up; a run's training_samples Parquet available)
+# from recsys-pipeline/ (Redis up; a run's training_samples Parquet available)
 
 # optional inputs: live latency/freshness/safety/feedback coverage, and the ranked slates that
 # relevance and diversity need. ExperienceCollectorStreamingJob writes slates to Parquet when

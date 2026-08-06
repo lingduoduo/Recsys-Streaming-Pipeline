@@ -17,7 +17,7 @@ workflow has already reached its literal `==> done` signal.
 | Ranking evaluation CSV | `ranking_eval_report.py` | `<input>/../report-ranking-eval/ranking_eval.csv` |
 | Off-policy evaluation CSV | `ope_eval_report.py --output <file>` | the exact `--output` path |
 | Standalone self-contained HTML | `analysis_dashboard_report.py` | `<input>/../report-dashboard/index.html` |
-| React dashboard snapshot | `frontend/export_dashboard_json.py` | `frontend/data/dashboard.json` |
+| React dashboard snapshot | `frontend/export_dashboard_json.py` | `frontend/data/dashboard.json` (from `recsys-pipeline/`) |
 
 The standalone HTML can be opened directly. The React app renders a static JSON snapshot and does
 not query Spark or Redis in the browser.
@@ -178,11 +178,11 @@ input is already `$IN/../mdp_eval.csv`, so `--mdp-csv` is optional when the file
 
 ## React snapshot
 
-The root canonical workflow owns snapshot generation so there is only one end-to-end path. Its
-export command uses the movie-category input and validates a positive row count plus a populated
-Keyword Gap L1 table. The output is `frontend/data/dashboard.json`. After regenerating it,
-hard-refresh `http://localhost:3000` or restart the development server if it still serves the old
-snapshot.
+The canonical workflow from `recsys-pipeline/` owns snapshot generation so there is only one
+end-to-end path. Its export command uses the movie-category input and validates a positive row
+count plus a populated Keyword Gap L1 table. The output is
+`frontend/data/dashboard.json`. After regenerating it, hard-refresh `http://localhost:3000` or
+restart the development server if it still serves the old snapshot.
 
 If validation reports `unknown` values or zero category rows, confirm that the simulation reached
 `==> done`, Parquet files exist under the movie-category input, and Redis still holds

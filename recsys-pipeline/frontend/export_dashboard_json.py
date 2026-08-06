@@ -6,6 +6,7 @@ dashboard renders exactly what the Python HTML dashboard would. Sections whose
 inputs are unavailable (e.g. no Redis corpus) serialize as null and the UI shows
 an N/A card.
 
+    # Run from recsys-pipeline/.
     REDIS_HOST=localhost python frontend/export_dashboard_json.py \
         --input /tmp/spark-recsys/training-samples \
         --output frontend/data/dashboard.json
