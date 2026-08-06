@@ -76,6 +76,115 @@ empty vector / null fields. Env knobs: `{RECALL,RANKING,RELEVANCE}_INPUT_TOPIC` 
 SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob ./run-streaming-job.sh
 ```
 
+## Behavioral User-Profile Snapshots
+
+`UserBehaviorProfileBatchJob` turns a bounded Parquet history into one deterministic,
+explainable version-one profile per user. It is an offline snapshot job: it writes an immutable
+Parquet run, publishes run-scoped values to Redis, and changes the serving pointer only after every
+profile write has succeeded.
+
+### Input and evidence rules
+
+The input is Parquet with the following fields. Missing optional columns are added as nulls before
+validation.
+
+| Field | Use |
+|---|---|
+| `sample_id` | Preferred deduplication identity; when absent, the job hashes the normalized user, request, item, timestamp, click/order flags, and rating |
+| `request_id`, `user_id`, `item_id` | Event identity and grouping; blank/null users are rejected |
+| `impression_ts` | Epoch seconds; null/invalid or outside the half-open source window is rejected |
+| `clicked`, `ordered` | Nullable booleans normalized to `false` and used for rates and evidence weight |
+| `rating` | Optional explicit rating; values outside the configured rating range are rejected |
+| `genres`, `tags` | Optional term arrays, trimmed, lower-cased, deduplicated, and sorted |
+| `new_release`, `published_at` | Optional freshness evidence; `published_at` determines recency when present, otherwise `new_release` is used |
+
+Equivalent valid events are deduplicated after validation. Each surviving event contributes exactly
+one base weight using strongest-evidence precedence: **rating**, then **order**, then **click**, then
+**impression**. Ratings are mapped around the configured midpoint to `[-1, 1]`; the other default
+weights are `3.0`, `1.0`, and `-0.1`. Every base weight is then decayed by
+`0.5^(ageSeconds / halfLifeSeconds)`. Genre/tag scores are the decayed weight sum divided by
+`evidence_count + shrinkage`, clamped to `[-1, 1]`, and ordered by descending score with the
+normalized value as the stable tie-breaker. Non-positive preferences remain in the explanatory
+profile but are not used as serving affinities.
+
+### Output and activation
+
+`USER_PROFILE_OUTPUT_PATH` is one immutable Spark Parquet directory (the job uses
+`errorifexists`, not date partitions). Each row contains the public contract columns
+`user_id`, `profile_version`, `run_id`, `generated_at`, `source_window`, `evidence_count`,
+`preferences`, `behavioral_features`, and `personas`; it also retains flattened counts/features
+and `profile_json`, the exact Redis/API JSON payload. A successful run prints one structured
+`user_profile_run_completed` event with `run_id`, input, valid, rejected, deduplicated and profile
+counts, plus the output path.
+
+Redis publication uses this protocol:
+
+1. Pipeline `SET EX` for every `USER_PROFILE_REDIS_KEY_PREFIX:{runId}:{userId}` profile.
+2. Synchronize each partition and check every deferred Redis command response.
+3. Only after all partitions succeed, set `USER_PROFILE_REDIS_KEY_PREFIX:active-run` to `runId`.
+
+Profile values expire after `USER_PROFILE_REDIS_TTL_SECONDS`; the active pointer intentionally has
+no TTL. If profile publication fails, the pointer is not advanced, so readers continue using the
+previous complete run.
+
+### Personas
+
+Users below `USER_PROFILE_MINIMUM_EVIDENCE` receive only `new_or_unknown`. Otherwise classification
+is deterministic and multi-label:
+
+| Type | Default rule |
+|---|---|
+| `genre_enthusiast` | Top positive genre score >= `0.6` |
+| `genre_explorer` | Genre diversity >= `0.6` and concentration <= `0.5` |
+| `focused_viewer` | Preference concentration >= `0.7` |
+| `recent_release_seeker` | Recent-release affinity >= `0.6` |
+| `high_intent_engager` | Engagement >= `0.4` and conversion >= `0.1` |
+| `casual_browser` | Enough impressions, engagement <= `0.1`, and conversion <= `0.02` |
+
+Every persona includes a bounded confidence and the named evidence used by its rule.
+
+### Run and configure
+
+Assemble the Spark job first, then run the wrapper from `recsys-pipeline/`:
+
+```bash
+(cd services/spark-streaming-job && sbt assembly)
+USER_PROFILE_INPUT_PATH=/path/to/profile-events-parquet \
+USER_PROFILE_OUTPUT_PATH=/path/to/user-profiles/run-2026-08-06 \
+./scripts/run-user-profile-pipeline.sh
+```
+
+Core environment variables:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `USER_PROFILE_INPUT_PATH` | required | Input Parquet directory |
+| `USER_PROFILE_OUTPUT_PATH` | `sampledata/user_profiles` | New immutable output directory |
+| `USER_PROFILE_REFERENCE_EPOCH_SECONDS` | job start | Decay/source-window reference time |
+| `USER_PROFILE_SOURCE_LOOKBACK_SECONDS` | `2592000` | Accepted history (30 days) |
+| `USER_PROFILE_HALF_LIFE_SECONDS` | `604800` | Evidence decay half-life (7 days) |
+| `USER_PROFILE_IMPRESSION_WEIGHT` / `CLICK_WEIGHT` / `ORDER_WEIGHT` | `-0.1` / `1.0` / `3.0` | Non-rating evidence weights |
+| `USER_PROFILE_RATING_MIN` / `MIDPOINT` / `MAX` | `1.0` / `3.0` / `5.0` | Rating validation and normalization |
+| `USER_PROFILE_SHRINKAGE` | `5.0` | Preference shrinkage toward zero |
+| `USER_PROFILE_MINIMUM_EVIDENCE` | `5` | Low-evidence/persona boundary |
+| `USER_PROFILE_MAX_GENRES` / `MAX_TAGS` | `10` / `20` | Preference list limits |
+| `USER_PROFILE_RECENT_RELEASE_AGE_SECONDS` | `31536000` | Published-at freshness window |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Publication target |
+| `USER_PROFILE_REDIS_KEY_PREFIX` | `user-profile:v1` | Versioned key namespace; serving must use the same prefix |
+| `USER_PROFILE_REDIS_TTL_SECONDS` | `86400` | Run-scoped profile TTL |
+
+Persona thresholds can be overridden with `USER_PROFILE_GENRE_ENTHUSIAST_THRESHOLD`,
+`USER_PROFILE_GENRE_EXPLORER_DIVERSITY_THRESHOLD`,
+`USER_PROFILE_GENRE_EXPLORER_MAX_CONCENTRATION`,
+`USER_PROFILE_FOCUSED_VIEWER_CONCENTRATION_THRESHOLD`,
+`USER_PROFILE_RECENT_RELEASE_AFFINITY_THRESHOLD`,
+`USER_PROFILE_HIGH_INTENT_ENGAGEMENT_THRESHOLD`,
+`USER_PROFILE_HIGH_INTENT_CONVERSION_THRESHOLD`,
+`USER_PROFILE_CASUAL_BROWSER_ENGAGEMENT_THRESHOLD`, and
+`USER_PROFILE_CASUAL_BROWSER_CONVERSION_THRESHOLD`. The wrapper also accepts `SPARK_HOME`,
+`SPARK_MASTER`, `SPARK_DRIVER_MEMORY`, `SPARK_EXECUTOR_MEMORY`, and
+`SPARK_SQL_SHUFFLE_PARTITIONS`.
+
 ## Spark Job Package Structure
 
 | Package | Responsibility | Examples |
