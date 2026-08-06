@@ -58,6 +58,68 @@ curl 'http://localhost:8080/recommend/user_1?limit=6'
 - `limit` defaults to `6`, clamped to `1..50`.
 - User and item IDs must match `[a-zA-Z0-9_:-]{1,64}`.
 
+Behavioral preferences from the active version-one profile are added during query hydration and
+can break otherwise tied popularity/content candidates. If the active pointer or requested profile
+is absent—or the value has invalid JSON, an unsupported version, a mismatched user, or Redis is
+unavailable—the recommender fails closed to its established non-profile signals. `/recommend`
+continues returning a normal response; a profile failure never makes recommendation serving depend
+on a partial snapshot.
+
+## `GET /users/{user}/profile`
+
+Returns the profile selected by `RECSYS_USER_PROFILE_KEY_PREFIX:active-run` (default prefix
+`user-profile:v1`). Preference names are normalized for serving, while list order, explicit JSON
+nulls, run metadata, persona confidence, and evidence are preserved.
+
+```bash
+curl http://localhost:8080/users/user_1/profile
+```
+
+```json
+{
+  "user_id": "user_1",
+  "profile_version": 1,
+  "run_id": "2026-08-06-run",
+  "generated_at": "2026-08-06T15:00:00Z",
+  "source_window": {
+    "start": "2026-07-07T15:00:00Z",
+    "end": "2026-08-06T15:00:01Z"
+  },
+  "evidence_count": 12,
+  "preferences": {
+    "genres": [{"value": "sci-fi", "score": 0.72, "evidence_count": 8}],
+    "tags": [{"value": "space", "score": 0.61, "evidence_count": 5}]
+  },
+  "behavioral_features": {
+    "engagement_rate": 0.5,
+    "conversion_rate": 0.08,
+    "genre_diversity": 0.42,
+    "preference_concentration": 0.71,
+    "recent_release_affinity": 0.64,
+    "average_rating": null,
+    "activity_level": "medium"
+  },
+  "personas": [{
+    "type": "genre_enthusiast",
+    "label": "Sci Fi enthusiast",
+    "confidence": 0.3,
+    "evidence": {"preference_score": 0.72, "evidence_count": 8.0}
+  }]
+}
+```
+
+When no valid profile is available, this endpoint returns HTTP 404:
+
+```json
+{"error":"profile_not_found","user_id":"user_1"}
+```
+
+User IDs outside `[a-zA-Z0-9_:-]{1,64}` return HTTP 400. Profile lookups record the Micrometer timer
+`profile.lookup`; safe fallbacks increment `profile.lookup.fallback` with reason
+`missing_active_run`, `missing_profile`, `unsupported_version`, `user_mismatch`, `invalid_json`, or
+`redis_error`. Configure a non-default namespace with `RECSYS_USER_PROFILE_KEY_PREFIX`; it must
+match `USER_PROFILE_REDIS_KEY_PREFIX` used by the Spark publisher.
+
 ## `GET /predict/{user}/{item}`
 
 Scores a single (user, item) pair using the offline ONNX model. These are string IDs: the service

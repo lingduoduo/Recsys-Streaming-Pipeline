@@ -8,6 +8,8 @@ import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.ModelIndexOutOfRangeException;
 import com.demo.retrieval.model.ModelPrediction;
 import com.demo.retrieval.model.RecommendationResult;
+import com.demo.retrieval.model.UserBehaviorProfile;
+import com.demo.retrieval.service.clients.UserProfileClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -18,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 
@@ -50,6 +53,43 @@ class RecommendationControllerTest {
 
     @MockBean
     private RecommendationMeasurementService measurementService;
+
+    @MockBean
+    private UserProfileClient userProfileClient;
+
+    // --- /users/{user}/profile ---
+
+    @Test
+    void profileEndpointReturnsCompleteNestedProfileContract() throws Exception {
+        when(userProfileClient.getProfile("u1")).thenReturn(Optional.of(profile("u1")));
+
+        mockMvc.perform(get("/users/u1/profile"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith("application/json"))
+            .andExpect(jsonPath("$.user_id").value("u1"))
+            .andExpect(jsonPath("$.profile_version").value(1))
+            .andExpect(jsonPath("$.source_window.start").value("1969-12-02T00:16:40Z"))
+            .andExpect(jsonPath("$.preferences.genres[0].value").value("sci-fi"))
+            .andExpect(jsonPath("$.behavioral_features.average_rating").value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.personas[0].evidence.minimum_evidence").value(5.0));
+    }
+
+    @Test
+    void profileEndpointReturnsNotFoundWhenNoProfileExists() throws Exception {
+        when(userProfileClient.getProfile("u1")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/users/u1/profile"))
+            .andExpect(status().isNotFound())
+            .andExpect(content().contentTypeCompatibleWith("application/json"))
+            .andExpect(jsonPath("$.error").value("profile_not_found"))
+            .andExpect(jsonPath("$.user_id").value("u1"));
+    }
+
+    @Test
+    void profileEndpointRejectsInvalidUserId() throws Exception {
+        mockMvc.perform(get("/users/user!/profile"))
+            .andExpect(status().isBadRequest());
+    }
 
     // --- /embedding ---
 
@@ -271,6 +311,23 @@ class RecommendationControllerTest {
                 .content("{\"user\":\"u1\",\"item\":\"item1\",\"clicked\":true,\"reward\":1.0,"
                     + invalidField + "}"))
             .andExpect(status().isBadRequest());
+    }
+
+    private static UserBehaviorProfile profile(String userId) {
+        return new UserBehaviorProfile(
+            userId, 1, "run-7", "1970-01-01T00:16:40Z",
+            new UserBehaviorProfile.SourceWindow("1969-12-02T00:16:40Z", "1970-01-01T00:16:41Z"),
+            1,
+            new UserBehaviorProfile.Preferences(
+                List.of(new UserBehaviorProfile.Preference("sci-fi", 0.5, 1)),
+                List.of(new UserBehaviorProfile.Preference("space", 0.5, 1))
+            ),
+            new UserBehaviorProfile.BehavioralFeatures(1.0, 0.0, 0.0, 1.0, 1.0, null, "low"),
+            List.of(new UserBehaviorProfile.Persona(
+                "new_or_unknown", "New or unknown", 1.0,
+                java.util.Map.of("evidence_count", 1.0, "minimum_evidence", 5.0)
+            ))
+        );
     }
 
     @Test

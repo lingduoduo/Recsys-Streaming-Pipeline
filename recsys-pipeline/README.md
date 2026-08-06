@@ -182,11 +182,34 @@ python services/python-modeling/producer.py
 
 This populates `global:item_popularity` in Redis in real time; the retrieval service uses it as a popularity signal. (Per-user recency comes from `user:{id}:features`, written by `MovieLensContextCollectorStreamingJob`.)
 
+### Optional — Build behavioral user profiles
+
+The offline profile job reads interaction Parquet, derives decayed genre/tag preferences and
+explainable personas, writes an immutable Parquet snapshot, then publishes run-scoped Redis values
+before atomically advancing `user-profile:v1:active-run`:
+
+```bash
+USER_PROFILE_INPUT_PATH=/path/to/profile-events-parquet \
+USER_PROFILE_OUTPUT_PATH=/path/to/user-profiles/run-2026-08-06 \
+./scripts/run-user-profile-pipeline.sh
+```
+
+The retrieval service uses the active profile for content affinity and exposes it at
+`GET /users/{user}/profile`. Missing, invalid, stale-version, or unreachable profile data safely
+falls back to the established recommendation signals. Keep `USER_PROFILE_REDIS_KEY_PREFIX` on the
+Spark job and `RECSYS_USER_PROFILE_KEY_PREFIX` on the service equal (both default to
+`user-profile:v1`). Profile values default to a one-day TTL; the active-run pointer does not expire.
+See [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#behavioral-user-profile-snapshots)
+for input, decay, taxonomy, output, activation, metrics, and all environment variables, and
+[API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
+contract.
+
 ### Step 5 — Query the API
 
 ```bash
 curl http://localhost:8080/recommend/user_1
 curl http://localhost:8080/recommend/user_1?limit=10
+curl http://localhost:8080/users/user_1/profile
 curl http://localhost:8080/metrics
 ```
 
@@ -314,7 +337,7 @@ python3 services/python-modeling/replay_export.py --output /tmp/replay_backup.cs
 
 ## API
 
-REST endpoint reference (`/recommend`, `/predict`, `/feedback`, `/metrics`, `/embedding`) lives in
+REST endpoint reference (`/recommend`, `/users/{user}/profile`, `/predict`, `/feedback`, `/metrics`, `/embedding`) lives in
 [API.md](docs/recommendation_architecture/API.md).
 
 ## Retrieval Pipeline
@@ -643,7 +666,7 @@ commands.
 | Service | Command (from repo root) | Covers |
 |---|---|---|
 | Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
-| Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, two-tower, catalog loader, model reload |
+| Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, behavioral-profile fixture contract, two-tower, catalog loader, model reload; real-Redis tests skip when Docker is unavailable |
 | Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, and the analysis reports (query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
 
 The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform

@@ -7,6 +7,8 @@ import com.demo.retrieval.service.HybridRecommendationService;
 import com.demo.retrieval.service.ModelIndexOutOfRangeException;
 import com.demo.retrieval.model.ModelPrediction;
 import com.demo.retrieval.model.RecommendationResult;
+import com.demo.retrieval.model.UserBehaviorProfile;
+import com.demo.retrieval.service.clients.UserProfileClient;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -15,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -50,17 +53,20 @@ public class RecommendationController {
     private final HybridRecommendationService recommendationService;
     private final DeepLearningPredictionService predictionService;
     private final RecommendationMeasurementService measurementService;
+    private final UserProfileClient userProfileClient;
 
     public RecommendationController(
         StringRedisTemplate redis,
         HybridRecommendationService recommendationService,
         DeepLearningPredictionService predictionService,
-        RecommendationMeasurementService measurementService
+        RecommendationMeasurementService measurementService,
+        UserProfileClient userProfileClient
     ) {
         this.redis = redis;
         this.recommendationService = recommendationService;
         this.predictionService = predictionService;
         this.measurementService = measurementService;
+        this.userProfileClient = userProfileClient;
     }
 
     @GetMapping("/embedding/{item}")
@@ -144,6 +150,15 @@ public class RecommendationController {
         return predictionService.metadata();
     }
 
+    @GetMapping("/users/{user}/profile")
+    public ResponseEntity<UserBehaviorProfile> profile(
+        @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user
+    ) {
+        return userProfileClient.getProfile(user)
+            .map(ResponseEntity::ok)
+            .orElseThrow(() -> new ProfileNotFoundException(user));
+    }
+
     @PostMapping("/feedback")
     public Map<String, Object> feedback(@Valid @RequestBody FeedbackRequest request) {
         long started = System.nanoTime();
@@ -180,6 +195,12 @@ public class RecommendationController {
         return Map.of("error", e.getMessage());
     }
 
+    @ExceptionHandler(ProfileNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleProfileNotFound(ProfileNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(Map.of("error", "profile_not_found", "user_id", e.userId));
+    }
+
     private Map<String, Object> predictionPayload(ModelPrediction prediction) {
         Map<String, Object> payload = new java.util.LinkedHashMap<>();
         payload.put("model", prediction.model());
@@ -205,5 +226,13 @@ public class RecommendationController {
             }
         }
         return false;
+    }
+
+    private static final class ProfileNotFoundException extends RuntimeException {
+        private final String userId;
+
+        private ProfileNotFoundException(String userId) {
+            this.userId = userId;
+        }
     }
 }

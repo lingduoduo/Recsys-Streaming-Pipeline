@@ -8,13 +8,14 @@ import com.demo.retrieval.service.text.TextNormalization;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * Shared normalized-catalog + content-scoring core, used by both the candidate retriever and the
  * scorer. Owns the normalized-catalog cache (keyed on catalog-map identity) and the genre/tag
- * Jaccard content score. Extracted verbatim from HybridRecommendationService.
+ * Weighted genre/tag content score. Extracted from HybridRecommendationService.
  */
 public class CatalogContentScoring {
 
@@ -67,21 +68,50 @@ public class CatalogContentScoring {
     }
 
     public double contentScore(NormalizedProfile profile, Set<String> userGenres, Set<String> userTags) {
-        return RecommendationConstants.clamp(
-            (overlapRatio(userGenres, profile.genres()) * RecommendationConstants.CONTENT_GENRE_WEIGHT)
-            + (overlapRatio(userTags, profile.tags()) * RecommendationConstants.CONTENT_TAG_WEIGHT));
+        return contentScore(profile, unitWeights(userGenres), unitWeights(userTags));
     }
 
-    private double overlapRatio(Set<String> left, Set<String> right) {
-        if (left.isEmpty() || right.isEmpty()) return 0.0;
-        Set<String> smaller = left.size() <= right.size() ? left : right;
-        Set<String> larger  = left.size() <= right.size() ? right : left;
-        int intersectionSize = 0;
-        for (String s : smaller) {
-            if (larger.contains(s)) intersectionSize++;
+    public double contentScore(
+        NormalizedProfile profile,
+        Map<String, Double> genrePreferences,
+        Map<String, Double> tagPreferences
+    ) {
+        return RecommendationConstants.clamp(
+            (weightedOverlapRatio(genrePreferences, profile.genres()) * RecommendationConstants.CONTENT_GENRE_WEIGHT)
+            + (weightedOverlapRatio(tagPreferences, profile.tags()) * RecommendationConstants.CONTENT_TAG_WEIGHT));
+    }
+
+    private Map<String, Double> unitWeights(Set<String> preferences) {
+        if (preferences == null || preferences.isEmpty()) {
+            return Map.of();
         }
-        int unionSize = left.size() + right.size() - intersectionSize;
-        return unionSize == 0 ? 0.0 : (double) intersectionSize / unionSize;
+        Map<String, Double> weights = new LinkedHashMap<>();
+        for (String preference : preferences) {
+            if (preference != null) {
+                weights.put(preference, 1.0);
+            }
+        }
+        return weights;
+    }
+
+    private double weightedOverlapRatio(Map<String, Double> preferences, Set<String> catalogValues) {
+        if (preferences == null || preferences.isEmpty() || catalogValues == null || catalogValues.isEmpty()) {
+            return 0.0;
+        }
+        double matchingWeight = 0.0;
+        double totalWeight = 0.0;
+        for (Map.Entry<String, Double> entry : preferences.entrySet()) {
+            Double rawWeight = entry.getValue();
+            if (entry.getKey() == null || rawWeight == null || !Double.isFinite(rawWeight) || rawWeight <= 0.0) {
+                continue;
+            }
+            double weight = Math.min(rawWeight, 1.0);
+            totalWeight += weight;
+            if (catalogValues.contains(entry.getKey())) {
+                matchingWeight += weight;
+            }
+        }
+        return totalWeight == 0.0 ? 0.0 : matchingWeight / totalWeight;
     }
 
     private record CatalogCache(

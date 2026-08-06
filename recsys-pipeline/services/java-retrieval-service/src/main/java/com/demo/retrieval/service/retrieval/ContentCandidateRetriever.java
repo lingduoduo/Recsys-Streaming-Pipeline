@@ -46,17 +46,17 @@ public class ContentCandidateRetriever {
         ScoredMoviesQuery query,
         Map<String, Double> popularityMap,
         Set<String> excludedItems,
-        Set<String> userGenres,
-        Set<String> userTags,
+        Map<String, Double> genrePreferences,
+        Map<String, Double> tagPreferences,
         FilterContext filterCtx,
         int limit
     ) {
         List<MovieCandidate> retrieved = new ArrayList<>();
         List<FilterDecision> filterDecisions = new ArrayList<>();
         int[] evaluatedCandidateCount = {0};
-        retrieved.addAll(fetchPopularCandidates(popularityMap, userGenres, userTags));
+        retrieved.addAll(fetchPopularCandidates(popularityMap, genrePreferences, tagPreferences));
         retrieved.addAll(fetchColdStartCandidates(
-            excludedItems, userGenres, userTags, filterCtx, limit, filterDecisions, evaluatedCandidateCount));
+            excludedItems, genrePreferences, tagPreferences, filterCtx, limit, filterDecisions, evaluatedCandidateCount));
 
         List<MovieCandidate> kept = List.copyOf(retrieved);
         List<MovieCandidate> removed = new ArrayList<>();
@@ -83,12 +83,12 @@ public class ContentCandidateRetriever {
     }
 
     private List<MovieCandidate> fetchPopularCandidates(
-        Map<String, Double> popularityMap, Set<String> userGenres, Set<String> userTags) {
+        Map<String, Double> popularityMap, Map<String, Double> genrePreferences, Map<String, Double> tagPreferences) {
         return popularityMap.entrySet().stream()
             .map(entry -> new MovieCandidate(
                 entry.getKey(),
                 entry.getValue(),
-                contentScoreForItem(entry.getKey(), userGenres, userTags),
+                contentScoreForItem(entry.getKey(), genrePreferences, tagPreferences),
                 false
             ))
             .toList();
@@ -127,7 +127,7 @@ public class ContentCandidateRetriever {
     }
 
     private List<MovieCandidate> fetchColdStartCandidates(
-        Set<String> excludedItems, Set<String> userGenres, Set<String> userTags,
+        Set<String> excludedItems, Map<String, Double> genrePreferences, Map<String, Double> tagPreferences,
         FilterContext filterCtx, int resultSize, List<FilterDecision> filterDecisions, int[] evaluatedCandidateCount) {
         Map<String, MovieProfile> catalog = properties.getCatalog();
         if (catalog.isEmpty()) {
@@ -145,7 +145,7 @@ public class ContentCandidateRetriever {
                 entry.getKey(), excludedItems, filterCtx, filterDecisions, evaluatedCandidateCount))
             .map(entry -> {
                 NormalizedProfile np = normalizedCatalog.get(entry.getKey());
-                double cs = np == null ? 0.0 : catalogContentScoring.contentScore(np, userGenres, userTags);
+                double cs = np == null ? 0.0 : catalogContentScoring.contentScore(np, genrePreferences, tagPreferences);
                 return new MovieCandidate(entry.getKey(), 0.0, cs, true);
             })
             .sorted(
@@ -173,9 +173,10 @@ public class ContentCandidateRetriever {
             .toList();
     }
 
-    private double contentScoreForItem(String itemId, Set<String> userGenres, Set<String> userTags) {
+    private double contentScoreForItem(
+        String itemId, Map<String, Double> genrePreferences, Map<String, Double> tagPreferences) {
         NormalizedProfile profile = catalogContentScoring.normalizedCatalog().get(itemId);
-        return profile == null ? 0.0 : catalogContentScoring.contentScore(profile, userGenres, userTags);
+        return profile == null ? 0.0 : catalogContentScoring.contentScore(profile, genrePreferences, tagPreferences);
     }
 
     // Mirrors MovieRankingScorer + TopKMovieSelector from the Scala pipeline:

@@ -27,6 +27,12 @@ def copy_pipeline_scripts(tmp_path: Path) -> Path:
     return pipeline
 
 
+def copy_user_profile_script(pipeline: Path) -> Path:
+    script = pipeline / "scripts" / "run-user-profile-pipeline.sh"
+    shutil.copy2(SCRIPTS_DIR / "run-user-profile-pipeline.sh", script)
+    return script
+
+
 def add_fake_spark_submit(spark_home: Path) -> Path:
     bin_dir = spark_home / "bin"
     bin_dir.mkdir(parents=True)
@@ -34,7 +40,8 @@ def add_fake_spark_submit(spark_home: Path) -> Path:
     spark_submit = bin_dir / "spark-submit"
     spark_submit.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\n' \"$@\" > \"${SPARK_SUBMIT_LOG:?}\"\n",
+        "printf '%s\\n' \"$@\" > \"${SPARK_SUBMIT_LOG:?}\"\n"
+        "if [[ -n \"${SPARK_SUBMIT_ENV_LOG:-}\" ]]; then env | sort > \"$SPARK_SUBMIT_ENV_LOG\"; fi\n",
         encoding="utf-8",
     )
     spark_submit.chmod(spark_submit.stat().st_mode | stat.S_IXUSR)
@@ -170,6 +177,58 @@ def test_offline_script_passes_ratings_and_embedding_paths_to_spark(tmp_path: Pa
     assert "com.demo.task.Item2VecTrainingJob" in args
     assert "services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar" in args
     assert args[-3:] == ["sampledata/ratings.csv", "sampledata/custom_embedding.txt", "42"]
+
+
+def test_user_profile_script_requires_input_before_spark(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    script = copy_user_profile_script(pipeline)
+    env = base_env(tmp_path)
+    env.pop("USER_PROFILE_INPUT_PATH", None)
+
+    result = run_script(script, env)
+
+    assert result.returncode == 1
+    assert "USER_PROFILE_INPUT_PATH is required" in result.stderr
+    assert not Path(env["SPARK_SUBMIT_LOG"]).exists()
+
+
+def test_user_profile_script_reports_missing_jar(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    script = copy_user_profile_script(pipeline)
+    env = base_env(tmp_path)
+    env["USER_PROFILE_INPUT_PATH"] = "sampledata/events"
+
+    result = run_script(script, env)
+
+    assert result.returncode == 127
+    assert "Missing Spark job jar" in result.stderr
+    assert "sbt assembly" in result.stderr
+
+
+def test_user_profile_script_uses_batch_class_paths_and_environment(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    script = copy_user_profile_script(pipeline)
+    add_spark_job_jar(pipeline)
+    env = base_env(tmp_path)
+    env.update({
+        "USER_PROFILE_INPUT_PATH": "sampledata/profile-events",
+        "USER_PROFILE_OUTPUT_PATH": "sampledata/profile-output",
+        "USER_PROFILE_HALF_LIFE_SECONDS": "600",
+        "USER_PROFILE_REDIS_TTL_SECONDS": "123",
+        "REDIS_HOST": "redis.internal",
+        "SPARK_SUBMIT_ENV_LOG": str(tmp_path / "spark-submit.env"),
+    })
+
+    result = run_script(script, env)
+
+    assert result.returncode == 0
+    args = Path(env["SPARK_SUBMIT_LOG"]).read_text(encoding="utf-8").splitlines()
+    assert "com.demo.profile.UserBehaviorProfileBatchJob" in args
+    assert args[-2:] == ["sampledata/profile-events", "sampledata/profile-output"]
+    forwarded = Path(env["SPARK_SUBMIT_ENV_LOG"]).read_text(encoding="utf-8")
+    assert "USER_PROFILE_HALF_LIFE_SECONDS=600" in forwarded
+    assert "USER_PROFILE_REDIS_TTL_SECONDS=123" in forwarded
+    assert "REDIS_HOST=redis.internal" in forwarded
 
 
 PIPELINE_DIR = os.path.join(os.path.dirname(__file__), "..")
