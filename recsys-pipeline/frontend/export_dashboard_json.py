@@ -6,6 +6,7 @@ dashboard renders exactly what the Python HTML dashboard would. Sections whose
 inputs are unavailable (e.g. no Redis corpus) serialize as null and the UI shows
 an N/A card.
 
+    # Run from recsys-pipeline/.
     REDIS_HOST=localhost python frontend/export_dashboard_json.py \
         --input /tmp/spark-recsys/training-samples \
         --output frontend/data/dashboard.json
@@ -21,7 +22,8 @@ from pathlib import Path
 import numpy as np
 
 _REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_REPO / "recsys-pipeline" / "services" / "python-modeling"))
+DEFAULT_OUTPUT = _REPO / "frontend" / "data" / "dashboard.json"
+sys.path.insert(0, str(_REPO / "services" / "python-modeling"))
 
 import analysis_dashboard_report as dash  # noqa: E402
 
@@ -124,10 +126,10 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
     })
 
 
-def main(argv=None) -> None:
+def parse_args(argv=None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", default="/tmp/spark-recsys/training-samples")
-    ap.add_argument("--output", default=str(_REPO / "frontend" / "data" / "dashboard.json"))
+    ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--mdp-csv", default=None)
     ap.add_argument("--experiences", default=None,
                     help="slate experiences Parquet directory or JSON file (relevance/diversity)")
@@ -137,7 +139,11 @@ def main(argv=None) -> None:
     ap.add_argument("--freshness-window-days", type=int, default=30)
     ap.add_argument("--long-tail-percentile", type=float, default=0.80)
     ap.add_argument("--safety-policy-version", default="catalog-filter-v1")
-    args = ap.parse_args(argv)
+    return ap.parse_args(argv)
+
+
+def main(argv=None) -> None:
+    args = parse_args(argv)
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
 

@@ -12,7 +12,7 @@ notes, Kafka/Redis infrastructure, and a Spring Boot retrieval service.
 | Understand the architecture, services, and storage design | [recsys-pipeline/README.md](recsys-pipeline/README.md#architecture) |
 | Configure or operate the retrieval service | [Retrieval Service Configuration](recsys-pipeline/README.md#retrieval-service-configuration) |
 | Reproduce a measurement run end to end | [Simulation Harnesses](recsys-pipeline/README.md#simulation-harnesses) |
-| View the analysis dashboard without Redis or Spark | [frontend/README.md](frontend/README.md) |
+| View the analysis dashboard without Redis or Spark | [recsys-pipeline/frontend/README.md](recsys-pipeline/frontend/README.md) |
 | Read the Spark/Flink notes and Scala job reference | [spark-analysis/README.md](spark-analysis/README.md) |
 
 Something broken during setup? Start with
@@ -25,7 +25,7 @@ Each sub-project owns its own documentation; this file is the index.
 | Directory | What it is | Docs |
 |---|---|---|
 | [`recsys-pipeline/`](recsys-pipeline/) | The streaming recommendation platform: Kafka → Spark → Redis for live user history, an online joiner and slate collector for training data, offline embedding trainers, and a Spring Boot retrieval service combining an ONNX model, an online-learning reward model, and a UCB/Thompson bandit policy. | [README](recsys-pipeline/README.md) |
-| [`frontend/`](frontend/) | Next.js (app-router) rendering of the analysis dashboard — the measurement and diagnostic sections as React components, served from a committed JSON snapshot. | [README](frontend/README.md) |
+| [`recsys-pipeline/frontend/`](recsys-pipeline/frontend/) | Next.js (app-router) rendering of the analysis dashboard — the measurement and diagnostic sections as React components, served from a committed JSON snapshot. | [README](recsys-pipeline/frontend/README.md) |
 | [`spark-analysis/`](spark-analysis/) | Standalone Spark/Flink material: streaming concepts plus production-grade Scala jobs for user-behaviour analysis, classification, and BigQuery retention labelling. Not part of the running platform. | [README](spark-analysis/README.md) |
 
 Feature storage in `recsys-pipeline` is three-tier: offline files (ONNX model + Parquet training
@@ -41,9 +41,9 @@ Recsys-Streaming-Pipeline/
 │   ├── scripts/             # All runnable scripts; each cd's up to recsys-pipeline/
 │   ├── integration-tests/   # Cross-service tests (pytest + shell)
 │   ├── docs/                # Architecture and recommendation-flow docs
+│   ├── frontend/            # Next.js dashboard + export_dashboard_json.py
 │   ├── sampledata/          # ratings.csv, catalog.json, sample embeddings
 │   └── docker-compose.yml   # Local Kafka, ZooKeeper, Redis
-├── frontend/            # Next.js dashboard + export_dashboard_json.py
 └── spark-analysis/      # Spark/Flink notes and standalone Scala jobs
 ```
 

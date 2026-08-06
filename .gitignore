@@ -21,7 +21,7 @@ recsys-pipeline/sampledata/movielens_*.onnx.data
 recsys-pipeline/__pycache__/
 recsys-pipeline/**/__pycache__/
 recsys-pipeline/**/*.pyc
-frontend/__pycache__/
+recsys-pipeline/frontend/__pycache__/
 *.class
 .DS_Store
 **/.DS_Store

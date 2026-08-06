@@ -117,7 +117,7 @@ docker compose up -d
 
 ### Dashboard
 ```
-cd frontend && npm run validate:data
+cd recsys-pipeline/frontend && npm run validate:data
 ```
 
 ### Step 1 — Offline embeddings
@@ -522,8 +522,8 @@ Java service only observes the work it was already doing.
 steps: it runs `ExperienceCollectorStreamingJob` with `EXPERIENCE_COLLECTOR_OUTPUT_PATH` set (so
 slates land as Parquet, not just on the `training_experiences` Kafka topic), bursts traffic
 against the retrieval service to populate `/metrics`, then exports and validates the snapshot —
-one command, no manual steps. To capture the same inputs by hand against a run already in
-progress:
+one command, no manual steps. To capture the same inputs by hand from `recsys-pipeline/` against
+a run already in progress:
 
 ```bash
 # 1. live operational measurements from the running retrieval service
@@ -531,11 +531,11 @@ curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
 
 # 2. offline + slate + live measurements from a run's outputs
 IN=/tmp/spark-recsys/movie-category-sim
-REDIS_HOST=localhost python ../frontend/export_dashboard_json.py \
+REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --input "$IN/training-samples" \
   --experiences "$IN/slates" \
   --live-metrics "$IN/live-metrics.json" \
-  --output ../frontend/data/dashboard.json
+  --output frontend/data/dashboard.json
 ```
 
 `/metrics` keeps every pre-existing key and adds `measurements` (schema `2.0`) with the live
@@ -687,8 +687,8 @@ See [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md) for the cold-st
 
 # Local Workflow Reference
 
-> Commands in this section run from the **repository root**, not from `recsys-pipeline/`.
-> They span the whole repo (the dashboard export writes into `frontend/`).
+> The canonical finite workflow below runs from `recsys-pipeline/`; optional
+> reference workflows state their own working directories.
 
 ## End-to-end flow
 
@@ -764,7 +764,7 @@ explicitly optional references, not alternative quick starts.
 
 ### 1. Verify prerequisites
 
-From the repository root, verify the tools used by this workflow. Java 17, Spark 3.5 with
+From `recsys-pipeline/`, verify the tools used by this workflow. Java 17, Spark 3.5 with
 `spark-submit` on `PATH`, sbt, Python, Docker Compose, Node.js 18+, and npm must be available.
 
 ```bash
@@ -789,7 +789,7 @@ drop-in for Docker Desktop here and needs no extra configuration.
 
 ### 2. Check host-port conflicts
 
-From the repository root, inspect the local ports before starting infrastructure:
+From `recsys-pipeline/`, inspect the local ports before starting infrastructure:
 
 ```bash
 lsof -nP -iTCP:6379 -sTCP:LISTEN
@@ -803,10 +803,9 @@ you know it belongs to this project; do not stop unrelated containers or service
 
 ### 3. Start Kafka and Redis
 
-From the repository root:
+From `recsys-pipeline/`:
 
 ```bash
-cd recsys-pipeline
 docker compose up -d zookeeper kafka redis
 docker compose ps
 ```
@@ -817,10 +816,9 @@ failure.
 
 ### 4. Install dependencies and build the Spark artifact
 
-From the repository root:
+From `recsys-pipeline/`:
 
 ```bash
-cd recsys-pipeline
 python -m pip install -r services/python-modeling/requirements.txt
 python -m pip install pandas pyarrow numpy redis
 (cd services/spark-streaming-job && sbt assembly)
@@ -831,10 +829,9 @@ The final command exits successfully when the required fat jar exists.
 
 ### 5. Run the finite movie-category simulation
 
-From the repository root:
+From `recsys-pipeline/`:
 
 ```bash
-cd recsys-pipeline
 ./scripts/run-movie-category-sim.sh
 ```
 
@@ -857,7 +854,7 @@ Keep Redis running after this line; the exporter still needs `movie:*:features`,
 
 ### 7. Export and validate the React snapshot
 
-From the repository root:
+From `recsys-pipeline/`:
 
 ```bash
 # Optional: capture live latency/freshness/safety/feedback coverage while the service runs.
@@ -901,7 +898,7 @@ metric definitions, denominators, interpretation caveats, and configuration vari
 
 ### 8. Launch and refresh the React dashboard
 
-From the repository root:
+From `recsys-pipeline/`:
 
 ```bash
 cd frontend
@@ -927,10 +924,10 @@ read -r RECSYS_PROCESS_PID
 kill -TERM "$RECSYS_PROCESS_PID"
 ```
 
-Finally, from the repository root, stop only this repository's Compose project:
+Finally, from `recsys-pipeline/`, stop only this repository's Compose project:
 
 ```bash
-cd recsys-pipeline && docker compose down
+docker compose down
 ```
 
 ## Optional reference: manual streaming data pipeline

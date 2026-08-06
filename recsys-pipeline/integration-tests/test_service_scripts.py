@@ -304,6 +304,25 @@ def test_movie_category_sim_wires_every_measurement_input() -> None:
     # export: both optional inputs reach the exporter, and the snapshot is validated
     assert "--experiences" in script and "--live-metrics" in script
     assert "validate:data" in script
+    assert '--output "frontend/data/dashboard.json"' in script
+    assert 'python3 frontend/export_dashboard_json.py' in script
+    assert '(cd frontend && npm run validate:data)' in script
+    assert "../frontend/" not in script
+
+
+def test_frontend_documentation_uses_relocated_paths() -> None:
+    pipeline_readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    analysis_report = (
+        REPO_ROOT / "docs" / "recommendation_architecture" / "Analysis_Report.md"
+    ).read_text(encoding="utf-8")
+    quick_start_dashboard = pipeline_readme.split("### Dashboard", 1)[1].split(
+        "### Step 1", 1
+    )[0]
+
+    assert "cd recsys-pipeline/frontend && npm run validate:data" in quick_start_dashboard
+    assert "cd frontend && npm run validate:data" not in quick_start_dashboard
+    assert "[pipeline README](../../README.md#canonical-finite-local-workflow)" in analysis_report
+    assert "../../../README.md#canonical-finite-local-workflow" not in analysis_report
 
 
 def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:

@@ -8,7 +8,7 @@ import pytest
 
 _REPO = Path(__file__).parents[3]
 sys.path.insert(0, str(_REPO / "recsys-pipeline" / "services" / "python-modeling"))
-sys.path.insert(0, str(_REPO / "frontend"))
+sys.path.insert(0, str(_REPO / "recsys-pipeline" / "frontend"))
 
 MEASUREMENT_KEYS = {
     "relevance", "satisfaction", "freshness", "diversity", "fairness", "safety", "latency",
@@ -122,6 +122,17 @@ def _export(tmp_path, *, experiences=None, live=None, extra_args=()):
         argv += ["--live-metrics", str(live)]
     exporter.main([*argv, *extra_args])
     return json.loads(out.read_text())
+
+
+def test_exporter_default_output_is_the_relocated_frontend_snapshot():
+    """Parsing defaults must not write the committed dashboard snapshot."""
+    import export_dashboard_json as exporter
+
+    args = exporter.parse_args([])
+
+    assert Path(args.output) == (
+        _REPO / "recsys-pipeline" / "frontend" / "data" / "dashboard.json"
+    )
 
 
 def test_exporter_publishes_every_measurement_section(tmp_path, monkeypatch):
@@ -263,7 +274,7 @@ def test_dashboard_columns_match_the_published_measurement_keys(tmp_path, monkey
     output = _export(tmp_path, experiences=tmp_path / "experiences", live=tmp_path / "live.json",
                      extra_args=["--fairness-min-support", "1"])
 
-    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
 
     def columns_after(anchor):
         block = re.search(re.escape(anchor) + r"[\s\S]*?columns=\{\[(.*?)\]\}", sections, re.S)
@@ -312,7 +323,7 @@ def test_scorecard_headline_fields_exist_in_the_published_rows(tmp_path, monkeyp
     output = _export(tmp_path, experiences=tmp_path / "experiences", live=tmp_path / "live.json",
                      extra_args=["--fairness-min-support", "1"])
 
-    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
     headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
     assert headlines, "sections.jsx must declare a HEADLINES map"
 
@@ -337,7 +348,7 @@ def test_relevance_publishes_the_denominator_its_ndcg_mean_is_taken_over():
     breaks the global "every rate carries its denominator" rule, so the column and the KPI
     both have to surface it.
     """
-    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
     relevance = re.search(r'title="Relevance"([\s\S]*?)\n    />', sections)
     assert relevance, "no Relevance section in sections.jsx"
 
@@ -371,7 +382,7 @@ def test_fairness_scorecard_headlines_the_widest_gap_not_the_first_dimension(tmp
     assert rows[0]["dimension"] == "gender" and gaps["gender"] == 0.0
     assert gaps["subscription"] == 1.0
 
-    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
     headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
     fairness = re.search(r"fairness:\s*\{([^}]*)\}", headlines.group(1))
     assert 'select: "max"' in fairness.group(1), (
@@ -417,7 +428,7 @@ def test_satisfaction_coverage_chart_omits_the_series_that_cannot_show_coverage(
     "coverage" is its rate. Plotted next to dwell and completion coverage it reads as "not
     instrumented" for a signal that is instrumented. It stays in the table beside its rate.
     """
-    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
     satisfaction = re.search(r'title="Satisfaction"([\s\S]*?)\n    >', sections)
     assert satisfaction, "no Satisfaction section in sections.jsx"
 
@@ -432,7 +443,7 @@ def test_satisfaction_coverage_chart_omits_the_series_that_cannot_show_coverage(
 
 def test_frontend_readme_points_at_the_paths_a_run_actually_writes():
     """`run-movie-category-sim.sh` writes under $SIM_ROOT, not directly under /tmp/spark-recsys."""
-    readme = (_REPO / "frontend" / "README.md").read_text()
+    readme = (_REPO / "recsys-pipeline" / "frontend" / "README.md").read_text()
 
     assert "/tmp/spark-recsys/training-samples" not in readme
     assert "/tmp/spark-recsys/slates" not in readme
@@ -473,10 +484,10 @@ def test_scorecard_treats_exactly_half_coverage_as_low_not_ok():
     ])
     assert dash.build_measurement_dashboard(samples, None, None, None)["safety"]["coverage"] == 0.5
 
-    sections = (_REPO / "frontend" / "components" / "sections.jsx").read_text()
+    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
     assert "<= LOW_COVERAGE" in sections, "coverage of exactly 0.50 must read as low, not ok"
     # The amber border is not perceivable to every reader, so the text has to agree too.
-    assert "at or below 50%" in (_REPO / "frontend" / "components" / "ui.jsx").read_text()
+    assert "at or below 50%" in (_REPO / "recsys-pipeline" / "frontend" / "components" / "ui.jsx").read_text()
 
 
 def test_live_only_safety_row_omits_the_scorecard_headline_field(tmp_path):
