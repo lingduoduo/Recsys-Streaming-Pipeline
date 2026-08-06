@@ -3,6 +3,7 @@ package com.demo.profile
 import com.demo.SparkTestSupport
 import org.apache.spark.SparkException
 import org.apache.spark.sql.DataFrame
+import redis.clients.jedis.exceptions.JedisDataException
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -35,6 +36,35 @@ private[profile] object RecordingRedisProfileStore extends RedisProfileStore {
     activeRun = Some(runId)
     recordedEvents.add(s"activate:$runId")
   }
+}
+
+private[profile] final class RecordingProfilePipeline(failResponse: Boolean) extends RedisProfilePipeline {
+  private val recordedEvents = new ConcurrentLinkedQueue[String]()
+
+  def events: Seq[String] = recordedEvents.iterator().asScala.toSeq
+
+  override def set(key: String, value: String, ttlSeconds: Int): RedisProfileCommandResponse = {
+    recordedEvents.add(s"queue:$key:$value:$ttlSeconds")
+    new RedisProfileCommandResponse {
+      override def requireSuccess(): Unit = {
+        recordedEvents.add(s"response:$key")
+        if (failResponse) throw new JedisDataException("simulated Redis command error")
+      }
+    }
+  }
+
+  override def sync(): Unit = recordedEvents.add("sync")
+}
+
+private[profile] object CommandFailureRedisProfileStore extends RedisProfileStore {
+  @volatile var activeRun: Option[String] = None
+
+  def reset(active: Option[String]): Unit = activeRun = active
+
+  override def writeProfiles(runId: String, values: Iterator[(String, String)], ttlSeconds: Int): Unit =
+    JedisRedisProfileStore.writeQueuedProfiles(values, ttlSeconds, new RecordingProfilePipeline(failResponse = true))
+
+  override def activate(runId: String): Unit = activeRun = Some(runId)
 }
 
 class UserProfileRedisPublisherSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
@@ -72,5 +102,28 @@ class UserProfileRedisPublisherSpec extends AnyFlatSpec with Matchers with Spark
 
     RecordingRedisProfileStore.activeRun shouldBe Some("run-before")
     RecordingRedisProfileStore.events should not contain "activate:run-failed"
+  }
+
+  "writeQueuedProfiles" should "surface a Redis command response error after syncing the pipeline" in {
+    val pipeline = new RecordingProfilePipeline(failResponse = true)
+
+    an[JedisDataException] should be thrownBy JedisRedisProfileStore.writeQueuedProfiles(
+      Iterator("user-profile:v1:run-command-error:user-a" -> "{}"), 321, pipeline)
+
+    pipeline.events shouldBe Seq(
+      "queue:user-profile:v1:run-command-error:user-a:{}:321",
+      "sync",
+      "response:user-profile:v1:run-command-error:user-a"
+    )
+  }
+
+  "publish" should "leave the previous active run unchanged when a queued command response fails" in {
+    CommandFailureRedisProfileStore.reset(Some("run-before"))
+
+    an[SparkException] should be thrownBy UserProfileRedisPublisher.publish(rows(
+      RedisProfileRow("user-a", "run-command-error", "{}")
+    ), redis, CommandFailureRedisProfileStore)
+
+    CommandFailureRedisProfileStore.activeRun shouldBe Some("run-before")
   }
 }
