@@ -21,7 +21,8 @@ private[profile] case class ProfileSample(
     rating: java.lang.Double,
     genres: Seq[String],
     tags: Seq[String],
-    new_release: java.lang.Boolean
+    new_release: java.lang.Boolean,
+    published_at: java.lang.Long = null
 )
 
 class UserBehaviorProfileBatchJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
@@ -94,6 +95,26 @@ class UserBehaviorProfileBatchJobSpec extends AnyFlatSpec with Matchers with Spa
       "genre_enthusiast", "focused_viewer", "recent_release_seeker", "high_intent_engager")
     personas.find(_.getAs[String]("type") == "genre_enthusiast").get
       .getAs[scala.collection.Map[String, Double]]("evidence")("preference_score") shouldBe 0.625 +- 1e-9
+  }
+
+  it should "honor overridden source lookback and recent-release age when published timestamps exist" in {
+    val overridden = config.copy(sourceLookbackSeconds = 50L, recentReleaseAgeSeconds = 10L)
+    val input = samples(
+      ProfileSample("window-edge", "r1", "window-boundary", "i1", 950L, false, false, null,
+        Seq("Sci-Fi"), Seq("Space"), false, published_at = 995L),
+      ProfileSample("outside-window", "r2", "window-boundary", "i2", 949L, false, false, null,
+        Seq("Sci-Fi"), Seq("Space"), false, published_at = 995L),
+      ProfileSample("recent-release", "r3", "window-user", "i3", 1000L, true, false, null,
+        Seq("Sci-Fi"), Seq("Space"), false, published_at = 995L),
+      ProfileSample("old-release", "r4", "window-user", "i4", 1000L, true, false, null,
+        Seq("Drama"), Seq("Character"), false, published_at = 980L)
+    )
+
+    val prepared = UserBehaviorProfileBatchJob.validateAndDeduplicate(input, overridden)
+    prepared.valid.count() shouldBe 3L
+    prepared.rejected.filter(col("rejection_reason") === "outside_source_window").count() shouldBe 1L
+    UserBehaviorProfileBatchJob.buildProfiles(prepared.valid, overridden).filter(col("user_id") === "window-user").head()
+      .getAs[Double]("recent_release_affinity") shouldBe 0.5 +- 1e-9
   }
 
   "run" should "write deterministic parquet profiles and the version-one JSON contract" in {

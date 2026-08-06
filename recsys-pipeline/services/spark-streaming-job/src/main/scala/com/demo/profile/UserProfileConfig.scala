@@ -22,7 +22,9 @@ final case class ProfileConfig(
     highIntentEngagementThreshold: Double = 0.4,
     highIntentConversionThreshold: Double = 0.1,
     casualBrowserEngagementThreshold: Double = 0.1,
-    casualBrowserConversionThreshold: Double = 0.02
+    casualBrowserConversionThreshold: Double = 0.02,
+    sourceLookbackSeconds: Long = 30L * 24L * 60L * 60L,
+    recentReleaseAgeSeconds: Long = 365L * 24L * 60L * 60L
 ) {
   require(halfLifeSeconds > 0L, "halfLifeSeconds must be positive")
   require(ratingMin < ratingMidpoint && ratingMidpoint < ratingMax,
@@ -31,6 +33,8 @@ final case class ProfileConfig(
     "shrinkage must be finite and non-negative")
   require(minimumEvidence >= 0L, "minimumEvidence must be non-negative")
   require(maxGenres > 0 && maxTags > 0, "preference limits must be positive")
+  require(sourceLookbackSeconds > 0L, "sourceLookbackSeconds must be positive")
+  require(recentReleaseAgeSeconds > 0L, "recentReleaseAgeSeconds must be positive")
 }
 
 final case class EvidenceInput(

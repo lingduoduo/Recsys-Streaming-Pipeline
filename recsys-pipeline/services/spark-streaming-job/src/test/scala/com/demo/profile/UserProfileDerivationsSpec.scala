@@ -112,4 +112,11 @@ class UserProfileDerivationsSpec extends AnyFlatSpec with Matchers {
     persona.label shouldBe "Sci Fi enthusiast"
     persona.evidence("preference_score") shouldBe cfg.genreEnthusiastThreshold + 0.1
   }
+
+  "ProfileConfig" should "reject non-positive source lookback and recent-release ages" in {
+    an[IllegalArgumentException] should be thrownBy ProfileConfig(
+      referenceEpochSeconds = 1000L, halfLifeSeconds = 100L, sourceLookbackSeconds = 0L)
+    an[IllegalArgumentException] should be thrownBy ProfileConfig(
+      referenceEpochSeconds = 1000L, halfLifeSeconds = 100L, recentReleaseAgeSeconds = 0L)
+  }
 }

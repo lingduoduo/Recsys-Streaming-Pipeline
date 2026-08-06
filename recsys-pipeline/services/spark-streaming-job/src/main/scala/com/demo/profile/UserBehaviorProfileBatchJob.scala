@@ -24,7 +24,6 @@ final case class ProfileRunResult(runId: String, profiles: DataFrame, outputPath
 /** Builds deterministic, explainable version-one behavioral-profile snapshots. */
 object UserBehaviorProfileBatchJob {
   private val ProfileVersion = 1
-  private val LookbackSeconds = 30L * 24L * 60L * 60L
 
   private val preferenceSchema = StructType(Seq(
     StructField("value", StringType, nullable = false),
@@ -99,8 +98,8 @@ object UserBehaviorProfileBatchJob {
       "clicked" -> BooleanType,
       "ordered" -> BooleanType
     ).foldLeft(input) { case (frame, (name, dataType)) => ensureColumn(frame, name, dataType) }
-    val optional = ensureColumn(ensureColumn(ensureColumn(withRequired, "tags", ArrayType(StringType)),
-      "rating", DoubleType), "new_release", BooleanType)
+    val optional = ensureColumn(ensureColumn(ensureColumn(ensureColumn(withRequired, "tags", ArrayType(StringType)),
+      "rating", DoubleType), "new_release", BooleanType), "published_at", LongType)
     val withGenres = ensureColumn(optional, "genres", ArrayType(StringType))
 
     withGenres
@@ -113,6 +112,10 @@ object UserBehaviorProfileBatchJob {
       .withColumn("ordered", coalesce(col("ordered").cast(BooleanType), lit(false)))
       .withColumn("rating", col("rating").cast(DoubleType))
       .withColumn("new_release", col("new_release").cast(BooleanType))
+      .withColumn("published_at", col("published_at").cast(LongType))
+      .withColumn("recent_release", when(col("published_at").isNotNull,
+        col("published_at") >= lit(config.referenceEpochSeconds - config.recentReleaseAgeSeconds))
+        .otherwise(coalesce(col("new_release"), lit(false))))
       .withColumn("genres", normalizedTerms("genres"))
       .withColumn("tags", normalizedTerms("tags"))
       .withColumn("dedupe_id", when(col("sample_id").isNotNull && length(col("sample_id")) > 0, col("sample_id"))
@@ -149,7 +152,7 @@ object UserBehaviorProfileBatchJob {
     val tagPreferences = preferenceTable(weighted, "tags", "tag_preferences", config.maxTags, config)
     val genreShape = genreShapeTable(weighted)
     val recentRelease = weighted.filter(col("event_weight") > 0.0).groupBy("user_id").agg(
-      (sum(when(coalesce(col("new_release"), lit(false)), col("event_weight")).otherwise(lit(0.0))) /
+      (sum(when(col("recent_release"), col("event_weight")).otherwise(lit(0.0))) /
         sum(col("event_weight"))).as("recent_release_affinity")
     )
     val emptyPreferences = from_json(lit("[]"), ArrayType(preferenceSchema))
@@ -269,7 +272,7 @@ object UserBehaviorProfileBatchJob {
       Map("ignoreNullFields" -> "false")))
   }
 
-  private def sourceWindowStart(config: ProfileConfig): Long = config.referenceEpochSeconds - LookbackSeconds
+  private def sourceWindowStart(config: ProfileConfig): Long = config.referenceEpochSeconds - config.sourceLookbackSeconds
   private def sourceWindowEndExclusive(config: ProfileConfig): Long = config.referenceEpochSeconds + 1L
   private def iso(epochSeconds: Long): String = Instant.ofEpochSecond(epochSeconds).toString
 }
