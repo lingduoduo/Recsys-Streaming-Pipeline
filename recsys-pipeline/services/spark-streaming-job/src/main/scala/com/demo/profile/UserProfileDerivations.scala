@@ -50,7 +50,7 @@ object UserProfileDerivations {
       ))
     } else {
       val personas = Vector.newBuilder[Persona]
-      positivePreferences(features.genrePreferences).headOption
+      positivePreferences(features.genrePreferences).sortBy(preference => (-preference.score, preference.value)).headOption
         .filter(_.score >= config.genreEnthusiastThreshold)
         .foreach { preference =>
           personas += Persona(

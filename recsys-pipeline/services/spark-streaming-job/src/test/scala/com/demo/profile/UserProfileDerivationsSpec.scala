@@ -95,4 +95,21 @@ class UserProfileDerivationsSpec extends AnyFlatSpec with Matchers {
     persona.evidence("preference_score") shouldBe 1.0
     persona.confidence shouldBe 1.0 +- 1e-9
   }
+
+  it should "select the highest-scoring genre enthusiast regardless of caller preference order" in {
+    val cfg = ProfileConfig(referenceEpochSeconds = 1000L, halfLifeSeconds = 100L)
+    val unsortedPreferences = Seq(
+      Preference("drama", cfg.genreEnthusiastThreshold - 0.1, 10L),
+      Preference("sci-fi", cfg.genreEnthusiastThreshold + 0.1, 10L)
+    )
+
+    val persona = classifyPersonas(BehavioralFeatures(
+      evidenceCount = 10L,
+      genrePreferences = unsortedPreferences
+    ), cfg).head
+
+    persona.personaType shouldBe "genre_enthusiast"
+    persona.label shouldBe "Sci Fi enthusiast"
+    persona.evidence("preference_score") shouldBe cfg.genreEnthusiastThreshold + 0.1
+  }
 }
