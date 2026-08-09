@@ -2,6 +2,9 @@ package com.demo.engine
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.functions.{col, to_date}
+import org.apache.spark.sql.types.{
+  BooleanType, DateType, LongType, StringType, StructField, StructType, TimestampType
+}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -83,7 +86,13 @@ class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     Files.exists(committed.resolve("_SUCCESS")) shouldBe true
     Files.exists(committed.resolve("_COMMITTED")) shouldBe true
     spark.read.parquet(committed.toString).count() shouldBe 2L
-    val fromConfiguredRoot = spark.read.parquet(root.toString)
+    val expectedSchema = StructType(Seq(
+      StructField("sample_id", StringType, nullable = true),
+      StructField("impression_time", TimestampType, nullable = true),
+      StructField("date", DateType, nullable = true)))
+    val fromConfiguredRoot = DurableParquetCommit.readIdentity(
+      spark, root.toString, durableContext.queryNamespace, durableContext.sinkNamespace,
+      expectedSchema)
     fromConfiguredRoot.select("sample_id").as[String].collect().toSet shouldBe Set("s1", "s2")
     fromConfiguredRoot.columns should contain allOf ("date", "query", "sink", "batch")
   }
@@ -104,31 +113,41 @@ class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     }
   }
 
-  it should "isolate shared-root reads when all visible identity partitions are filtered" in {
+  it should "read complete incompatible schemas only from an exact shared-root identity" in {
     import java.nio.file.Files
     val s = spark; import s.implicits._
     val root = Files.createTempDirectory("durable-parquet-shared-root")
     val queryA = durableContext.copy(sinkNamespace = "sink-a", sinkIdentity = "sink-a")
     val queryB = durableContext.copy(
-      queryNamespace = "query-other", sinkNamespace = "sink-b", sinkIdentity = "sink-b",
-      batchId = 8L)
+      sinkNamespace = "sink-b", sinkIdentity = "sink-b", batchId = 8L)
+    val schemaA = StructType(Seq(
+      StructField("sample_id", StringType, nullable = true),
+      StructField("score", LongType, nullable = false)))
+    val schemaB = StructType(Seq(
+      StructField("sample_id", StringType, nullable = true),
+      StructField("label", StringType, nullable = true),
+      StructField("enabled", BooleanType, nullable = false)))
 
-    DurableParquetCommit.write(Seq("from-a").toDF("sample_id"), root.toString, Seq.empty, queryA)
-    DurableParquetCommit.write(Seq("from-b").toDF("sample_id"), root.toString, Seq.empty, queryB)
+    DurableParquetCommit.write(
+      Seq(("from-a1", 11L), ("from-a2", 12L)).toDF("sample_id", "score"),
+      root.toString, Seq.empty, queryA)
+    DurableParquetCommit.write(
+      Seq(("from-b1", "blue", true), ("from-b2", "green", false))
+        .toDF("sample_id", "label", "enabled"),
+      root.toString, Seq.empty, queryB)
 
-    val shared = spark.read.parquet(root.toString)
-    shared.count() shouldBe 2L
-    shared
-      .filter(
-        col("query") === queryA.queryNamespace &&
-          col("sink") === queryA.sinkNamespace &&
-          col("batch") === queryA.batchId)
-      .select("sample_id").as[String].collect() should contain only "from-a"
-    shared
-      .filter(
-        col("query") === queryB.queryNamespace &&
-          col("sink") === queryB.sinkNamespace &&
-          col("batch") === queryB.batchId)
-      .select("sample_id").as[String].collect() should contain only "from-b"
+    val fromA = DurableParquetCommit.readIdentity(
+      spark, root.toString, queryA.queryNamespace, queryA.sinkNamespace, schemaA)
+    fromA.columns should contain allOf ("sample_id", "score", "query", "sink", "batch")
+    fromA.select("sample_id", "score").as[(String, Long)].collect().toSet shouldBe
+      Set("from-a1" -> 11L, "from-a2" -> 12L)
+
+    val fromB = DurableParquetCommit.readIdentity(
+      spark, root.toString, queryB.queryNamespace, queryB.sinkNamespace, schemaB)
+    fromB.columns should contain allOf ("sample_id", "label", "enabled", "query", "sink", "batch")
+    fromB.select("sample_id", "label", "enabled").as[(String, String, Boolean)]
+      .collect().toSet shouldBe Set(
+        ("from-b1", "blue", true),
+        ("from-b2", "green", false))
   }
 }

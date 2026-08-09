@@ -5,8 +5,9 @@ import java.util.Locale
 import java.util.UUID
 
 import org.apache.hadoop.fs.{FileAlreadyExistsException, FileContext, Options, Path}
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions.{array, col, lit, struct, to_json}
+import org.apache.spark.sql.types.StructType
 
 import scala.util.control.NonFatal
 
@@ -110,12 +111,27 @@ class ParquetSink(path: String, partitionCol: String, outputFiles: Int,
 object DurableParquetCommit {
   private val ReservedControlColumns = Set("query", "sink", "batch")
 
+  def identityPath(root: String, queryNamespace: String, sinkNamespace: String): Path =
+    new Path(new Path(new Path(root), s"query=$queryNamespace"), s"sink=$sinkNamespace")
+
   def finalPath(root: String, context: SinkWriteContext): Path =
-    new Path(
-      new Path(
-        new Path(root),
-        s"query=${context.queryNamespace}/sink=${context.sinkNamespace}"),
+    new Path(identityPath(root, context.queryNamespace, context.sinkNamespace),
       s"batch=${context.batchId}")
+
+  /** Reads only one visible query/sink identity. Schema discovery never touches sibling sinks. */
+  def readIdentity(
+      spark: SparkSession,
+      root: String,
+      queryNamespace: String,
+      sinkNamespace: String,
+      expectedSchema: StructType
+  ): DataFrame = {
+    require(expectedSchema != null, "expected durable Parquet schema must not be null")
+    spark.read
+      .schema(expectedSchema)
+      .option("basePath", new Path(root).toString)
+      .parquet(identityPath(root, queryNamespace, sinkNamespace).toString)
+  }
 
   private def manifest(context: SinkWriteContext): String =
     s"version=1\nquery=${context.queryNamespace}\nkind=business-parquet\n" +

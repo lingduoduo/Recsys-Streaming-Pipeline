@@ -195,14 +195,19 @@ identity before archival or business effects. A successful sink is not invoked a
 sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic visible
 `query=<hash>/sink=<hash>/batch=<id>` directories. Payload schemas must not contain the reserved
 control columns `query`, `sink`, or `batch`. A root may contain several query/sink identities, so a
-root-level read must filter all three identity partitions before consuming rows, for example
-`spark.read.parquet(configuredRoot).where("query = ... AND sink = ... AND batch = ...")`.
+reader must not perform schema discovery at the configured root. Scala/Spark readers use
+`DurableParquetCommit.readIdentity` with `spark`, `configuredRoot`, `queryNamespace`,
+`sinkNamespace`, and `expectedPayloadSchema`. The helper first resolves the exact visible
+`query=<hash>/sink=<hash>` identity path, sets `basePath` to `configuredRoot`, and applies the
+explicit payload schema. The returned frame includes visible `query`, `sink`, and `batch` partition
+columns, so callers may filter `batch` after the identity-safe read.
 Redis popularity increments and sequence hash updates atomically pair each effect with a ledger
 field in that batch's hash. A bounded sorted-set index retains only the configured batch window and
 a stable per-query/sink watermark fences delayed work below the recovery horizon. The window is at
 least two batches, preserves N and N-1 retries, and is pruned only after the newer batch completes;
-an executing higher batch cannot prune older recovery state. Sequence batch hashes, index, and
-watermark expire with the target sequence data. Kafka output enables producer idempotence and carries a
+an executing higher batch cannot prune older recovery state. Each sequence effect atomically renews
+the target plus the state, index, current ledger, and every retained ledger. Control keys share a
+retry horizon one second longer than the target, then expire. Kafka output enables producer idempotence and carries a
 stable key plus query/sink/batch headers; because a later producer session may repeat a record after
 a partial batch failure, derived-topic consumers still must deduplicate that stable key. These are
 retry-safe per-sink contracts, not a cross-system exactly-once transaction.

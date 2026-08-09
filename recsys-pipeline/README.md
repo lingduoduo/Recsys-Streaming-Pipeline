@@ -129,12 +129,17 @@ On the migrated Avro engine path, every business sink has a stable identity and 
 causes the micro-batch to retry. Parquet uses visible
 `query=<hash>/sink=<hash>/batch=<id>` directories. The payload schema may not contain the reserved
 control columns `query`, `sink`, or `batch`. Multiple identities may share a configured root, so
-root-level readers must filter all three visible identity partitions before consuming rows.
+readers must not discover a schema from that mixed root. Scala/Spark consumers must call
+`DurableParquetCommit.readIdentity` with `spark`, `configuredRoot`, `queryNamespace`,
+`sinkNamespace`, and `expectedPayloadSchema`. It resolves the exact
+`query=<hash>/sink=<hash>` path before reading, sets `basePath` to the configured root, and applies
+the caller's explicit payload schema. Consumers may then filter the visible `batch` partition.
 Redis popularity and sequence effects use one atomic Lua ledger hash per retained batch, a bounded
 batch index, and one monotonic committed-batch watermark per stable query/sink. Completion advances
 the fence and only then prunes outside the configurable recovery window (minimum two batches, so N
 and N-1 remain retry-safe); delayed work below that horizon is skipped. Sequence ledger hashes,
-index, and watermark expire with the target sequence data. Kafka enables
+index, and watermark share a renewed retry horizon, outlive target sequence data by one second,
+and then expire. Kafka enables
 producer idempotence and publishes a
 stable record key and query/sink/batch headers; a failure across producer sessions can still repeat
 an acknowledged record, so derived-topic consumers must deduplicate the stable key. The engine

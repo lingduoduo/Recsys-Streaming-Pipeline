@@ -47,6 +47,45 @@ class RedisSinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
   private def eval(jedis: Jedis): RedisBatchLedger.Eval =
     (script, keys, arguments) => jedis.eval(script, keys, arguments)
 
+  private def sequenceContext(batchId: Long): SinkWriteContext =
+    SinkWriteContext(
+      "checkpoint://sequence", "query-seq", "sequence:user-events", "sink-seq", batchId)
+
+  private def hash(
+      jedis: Jedis,
+      batchId: Long,
+      target: String,
+      effectId: String,
+      ttlSeconds: Int,
+      fields: Map[String, String]
+  ): Long = {
+    val writeContext = sequenceContext(batchId)
+    RedisBatchLedger.hashOnce(
+      eval(jedis),
+      RedisBatchLedger.ledgerKey(writeContext, "sequence"),
+      RedisBatchLedger.stateKey(writeContext, "sequence"),
+      RedisBatchLedger.indexKey(writeContext, "sequence"),
+      target,
+      effectId,
+      ttlSeconds,
+      fields,
+      batchId)
+  }
+
+  private def awaitPttlAtMost(jedis: Jedis, key: String, upperBoundMillis: Long): Long = {
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L)
+    var remaining = jedis.pttl(key)
+    while (remaining > upperBoundMillis && System.nanoTime() < deadline) {
+      Thread.sleep(10L)
+      remaining = jedis.pttl(key)
+    }
+    withClue(s"PTTL for $key") {
+      remaining should be > 0L
+      remaining should be <= upperBoundMillis
+    }
+    remaining
+  }
+
   private def increment(
       jedis: Jedis,
       batchId: Long,
@@ -279,7 +318,7 @@ class RedisSinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     }
   }
 
-  "RedisBatchLedger.hashOnce" should "expire the complete sequence ledger namespace with its target" in {
+  "RedisBatchLedger.hashOnce" should "outlive its target by one retry margin then expire its namespace" in {
     val jedis = new Jedis("127.0.0.1", redisPort)
     try {
       jedis.flushDB()
@@ -302,9 +341,146 @@ class RedisSinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
       Thread.sleep(1200L)
 
       jedis.exists(target) shouldBe false
+      jedis.exists(ledger) shouldBe true
+      jedis.exists(index) shouldBe true
+      jedis.exists(state) shouldBe true
+
+      Thread.sleep(1000L)
+
       jedis.exists(ledger) shouldBe false
       jedis.exists(index) shouldBe false
       jedis.exists(state) shouldBe false
+    } finally jedis.close()
+  }
+
+  it should "renew the retained N-1 marker when N crosses its prior Redis expiry boundary" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val target = "sequence:u1:click:20260809"
+      val batch30 = sequenceContext(30L)
+      val batch31 = sequenceContext(31L)
+      val state = RedisBatchLedger.stateKey(batch30, "sequence")
+      val index = RedisBatchLedger.indexKey(batch30, "sequence")
+      val retainedLedger = RedisBatchLedger.ledgerKey(batch30, "sequence")
+
+      hash(jedis, 30L, target, target, 2, Map("item_id" -> "m1", "n" -> "1")) shouldBe 1L
+      RedisBatchLedger.completeBatch(eval(jedis), state, index, 30L, 2, 2) shouldBe 30L
+      val oldRemainingMillis = awaitPttlAtMost(jedis, retainedLedger, 900L)
+
+      hash(jedis, 31L, target, target, 2, Map("item_id" -> "m2", "n" -> "2")) shouldBe 1L
+      Thread.sleep(oldRemainingMillis + 150L)
+
+      jedis.exists(state) shouldBe true
+      jedis.exists(retainedLedger) shouldBe true
+      hash(jedis, 30L, target, target, 2, Map("item_id" -> "replayed", "n" -> "999")) shouldBe 0L
+      jedis.hget(target, "item_id") shouldBe "m2"
+      jedis.hget(target, "n") shouldBe "2"
+      jedis.zcard(index) shouldBe 2L
+      jedis.exists(RedisBatchLedger.ledgerKey(batch31, "sequence")) shouldBe true
+    } finally jedis.close()
+  }
+
+  it should "renew sequence state across an expiry boundary before completion" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val writeContext = sequenceContext(40L)
+      val state = RedisBatchLedger.stateKey(writeContext, "sequence")
+      val ledger = RedisBatchLedger.ledgerKey(writeContext, "sequence")
+      val firstTarget = "sequence:u1:click:20260809"
+      val secondTarget = "sequence:u2:click:20260809"
+
+      hash(jedis, 40L, firstTarget, firstTarget, 2, Map("item_id" -> "m1")) shouldBe 1L
+      jedis.exists(state) shouldBe true
+      val oldRemainingMillis = awaitPttlAtMost(jedis, state, 900L)
+
+      hash(jedis, 40L, secondTarget, secondTarget, 2, Map("item_id" -> "m2")) shouldBe 1L
+      Thread.sleep(oldRemainingMillis + 150L)
+
+      jedis.exists(state) shouldBe true
+      jedis.exists(ledger) shouldBe true
+      jedis.hlen(ledger) shouldBe 2L
+      RedisBatchLedger.completeBatch(
+        eval(jedis), state, RedisBatchLedger.indexKey(writeContext, "sequence"), 40L, 2, 2
+      ) shouldBe 40L
+    } finally jedis.close()
+  }
+
+  it should "fail closed when retained sequence state is missing" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val retained = sequenceContext(50L)
+      val older = sequenceContext(49L)
+      val target = "sequence:u1:click:20260809"
+      val state = RedisBatchLedger.stateKey(retained, "sequence")
+      val index = RedisBatchLedger.indexKey(retained, "sequence")
+
+      hash(jedis, 50L, target, target, 30, Map("item_id" -> "m1", "n" -> "1")) shouldBe 1L
+      RedisBatchLedger.completeBatch(eval(jedis), state, index, 50L, 2, 30) shouldBe 50L
+      jedis.del(state) shouldBe 1L
+      jedis.exists(index) shouldBe true
+      jedis.exists(target) shouldBe true
+
+      intercept[JedisDataException] {
+        hash(jedis, 49L, target, "older-effect", 30, Map("item_id" -> "replayed", "n" -> "999"))
+      }
+
+      jedis.hget(target, "item_id") shouldBe "m1"
+      jedis.hget(target, "n") shouldBe "1"
+      jedis.exists(RedisBatchLedger.ledgerKey(older, "sequence")) shouldBe false
+    } finally jedis.close()
+  }
+
+  it should "fail closed when the committed watermark field is missing" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val retained = sequenceContext(70L)
+      val older = sequenceContext(69L)
+      val target = "sequence:u1:click:20260809"
+      val state = RedisBatchLedger.stateKey(retained, "sequence")
+      val index = RedisBatchLedger.indexKey(retained, "sequence")
+
+      hash(jedis, 70L, target, target, 30, Map("item_id" -> "m1", "n" -> "1")) shouldBe 1L
+      RedisBatchLedger.completeBatch(eval(jedis), state, index, 70L, 2, 30) shouldBe 70L
+      jedis.hdel(state, "committed_batch") shouldBe 1L
+
+      intercept[JedisDataException] {
+        hash(jedis, 69L, target, "older-effect", 30, Map("item_id" -> "replayed", "n" -> "999"))
+      }
+
+      jedis.hget(target, "item_id") shouldBe "m1"
+      jedis.hget(target, "n") shouldBe "1"
+      jedis.exists(RedisBatchLedger.ledgerKey(older, "sequence")) shouldBe false
+    } finally jedis.close()
+  }
+
+  it should "fail closed before mutation when a retained sequence ledger has the wrong type" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val retained = sequenceContext(60L)
+      val next = sequenceContext(61L)
+      val retainedLedger = RedisBatchLedger.ledgerKey(retained, "sequence")
+      val nextLedger = RedisBatchLedger.ledgerKey(next, "sequence")
+      val target = "sequence:u1:click:20260809"
+      val state = RedisBatchLedger.stateKey(retained, "sequence")
+      val index = RedisBatchLedger.indexKey(retained, "sequence")
+
+      hash(jedis, 60L, target, target, 30, Map("item_id" -> "m1", "n" -> "1")) shouldBe 1L
+      RedisBatchLedger.completeBatch(eval(jedis), state, index, 60L, 2, 30) shouldBe 60L
+      jedis.del(retainedLedger) shouldBe 1L
+      jedis.set(retainedLedger, "not-a-hash") shouldBe "OK"
+
+      intercept[JedisDataException] {
+        hash(jedis, 61L, target, "next-effect", 30, Map("item_id" -> "mutated", "n" -> "2"))
+      }
+
+      jedis.hget(target, "item_id") shouldBe "m1"
+      jedis.hget(target, "n") shouldBe "1"
+      jedis.exists(nextLedger) shouldBe false
     } finally jedis.close()
   }
 }
