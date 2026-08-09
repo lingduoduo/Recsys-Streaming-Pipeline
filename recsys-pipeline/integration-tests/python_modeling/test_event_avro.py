@@ -38,3 +38,19 @@ def test_unknown_fingerprint_is_rejected():
 
     with pytest.raises(event_avro.SchemaFingerprintError, match="7"):
         event_avro.decode_event(payload)
+
+
+def test_empty_catalog_rejects_default_fingerprint():
+    """Fails if an explicit empty catalog falls back to the default schema."""
+    payload = event_avro.encode_event(
+        {
+            "event_id": "e-empty-catalog",
+            "user_id": "u-1",
+            "item_id": "i-1",
+            "event_type": "click",
+            "timestamp_ms": 1718400000000,
+        }
+    )
+
+    with pytest.raises(event_avro.SchemaFingerprintError, match="unknown schema fingerprint"):
+        event_avro.decode_event(payload, catalog={})

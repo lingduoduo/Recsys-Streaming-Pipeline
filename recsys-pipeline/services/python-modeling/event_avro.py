@@ -61,7 +61,7 @@ def decode_event(payload: bytes, catalog: Mapping[int, dict] | None = None) -> d
     if len(payload) < 10 or payload[:2] != MAGIC:
         raise EventValidationError("invalid Avro single-object marker")
     fingerprint = int.from_bytes(payload[2:10], "little")
-    schemas = catalog or {schema_fingerprint(load_schema()): load_schema()}
+    schemas = catalog if catalog is not None else {schema_fingerprint(load_schema()): load_schema()}
     if fingerprint not in schemas:
         raise SchemaFingerprintError(f"unknown schema fingerprint {fingerprint}")
     try:
