@@ -6,7 +6,7 @@ import java.security.MessageDigest
 
 import com.demo.SparkTestSupport
 import com.demo.event.DecodedEventFrames
-import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.functions.{col, lit, udf}
 import org.apache.spark.sql.types.{BinaryType, IntegerType, LongType, StringType, TimestampType}
 import org.apache.spark.storage.StorageLevel
 import org.scalatest.flatspec.AnyFlatSpec
@@ -38,6 +38,10 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     try paths.iterator().asScala.exists(_.toString.endsWith(suffix))
     finally paths.close()
   }
+
+  private def sha256(path: java.nio.file.Path): String =
+    MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path))
+      .map(byte => f"${byte & 0xff}%02x").mkString
 
   private def decodedFrames(eventId: String, timestampMs: Long, offset: Long): DecodedEventFrames = {
     val s = spark
@@ -96,6 +100,38 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     archived.columns should contain allOf
       ("kafka_topic", "kafka_partition", "kafka_offset", "kafka_timestamp",
         "schema_fingerprint", "archived_at", "date")
+    val manifest = new String(Files.readAllBytes(committedBatch.resolve("_COMMITTED")), "UTF-8")
+    val inventory = manifest.linesIterator.find(_.startsWith("file=")).get
+      .stripPrefix("file=").split("\\t", -1)
+    inventory should have length 3
+    val parquet = committedBatch.resolve(inventory(0))
+    inventory(1).toLong shouldBe Files.size(parquet)
+    inventory(2) shouldBe sha256(parquet)
+  }
+
+  it should "materialize a nondeterministic source once for count and archive write" in {
+    val s = spark
+    import s.implicits._
+    val root = Files.createTempDirectory("raw-archive-single-evaluation")
+    val evaluations = spark.sparkContext.longAccumulator("archive-source-evaluations")
+    val include = udf((_: Long) => { evaluations.add(1L); true }).asNondeterministic()
+    val valid = spark.range(4).repartition(1)
+      .filter(include(col("id")))
+      .select(
+        col("id").cast(StringType).as("event_id"),
+        lit(1718409600000L).as("timestamp_ms"),
+        lit("recsys_events").as("kafka_topic"),
+        lit(0).as("kafka_partition"),
+        col("id").as("kafka_offset"),
+        lit(Timestamp.valueOf("2024-06-15 00:00:01")).as("kafka_timestamp"),
+        lit(1234L).as("schema_fingerprint"))
+
+    new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
+      .writeValid(valid, batchId = 11L)
+
+    evaluations.value shouldBe 4L
+    valid.storageLevel shouldBe StorageLevel.NONE
   }
 
   it should "commit an explicit validated zero-row inventory for an all-invalid batch" in {
@@ -112,6 +148,27 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     manifest should include ("row_count=0\n")
     manifest.linesIterator.filter(_.startsWith("file=")).toSeq shouldBe empty
     Files.walk(committed).iterator().asScala.count(_.toString.endsWith(".parquet")) shouldBe 0
+  }
+
+  it should "reject pre-release v1 commits with an explicit regeneration error" in {
+    val root = Files.createTempDirectory("raw-archive-v1-cutover")
+    val validPath = root.resolve("valid")
+    val committed = batchPath(validPath, QueryIdentity, 10L)
+    Files.createDirectories(committed)
+    Files.write(committed.resolve("_SUCCESS"), Array.emptyByteArray)
+    Files.write(
+      committed.resolve("_COMMITTED"),
+      (s"version=1\nquery=${queryNamespace(QueryIdentity)}\nkind=valid\n" +
+        "batch_id=10\nrow_count=1\nfile=date=2024-06-15/part-0.parquet\n")
+        .getBytes("UTF-8"))
+
+    val error = intercept[IllegalStateException] {
+      new RawArchiveSink(
+        validPath.toString, root.resolve("dead").toString, QueryIdentity)
+        .writeValid(decodedFrames("e1", 1718409600000L, 1L).valid, batchId = 10L)
+    }
+
+    error.getMessage should include ("pre-release v1 data must be regenerated")
   }
 
   "RawArchiveSink.writeDeadLetters" should "use Kafka ingestion date and a separate idempotent batch path" in {

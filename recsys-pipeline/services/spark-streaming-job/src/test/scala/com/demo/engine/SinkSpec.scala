@@ -87,4 +87,48 @@ class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     fromConfiguredRoot.select("sample_id").as[String].collect().toSet shouldBe Set("s1", "s2")
     fromConfiguredRoot.columns should contain allOf ("date", "query", "sink", "batch")
   }
+
+  it should "reject payload schemas that collide with visible identity partition columns" in {
+    import java.nio.file.Files
+    val s = spark; import s.implicits._
+
+    Seq("query", "sink", "batch").foreach { reserved =>
+      val root = Files.createTempDirectory(s"durable-parquet-reserved-$reserved")
+      val payload = Seq(("sample-1", "payload-value")).toDF("sample_id", reserved)
+
+      val error = intercept[IllegalArgumentException] {
+        DurableParquetCommit.write(payload, root.toString, Seq.empty, durableContext)
+      }
+
+      error.getMessage should include (s"reserved Parquet control column '$reserved'")
+    }
+  }
+
+  it should "isolate shared-root reads when all visible identity partitions are filtered" in {
+    import java.nio.file.Files
+    val s = spark; import s.implicits._
+    val root = Files.createTempDirectory("durable-parquet-shared-root")
+    val queryA = durableContext.copy(sinkNamespace = "sink-a", sinkIdentity = "sink-a")
+    val queryB = durableContext.copy(
+      queryNamespace = "query-other", sinkNamespace = "sink-b", sinkIdentity = "sink-b",
+      batchId = 8L)
+
+    DurableParquetCommit.write(Seq("from-a").toDF("sample_id"), root.toString, Seq.empty, queryA)
+    DurableParquetCommit.write(Seq("from-b").toDF("sample_id"), root.toString, Seq.empty, queryB)
+
+    val shared = spark.read.parquet(root.toString)
+    shared.count() shouldBe 2L
+    shared
+      .filter(
+        col("query") === queryA.queryNamespace &&
+          col("sink") === queryA.sinkNamespace &&
+          col("batch") === queryA.batchId)
+      .select("sample_id").as[String].collect() should contain only "from-a"
+    shared
+      .filter(
+        col("query") === queryB.queryNamespace &&
+          col("sink") === queryB.sinkNamespace &&
+          col("batch") === queryB.batchId)
+      .select("sample_id").as[String].collect() should contain only "from-b"
+  }
 }

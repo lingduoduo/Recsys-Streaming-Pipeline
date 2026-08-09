@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sys
 from datetime import date
@@ -93,6 +94,36 @@ class FakeProducer:
             raise RuntimeError("close failed")
 
 
+def _commit_inventory(batch_root: Path) -> tuple[int, list[str]]:
+    inventory = []
+    row_count = 0
+    for path in sorted(batch_root.rglob("*.parquet")):
+        relative = path.relative_to(batch_root).as_posix()
+        sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        inventory.append(f"{relative}\t{path.stat().st_size}\t{sha256}")
+        row_count += pq.ParquetFile(path).metadata.num_rows
+    return row_count, inventory
+
+
+def refresh_archive_commit(
+    root: Path,
+    *,
+    query_namespace: str = ARCHIVE_QUERY_NAMESPACE,
+    batch_id: int = 7,
+) -> None:
+    batch_root = root / "_queries" / query_namespace / "_batches" / str(batch_id)
+    committed_rows, inventory = _commit_inventory(batch_root)
+    (batch_root / "_COMMITTED").write_text(
+        "version=2\n"
+        f"query={query_namespace}\n"
+        "kind=valid\n"
+        f"batch_id={batch_id}\n"
+        f"row_count={committed_rows}\n"
+        + "".join(f"file={entry}\n" for entry in inventory),
+        encoding="utf-8",
+    )
+
+
 def write_archive(
     root: Path,
     events: int = 1,
@@ -127,25 +158,12 @@ def write_archive(
     pq.write_table(pa.Table.from_pylist(rows), destination / "part-0.parquet")
     if area == "_batches" and committed:
         (batch_root / "_SUCCESS").touch()
-        inventory = sorted(
-            path.relative_to(batch_root).as_posix()
-            for path in batch_root.rglob("*.parquet")
-        )
-        committed_rows = sum(
-            pq.ParquetFile(batch_root / path).metadata.num_rows for path in inventory
-        )
-        (batch_root / "_COMMITTED").write_text(
-            manifest
-            or (
-                "version=2\n"
-                f"query={query_namespace}\n"
-                "kind=valid\n"
-                f"batch_id={batch_id}\n"
-                f"row_count={committed_rows}\n"
-                + "".join(f"file={path}\n" for path in inventory)
-            ),
-            encoding="utf-8",
-        )
+        if manifest is None:
+            refresh_archive_commit(
+                root, query_namespace=query_namespace, batch_id=batch_id
+            )
+        else:
+            (batch_root / "_COMMITTED").write_text(manifest, encoding="utf-8")
 
 
 def config(root: Path, **overrides: object) -> ReplayConfig:
@@ -235,12 +253,29 @@ def test_selection_rejects_an_incomplete_batch_directory(tmp_path: Path) -> None
         list(select_archive(config(tmp_path)))
 
 
+def test_selection_rejects_pre_release_v1_with_regeneration_instructions(
+    tmp_path: Path,
+) -> None:
+    write_archive(
+        tmp_path,
+        manifest=(
+            "version=1\nquery=query-1\nkind=valid\nbatch_id=7\nrow_count=1\n"
+            "file=date=2024-06-15/part-0.parquet\n"
+        ),
+    )
+
+    with pytest.raises(
+        ReplayConfigError, match="pre-release v1.*must be regenerated"
+    ):
+        list(select_archive(config(tmp_path)))
+
+
 @pytest.mark.parametrize(
     "manifest",
     [
-        "version=1\nquery=wrong\nkind=valid\nbatch_id=7\n",
-        "version=1\nquery=query-1\nkind=dead-letter\nbatch_id=7\n",
-        "version=1\nquery=query-1\nkind=valid\nbatch_id=8\n",
+        "version=2\nquery=wrong\nkind=valid\nbatch_id=7\nrow_count=1\n",
+        "version=2\nquery=query-1\nkind=dead-letter\nbatch_id=7\nrow_count=1\n",
+        "version=2\nquery=query-1\nkind=valid\nbatch_id=8\nrow_count=1\n",
     ],
 )
 def test_selection_rejects_a_commit_manifest_with_wrong_identity(
@@ -308,6 +343,7 @@ def test_completed_operation_id_is_a_noop_on_rerun(tmp_path: Path) -> None:
     first = run_replay(
         config(tmp_path), lambda _: first_producer, lambda: 0.0, lambda _: None
     )
+    next(tmp_path.rglob("*.parquet")).write_bytes(b"tampered after completion")
 
     second = run_replay(
         config(tmp_path),
@@ -416,6 +452,7 @@ def test_interrupted_operation_refuses_changed_source_without_rewriting_manifest
         table.set_column(table.schema.get_field_index("event_id"), "event_id", event_ids),
         archive,
     )
+    refresh_archive_commit(tmp_path)
 
     with pytest.raises(ReplayConfigError, match="source selection changed"):
         run_replay(
@@ -508,6 +545,7 @@ def test_unknown_archive_fingerprint_blocks_publish_and_writes_failed_manifest(t
     archive = next(tmp_path.rglob("*.parquet"))
     table = pq.read_table(archive).drop(["date"])
     pq.write_table(table.set_column(table.schema.get_field_index("schema_fingerprint"), "schema_fingerprint", pa.array([7])), archive)
+    refresh_archive_commit(tmp_path)
     producer_created = False
 
     def producer_factory(_: ReplayConfig) -> FakeProducer:
@@ -530,6 +568,7 @@ def test_mixed_archive_fingerprints_block_publish(tmp_path: Path) -> None:
     table = pq.read_table(archive).drop(["date"])
     fingerprints = pa.array([SCHEMA_FINGERPRINT, 7])
     pq.write_table(table.set_column(table.schema.get_field_index("schema_fingerprint"), "schema_fingerprint", fingerprints), archive)
+    refresh_archive_commit(tmp_path)
 
     with pytest.raises(ReplayConfigError, match="schema_fingerprint"):
         run_replay(config(tmp_path), lambda _: pytest.fail("producer must not be created"), lambda: 0.0, lambda _: None)
@@ -584,6 +623,30 @@ def test_replay_rejects_empty_commit_without_exact_zero_row_metadata(
 
     with pytest.raises(ReplayConfigError, match="commit|inventory|row_count"):
         list(select_archive(config(tmp_path)))
+
+
+def test_replay_rejects_same_row_count_parquet_tampering_before_publish(
+    tmp_path: Path,
+) -> None:
+    write_archive(tmp_path)
+    archive = next(tmp_path.rglob("*.parquet"))
+    table = pq.read_table(archive).drop(["date"])
+    pq.write_table(
+        table.set_column(
+            table.schema.get_field_index("event_id"), "event_id", pa.array(["tampered"])
+        ),
+        archive,
+    )
+
+    with pytest.raises(
+        ReplayConfigError, match="commit inventory size or SHA-256 mismatch"
+    ):
+        run_replay(
+            config(tmp_path),
+            lambda _: pytest.fail("tampered archive must not create a producer"),
+            lambda: 0.0,
+            lambda _: None,
+        )
 
 
 def test_replay_counts_then_streams_arrow_batches_without_whole_table_materialization(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

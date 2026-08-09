@@ -83,8 +83,8 @@ class SequenceRedisSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     var failAfterFirstApply = true
     val eval = (_: String, keys: util.List[String], args: util.List[String]) => {
       val values = args.asScala.toSeq
-      val ledgerEffect = keys.get(0) -> values.head
-      if (applied.add(ledgerEffect)) hashes(keys.get(1)) = values.drop(3).grouped(2).map {
+      val ledgerEffect = keys.get(0) -> values(3)
+      if (applied.add(ledgerEffect)) hashes(keys.get(3)) = values.drop(4).grouped(2).map {
         case Seq(field, value) => field -> value
       }.toMap
       if (failAfterFirstApply) {
@@ -93,15 +93,21 @@ class SequenceRedisSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupp
       }
       java.lang.Long.valueOf(1L)
     }
-    val ledger = RedisBatchLedger.ledgerKey(context, "sequence", "u1:click:20260723")
+    val ledger = RedisBatchLedger.ledgerKey(context, "sequence")
+    val state = RedisBatchLedger.stateKey(context, "sequence")
+    val index = RedisBatchLedger.indexKey(context, "sequence")
     val fields = Map("item_id" -> "m1", "n" -> "1")
 
     intercept[RuntimeException] {
-      RedisBatchLedger.hashOnce(eval, ledger, "sequence:u1:click:20260723", "u1:click:20260723", 3600, fields, 12L)
+      RedisBatchLedger.hashOnce(
+        eval, ledger, state, index, "sequence:u1:click:20260723",
+        "u1:click:20260723", 3600, fields, 12L)
     }
-    RedisBatchLedger.hashOnce(eval, ledger, "sequence:u1:click:20260723", "u1:click:20260723", 3600, fields, 12L)
+    RedisBatchLedger.hashOnce(
+      eval, ledger, state, index, "sequence:u1:click:20260723",
+      "u1:click:20260723", 3600, fields, 12L)
 
     hashes("sequence:u1:click:20260723") shouldBe fields
-    applied should contain only (ledger -> "12")
+    applied should contain only (ledger -> "u1:click:20260723")
   }
 }

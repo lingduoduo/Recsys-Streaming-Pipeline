@@ -145,8 +145,11 @@ or HDFS via Hadoop `FileContext`). Do not place this archive on an object store 
 atomic rename contract. Valid and dead-letter data is partitioned by UTC date below a
 checkpoint-hash namespace. A batch is consumable only when its directory has both `_SUCCESS` and
 the version-2 `_COMMITTED` manifest with the expected query, kind, batch identity, row count, and
-exact Parquet inventory. An explicit zero row count and empty inventory is a committed all-invalid
-batch, not an incomplete write.
+exact Parquet inventory. Every inventory entry records relative path, byte size, and SHA-256 digest;
+replay validates all three before publishing. An explicit zero row count and empty inventory is a
+committed all-invalid batch, not an incomplete write. Protocol v1 was a pre-release archive format:
+replay rejects it with an instruction to regenerate the data. There is no v1 migration or
+backward-compatibility path.
 
 Replay is an explicit half-open UTC date range (`start <= date < end`), enforces its row limit
 before creating a producer, rate-limits sends, and strips archive/Kafka lineage before encoding the
@@ -190,11 +193,16 @@ The migrated Avro engine also scopes business completion to the stable
 `(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
 identity before archival or business effects. A successful sink is not invoked again when a later
 sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic visible
-`query=<hash>/sink=<hash>/batch=<id>` directories; readers use
-`spark.read.parquet(configuredRoot)`. Redis popularity increments and sequence hash updates
-atomically pair each effect with a bounded per-item/per-sequence Lua ledger. The configured recovery
-window is at least two batches and never prunes N or N-1; advancing to N proves older batches are no
-longer reachable from the unmodified Structured Streaming checkpoint. Kafka output enables producer idempotence and carries a
+`query=<hash>/sink=<hash>/batch=<id>` directories. Payload schemas must not contain the reserved
+control columns `query`, `sink`, or `batch`. A root may contain several query/sink identities, so a
+root-level read must filter all three identity partitions before consuming rows, for example
+`spark.read.parquet(configuredRoot).where("query = ... AND sink = ... AND batch = ...")`.
+Redis popularity increments and sequence hash updates atomically pair each effect with a ledger
+field in that batch's hash. A bounded sorted-set index retains only the configured batch window and
+a stable per-query/sink watermark fences delayed work below the recovery horizon. The window is at
+least two batches, preserves N and N-1 retries, and is pruned only after the newer batch completes;
+an executing higher batch cannot prune older recovery state. Sequence batch hashes, index, and
+watermark expire with the target sequence data. Kafka output enables producer idempotence and carries a
 stable key plus query/sink/batch headers; because a later producer session may repeat a record after
 a partial batch failure, derived-topic consumers still must deduplicate that stable key. These are
 retry-safe per-sink contracts, not a cross-system exactly-once transaction.

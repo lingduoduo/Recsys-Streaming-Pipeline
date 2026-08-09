@@ -92,7 +92,10 @@ Those paths must be on a filesystem that supports atomic, non-overwriting direct
 guarantee are not a supported archive target. A committed archive batch has both `_SUCCESS` and
 its version-2 `_COMMITTED` identity manifest below
 `_queries/<checkpoint-hash>/_batches/<batch-id>/`. The manifest inventories every Parquet file and
-its total row count; `row_count=0` with an empty inventory is a valid all-invalid micro-batch.
+its relative path, byte size, and SHA-256 digest plus the total row count; replay verifies all four
+before publishing. `row_count=0` with an empty inventory is a valid all-invalid micro-batch.
+Archive commit protocol v1 is a pre-release format and is rejected with an instruction to
+regenerate the data. There is no v1 migration or backward-compatibility path.
 
 Replay is always bounded and only publishes to `recsys_events.backfill`:
 
@@ -124,10 +127,14 @@ for schema, retention, dead-letter, and replay constraints.
 On the migrated Avro engine path, every business sink has a stable identity and a durable
 `(query, sink, batchId)` completion marker. A completed first sink is skipped when a later sink
 causes the micro-batch to retry. Parquet uses visible
-`query=<hash>/sink=<hash>/batch=<id>` directories, so `spark.read.parquet(configuredRoot)` reads
-the committed rows directly. Redis popularity and sequence effects use atomic Lua ledgers. Each
-per-item/per-sequence ledger retains the configurable current recovery window (minimum two batches,
-so N and N-1 remain retry-safe) rather than growing one key per batch forever. Kafka enables
+`query=<hash>/sink=<hash>/batch=<id>` directories. The payload schema may not contain the reserved
+control columns `query`, `sink`, or `batch`. Multiple identities may share a configured root, so
+root-level readers must filter all three visible identity partitions before consuming rows.
+Redis popularity and sequence effects use one atomic Lua ledger hash per retained batch, a bounded
+batch index, and one monotonic committed-batch watermark per stable query/sink. Completion advances
+the fence and only then prunes outside the configurable recovery window (minimum two batches, so N
+and N-1 remain retry-safe); delayed work below that horizon is skipped. Sequence ledger hashes,
+index, and watermark expire with the target sequence data. Kafka enables
 producer idempotence and publishes a
 stable record key and query/sink/batch headers; a failure across producer sessions can still repeat
 an acknowledged record, so derived-topic consumers must deduplicate the stable key. The engine

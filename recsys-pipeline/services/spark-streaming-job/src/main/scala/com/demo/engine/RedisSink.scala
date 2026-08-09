@@ -1,8 +1,6 @@
 package com.demo.engine
 
 import java.util
-import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 
 import org.apache.spark.sql.{DataFrame, Row}
 import redis.clients.jedis.Pipeline
@@ -44,81 +42,137 @@ object RedisSink {
   }
 }
 
-/** Atomic, per-effect Redis ledgers for retrying a partially acknowledged micro-batch.
-  * Each item has one deterministic hash. Batch fields older than the configured recovery window
-  * are pruned only while applying a later batch; the minimum window retains N and N-1.
+/** Atomic, bounded Redis ledgers for retrying a partially acknowledged micro-batch.
+  *
+  * One hash records the effects of one query/sink/batch, while a stable state hash carries the
+  * monotonic committed-batch watermark and a sorted-set index names the retained batch hashes.
+  * Effect scripts fence work below the committed recovery floor. Pruning happens only in
+  * `completeBatch`, after the caller has durably completed every partition of the batch.
   */
 object RedisBatchLedger {
   type Eval = (String, util.List[String], util.List[String]) => Object
 
   private val IncrementScript =
-    "local lt=redis.call('TYPE',KEYS[1]).ok; local tt=redis.call('TYPE',KEYS[2]).ok; " +
+    "local lt=redis.call('TYPE',KEYS[1]).ok; local st=redis.call('TYPE',KEYS[2]).ok; " +
+      "local it=redis.call('TYPE',KEYS[3]).ok; local tt=redis.call('TYPE',KEYS[4]).ok; " +
       "if lt~='none' and lt~='hash' then return redis.error_reply('ledger key must be a hash') end; " +
+      "if st~='none' and st~='hash' then return redis.error_reply('ledger state key must be a hash') end; " +
+      "if it~='none' and it~='zset' then return redis.error_reply('ledger index key must be a zset') end; " +
       "if tt~='none' and tt~='zset' then return redis.error_reply('target key must be a zset') end; " +
-      "local batch=tonumber(ARGV[1]); local window=tonumber(ARGV[2]); local amount=tonumber(ARGV[3]); " +
-      "if not batch or not window or window<2 or not amount then return redis.error_reply('invalid ledger arguments') end; " +
-      "if redis.call('HEXISTS',KEYS[1],ARGV[1])==1 then return 0 end; " +
-      "for _,f in ipairs(redis.call('HKEYS',KEYS[1])) do local b=tonumber(f); " +
-      "if b and b < batch-window+1 then redis.call('HDEL',KEYS[1],f) end end; " +
-      "redis.call('ZINCRBY',KEYS[2],ARGV[3],ARGV[4]); " +
-      "redis.call('HSET',KEYS[1],ARGV[1],'1'); return 1"
+      "local batch=tonumber(ARGV[1]); local window=tonumber(ARGV[2]); local amount=tonumber(ARGV[4]); " +
+      "if not batch or not window or window<2 or ARGV[3]=='' or not amount or ARGV[5]=='' then " +
+      "return redis.error_reply('invalid ledger arguments') end; " +
+      "local raw=redis.call('HGET',KEYS[2],'committed_batch'); local watermark=tonumber(raw); " +
+      "if raw and not watermark then return redis.error_reply('committed batch watermark must be numeric') end; " +
+      "if watermark and batch < watermark-window+1 then return -1 end; " +
+      "if redis.call('HEXISTS',KEYS[1],ARGV[3])==1 then return 0 end; " +
+      "redis.call('ZINCRBY',KEYS[4],ARGV[4],ARGV[5]); " +
+      "redis.call('HSET',KEYS[1],ARGV[3],'1'); redis.call('ZADD',KEYS[3],batch,KEYS[1]); return 1"
 
   private val HashScript =
-    "local lt=redis.call('TYPE',KEYS[1]).ok; local tt=redis.call('TYPE',KEYS[2]).ok; " +
+    "local lt=redis.call('TYPE',KEYS[1]).ok; local st=redis.call('TYPE',KEYS[2]).ok; " +
+      "local it=redis.call('TYPE',KEYS[3]).ok; local tt=redis.call('TYPE',KEYS[4]).ok; " +
       "if lt~='none' and lt~='hash' then return redis.error_reply('ledger key must be a hash') end; " +
+      "if st~='none' and st~='hash' then return redis.error_reply('ledger state key must be a hash') end; " +
+      "if it~='none' and it~='zset' then return redis.error_reply('ledger index key must be a zset') end; " +
       "if tt~='none' and tt~='hash' then return redis.error_reply('target key must be a hash') end; " +
       "local batch=tonumber(ARGV[1]); local window=tonumber(ARGV[2]); local ttl=tonumber(ARGV[3]); " +
-      "if not batch or not window or window<2 or not ttl or ttl<=0 or (#ARGV-3)%2~=0 then " +
+      "if not batch or not window or window<2 or not ttl or ttl<=0 or ARGV[4]=='' or (#ARGV-4)%2~=0 then " +
       "return redis.error_reply('invalid ledger arguments') end; " +
-      "if redis.call('HEXISTS',KEYS[1],ARGV[1])==1 then return 0 end; " +
-      "for _,f in ipairs(redis.call('HKEYS',KEYS[1])) do local b=tonumber(f); " +
-      "if b and b < batch-window+1 then redis.call('HDEL',KEYS[1],f) end end; " +
-      "for i=4,#ARGV,2 do redis.call('HSET',KEYS[2],ARGV[i],ARGV[i+1]) end; " +
-      "redis.call('EXPIRE',KEYS[2],ttl); redis.call('HSET',KEYS[1],ARGV[1],'1'); return 1"
+      "local raw=redis.call('HGET',KEYS[2],'committed_batch'); local watermark=tonumber(raw); " +
+      "if raw and not watermark then return redis.error_reply('committed batch watermark must be numeric') end; " +
+      "if watermark and batch < watermark-window+1 then return -1 end; " +
+      "if redis.call('HEXISTS',KEYS[1],ARGV[4])==1 then return 0 end; " +
+      "for i=5,#ARGV,2 do redis.call('HSET',KEYS[4],ARGV[i],ARGV[i+1]) end; " +
+      "redis.call('EXPIRE',KEYS[4],ttl); redis.call('HSET',KEYS[1],ARGV[4],'1'); " +
+      "redis.call('EXPIRE',KEYS[1],ttl); redis.call('ZADD',KEYS[3],batch,KEYS[1]); " +
+      "redis.call('EXPIRE',KEYS[3],ttl); return 1"
 
-  def ledgerKey(context: SinkWriteContext, purpose: String, effectId: String): String = {
+  private val CompleteScript =
+    "local st=redis.call('TYPE',KEYS[1]).ok; local it=redis.call('TYPE',KEYS[2]).ok; " +
+      "if st~='none' and st~='hash' then return redis.error_reply('ledger state key must be a hash') end; " +
+      "if it~='none' and it~='zset' then return redis.error_reply('ledger index key must be a zset') end; " +
+      "local batch=tonumber(ARGV[1]); local window=tonumber(ARGV[2]); local ttl=tonumber(ARGV[3]); " +
+      "if not batch or not window or window<2 or not ttl or ttl<0 then return redis.error_reply('invalid ledger arguments') end; " +
+      "local raw=redis.call('HGET',KEYS[1],'committed_batch'); local watermark=tonumber(raw); " +
+      "if raw and not watermark then return redis.error_reply('committed batch watermark must be numeric') end; " +
+      "if watermark and batch < watermark-window+1 then return -1 end; " +
+      "local committed=batch; if watermark and watermark>batch then committed=watermark end; " +
+      "redis.call('HSET',KEYS[1],'committed_batch',committed); local floor=committed-window+1; " +
+      "for _,key in ipairs(redis.call('ZRANGEBYSCORE',KEYS[2],'-inf',floor-1)) do " +
+      "redis.call('DEL',key); redis.call('ZREM',KEYS[2],key) end; " +
+      "if ttl>0 then redis.call('EXPIRE',KEYS[1],ttl); " +
+      "if redis.call('EXISTS',KEYS[2])==1 then redis.call('EXPIRE',KEYS[2],ttl) end end; " +
+      "return committed"
+
+  def namespace(context: SinkWriteContext, purpose: String): String = {
     require(Option(purpose).exists(_.trim.nonEmpty), "Redis ledger purpose must not be blank")
-    require(Option(effectId).exists(_.trim.nonEmpty), "Redis ledger effect must not be blank")
-    val effectHash = MessageDigest.getInstance("SHA-256")
-      .digest(effectId.getBytes(StandardCharsets.UTF_8))
-      .map(byte => f"${byte & 0xff}%02x").mkString
-    s"recsys:batch-ledger:${context.queryNamespace}:${context.sinkNamespace}:$purpose:$effectHash"
+    s"recsys:batch-ledger:${context.queryNamespace}:${context.sinkNamespace}:$purpose:"
+  }
+
+  def ledgerKey(context: SinkWriteContext, purpose: String): String =
+    s"${namespace(context, purpose)}batch:${context.batchId}"
+
+  def stateKey(context: SinkWriteContext, purpose: String): String =
+    s"${namespace(context, purpose)}state"
+
+  def indexKey(context: SinkWriteContext, purpose: String): String =
+    s"${namespace(context, purpose)}index"
+
+  private def asLong(result: Object): Long = result match {
+    case number: java.lang.Number => number.longValue()
+    case other => throw new IllegalStateException(s"Redis ledger script returned non-numeric result $other")
   }
 
   def incrementOnce(
       eval: Eval,
       ledgerKey: String,
+      stateKey: String,
+      indexKey: String,
       sortedSetKey: String,
       effectId: String,
       amount: Double,
       member: String,
       batchId: Long,
       retainedBatchWindow: Int = 2
-  ): Unit = {
-    eval(
+  ): Long =
+    asLong(eval(
       IncrementScript,
-      Seq(ledgerKey, sortedSetKey).asJava,
-      Seq(batchId.toString, retainedBatchWindow.toString, amount.toString, member).asJava)
-    ()
-  }
+      Seq(ledgerKey, stateKey, indexKey, sortedSetKey).asJava,
+      Seq(batchId.toString, retainedBatchWindow.toString, effectId, amount.toString, member).asJava))
 
   def hashOnce(
       eval: Eval,
       ledgerKey: String,
+      stateKey: String,
+      indexKey: String,
       hashKey: String,
       effectId: String,
       ttlSeconds: Int,
       fields: Map[String, String],
       batchId: Long,
       retainedBatchWindow: Int = 2
-  ): Unit = {
+  ): Long = {
     val fieldArguments = fields.toSeq.sortBy(_._1).flatMap { case (field, value) => Seq(field, value) }
-    eval(
+    asLong(eval(
       HashScript,
-      Seq(ledgerKey, hashKey).asJava,
-      (Seq(batchId.toString, retainedBatchWindow.toString, ttlSeconds.toString) ++ fieldArguments).asJava)
-    ()
+      Seq(ledgerKey, stateKey, indexKey, hashKey).asJava,
+      (Seq(batchId.toString, retainedBatchWindow.toString, ttlSeconds.toString, effectId) ++
+        fieldArguments).asJava))
   }
+
+  def completeBatch(
+      eval: Eval,
+      stateKey: String,
+      indexKey: String,
+      batchId: Long,
+      retainedBatchWindow: Int = 2,
+      ledgerTtlSeconds: Int = 0
+  ): Long =
+    asLong(eval(
+      CompleteScript,
+      Seq(stateKey, indexKey).asJava,
+      Seq(batchId.toString, retainedBatchWindow.toString, ledgerTtlSeconds.toString).asJava))
 }
 
 /** User-event popularity sink. Every item increment and its batch-ledger marker execute in one
@@ -156,10 +210,12 @@ class RedisPopularitySink(
       val jedis = RedisPool.get(h, pt, mx).getResource
       try rows.foreach { row =>
         val itemId = row.getAs[String]("item_id")
-        val ledger = RedisBatchLedger.ledgerKey(context, "popularity", itemId)
+        val ledger = RedisBatchLedger.ledgerKey(context, "popularity")
         RedisBatchLedger.incrementOnce(
           (script, keys, arguments) => jedis.eval(script, keys, arguments),
           ledger,
+          RedisBatchLedger.stateKey(context, "popularity"),
+          RedisBatchLedger.indexKey(context, "popularity"),
           key,
           itemId,
           row.getAs[Long]("count").toDouble,
@@ -169,5 +225,13 @@ class RedisPopularitySink(
       }
       finally jedis.close()
     }
+    val jedis = RedisPool.get(h, pt, mx).getResource
+    try RedisBatchLedger.completeBatch(
+      (script, keys, arguments) => jedis.eval(script, keys, arguments),
+      RedisBatchLedger.stateKey(context, "popularity"),
+      RedisBatchLedger.indexKey(context, "popularity"),
+      context.batchId,
+      retention)
+    finally jedis.close()
   }
 }

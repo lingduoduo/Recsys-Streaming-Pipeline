@@ -130,6 +130,13 @@ class _ArchivePosition:
     row: int
 
 
+@dataclass(frozen=True)
+class _ArchiveFileIdentity:
+    path: str
+    size: int
+    sha256: str
+
+
 CANONICAL_EVENT_FIELDS = tuple(field["name"] for field in load_schema()["fields"])
 ARCHIVE_COLUMNS = (
     *CANONICAL_EVENT_FIELDS,
@@ -171,19 +178,46 @@ def validate_config(config: ReplayConfig) -> None:
         raise ReplayConfigError("bootstrap_servers must not be blank")
 
 
-def _parse_batch_manifest(path: Path) -> tuple[dict[str, str], tuple[str, ...]]:
+def _parse_batch_manifest(
+    path: Path,
+) -> tuple[dict[str, str], tuple[_ArchiveFileIdentity, ...]]:
     values: dict[str, str] = {}
-    files: list[str] = []
+    raw_files: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if "=" not in line:
             raise ReplayConfigError(f"commit manifest has malformed line: {path}")
         key, value = line.split("=", 1)
         if key == "file":
-            files.append(value)
+            raw_files.append(value)
         elif key in values:
             raise ReplayConfigError(f"commit manifest has duplicate {key}: {path}")
         else:
             values[key] = value
+    if values.get("version") == "1":
+        return values, ()
+    files: list[_ArchiveFileIdentity] = []
+    for value in raw_files:
+        parts = value.split("\t")
+        if len(parts) != 3:
+            raise ReplayConfigError(
+                f"commit inventory is missing file size or SHA-256: {path}"
+            )
+        relative_path, raw_size, sha256 = parts
+        try:
+            size = int(raw_size)
+        except ValueError as exc:
+            raise ReplayConfigError(
+                f"commit inventory has invalid file size: {path}"
+            ) from exc
+        if (
+            not relative_path
+            or size < 0
+            or re.fullmatch(r"[0-9a-f]{64}", sha256) is None
+        ):
+            raise ReplayConfigError(
+                f"commit inventory has invalid path, size, or SHA-256: {path}"
+            )
+        files.append(_ArchiveFileIdentity(relative_path, size, sha256))
     return values, tuple(files)
 
 
@@ -228,6 +262,11 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
                 f"uncommitted or incomplete archive batch {batch_directory}"
             )
         manifest, inventory = _parse_batch_manifest(committed)
+        if manifest.get("version") == "1":
+            raise ReplayConfigError(
+                "archive commit protocol pre-release v1 is unsupported; "
+                "pre-release v1 data must be regenerated as version 2"
+            )
         expected_identity = {
             "version": "2",
             "query": config.archive_query_namespace,
@@ -242,12 +281,25 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
                 f"commit identity mismatch for archive batch {batch_directory}"
             )
         batch_files = sorted(batch_directory.rglob("*.parquet"))
-        actual_inventory = tuple(
+        actual_paths = tuple(
             path.relative_to(batch_directory).as_posix() for path in batch_files
+        )
+        if tuple(entry.path for entry in inventory) != actual_paths:
+            raise ReplayConfigError(
+                f"commit inventory path mismatch for archive batch {batch_directory}"
+            )
+        actual_inventory = tuple(
+            _ArchiveFileIdentity(
+                path=path.relative_to(batch_directory).as_posix(),
+                size=path.stat().st_size,
+                sha256=_file_sha256(path),
+            )
+            for path in batch_files
         )
         if inventory != actual_inventory:
             raise ReplayConfigError(
-                f"commit inventory mismatch for archive batch {batch_directory}"
+                "commit inventory size or SHA-256 mismatch for archive batch "
+                f"{batch_directory}"
             )
         try:
             row_count = int(manifest["row_count"])

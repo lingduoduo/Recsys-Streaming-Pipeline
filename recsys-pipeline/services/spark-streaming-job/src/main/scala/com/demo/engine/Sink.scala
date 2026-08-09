@@ -1,6 +1,7 @@
 package com.demo.engine
 
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.UUID
 
 import org.apache.hadoop.fs.{FileAlreadyExistsException, FileContext, Options, Path}
@@ -107,6 +108,7 @@ class ParquetSink(path: String, partitionCol: String, outputFiles: Int,
 
 /** Deterministic Parquet batch commit used only by the migrated Avro path. */
 object DurableParquetCommit {
+  private val ReservedControlColumns = Set("query", "sink", "batch")
 
   def finalPath(root: String, context: SinkWriteContext): Path =
     new Path(
@@ -125,6 +127,12 @@ object DurableParquetCommit {
       partitionCols: Seq[String],
       context: SinkWriteContext
   ): Unit = {
+    val collisions = batch.columns.filter(column =>
+      ReservedControlColumns.contains(column.toLowerCase(Locale.ROOT)))
+    require(
+      collisions.isEmpty,
+      s"payload contains reserved Parquet control column '${collisions.headOption.getOrElse("")}'")
+
     val destination = finalPath(root, context)
     val configuration = batch.sparkSession.sparkContext.hadoopConfiguration
     val fileSystem = destination.getFileSystem(configuration)

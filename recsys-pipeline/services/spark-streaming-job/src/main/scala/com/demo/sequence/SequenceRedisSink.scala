@@ -113,10 +113,12 @@ class SequenceRedisSink(
                 fields.zip(values).collect { case (field, value) if value != null => field -> value }.toMap
             }
             val resolved = SequenceRedisSink.resolve(existing, fresh, cap, m)
-            val ledger = RedisBatchLedger.ledgerKey(context, "sequence", key)
+            val ledger = RedisBatchLedger.ledgerKey(context, "sequence")
             RedisBatchLedger.hashOnce(
               (script, keys, arguments) => jedis.eval(script, keys, arguments),
               ledger,
+              RedisBatchLedger.stateKey(context, "sequence"),
+              RedisBatchLedger.indexKey(context, "sequence"),
               key,
               key,
               ttl,
@@ -134,6 +136,15 @@ class SequenceRedisSink(
           log.warn("Skipped {} of {} rows in partition due to per-row errors", skipped, total)
       } finally jedis.close()
     }
+    val jedis = RedisPool.get(h, pt, mx).getResource
+    try RedisBatchLedger.completeBatch(
+      (script, keys, arguments) => jedis.eval(script, keys, arguments),
+      RedisBatchLedger.stateKey(context, "sequence"),
+      RedisBatchLedger.indexKey(context, "sequence"),
+      context.batchId,
+      retention,
+      ttl)
+    finally jedis.close()
   }
 }
 
