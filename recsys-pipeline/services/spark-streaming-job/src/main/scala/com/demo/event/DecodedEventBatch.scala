@@ -8,6 +8,8 @@ import org.apache.spark.sql.functions.{col, udf}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Row}
 
+import java.nio.{ByteBuffer, ByteOrder}
+
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
@@ -44,6 +46,7 @@ object DecodedEventBatch {
       .filter(col("decoded.error_code").isNotNull)
       .select((lineageColumns ++ Seq(
         col("value").as("raw_value"),
+        col("decoded.schema_fingerprint").as("schema_fingerprint"),
         col("decoded.error_code").as("error_code"),
         col("decoded.error_detail").as("error_detail")
       )): _*)
@@ -54,16 +57,26 @@ object DecodedEventBatch {
   private def optionalHeaders(rawKafka: DataFrame) =
     if (rawKafka.columns.contains("headers")) Seq(col("headers").as("kafka_headers")) else Seq.empty
 
-  private def safeDecode(bytes: Array[Byte]): Row =
+  private def safeDecode(bytes: Array[Byte]): Row = {
+    // Parse the writer identity before consulting the local schema catalog so unknown writers are
+    // still observable and routable in the dead-letter archive.
+    val writerFingerprint = parsedWriterFingerprint(bytes)
     try {
       EventAvroCodec.decode(bytes) match {
         case Right(record) => Row(recordRow(record), EventAvroCodec.fingerprint, null, null)
-        case Left(failure) => Row(null, null, failure.code, failure.detail)
+        case Left(failure) => Row(null, writerFingerprint, failure.code, failure.detail)
       }
     } catch {
       case NonFatal(error) =>
-        Row(null, null, "corrupt_payload", Option(error.getMessage).getOrElse(error.getClass.getSimpleName))
+        Row(null, writerFingerprint, "corrupt_payload",
+          Option(error.getMessage).getOrElse(error.getClass.getSimpleName))
     }
+  }
+
+  private def parsedWriterFingerprint(bytes: Array[Byte]): java.lang.Long =
+    if (bytes == null || bytes.length < 10 || !bytes.take(2).sameElements(EventAvroCodec.Magic)) null
+    else java.lang.Long.valueOf(
+      ByteBuffer.wrap(bytes, 2, 8).order(ByteOrder.LITTLE_ENDIAN).getLong)
 
   private def recordRow(record: GenericRecord): Row =
     Row.fromSeq(EventAvroCodec.schema.getFields.asScala.map(field => sparkValue(record.get(field.name))))

@@ -79,7 +79,7 @@ object UserEventStreamingJob {
     val archive = new RawArchiveSink(
       sys.env.getOrElse("RECSYS_EVENT_ARCHIVE_PATH", "/tmp/spark-recsys/recsys-events-archive"),
       sys.env.getOrElse("RECSYS_EVENT_DEAD_LETTER_PATH", "/tmp/spark-recsys/recsys-events-dead-letter"),
-      cfg.groupId
+      cfg.checkpointLocation
     )
     val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedClicks(df, cfg.watermarkDelay))
     val popularitySink: Sink = (batch: DataFrame, batchId: Long) =>

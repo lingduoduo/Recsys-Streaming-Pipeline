@@ -37,7 +37,8 @@ class DecodedEventBatchSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     val rawKafka = Seq(
       (encodedEvent("e1"), "recsys_events", 1, 10L, kafkaTimestamp),
       (unknownFingerprint, "recsys_events", 1, 11L, kafkaTimestamp),
-      (corruptPayload, "recsys_events", 1, 12L, kafkaTimestamp)
+      (corruptPayload, "recsys_events", 1, 12L, kafkaTimestamp),
+      (Array[Byte](1, 2), "recsys_events", 1, 13L, kafkaTimestamp)
     ).toDF("value", "topic", "partition", "offset", "timestamp")
 
     val frames = DecodedEventBatch.decode(rawKafka)
@@ -48,10 +49,16 @@ class DecodedEventBatchSpec extends AnyFlatSpec with Matchers with SparkTestSupp
       (("recsys_events", 1, 10L, EventAvroCodec.fingerprint))
     frames.valid.select("user_features").as[Map[String, String]].head() shouldBe Map("tier" -> "gold")
 
-    val failures = frames.deadLetters.select("kafka_offset", "error_code")
-      .as[(Long, String)].collect().toMap
-    failures shouldBe Map(11L -> "unknown_fingerprint", 12L -> "corrupt_payload")
+    val failures = frames.deadLetters.select("kafka_offset", "error_code", "schema_fingerprint")
+      .collect().map(row => row.getLong(0) ->
+        (row.getString(1), if (row.isNullAt(2)) None else Some(row.getLong(2)))).toMap
+    failures shouldBe Map(
+      11L -> ("unknown_fingerprint", Some(0L)),
+      12L -> ("corrupt_payload", Some(EventAvroCodec.fingerprint)),
+      13L -> ("invalid_marker", None)
+    )
     frames.deadLetters.columns should contain allOf
-      ("kafka_topic", "kafka_partition", "kafka_offset", "kafka_timestamp", "raw_value", "error_detail")
+      ("kafka_topic", "kafka_partition", "kafka_offset", "kafka_timestamp", "raw_value",
+        "schema_fingerprint", "error_detail")
   }
 }
