@@ -58,10 +58,11 @@ def add_fake_spark_submit(spark_home: Path) -> Path:
     return log_file
 
 
-def add_fake_kafka_topics(tmp_path: Path) -> Path:
+def add_fake_kafka_topics(tmp_path: Path, include_kafka_clis: bool = True) -> Path:
     bin_dir = tmp_path / "stub-bin"
     bin_dir.mkdir()
-    for command in ("kafka-topics", "kafka-configs"):
+    commands = ("kafka-topics", "kafka-configs") if include_kafka_clis else ()
+    for command in commands:
         executable = bin_dir / command
         executable.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
@@ -87,15 +88,38 @@ def run_script(script: Path, env: dict[str, str]) -> subprocess.CompletedProcess
     )
 
 
-def base_env(tmp_path: Path) -> dict[str, str]:
+def base_env(tmp_path: Path, include_kafka_clis: bool = True) -> dict[str, str]:
     env = os.environ.copy()
     spark_home = tmp_path / "fake-spark"
     env["SPARK_HOME"] = str(spark_home)
     env["SPARK_SUBMIT_LOG"] = str(add_fake_spark_submit(spark_home))
     # The streaming script bootstraps its Kafka input topic before spark-submit; stub
     # the CLI so the test never blocks on a real broker.
-    env["PATH"] = os.pathsep.join([str(add_fake_kafka_topics(tmp_path)), env["PATH"]])
+    env["PATH"] = os.pathsep.join([str(add_fake_kafka_topics(tmp_path, include_kafka_clis)), env["PATH"]])
     return env
+
+
+def add_fake_docker(bin_dir: Path, log_file: Path) -> None:
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$1 $2 $3 $4\" == \"compose ps --status running\" ]]; then exit 0; fi\n"
+        "printf '%s\\n' \"$*\" >> \"${DOCKER_LOG:?}\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(docker.stat().st_mode | stat.S_IXUSR)
+
+
+def block_host_kafka_cli(tmp_path: Path) -> Path:
+    bash_env = tmp_path / "block-kafka-cli.bash"
+    bash_env.write_text(
+        "command() {\n"
+        "  if [[ \"$1\" == \"-v\" && ( \"$2\" == \"kafka-topics\" || \"$2\" == \"kafka-configs\" ) ]]; then return 1; fi\n"
+        "  builtin command \"$@\"\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    return bash_env
 
 
 @contextlib.contextmanager
@@ -128,6 +152,25 @@ def test_streaming_script_uses_consolidated_spark_service_path(tmp_path: Path) -
     assert "--class" in args
     assert "com.demo.task.UserEventStreamingJob" in args
     assert str(jar.relative_to(pipeline)) in args
+
+
+def test_streaming_script_uses_docker_compose_kafka_cli_when_host_cli_is_absent(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    add_spark_job_jar(pipeline)
+    env = base_env(tmp_path, include_kafka_clis=False)
+    docker_log = tmp_path / "docker.log"
+    add_fake_docker(Path(env["PATH"].split(os.pathsep)[0]), docker_log)
+    env["DOCKER_LOG"] = str(docker_log)
+    env["BASH_ENV"] = str(block_host_kafka_cli(tmp_path))
+
+    with listening_socket() as bootstrap:
+        env["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap
+        result = run_script(pipeline / "scripts" / "run-streaming-job.sh", env)
+
+    assert result.returncode == 0, result.stderr
+    commands = docker_log.read_text(encoding="utf-8").splitlines()
+    assert commands[0] == "compose exec -T kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic recsys_events --partitions 3 --replication-factor 1"
+    assert commands[1].startswith("compose exec -T kafka kafka-configs --bootstrap-server localhost:9092 --alter")
 
 
 def test_streaming_script_reports_missing_consolidated_jar(tmp_path: Path) -> None:

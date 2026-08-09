@@ -1,4 +1,5 @@
 import dataclasses
+import math
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ PRIMARY = TopicPolicy(
     1024,
     86_400_000,
     1_500_000_000,
+    1_500_000_000,
     1.10,
     "delete",
     "recsys-event",
@@ -32,6 +34,7 @@ BACKFILL = TopicPolicy(
     1024,
     21_600_000,
     250_000_000,
+    150_000_000,
     1.10,
     "delete",
     "recsys-event",
@@ -42,7 +45,7 @@ BACKFILL = TopicPolicy(
 def test_required_storage_includes_replication_and_overhead() -> None:
     policy = TopicPolicy(
         "events", 12, 3, 1_000_000, 500, 86_400_000,
-        200_000_000_000_000, 1.10, "delete", "recsys-event", "abc",
+        100_000_000_000_000, 200_000_000_000_000, 1.10, "delete", "recsys-event", "abc",
     )
 
     assert required_storage_bytes(policy) == 1_000_000 * 500 * 86_400 * 3 * 1.10
@@ -50,7 +53,15 @@ def test_required_storage_includes_replication_and_overhead() -> None:
 
 def test_budget_overrun_is_rejected() -> None:
     with pytest.raises(ValueError, match="storage budget"):
-        validate_policy(dataclasses.replace(PRIMARY, retention_bytes=1))
+        validate_policy(dataclasses.replace(PRIMARY, storage_budget_bytes=1))
+
+
+def test_storage_budget_is_distinct_from_per_partition_retention_ceiling() -> None:
+    policy = dataclasses.replace(PRIMARY, retention_bytes=1, storage_budget_bytes=2_000_000_000)
+
+    validate_policy(policy)
+
+    assert config_args(policy)[-1].endswith("retention.bytes=1")
 
 
 @pytest.mark.parametrize(
@@ -75,7 +86,18 @@ def test_config_args_are_exact_for_each_catalog_topic(policy: TopicPolicy, expec
     assert config_args(policy) == expected
 
 
-@pytest.mark.parametrize("field", ["partitions", "replication_factor", "messages_per_second", "average_record_bytes", "retention_ms", "retention_bytes"])
+@pytest.mark.parametrize("field", ["partitions", "replication_factor", "messages_per_second", "average_record_bytes", "retention_ms", "retention_bytes", "storage_budget_bytes"])
 def test_nonpositive_numeric_policy_values_are_rejected(field: str) -> None:
     with pytest.raises(ValueError, match="numeric policy values must be positive"):
         validate_policy(dataclasses.replace(PRIMARY, **{field: 0}))
+
+
+@pytest.mark.parametrize("overhead_factor", [math.nan, math.inf, -math.inf])
+def test_nonfinite_overhead_factor_is_rejected(overhead_factor: float) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        validate_policy(dataclasses.replace(PRIMARY, overhead_factor=overhead_factor))
+
+
+def test_unknown_or_delimited_cleanup_policy_is_rejected() -> None:
+    with pytest.raises(ValueError, match="cleanup policy"):
+        validate_policy(dataclasses.replace(PRIMARY, cleanup_policy="delete,retention.ms=1"))

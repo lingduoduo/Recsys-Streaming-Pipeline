@@ -34,6 +34,7 @@ def topic(name: str, **overrides: object) -> dict:
         "average_record_bytes": 100,
         "retention_ms": 86_400_000,
         "retention_bytes": 20_000_000,
+        "storage_budget_bytes": 20_000_000,
         "overhead_factor": 1.1,
         "cleanup_policy": "delete",
         "schema_subject": "recsys-event",
@@ -66,7 +67,7 @@ def test_provisioner_runs_idempotent_create_then_retention_config(tmp_path: Path
 
 def test_invalid_policy_stops_before_any_kafka_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     provisioner = load_provisioner()
-    catalog = write_catalog(tmp_path / "topics.json", [topic("valid"), topic("invalid", retention_bytes=1)])
+    catalog = write_catalog(tmp_path / "topics.json", [topic("valid"), topic("invalid", storage_budget_bytes=1)])
     calls: list[list[str]] = []
     monkeypatch.setattr(provisioner.subprocess, "run", lambda args, check: calls.append(args))
 
@@ -74,6 +75,37 @@ def test_invalid_policy_stops_before_any_kafka_command(tmp_path: Path, monkeypat
         provisioner.main(["--catalog", str(catalog), "--bootstrap-server", "broker:9092"])
 
     assert calls == []
+
+
+def test_cleanup_policy_override_is_rejected_before_any_kafka_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provisioner = load_provisioner()
+    catalog = write_catalog(tmp_path / "topics.json", [topic("recsys_events")])
+    calls: list[list[str]] = []
+    monkeypatch.setenv("TOPIC_POLICY_RECSYS_EVENTS_CLEANUP_POLICY", "delete,retention.ms=1")
+    monkeypatch.setattr(provisioner.subprocess, "run", lambda args, check: calls.append(args))
+
+    with pytest.raises(ValueError, match="cleanup policy"):
+        provisioner.main(["--catalog", str(catalog), "--bootstrap-server", "broker:9092"])
+
+    assert calls == []
+
+
+def test_docker_compose_command_mode_uses_structured_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provisioner = load_provisioner()
+    catalog = write_catalog(tmp_path / "topics.json", [topic("recsys_events")])
+    calls: list[list[str]] = []
+    monkeypatch.setattr(provisioner.subprocess, "run", lambda args, check: calls.append(args))
+
+    provisioner.main([
+        "--catalog", str(catalog),
+        "--bootstrap-server", "localhost:9092",
+        "--command-mode", "docker-compose",
+    ])
+
+    assert calls == [
+        ["docker", "compose", "exec", "-T", "kafka", "kafka-topics", "--bootstrap-server", "localhost:9092", "--create", "--if-not-exists", "--topic", "recsys_events", "--partitions", "1", "--replication-factor", "1"],
+        ["docker", "compose", "exec", "-T", "kafka", "kafka-configs", "--bootstrap-server", "localhost:9092", "--alter", "--entity-type", "topics", "--entity-name", "recsys_events", "--add-config", "cleanup.policy=delete,retention.ms=86400000,retention.bytes=20000000"],
+    ]
 
 
 def test_catalog_has_only_live_and_backfill_topics() -> None:

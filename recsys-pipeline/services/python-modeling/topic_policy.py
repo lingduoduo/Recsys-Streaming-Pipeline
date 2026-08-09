@@ -9,12 +9,9 @@ from dataclasses import dataclass
 class TopicPolicy:
     """Capacity inputs and Kafka retention settings for one topic.
 
-    ``retention_bytes`` is emitted unchanged as Kafka's ``retention.bytes``
-    ceiling.  ``required_storage_bytes`` is instead a conservative estimate of
-    replicated cluster storage.  Comparing the two therefore requires the
-    declared ceiling to also be used as this policy's storage budget; it does
-    not claim that Kafka's per-partition retention implementation measures
-    cluster storage itself.
+    ``retention_bytes`` is Kafka's per-partition ``retention.bytes`` ceiling.
+    ``storage_budget_bytes`` is separately the cluster-level replicated-storage
+    budget used to validate ``required_storage_bytes``.
     """
 
     name: str
@@ -24,6 +21,7 @@ class TopicPolicy:
     average_record_bytes: int
     retention_ms: int
     retention_bytes: int
+    storage_budget_bytes: int
     overhead_factor: float
     cleanup_policy: str
     schema_subject: str
@@ -45,6 +43,8 @@ def required_storage_bytes(policy: TopicPolicy) -> int:
 
 def validate_policy(policy: TopicPolicy) -> None:
     """Reject invalid policy inputs before any Kafka command can be invoked."""
+    if not math.isfinite(policy.overhead_factor):
+        raise ValueError(f"{policy.name}: overhead factor must be finite")
     numeric_values = (
         policy.partitions,
         policy.replication_factor,
@@ -52,11 +52,14 @@ def validate_policy(policy: TopicPolicy) -> None:
         policy.average_record_bytes,
         policy.retention_ms,
         policy.retention_bytes,
+        policy.storage_budget_bytes,
         policy.overhead_factor,
     )
     if min(numeric_values) <= 0:
         raise ValueError(f"{policy.name}: numeric policy values must be positive")
-    if required_storage_bytes(policy) > policy.retention_bytes:
+    if policy.cleanup_policy != "delete":
+        raise ValueError(f"{policy.name}: cleanup policy must be 'delete'")
+    if required_storage_bytes(policy) > policy.storage_budget_bytes:
         raise ValueError(f"{policy.name}: required storage exceeds storage budget")
 
 

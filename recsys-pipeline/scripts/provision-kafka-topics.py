@@ -27,6 +27,7 @@ INTEGER_FIELDS = {
     "average_record_bytes",
     "retention_ms",
     "retention_bytes",
+    "storage_budget_bytes",
 }
 FLOAT_FIELDS = {"overhead_factor"}
 
@@ -35,6 +36,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bootstrap-server", default=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"))
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
+    parser.add_argument(
+        "--command-mode",
+        choices=("host", "docker-compose"),
+        default="host",
+        help="run Kafka CLIs on the host or through the fixed local Docker Compose Kafka service",
+    )
     return parser.parse_args(argv)
 
 
@@ -47,6 +54,7 @@ def policy_from_mapping(values: dict[str, Any]) -> TopicPolicy:
         average_record_bytes=int(values["average_record_bytes"]),
         retention_ms=int(values["retention_ms"]),
         retention_bytes=int(values["retention_bytes"]),
+        storage_budget_bytes=int(values["storage_budget_bytes"]),
         overhead_factor=float(values["overhead_factor"]),
         cleanup_policy=str(values["cleanup_policy"]),
         schema_subject=str(values["schema_subject"]),
@@ -83,27 +91,37 @@ def load_policies(catalog: Path) -> list[TopicPolicy]:
     return [environment_overrides(policy_from_mapping(entry)) for entry in data["topics"]]
 
 
-def provision(policies: Sequence[TopicPolicy], bootstrap_server: str) -> None:
+def command_prefix(command_mode: str) -> list[str]:
+    """Return a fixed argv prefix; callers cannot inject a shell fragment."""
+    if command_mode == "host":
+        return []
+    if command_mode == "docker-compose":
+        return ["docker", "compose", "exec", "-T", "kafka"]
+    raise ValueError(f"unsupported command mode: {command_mode}")
+
+
+def provision(policies: Sequence[TopicPolicy], bootstrap_server: str, command_mode: str = "host") -> None:
     # Validate the complete catalog before creating a single topic.  Commands
     # are argv arrays rather than shell strings so catalog values cannot alter
     # command parsing.
     for policy in policies:
         validate_policy(policy)
 
+    prefix = command_prefix(command_mode)
     for policy in policies:
         subprocess.run(
-            ["kafka-topics", "--bootstrap-server", bootstrap_server, *create_args(policy)],
+            [*prefix, "kafka-topics", "--bootstrap-server", bootstrap_server, *create_args(policy)],
             check=True,
         )
         subprocess.run(
-            ["kafka-configs", "--bootstrap-server", bootstrap_server, *config_args(policy)],
+            [*prefix, "kafka-configs", "--bootstrap-server", bootstrap_server, *config_args(policy)],
             check=True,
         )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    provision(load_policies(args.catalog), args.bootstrap_server)
+    provision(load_policies(args.catalog), args.bootstrap_server, args.command_mode)
 
 
 if __name__ == "__main__":

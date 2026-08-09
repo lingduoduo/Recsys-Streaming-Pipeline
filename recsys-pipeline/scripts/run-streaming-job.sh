@@ -49,7 +49,30 @@ if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
     exit 1
   fi
 
-  python3 scripts/provision-kafka-topics.py --bootstrap-server "$KAFKA_SERVERS"
+  PROVISION_COMMAND_MODE="host"
+  PROVISION_BOOTSTRAP_SERVER="$KAFKA_SERVERS"
+  if ! command -v kafka-topics >/dev/null 2>&1 || ! command -v kafka-configs >/dev/null 2>&1; then
+    case "${KAFKA_SERVERS%%,*}" in
+      localhost:*|127.0.0.1:*)
+        if command -v docker >/dev/null 2>&1 && docker compose ps --status running kafka >/dev/null 2>&1; then
+          PROVISION_COMMAND_MODE="docker-compose"
+          # The CLI runs inside the Kafka container, where the broker listens on 9092.
+          PROVISION_BOOTSTRAP_SERVER="localhost:9092"
+        else
+          echo "Kafka CLIs not found and the local Docker Kafka service is unavailable." >&2
+          exit 127
+        fi
+        ;;
+      *)
+        echo "Kafka CLIs not found. Install kafka-topics and kafka-configs for $KAFKA_SERVERS." >&2
+        exit 127
+        ;;
+    esac
+  fi
+
+  python3 scripts/provision-kafka-topics.py \
+    --bootstrap-server "$PROVISION_BOOTSTRAP_SERVER" \
+    --command-mode "$PROVISION_COMMAND_MODE"
 fi
 
 exec "$SPARK_SUBMIT" \
