@@ -61,8 +61,11 @@ object RedisBatchLedger {
       "local stateExists=st~='none'; local indexExists=it~='none'; local ledgerExists=lt~='none'; " +
       "if not stateExists and (indexExists or ledgerExists) then " +
       "return redis.error_reply('ledger namespace is missing state') end; " +
-      "local entries={}; if indexExists then entries=redis.call('ZRANGE',KEYS[3],0,-1,'WITHSCORES') end; " +
-      "local retained=#entries/2; if stateExists then " +
+      "local retained=0; local currentScore=false; local entries={}; if indexExists then " +
+      "retained=redis.call('ZCARD',KEYS[3]); currentScore=redis.call('ZSCORE',KEYS[3],KEYS[1]); " +
+      "local maxRetained=window; if currentScore then maxRetained=maxRetained+1 end; " +
+      "if retained>maxRetained then return redis.error_reply('ledger index exceeds retention') end; " +
+      "entries=redis.call('ZRANGE',KEYS[3],0,-1,'WITHSCORES') end; if stateExists then " +
       "if redis.call('HGET',KEYS[2],'initialized')~='1' then " +
       "return redis.error_reply('ledger state is not initialized') end; " +
       "local countRaw=redis.call('HGET',KEYS[2],'retained_count'); local count=tonumber(countRaw); " +
@@ -73,7 +76,6 @@ object RedisBatchLedger {
       "return redis.error_reply('ledger index membership is invalid') end; " +
       "if redis.call('TYPE',key).ok~='hash' then " +
       "return redis.error_reply('retained ledger key must be a hash') end end; " +
-      "local currentScore=false; if indexExists then currentScore=redis.call('ZSCORE',KEYS[3],KEYS[1]) end; " +
       "if ledgerExists and (not currentScore or tonumber(currentScore)~=batch) then " +
       "return redis.error_reply('current ledger is not retained at its batch') end; " +
       "if not ledgerExists and currentScore then " +
@@ -90,8 +92,9 @@ object RedisBatchLedger {
       "return redis.error_reply('ledger completion keys must share one namespace') end; " +
       "local prefix=namespace..'batch:'; local stateExists=st~='none'; local indexExists=it~='none'; " +
       "if not stateExists and indexExists then return redis.error_reply('ledger namespace is missing state') end; " +
-      "local entries={}; if indexExists then entries=redis.call('ZRANGE',KEYS[2],0,-1,'WITHSCORES') end; " +
-      "local retained=#entries/2; if stateExists then " +
+      "local retained=0; local entries={}; if indexExists then retained=redis.call('ZCARD',KEYS[2]); " +
+      "if retained>window+1 then return redis.error_reply('ledger index exceeds retention') end; " +
+      "entries=redis.call('ZRANGE',KEYS[2],0,-1,'WITHSCORES') end; if stateExists then " +
       "if redis.call('HGET',KEYS[1],'initialized')~='1' then " +
       "return redis.error_reply('ledger state is not initialized') end; " +
       "local countRaw=redis.call('HGET',KEYS[1],'retained_count'); local count=tonumber(countRaw); " +

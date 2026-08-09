@@ -483,4 +483,87 @@ class RedisSinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
       jedis.exists(nextLedger) shouldBe false
     } finally jedis.close()
   }
+
+  "RedisBatchLedger.incrementOnce" should "reject an oversized effect index when the current batch is retained" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val writeContext = context(5L)
+      val state = RedisBatchLedger.stateKey(writeContext, "popularity")
+      val index = RedisBatchLedger.indexKey(writeContext, "popularity")
+      (2L to 5L).foreach { batchId =>
+        val retainedLedger = RedisBatchLedger.ledgerKey(context(batchId), "popularity")
+        jedis.hset(retainedLedger, "seed", "1")
+        jedis.zadd(index, batchId.toDouble, retainedLedger)
+      }
+      jedis.hset(state, "initialized", "1")
+      jedis.hset(state, "retained_count", "4")
+      jedis.hset(state, "committed_batch", "4")
+
+      intercept[JedisDataException] {
+        increment(jedis, 5L, "new-effect", retainedBatchWindow = 2)
+      }
+
+      jedis.zscore("global:item_popularity", "new-effect") shouldBe null
+      jedis.hget(RedisBatchLedger.ledgerKey(writeContext, "popularity"), "new-effect") shouldBe null
+      jedis.zcard(index) shouldBe 4L
+      jedis.hget(state, "committed_batch") shouldBe "4"
+    } finally jedis.close()
+  }
+
+  it should "reject an effect index at the transient limit when the current batch is absent" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val writeContext = context(5L)
+      val state = RedisBatchLedger.stateKey(writeContext, "popularity")
+      val index = RedisBatchLedger.indexKey(writeContext, "popularity")
+      (2L to 4L).foreach { batchId =>
+        val retainedLedger = RedisBatchLedger.ledgerKey(context(batchId), "popularity")
+        jedis.hset(retainedLedger, "seed", "1")
+        jedis.zadd(index, batchId.toDouble, retainedLedger)
+      }
+      jedis.hset(state, "initialized", "1")
+      jedis.hset(state, "retained_count", "3")
+      jedis.hset(state, "committed_batch", "4")
+
+      intercept[JedisDataException] {
+        increment(jedis, 5L, "new-effect", retainedBatchWindow = 2)
+      }
+
+      jedis.zscore("global:item_popularity", "new-effect") shouldBe null
+      jedis.exists(RedisBatchLedger.ledgerKey(writeContext, "popularity")) shouldBe false
+      jedis.zcard(index) shouldBe 3L
+      jedis.hget(state, "committed_batch") shouldBe "4"
+    } finally jedis.close()
+  }
+
+  "RedisBatchLedger.completeBatch" should "reject an oversized completion index before pruning it" in {
+    val jedis = new Jedis("127.0.0.1", redisPort)
+    try {
+      jedis.flushDB()
+      val writeContext = context(5L)
+      val state = RedisBatchLedger.stateKey(writeContext, "popularity")
+      val index = RedisBatchLedger.indexKey(writeContext, "popularity")
+      (2L to 5L).foreach { batchId =>
+        val retainedLedger = RedisBatchLedger.ledgerKey(context(batchId), "popularity")
+        jedis.hset(retainedLedger, "seed", "1")
+        jedis.zadd(index, batchId.toDouble, retainedLedger)
+      }
+      jedis.hset(state, "initialized", "1")
+      jedis.hset(state, "retained_count", "4")
+      jedis.hset(state, "committed_batch", "4")
+
+      intercept[JedisDataException] {
+        complete(jedis, 5L, retainedBatchWindow = 2)
+      }
+
+      jedis.zcard(index) shouldBe 4L
+      (2L to 5L).foreach { batchId =>
+        jedis.exists(RedisBatchLedger.ledgerKey(context(batchId), "popularity")) shouldBe true
+      }
+      jedis.hget(state, "committed_batch") shouldBe "4"
+      jedis.hget(state, "retained_count") shouldBe "4"
+    } finally jedis.close()
+  }
 }
