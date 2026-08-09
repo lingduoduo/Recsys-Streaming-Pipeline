@@ -31,7 +31,10 @@ def load_schema(path: Path | None = None) -> dict:
 
 def schema_fingerprint(schema: dict) -> int:
     canonical = fastavro.schema.to_parsing_canonical_form(schema)
-    return int(fastavro.schema.fingerprint(canonical, "CRC-64-AVRO"), 16)
+    fingerprint_bytes = bytes.fromhex(
+        fastavro.schema.fingerprint(canonical, "CRC-64-AVRO")
+    )
+    return int.from_bytes(fingerprint_bytes, "little")
 
 
 def validate_required(event: Mapping[str, object]) -> None:
