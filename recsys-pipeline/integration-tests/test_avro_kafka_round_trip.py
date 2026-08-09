@@ -8,7 +8,11 @@ the fixture needs the local Compose services plus an assembled Spark job JAR.
 from __future__ import annotations
 
 import hashlib
+import importlib
+import importlib.util
 import os
+import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -17,17 +21,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import pyarrow.parquet as pq
 import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTHON_MODELING = REPO_ROOT / "services" / "python-modeling"
-sys.path.insert(0, str(PYTHON_MODELING))
-
-import event_avro
-
-
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 LIVE_TOPIC = "recsys_events"
 BACKFILL_TOPIC = "recsys_events.backfill"
@@ -60,6 +58,95 @@ FIXED_EVENT = {
 POLL_TIMEOUT_SECONDS = 90
 
 
+def event_avro_module():
+    """Load the local Avro helper only after enabled-run prerequisites pass."""
+    if str(PYTHON_MODELING) not in sys.path:
+        sys.path.insert(0, str(PYTHON_MODELING))
+    return importlib.import_module("event_avro")
+
+
+def _first_bootstrap_endpoint() -> tuple[str, int]:
+    endpoint = BOOTSTRAP_SERVERS.split(",", 1)[0].strip()
+    try:
+        host, port = endpoint.rsplit(":", 1)
+        return host.strip("[]"), int(port)
+    except ValueError as exc:
+        pytest.skip(f"Kafka integration prerequisite has invalid KAFKA_BOOTSTRAP_SERVERS={endpoint!r}: {exc}")
+
+
+def _reachable(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+def integration_preflight() -> None:
+    """Skip an enabled live test with remediation instead of failing on local setup gaps."""
+    missing_packages = [
+        package for package in ("fastavro", "kafka", "lz4", "pyarrow")
+        if importlib.util.find_spec(package) is None
+    ]
+    if missing_packages:
+        pytest.skip(
+            "Kafka integration prerequisite missing Python packages "
+            f"{', '.join(missing_packages)}. Run: python -m pip install -r "
+            "services/python-modeling/requirements.txt"
+        )
+
+    jar = REPO_ROOT / "services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar"
+    if not jar.is_file():
+        pytest.skip(
+            "Kafka integration prerequisite missing assembled Spark JAR. Run: "
+            "(cd services/spark-streaming-job && sbt assembly)"
+        )
+
+    kafka_host, kafka_port = _first_bootstrap_endpoint()
+    if not _reachable(kafka_host, kafka_port):
+        pytest.skip(
+            f"Kafka integration prerequisite cannot reach Kafka at {kafka_host}:{kafka_port}. "
+            "Start it with: docker compose up -d kafka redis"
+        )
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    try:
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+    except ValueError:
+        pytest.skip("Kafka integration prerequisite has invalid REDIS_PORT; set it to a TCP port number.")
+    if not _reachable(redis_host, redis_port):
+        pytest.skip(
+            f"Kafka integration prerequisite cannot reach Redis at {redis_host}:{redis_port}. "
+            "Start it with: docker compose up -d kafka redis"
+        )
+
+    command_mode = os.getenv("KAFKA_INTEGRATION_COMMAND_MODE", "host")
+    if command_mode == "host":
+        missing_clis = [command for command in ("kafka-topics", "kafka-configs") if shutil.which(command) is None]
+        if missing_clis:
+            pytest.skip(
+                "Kafka integration prerequisite missing host Kafka CLI "
+                f"{', '.join(missing_clis)}. Install the Kafka CLI tools, or set "
+                "KAFKA_INTEGRATION_COMMAND_MODE=docker-compose for the running local Compose stack."
+            )
+    elif command_mode == "docker-compose":
+        if shutil.which("docker") is None or subprocess.run(
+            ["docker", "compose", "ps", "--status", "running", "kafka"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode != 0:
+            pytest.skip(
+                "Kafka integration prerequisite needs a running Docker Compose Kafka service. "
+                "Run: docker compose up -d kafka redis"
+            )
+    else:
+        pytest.skip(
+            "Kafka integration prerequisite has unsupported KAFKA_INTEGRATION_COMMAND_MODE="
+            f"{command_mode!r}; use host or docker-compose."
+        )
+
+
 def provision_topics() -> None:
     """Provision the two checked-in topics with their real retention policy."""
     command = [
@@ -76,6 +163,7 @@ def provision_topics() -> None:
 def publish_fixed_avro_event(topic: str) -> str:
     from kafka import KafkaProducer
 
+    event_avro = event_avro_module()
     event_id = f"{FIXED_EVENT_ID}-{uuid.uuid4().hex}"
     event = dict(FIXED_EVENT)
     event["event_id"] = event_id
@@ -95,6 +183,8 @@ def publish_fixed_avro_event(topic: str) -> str:
 
 def archived_event(archive_root: Path, event_id: str) -> tuple[dict[str, Any], Path] | None:
     """Read only committed Parquet batches and return the archived event lineage."""
+    import pyarrow.parquet as pq
+
     for marker in archive_root.rglob("_COMMITTED"):
         if not (marker.parent / "_SUCCESS").is_file():
             continue
@@ -181,6 +271,7 @@ def run_archive_replay(archive_root: Path, manifest_root: Path) -> dict[str, Any
 def consume_event_id(topic: str, event_id: str) -> str | None:
     from kafka import KafkaConsumer
 
+    event_avro = event_avro_module()
     consumer = KafkaConsumer(
         topic,
         bootstrap_servers=BOOTSTRAP_SERVERS,
@@ -205,6 +296,8 @@ def consume_event_id(topic: str, event_id: str) -> str | None:
 @pytest.mark.skipif(os.getenv("RUN_KAFKA_INTEGRATION") != "1", reason="opt-in Kafka integration")
 def test_avro_archive_and_replay_round_trip(tmp_path: Path) -> None:
     """A live Avro event keeps its lineage through archive and backfill replay."""
+    integration_preflight()
+    event_avro = event_avro_module()
     provision_topics()
     event_id = publish_fixed_avro_event(LIVE_TOPIC)
     archived, batch_directory = run_bounded_ingestion(tmp_path, event_id)

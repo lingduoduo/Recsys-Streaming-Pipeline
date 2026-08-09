@@ -59,6 +59,29 @@ starting producers or consumers:
 python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
 ```
 
+For a host installation, that command requires `kafka-topics` and `kafka-configs` on `PATH`. For
+the local Docker Compose service, run the same provisioner in its explicit in-container mode:
+
+```bash
+python scripts/provision-kafka-topics.py \
+  --bootstrap-server localhost:9092 --command-mode docker-compose
+```
+
+The opt-in live round-trip test needs the Python modeling requirements, an assembled Spark JAR,
+and reachable Kafka plus Redis:
+
+```bash
+python -m pip install -r services/python-modeling/requirements.txt pytest
+(cd services/spark-streaming-job && sbt assembly)
+RUN_KAFKA_INTEGRATION=1 KAFKA_INTEGRATION_COMMAND_MODE=docker-compose \
+  pytest -q integration-tests/test_avro_kafka_round_trip.py
+```
+
+`KAFKA_INTEGRATION_COMMAND_MODE=host` is the default when the host Kafka CLIs are available;
+`docker-compose` requires the local Compose Kafka service. With `RUN_KAFKA_INTEGRATION` unset,
+the test cleanly skips without importing Kafka/Spark/Parquet dependencies. With it set, any absent
+package, JAR, Kafka/Redis endpoint, or provisioning mode skips with an exact remediation message.
+
 `./scripts/run-data-pipeline.sh` performs that same health-then-provision sequence before it
 starts the clickstream producer and `UserEventStreamingJob`. That wrapper is intentionally limited
 to the direct Avro vertical slice: `recsys_events` → archive/Redis popularity. Topic creation is

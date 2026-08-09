@@ -45,12 +45,33 @@ if [[ "${DRY_RUN:-0}" != "1" ]]; then
     fi
   fi
 
-  python3 scripts/provision-kafka-topics.py \
+  "$PYTHON_BIN" scripts/provision-kafka-topics.py \
     --bootstrap-server "$PROVISION_BOOTSTRAP_SERVER" \
     --command-mode "$PROVISION_COMMAND_MODE"
 fi
 
 pids=()
+cleanup_started=0
+cleanup() {
+  local pid
+  if [[ "$cleanup_started" == "1" ]]; then
+    return
+  fi
+  cleanup_started=1
+  if ((${#pids[@]})); then
+    echo "Stopping ${pids[*]}"
+    for pid in "${pids[@]}"; do
+      kill -TERM "$pid" 2>/dev/null || true
+    done
+    for pid in "${pids[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
+  fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 for entry in "${CLASSES[@]}"; do
   class="${entry%%:*}"
   ckpt="${entry##*:}"
@@ -71,11 +92,33 @@ pids+=("$!")
 
 echo "Launched PIDs: ${pids[*]}"
 
-if [[ "${DRY_RUN:-0}" == "1" ]]; then
-  wait "${pids[@]}" 2>/dev/null || true
-  exit 0
-fi
+# macOS ships Bash 3.2, so do not use wait -n.  `jobs -pr` reports only
+# currently running background jobs; once one disappears, `wait <pid>` returns
+# its saved status without blocking.  We can then terminate and reap its peer.
+child_is_running() {
+  jobs -pr | grep -Fx "$1" >/dev/null 2>&1
+}
 
-shutdown() { echo "Stopping ${pids[*]}"; kill "${pids[@]}" 2>/dev/null || true; }
-trap shutdown INT TERM
-wait
+wait_for_child_exit() {
+  local pid
+  while :; do
+    for pid in "${pids[@]}"; do
+      if ! child_is_running "$pid"; then
+        if wait "$pid"; then
+          return 0
+        else
+          return "$?"
+        fi
+      fi
+    done
+    sleep 0.1
+  done
+}
+
+if wait_for_child_exit; then
+  child_status=0
+else
+  child_status=$?
+fi
+cleanup
+exit "$child_status"

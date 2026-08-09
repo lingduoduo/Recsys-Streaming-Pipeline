@@ -43,6 +43,34 @@ docker compose up -d
 python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
 ```
 
+Install the live-test dependencies and assemble the Spark JAR before enabling the opt-in
+round-trip test:
+
+```bash
+python -m pip install -r services/python-modeling/requirements.txt pytest
+(cd services/spark-streaming-job && sbt assembly)
+```
+
+Host provisioning uses `kafka-topics` and `kafka-configs` on `PATH`. For the local Compose stack
+instead, use its Kafka CLI explicitly:
+
+```bash
+python scripts/provision-kafka-topics.py \
+  --bootstrap-server localhost:9092 --command-mode docker-compose
+```
+
+The real end-to-end check is opt-in and requires reachable Kafka and Redis. Choose the mode that
+matches the provisioner (`host` is the default):
+
+```bash
+RUN_KAFKA_INTEGRATION=1 KAFKA_INTEGRATION_COMMAND_MODE=docker-compose \
+  pytest -q integration-tests/test_avro_kafka_round_trip.py
+```
+
+When disabled, the test is one clean skip and imports no Kafka/Spark/Parquet dependencies. When
+enabled, missing Python packages, the assembled JAR, reachable Kafka/Redis, or usable host/Compose
+Kafka CLI cause a skip with the exact remediation rather than a false integration failure.
+
 `recsys_events` is the live input. `recsys_events.backfill` is a separately provisioned,
 short-retention replay target; nothing reads it by default. A consumer must deliberately opt in,
 for example:
