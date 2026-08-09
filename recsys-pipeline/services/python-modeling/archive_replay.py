@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 
 import pyarrow.dataset as ds
 
-from event_avro import encode_event, load_schema
+from event_avro import encode_event, load_schema, schema_fingerprint
 
 
 class ReplayConfigError(ValueError):
@@ -24,6 +24,14 @@ class ReplayConfigError(ValueError):
 
 class ReplayLimitError(ReplayConfigError):
     """Raised when the selected archive range exceeds its explicit row cap."""
+
+
+class ReplaySchemaFingerprintError(ReplayConfigError):
+    """Raised when an archive row was written with a non-local schema."""
+
+    def __init__(self, message: str, fingerprints: set[int]) -> None:
+        super().__init__(message)
+        self.fingerprints = tuple(sorted(fingerprints))
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,7 @@ class ReplayManifest:
 
 CANONICAL_EVENT_FIELDS = tuple(field["name"] for field in load_schema()["fields"])
 ARCHIVE_COLUMNS = (*CANONICAL_EVENT_FIELDS, "schema_fingerprint")
+DELIVERY_TIMEOUT_SECONDS = 10.0
 
 
 def validate_config(config: ReplayConfig) -> None:
@@ -94,10 +103,8 @@ def validate_config(config: ReplayConfig) -> None:
         raise ReplayConfigError("bootstrap_servers must not be blank")
 
 
-def select_archive(config: ReplayConfig) -> Iterable[dict[str, object]]:
-    """Return only canonical records in the inclusive/exclusive UTC date range."""
-    validate_config(config)
-    dataset = ds.dataset(
+def _open_archive(config: ReplayConfig):
+    return ds.dataset(
         str(config.archive_path),
         format="parquet",
         partitioning="hive",
@@ -106,14 +113,50 @@ def select_archive(config: ReplayConfig) -> Iterable[dict[str, object]]:
         ignore_prefixes=[],
         exclude_invalid_files=True,
     )
+
+
+def _archive_filter(config: ReplayConfig):
     # Hive discovery exposes ``date=YYYY-MM-DD`` path values as strings unless an
     # external Arrow schema is supplied. ISO dates retain chronological ordering.
-    date_filter = (
+    return (
         (ds.field("date") >= config.start_date.isoformat())
         & (ds.field("date") < config.end_date.isoformat())
     )
-    table = dataset.to_table(columns=list(ARCHIVE_COLUMNS), filter=date_filter)
-    return table.to_pylist()
+
+
+def _iter_archive_rows(dataset: Any, date_filter: Any) -> Iterable[dict[str, object]]:
+    """Yield bounded Arrow record batches, never a table-sized Python list."""
+    scanner = dataset.scanner(columns=list(ARCHIVE_COLUMNS), filter=date_filter)
+    for batch in scanner.to_batches():
+        yield from batch.to_pylist()
+
+
+def _validate_archive_fingerprints(dataset: Any, date_filter: Any) -> tuple[int, ...]:
+    """Ensure every selected record uses the sole local writer schema before publishing."""
+    expected = schema_fingerprint(load_schema())
+    observed: set[int] = set()
+    scanner = dataset.scanner(columns=["schema_fingerprint"], filter=date_filter)
+    for batch in scanner.to_batches():
+        for row in batch.to_pylist():
+            raw_fingerprint = row.get("schema_fingerprint")
+            if raw_fingerprint is None:
+                raise ReplaySchemaFingerprintError(
+                    "archive row is missing schema_fingerprint", observed
+                )
+            fingerprint = int(raw_fingerprint)
+            observed.add(fingerprint)
+            if fingerprint != expected:
+                raise ReplaySchemaFingerprintError(
+                    f"archive schema_fingerprint {fingerprint} does not match local schema_fingerprint {expected}",
+                    observed,
+                )
+    return tuple(sorted(observed))
+
+
+def select_archive(config: ReplayConfig) -> Iterable[dict[str, object]]:
+    """Yield canonical records in the inclusive/exclusive UTC date range."""
+    validate_config(config)
+    return _iter_archive_rows(_open_archive(config), _archive_filter(config))
 
 
 def _manifest_directory(config: ReplayConfig) -> Path:
@@ -122,6 +165,10 @@ def _manifest_directory(config: ReplayConfig) -> Path:
 
 def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _manifest_date(value: object) -> str:
+    return value.isoformat() if isinstance(value, date) else str(value)
 
 
 def _write_manifest(manifest: ReplayManifest) -> None:
@@ -170,7 +217,6 @@ def run_replay(
     """Count a bounded selection, then publish it at a monotonic limited rate."""
     import time
 
-    validate_config(config)
     monotonic_clock = clock or time.monotonic
     sleep = sleeper or time.sleep
     run_id = uuid.uuid4().hex
@@ -179,45 +225,43 @@ def run_replay(
     producer = None
     status = "failed"
     error: str | None = None
-    rows: list[dict[str, object]] = []
     selected_rows = 0
     fingerprints: tuple[int, ...] = ()
 
     try:
-        rows = list(select_archive(config))
-        selected_rows = len(rows)
-        fingerprints = tuple(
-            sorted(
-                {
-                    int(row["schema_fingerprint"])
-                    for row in rows
-                    if row.get("schema_fingerprint") is not None
-                }
-            )
-        )
+        validate_config(config)
+        dataset = _open_archive(config)
+        date_filter = _archive_filter(config)
+        selected_rows = dataset.count_rows(filter=date_filter)
         if selected_rows > config.max_rows and not config.override_limit:
             raise ReplayLimitError(f"{selected_rows} rows exceeds max_rows={config.max_rows}")
-        producer = producer_factory(config)
-        interval = 1.0 / float(config.records_per_second)
-        next_deadline = monotonic_clock()
-        for row in rows:
-            remaining = next_deadline - monotonic_clock()
-            if remaining > 0:
-                sleep(remaining)
-            event = _canonical_event(row)
-            key = event.get("request_id") or event["user_id"]
-            producer.send(
-                ReplayConfig.target_topic,
-                value=encode_event(event),
-                key=str(key).encode("utf-8"),
-            )
-            next_deadline += interval
-        producer.flush()
-        producer.close()
-        producer = None
+        fingerprints = _validate_archive_fingerprints(dataset, date_filter)
+        if selected_rows:
+            producer = producer_factory(config)
+            interval = 1.0 / float(config.records_per_second)
+            next_deadline = monotonic_clock()
+            for row in _iter_archive_rows(dataset, date_filter):
+                remaining = next_deadline - monotonic_clock()
+                if remaining > 0:
+                    sleep(remaining)
+                event = _canonical_event(row)
+                key = event.get("request_id") or event["user_id"]
+                delivery = producer.send(
+                    ReplayConfig.target_topic,
+                    value=encode_event(event),
+                    key=str(key).encode("utf-8"),
+                )
+                # Wait per record: delivery failures become run failures while memory remains bounded.
+                delivery.get(timeout=DELIVERY_TIMEOUT_SECONDS)
+                next_deadline += interval
+            producer.flush()
+            producer.close()
+            producer = None
         status = "completed"
     except BaseException as exc:
         error = str(exc)
+        if isinstance(exc, ReplaySchemaFingerprintError):
+            fingerprints = exc.fingerprints
         if producer is not None:
             try:
                 producer.close()
@@ -230,8 +274,8 @@ def run_replay(
             run_id=run_id,
             status=status,
             archive_path=str(config.archive_path),
-            start_date=config.start_date.isoformat(),
-            end_date=config.end_date.isoformat(),
+            start_date=_manifest_date(config.start_date),
+            end_date=_manifest_date(config.end_date),
             selected_rows=selected_rows,
             schema_fingerprints=fingerprints,
             target_topic=ReplayConfig.target_topic,
