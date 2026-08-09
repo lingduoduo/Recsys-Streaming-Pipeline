@@ -23,6 +23,7 @@ def copy_pipeline_scripts(tmp_path: Path) -> Path:
     scripts = pipeline / "scripts"
     scripts.mkdir(parents=True)
     shutil.copy2(SCRIPTS_DIR / "run-streaming-job.sh", scripts / "run-streaming-job.sh")
+    shutil.copy2(SCRIPTS_DIR / "run-archive-replay.sh", scripts / "run-archive-replay.sh")
     shutil.copy2(SCRIPTS_DIR / "provision-kafka-topics.py", scripts / "provision-kafka-topics.py")
     shutil.copy2(SCRIPTS_DIR / "run-offline-pipeline.sh", scripts / "run-offline-pipeline.sh")
     config = pipeline / "config"
@@ -33,6 +34,10 @@ def copy_pipeline_scripts(tmp_path: Path) -> Path:
     shutil.copy2(
         REPO_ROOT / "services" / "python-modeling" / "topic_policy.py",
         python_modeling / "topic_policy.py",
+    )
+    shutil.copy2(
+        REPO_ROOT / "services" / "python-modeling" / "archive_replay.py",
+        python_modeling / "archive_replay.py",
     )
     return pipeline
 
@@ -384,3 +389,65 @@ def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:
     # the service block must not abort the sim: every failure path continues
     assert "|| true" in burst or "continue" in burst
     assert "set -e" not in burst
+
+
+def test_archive_replay_script_requires_bounds_before_starting_python(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    env = base_env(tmp_path)
+    python_log = tmp_path / "python.log"
+    stub_bin = tmp_path / "python-bin"
+    stub_bin.mkdir()
+    (stub_bin / "python3").write_text(
+        "#!/usr/bin/env bash\nprintf 'started' > \"${PYTHON_LOG:?}\"\n",
+        encoding="utf-8",
+    )
+    (stub_bin / "python3").chmod(stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
+    env["PATH"] = os.pathsep.join([str(stub_bin), env["PATH"]])
+    env["PYTHON_LOG"] = str(python_log)
+    env.update({"REPLAY_ARCHIVE_PATH": "/tmp/archive", "REPLAY_MAX_ROWS": "10"})
+
+    result = run_script(pipeline / "scripts" / "run-archive-replay.sh", env)
+
+    assert result.returncode == 1
+    assert "REPLAY_START_DATE is required" in result.stderr
+    assert not python_log.exists()
+
+
+def test_archive_replay_script_passes_exact_operator_bounds(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    env = base_env(tmp_path)
+    python_log = tmp_path / "python.args"
+    stub_bin = tmp_path / "python-bin"
+    stub_bin.mkdir()
+    (stub_bin / "python3").write_text(
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"${PYTHON_LOG:?}\"\n",
+        encoding="utf-8",
+    )
+    (stub_bin / "python3").chmod(stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
+    env["PATH"] = os.pathsep.join([str(stub_bin), env["PATH"]])
+    env["PYTHON_LOG"] = str(python_log)
+    env.update(
+        {
+            "REPLAY_ARCHIVE_PATH": "/data/archive",
+            "REPLAY_START_DATE": "2024-06-15",
+            "REPLAY_END_DATE": "2024-06-16",
+            "REPLAY_MAX_ROWS": "123",
+            "REPLAY_RECORDS_PER_SECOND": "4.5",
+            "KAFKA_BOOTSTRAP_SERVERS": "broker:9092",
+            "REPLAY_MANIFEST_DIR": "/data/manifests",
+        }
+    )
+
+    result = run_script(pipeline / "scripts" / "run-archive-replay.sh", env)
+
+    assert result.returncode == 0
+    assert python_log.read_text(encoding="utf-8").splitlines() == [
+        "services/python-modeling/archive_replay.py",
+        "--archive-path", "/data/archive",
+        "--start-date", "2024-06-15",
+        "--end-date", "2024-06-16",
+        "--max-rows", "123",
+        "--records-per-second", "4.5",
+        "--bootstrap-servers", "broker:9092",
+        "--manifest-dir", "/data/manifests",
+    ]
