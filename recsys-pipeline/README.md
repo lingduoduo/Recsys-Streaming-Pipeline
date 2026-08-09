@@ -31,6 +31,62 @@ Spark Structured Streaming ingestion, derived ML datasets, the Spark job package
 real-time job path (producer + streaming jobs), and the offline embedding-training jobs live in
 [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md).
 
+### Avro ingestion and archive replay
+
+The `recsys_events` Kafka input uses the canonical Avro single-object event contract. Topic
+creation is deliberate: Kafka auto-creation is disabled, and the local pipeline wrapper checks
+Kafka health and provisions the checked-in catalog before it launches a process. Start the local
+services, then provision explicitly when operating a single job:
+
+```bash
+docker compose up -d
+python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
+```
+
+`recsys_events` is the live input. `recsys_events.backfill` is a separately provisioned,
+short-retention replay target; nothing reads it by default. A consumer must deliberately opt in,
+for example:
+
+```bash
+KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
+```
+
+The Spark ingestion job archives valid events and dead letters before its business sinks:
+
+```bash
+RECSYS_EVENT_ARCHIVE_PATH=/data/recsys-events \
+RECSYS_EVENT_DEAD_LETTER_PATH=/data/recsys-events-dead-letter \
+  ./scripts/run-streaming-job.sh
+```
+
+Those paths must be on a filesystem that supports atomic, non-overwriting directory renames
+(local/HDFS through Hadoop `FileContext`, for example). Object stores without that rename
+guarantee are not a supported archive target. A committed archive batch has both `_SUCCESS` and
+its `_COMMITTED` identity manifest below `_queries/<checkpoint-hash>/_batches/<batch-id>/`.
+
+Replay is always bounded and only publishes to `recsys_events.backfill`:
+
+```bash
+REPLAY_ARCHIVE_PATH=/data/recsys-events \
+REPLAY_START_DATE=2026-08-01 REPLAY_END_DATE=2026-08-02 \
+REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
+  ./scripts/run-archive-replay.sh
+```
+
+Each replay writes an atomic JSON audit manifest to
+`$REPLAY_MANIFEST_DIR` when set, otherwise to
+`$REPLAY_ARCHIVE_PATH/_replay_manifests/`. See
+[Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#avro-kafka-ingestion-archive-and-replay)
+for schema, retention, dead-letter, and replay constraints.
+
+`./scripts/run-data-pipeline.sh` is deliberately the small operable vertical slice: it starts the
+clickstream producer and `UserEventStreamingJob`, which reads `recsys_events`, archives its Avro
+records, and updates Redis popularity. It does not launch `OnlineJoinerStreamingJob`,
+`ExperienceCollectorStreamingJob`, or other derived-topic jobs. Those jobs retain their separate
+launch commands, produce/consume legacy JSON derived topics such as `training_samples` and
+`training_experiences`, and require an operator to provision those legacy topics separately before
+running them.
+
 ### Model Prediction Pipeline
 
 ```text
@@ -951,13 +1007,15 @@ SPARK_MAIN_CLASS=com.demo.process.RecallSampleStreamingJob    ./scripts/run-stre
 SPARK_MAIN_CLASS=com.demo.process.RankingSampleStreamingJob   ./scripts/run-streaming-job.sh
 SPARK_MAIN_CLASS=com.demo.process.RelevanceSampleStreamingJob ./scripts/run-streaming-job.sh
 
-# Or launch the core long-running consumers together:
+# Or launch the operable Avro vertical slice (clickstream producer + archive/popularity consumer):
 ./scripts/run-data-pipeline.sh
 ```
 
 Spark streaming jobs wait when `recsys_events` has no records. Zero Kafka offsets mean a producer
 has not emitted to that topic; they do not prove a consumer crash. Topic names must match across
-each producer and consumer.
+each producer and consumer. The individual derived-topic jobs above remain manually operated JSON
+pipelines; provision their `training_*` topics separately before launching them because the Avro
+catalog intentionally contains only `recsys_events` and `recsys_events.backfill`.
 
 ## Optional reference: standalone HTML dashboard
 

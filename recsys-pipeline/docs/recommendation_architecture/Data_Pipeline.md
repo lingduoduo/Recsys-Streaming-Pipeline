@@ -48,6 +48,102 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
 > training/report enrichment. `user:{id}:candidates` (written by
 > `EmbeddingCandidateGenerationJob`) is also not currently read by the retrieval service.
 
+## Avro Kafka ingestion, archive, and replay
+
+`recsys_events` is the live canonical-event topic. Its only replay counterpart is
+`recsys_events.backfill`; this is a separate topic, not a mode on the live topic. Kafka
+auto-creation is disabled. Provision both catalog entries after Kafka is healthy and before
+starting producers or consumers:
+
+```bash
+python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
+```
+
+`./scripts/run-data-pipeline.sh` performs that same health-then-provision sequence before it
+starts the clickstream producer and `UserEventStreamingJob`. That wrapper is intentionally limited
+to the direct Avro vertical slice: `recsys_events` → archive/Redis popularity. Topic creation is
+idempotent, so `run-streaming-job.sh` also verifies the default consumer's catalog. For a host
+without Kafka CLIs, the scripts use the local Docker Compose Kafka CLI only for
+`localhost:9092`/`127.0.0.1:9092`; install the CLIs for any other broker endpoint.
+
+The derived-topic jobs are not part of this wrapper. `OnlineJoinerStreamingJob` and
+`ExperienceCollectorStreamingJob` retain their standalone launch commands and their
+`training_samples`/`training_experiences` payloads are legacy JSON. Before running those jobs, an
+operator must separately create and govern every legacy input/output topic they select; the Avro
+catalog deliberately provisions only `recsys_events` and `recsys_events.backfill`.
+
+### Topic policy and capacity boundary
+
+The checked-in catalog is `config/kafka-topics.json`. `retention.bytes` is Kafka's **per-partition**
+ceiling, while `storage_budget_bytes` is a separate whole-topic replicated-storage validation
+budget. The provisioner rejects a policy before running Kafka commands unless:
+
+```text
+ceil(messages_per_second × average_record_bytes × 86400 × retention_days
+     × replication_factor × overhead_factor) <= storage_budget_bytes
+```
+
+The current values are a committed development policy, not a 1M messages/second capacity claim.
+`recsys_events` has three live partitions and one day / 500 MB-per-partition retention; the
+one-partition `recsys_events.backfill` target has six hours / 250 MB-per-partition retention.
+Adjust topic-policy inputs and validate storage before treating any higher workload as supported.
+
+### Writer schema and dead letters
+
+Producers emit Avro single-object messages: marker `c3 01`, followed by the eight-byte
+little-endian CRC-64-AVRO parsing fingerprint, then the record. The shared schema is
+`schemas/recsys-event-v1.avsc`; its current fingerprint is `225b275f487979ab`. Required fields
+are `event_id`, `user_id`, `item_id`, `event_type`, and `timestamp_ms`.
+
+Schema changes must be backwards-compatible additions with Avro defaults. Do not rename, remove,
+or change the type of existing fields. The Spark reader accepts only fingerprints registered in its
+local schema catalog, and archive replay requires every selected row's fingerprint to match the
+local writer schema. Therefore deploy a compatible producer/consumer schema change together and
+do not replay an archive under an unregistered schema.
+
+Malformed records are archived separately at `RECSYS_EVENT_DEAD_LETTER_PATH` with Kafka topic,
+partition, offset, timestamp, optional headers, `raw_value`, `schema_fingerprint`, `error_code`,
+and `error_detail`. Codes are `invalid_marker`, `unknown_fingerprint`, `corrupt_payload`, and
+`required_field`. The fingerprint is retained when a valid single-object header supplies one;
+`invalid_marker` has no fingerprint.
+
+### Archive and bounded replay operations
+
+Run ingestion with explicit archive roots:
+
+```bash
+RECSYS_EVENT_ARCHIVE_PATH=/data/recsys-events \
+RECSYS_EVENT_DEAD_LETTER_PATH=/data/recsys-events-dead-letter \
+  ./scripts/run-streaming-job.sh
+```
+
+Archive roots require a filesystem with atomic, non-overwriting directory rename semantics (local
+or HDFS via Hadoop `FileContext`). Do not place this archive on an object store that lacks that
+atomic rename contract. Valid and dead-letter data is partitioned by UTC date below a
+checkpoint-hash namespace. A batch is consumable only when its directory has both `_SUCCESS` and
+the `_COMMITTED` manifest with the expected query, kind, and batch identity.
+
+Replay is an explicit half-open UTC date range (`start <= date < end`), enforces its row limit
+before creating a producer, rate-limits sends, and strips archive/Kafka lineage before encoding the
+canonical event again. It can only target `recsys_events.backfill`:
+
+```bash
+REPLAY_ARCHIVE_PATH=/data/recsys-events \
+REPLAY_START_DATE=2026-08-01 REPLAY_END_DATE=2026-08-02 \
+REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
+  ./scripts/run-archive-replay.sh
+```
+
+Set `REPLAY_MANIFEST_DIR` to choose the replay audit-manifest directory; otherwise manifests are
+atomically written under `$REPLAY_ARCHIVE_PATH/_replay_manifests/`. A manifest records the run ID,
+status, selection bounds and count, schema fingerprints, target topic, timestamps, and any error.
+Set `REPLAY_OVERRIDE_LIMIT=1` only after reviewing that selection. Consumers stay on the live topic
+unless explicitly configured for the backfill stream, for example:
+
+```bash
+KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
+```
+
 ## Derived ML Datasets
 
 All three jobs below consume `training_samples` (the OnlineJoiner output, which now carries
