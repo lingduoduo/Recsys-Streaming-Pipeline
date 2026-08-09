@@ -154,7 +154,7 @@ def test_streaming_script_uses_consolidated_spark_service_path(tmp_path: Path) -
     assert str(jar.relative_to(pipeline)) in args
 
 
-def test_streaming_script_uses_docker_compose_kafka_cli_when_host_cli_is_absent(tmp_path: Path) -> None:
+def test_streaming_script_rejects_noncompose_local_endpoint_when_host_cli_is_absent(tmp_path: Path) -> None:
     pipeline = copy_pipeline_scripts(tmp_path)
     add_spark_job_jar(pipeline)
     env = base_env(tmp_path, include_kafka_clis=False)
@@ -167,10 +167,9 @@ def test_streaming_script_uses_docker_compose_kafka_cli_when_host_cli_is_absent(
         env["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap
         result = run_script(pipeline / "scripts" / "run-streaming-job.sh", env)
 
-    assert result.returncode == 0, result.stderr
-    commands = docker_log.read_text(encoding="utf-8").splitlines()
-    assert commands[0] == "compose exec -T kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic recsys_events --partitions 3 --replication-factor 1"
-    assert commands[1].startswith("compose exec -T kafka kafka-configs --bootstrap-server localhost:9092 --alter")
+    assert result.returncode == 127
+    assert "localhost:9092" in result.stderr
+    assert not docker_log.exists()
 
 
 def test_streaming_script_reports_missing_consolidated_jar(tmp_path: Path) -> None:

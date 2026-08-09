@@ -52,22 +52,22 @@ if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
   PROVISION_COMMAND_MODE="host"
   PROVISION_BOOTSTRAP_SERVER="$KAFKA_SERVERS"
   if ! command -v kafka-topics >/dev/null 2>&1 || ! command -v kafka-configs >/dev/null 2>&1; then
-    case "${KAFKA_SERVERS%%,*}" in
-      localhost:*|127.0.0.1:*)
-        if command -v docker >/dev/null 2>&1 && docker compose ps --status running kafka >/dev/null 2>&1; then
-          PROVISION_COMMAND_MODE="docker-compose"
-          # The CLI runs inside the Kafka container, where the broker listens on 9092.
-          PROVISION_BOOTSTRAP_SERVER="localhost:9092"
-        else
-          echo "Kafka CLIs not found and the local Docker Kafka service is unavailable." >&2
-          exit 127
-        fi
-        ;;
-      *)
-        echo "Kafka CLIs not found. Install kafka-topics and kafka-configs for $KAFKA_SERVERS." >&2
-        exit 127
-        ;;
-    esac
+    # The local Compose file exposes only these host endpoints.  Do not run an
+    # in-container CLI for another loopback port: it would target a different
+    # broker than Spark's configured bootstrap server.
+    if [[ "$KAFKA_SERVERS" != "localhost:9092" && "$KAFKA_SERVERS" != "127.0.0.1:9092" ]]; then
+      echo "Kafka CLIs not found. Docker Compose fallback is only available for localhost:9092 or 127.0.0.1:9092; install kafka-topics and kafka-configs for $KAFKA_SERVERS." >&2
+      exit 127
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker compose ps --status running kafka >/dev/null 2>&1; then
+      PROVISION_COMMAND_MODE="docker-compose"
+      # The CLI runs inside the Kafka container, where the broker listens on 9092.
+      PROVISION_BOOTSTRAP_SERVER="localhost:9092"
+    else
+      echo "Kafka CLIs not found and the local Docker Kafka service is unavailable." >&2
+      exit 127
+    fi
   fi
 
   python3 scripts/provision-kafka-topics.py \
