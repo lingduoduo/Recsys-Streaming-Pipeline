@@ -1,6 +1,9 @@
 package com.demo.sequence
 
 import com.demo.SparkTestSupport
+import com.demo.engine.SinkWriteContext
+import com.demo.engine.DurableParquetCommit
+import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -136,5 +139,32 @@ class SequenceParquetSinkSpec extends AnyFlatSpec with Matchers with SparkTestSu
     readBack.count() shouldBe 2L
     readBack.columns should contain allOf ("bucket", "kind")
     new java.io.File(path).list().toSeq.filter(_.startsWith("bucket=")) shouldBe Seq("bucket=20260723")
+  }
+
+  it should "commit one deterministic directory when a durable batch is retried" in {
+    val path = java.nio.file.Files.createTempDirectory("durable-seq-parquet").toString + "/out"
+    val context = SinkWriteContext(
+      "checkpoint://sequence", "query-ns", "sequence:user-events", "sink-ns", 4L)
+    val sink = new SequenceParquetSink(path, SequenceWriteMode.Append)
+
+    sink.writeDurably(chunks, context)
+    sink.writeDurably(chunks, context)
+
+    val committed = java.nio.file.Paths.get(sink.committedBatchPath(context))
+    java.nio.file.Files.exists(committed.resolve("_SUCCESS")) shouldBe true
+    java.nio.file.Files.exists(committed.resolve("_COMMITTED")) shouldBe true
+    spark.read.parquet(committed.toString).count() shouldBe 2L
+    val expectedSchema = StructType(Seq(
+      StructField("user_id", StringType, nullable = true),
+      StructField("kind", StringType, nullable = true),
+      StructField("bucket", StringType, nullable = true),
+      StructField("item_id", StringType, nullable = true),
+      StructField("ts", LongType, nullable = true),
+      StructField("action", StringType, nullable = true),
+      StructField("rating", StringType, nullable = true),
+      StructField("genres", StringType, nullable = true),
+      StructField("release_year", StringType, nullable = true)))
+    DurableParquetCommit.readIdentity(
+      spark, path, context.queryNamespace, context.sinkNamespace, expectedSchema).count() shouldBe 2L
   }
 }

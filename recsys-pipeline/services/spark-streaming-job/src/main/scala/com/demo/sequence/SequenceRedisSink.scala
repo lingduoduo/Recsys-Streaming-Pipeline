@@ -1,6 +1,6 @@
 package com.demo.sequence
 
-import com.demo.engine.{RedisPool, RedisSink, Sink}
+import com.demo.engine.{RedisBatchLedger, RedisPool, RedisSink, Sink, SinkWriteContext}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.exceptions.JedisException
@@ -23,8 +23,11 @@ class SequenceRedisSink(
     pipelineSize: Int,
     ttlSeconds: Int,
     maxRowsPerBucket: Int,
-    mode: SequenceWriteMode
+    mode: SequenceWriteMode,
+    ledgerRetentionBatches: Int = 2
 ) extends Sink {
+
+  require(ledgerRetentionBatches >= 2, "Redis ledger retention must preserve batches N and N-1")
 
   def write(batch: DataFrame, batchId: Long): Unit = {
     // Copy to locals so the partition closure doesn't capture `this`.
@@ -79,6 +82,69 @@ class SequenceRedisSink(
         jedis.close()
       }
     }
+  }
+
+  /** Retry-safe streaming write. Each sequence-key update and its stable batch effect marker are
+    * committed atomically by Redis, so a lost response cannot append the same chunk twice.
+    */
+  def writeDurably(batch: DataFrame, context: SinkWriteContext): Unit = {
+    val h = host; val pt = port; val mx = poolMax
+    val ttl = ttlSeconds; val cap = maxRowsPerBucket; val m = mode
+    val fields = (SequenceSchema.Columns :+ SequenceSchema.ColCount).toArray
+    val retention = ledgerRetentionBatches
+
+    batch.foreachPartition { rows: Iterator[Row] =>
+      val log = LoggerFactory.getLogger(classOf[SequenceRedisSink])
+      val jedis = RedisPool.get(h, pt, mx).getResource
+      try {
+        var total = 0
+        var skipped = 0
+        rows.foreach { row =>
+          total += 1
+          var key = "<unresolved-key>"
+          try {
+            key = SequenceSchema.key(
+              row.getAs[String]("user_id"), row.getAs[String]("kind"), row.getAs[String]("bucket"))
+            val fresh = SequenceRedisSink.chunkFields(row)
+            val existing = m match {
+              case SequenceWriteMode.Overwrite => Map.empty[String, String]
+              case SequenceWriteMode.Append =>
+                val values = jedis.hmget(key, fields: _*).asScala
+                fields.zip(values).collect { case (field, value) if value != null => field -> value }.toMap
+            }
+            val resolved = SequenceRedisSink.resolve(existing, fresh, cap, m)
+            val ledger = RedisBatchLedger.ledgerKey(context, "sequence")
+            RedisBatchLedger.hashOnce(
+              (script, keys, arguments) => jedis.eval(script, keys, arguments),
+              ledger,
+              RedisBatchLedger.stateKey(context, "sequence"),
+              RedisBatchLedger.indexKey(context, "sequence"),
+              key,
+              key,
+              ttl,
+              resolved,
+              context.batchId,
+              retention)
+          } catch {
+            case e: Exception if SequenceRedisSink.isFatal(e) => throw e
+            case e: Exception =>
+              skipped += 1
+              log.warn("Skipping sequence chunk for key {}: {}", Array[AnyRef](key, e.getMessage): _*)
+          }
+        }
+        if (skipped > 0)
+          log.warn("Skipped {} of {} rows in partition due to per-row errors", skipped, total)
+      } finally jedis.close()
+    }
+    val jedis = RedisPool.get(h, pt, mx).getResource
+    try RedisBatchLedger.completeBatch(
+      (script, keys, arguments) => jedis.eval(script, keys, arguments),
+      RedisBatchLedger.stateKey(context, "sequence"),
+      RedisBatchLedger.indexKey(context, "sequence"),
+      context.batchId,
+      retention,
+      ttl)
+    finally jedis.close()
   }
 }
 

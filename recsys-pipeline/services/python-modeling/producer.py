@@ -1,8 +1,10 @@
-import json
 import os
 import random
 import time
 import uuid
+from collections.abc import Mapping
+
+from event_avro import encode_event
 
 try:
     from kafka import KafkaProducer
@@ -96,10 +98,14 @@ def make_behavior_slate(users, items):
     return events
 
 
+def serialize_event(event: Mapping[str, object]) -> bytes:
+    return encode_event(event)
+
+
 def make_producer():
     return KafkaProducer(
         bootstrap_servers=BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v, separators=(",", ":")).encode("utf-8"),
+        value_serializer=serialize_event,
         key_serializer=lambda k: k.encode("utf-8") if k else None,
         acks="all",
         retries=5,

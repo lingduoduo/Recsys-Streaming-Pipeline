@@ -23,7 +23,22 @@ def copy_pipeline_scripts(tmp_path: Path) -> Path:
     scripts = pipeline / "scripts"
     scripts.mkdir(parents=True)
     shutil.copy2(SCRIPTS_DIR / "run-streaming-job.sh", scripts / "run-streaming-job.sh")
+    shutil.copy2(SCRIPTS_DIR / "run-archive-replay.sh", scripts / "run-archive-replay.sh")
+    shutil.copy2(SCRIPTS_DIR / "provision-kafka-topics.py", scripts / "provision-kafka-topics.py")
     shutil.copy2(SCRIPTS_DIR / "run-offline-pipeline.sh", scripts / "run-offline-pipeline.sh")
+    config = pipeline / "config"
+    config.mkdir()
+    shutil.copy2(REPO_ROOT / "config" / "kafka-topics.json", config / "kafka-topics.json")
+    python_modeling = pipeline / "services" / "python-modeling"
+    python_modeling.mkdir(parents=True)
+    shutil.copy2(
+        REPO_ROOT / "services" / "python-modeling" / "topic_policy.py",
+        python_modeling / "topic_policy.py",
+    )
+    shutil.copy2(
+        REPO_ROOT / "services" / "python-modeling" / "archive_replay.py",
+        python_modeling / "archive_replay.py",
+    )
     return pipeline
 
 
@@ -48,12 +63,14 @@ def add_fake_spark_submit(spark_home: Path) -> Path:
     return log_file
 
 
-def add_fake_kafka_topics(tmp_path: Path) -> Path:
+def add_fake_kafka_topics(tmp_path: Path, include_kafka_clis: bool = True) -> Path:
     bin_dir = tmp_path / "stub-bin"
     bin_dir.mkdir()
-    kafka_topics = bin_dir / "kafka-topics"
-    kafka_topics.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    kafka_topics.chmod(kafka_topics.stat().st_mode | stat.S_IXUSR)
+    commands = ("kafka-topics", "kafka-configs") if include_kafka_clis else ()
+    for command in commands:
+        executable = bin_dir / command
+        executable.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
     return bin_dir
 
 
@@ -76,15 +93,38 @@ def run_script(script: Path, env: dict[str, str]) -> subprocess.CompletedProcess
     )
 
 
-def base_env(tmp_path: Path) -> dict[str, str]:
+def base_env(tmp_path: Path, include_kafka_clis: bool = True) -> dict[str, str]:
     env = os.environ.copy()
     spark_home = tmp_path / "fake-spark"
     env["SPARK_HOME"] = str(spark_home)
     env["SPARK_SUBMIT_LOG"] = str(add_fake_spark_submit(spark_home))
     # The streaming script bootstraps its Kafka input topic before spark-submit; stub
     # the CLI so the test never blocks on a real broker.
-    env["PATH"] = os.pathsep.join([str(add_fake_kafka_topics(tmp_path)), env["PATH"]])
+    env["PATH"] = os.pathsep.join([str(add_fake_kafka_topics(tmp_path, include_kafka_clis)), env["PATH"]])
     return env
+
+
+def add_fake_docker(bin_dir: Path, log_file: Path) -> None:
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$1 $2 $3 $4\" == \"compose ps --status running\" ]]; then exit 0; fi\n"
+        "printf '%s\\n' \"$*\" >> \"${DOCKER_LOG:?}\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(docker.stat().st_mode | stat.S_IXUSR)
+
+
+def block_host_kafka_cli(tmp_path: Path) -> Path:
+    bash_env = tmp_path / "block-kafka-cli.bash"
+    bash_env.write_text(
+        "command() {\n"
+        "  if [[ \"$1\" == \"-v\" && ( \"$2\" == \"kafka-topics\" || \"$2\" == \"kafka-configs\" ) ]]; then return 1; fi\n"
+        "  builtin command \"$@\"\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    return bash_env
 
 
 @contextlib.contextmanager
@@ -117,6 +157,24 @@ def test_streaming_script_uses_consolidated_spark_service_path(tmp_path: Path) -
     assert "--class" in args
     assert "com.demo.task.UserEventStreamingJob" in args
     assert str(jar.relative_to(pipeline)) in args
+
+
+def test_streaming_script_rejects_noncompose_local_endpoint_when_host_cli_is_absent(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    add_spark_job_jar(pipeline)
+    env = base_env(tmp_path, include_kafka_clis=False)
+    docker_log = tmp_path / "docker.log"
+    add_fake_docker(Path(env["PATH"].split(os.pathsep)[0]), docker_log)
+    env["DOCKER_LOG"] = str(docker_log)
+    env["BASH_ENV"] = str(block_host_kafka_cli(tmp_path))
+
+    with listening_socket() as bootstrap:
+        env["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap
+        result = run_script(pipeline / "scripts" / "run-streaming-job.sh", env)
+
+    assert result.returncode == 127
+    assert "localhost:9092" in result.stderr
+    assert not docker_log.exists()
 
 
 def test_streaming_script_reports_missing_consolidated_jar(tmp_path: Path) -> None:
@@ -331,3 +389,77 @@ def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:
     # the service block must not abort the sim: every failure path continues
     assert "|| true" in burst or "continue" in burst
     assert "set -e" not in burst
+
+
+def test_archive_replay_script_requires_bounds_before_starting_python(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    env = base_env(tmp_path)
+    python_log = tmp_path / "python.log"
+    stub_bin = tmp_path / "python-bin"
+    stub_bin.mkdir()
+    (stub_bin / "python3").write_text(
+        "#!/usr/bin/env bash\nprintf 'started' > \"${PYTHON_LOG:?}\"\n",
+        encoding="utf-8",
+    )
+    (stub_bin / "python3").chmod(stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
+    env["PATH"] = os.pathsep.join([str(stub_bin), env["PATH"]])
+    env["PYTHON_LOG"] = str(python_log)
+    env.update(
+        {
+            "REPLAY_ARCHIVE_PATH": "/tmp/archive",
+            "REPLAY_START_DATE": "2024-06-15",
+            "REPLAY_END_DATE": "2024-06-16",
+            "REPLAY_MAX_ROWS": "10",
+            "REPLAY_RECORDS_PER_SECOND": "1",
+        }
+    )
+
+    result = run_script(pipeline / "scripts" / "run-archive-replay.sh", env)
+
+    assert result.returncode == 1
+    assert "REPLAY_ARCHIVE_QUERY_NAMESPACE is required" in result.stderr
+    assert not python_log.exists()
+
+
+def test_archive_replay_script_passes_exact_operator_bounds(tmp_path: Path) -> None:
+    pipeline = copy_pipeline_scripts(tmp_path)
+    env = base_env(tmp_path)
+    python_log = tmp_path / "python.args"
+    stub_bin = tmp_path / "python-bin"
+    stub_bin.mkdir()
+    (stub_bin / "python3").write_text(
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"${PYTHON_LOG:?}\"\n",
+        encoding="utf-8",
+    )
+    (stub_bin / "python3").chmod(stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
+    env["PATH"] = os.pathsep.join([str(stub_bin), env["PATH"]])
+    env["PYTHON_LOG"] = str(python_log)
+    env.update(
+        {
+            "REPLAY_ARCHIVE_PATH": "/data/archive",
+            "REPLAY_ARCHIVE_QUERY_NAMESPACE": "query-namespace-1",
+            "REPLAY_OPERATION_ID": "incident-2024-06-15",
+            "REPLAY_START_DATE": "2024-06-15",
+            "REPLAY_END_DATE": "2024-06-16",
+            "REPLAY_MAX_ROWS": "123",
+            "REPLAY_RECORDS_PER_SECOND": "4.5",
+            "KAFKA_BOOTSTRAP_SERVERS": "broker:9092",
+            "REPLAY_MANIFEST_DIR": "/data/manifests",
+        }
+    )
+
+    result = run_script(pipeline / "scripts" / "run-archive-replay.sh", env)
+
+    assert result.returncode == 0
+    assert python_log.read_text(encoding="utf-8").splitlines() == [
+        "services/python-modeling/archive_replay.py",
+        "--archive-path", "/data/archive",
+        "--archive-query-namespace", "query-namespace-1",
+        "--operation-id", "incident-2024-06-15",
+        "--start-date", "2024-06-15",
+        "--end-date", "2024-06-16",
+        "--max-rows", "123",
+        "--records-per-second", "4.5",
+        "--bootstrap-servers", "broker:9092",
+        "--manifest-dir", "/data/manifests",
+    ]

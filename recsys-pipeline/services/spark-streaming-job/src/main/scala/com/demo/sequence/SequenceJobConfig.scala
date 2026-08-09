@@ -1,5 +1,6 @@
 package com.demo.sequence
 
+import com.demo.engine.{DurableSink, SinkWriteContext}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.storage.StorageLevel
 
@@ -7,7 +8,8 @@ import org.apache.spark.storage.StorageLevel
 final case class SequenceJobConfig(
     lookbackDays: Int,
     maxRowsPerBucket: Int,
-    parquetPath: Option[String]
+    parquetPath: Option[String],
+    ledgerRetentionBatches: Int = 2
 ) {
   def ttlSeconds: Int = lookbackDays * 24 * 3600
 }
@@ -21,7 +23,8 @@ object SequenceJobConfig {
   def from(env: Map[String, String]): SequenceJobConfig = SequenceJobConfig(
     lookbackDays     = math.max(1, intFromMap(env, "SEQ_LOOKBACK_DAYS", 90)),
     maxRowsPerBucket = math.max(1, intFromMap(env, "SEQ_MAX_ROWS_PER_BUCKET", 500)),
-    parquetPath      = env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty)
+    parquetPath      = env.get("SEQ_PARQUET_PATH").filter(_.nonEmpty),
+    ledgerRetentionBatches = math.max(2, intFromMap(env, "REDIS_LEDGER_RETENTION_BATCHES", 2))
   )
 
   /** Reads the real process environment. */
@@ -49,7 +52,7 @@ object SequenceSinks {
       if (writeRedis) {
         new SequenceRedisSink(
           redisHost, redisPort, poolMax, pipelineSize,
-          cfg.ttlSeconds, cfg.maxRowsPerBucket, mode
+          cfg.ttlSeconds, cfg.maxRowsPerBucket, mode, cfg.ledgerRetentionBatches
         ).write(chunks, batchId)
       }
       cfg.parquetPath.foreach { path =>
@@ -58,5 +61,39 @@ object SequenceSinks {
     } finally {
       chunks.unpersist()
     }
+  }
+}
+
+/** Composite durable sink used by the Avro user-event job. Redis effects have an atomic
+  * per-key ledger and the optional Parquet mirror uses a deterministic batch commit. This lets
+  * the whole composite safely retry when either inner write fails after the other succeeded.
+  */
+class SequenceBusinessSink(
+    cfg: SequenceJobConfig,
+    redisHost: String,
+    redisPort: Int,
+    poolMax: Int,
+    pipelineSize: Int,
+    mode: SequenceWriteMode,
+    toChunks: DataFrame => DataFrame,
+    override val sinkIdentity: String
+) extends DurableSink {
+  require(Option(sinkIdentity).exists(_.trim.nonEmpty), "sequence sink identity must not be blank")
+
+  override def write(batch: DataFrame, batchId: Long): Unit =
+    SequenceSinks.write(
+      toChunks(batch), cfg, redisHost, redisPort, poolMax, pipelineSize, mode, batchId)
+
+  override def writeDurably(batch: DataFrame, context: SinkWriteContext): Unit = {
+    val chunks = toChunks(batch).persist(StorageLevel.MEMORY_AND_DISK_SER)
+    try {
+      new SequenceRedisSink(
+        redisHost, redisPort, poolMax, pipelineSize,
+        cfg.ttlSeconds, cfg.maxRowsPerBucket, mode, cfg.ledgerRetentionBatches
+      ).writeDurably(chunks, context)
+      cfg.parquetPath.foreach { path =>
+        new SequenceParquetSink(path, mode).writeDurably(chunks, context)
+      }
+    } finally chunks.unpersist()
   }
 }

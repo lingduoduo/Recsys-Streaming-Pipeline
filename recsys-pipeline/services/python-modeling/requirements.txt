@@ -1,2 +1,4 @@
 kafka-python
 lz4
+fastavro>=1.9,<2
+pyarrow>=14,<24

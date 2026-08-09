@@ -1,9 +1,14 @@
 package com.demo.sequence
 
 import com.demo.SparkTestSupport
+import com.demo.engine.{RedisBatchLedger, SinkWriteContext}
+import java.util
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import redis.clients.jedis.exceptions.{JedisConnectionException, JedisException}
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 class SequenceRedisSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
@@ -69,5 +74,40 @@ class SequenceRedisSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupp
 
   it should "be false for an IllegalArgumentException" in {
     SequenceRedisSink.isFatal(new IllegalArgumentException("boom")) shouldBe false
+  }
+
+  "RedisBatchLedger.hashOnce" should "not append a sequence effect twice after interruption" in {
+    val context = SinkWriteContext("checkpoint://sequence", "query-ns", "sequence:user-events", "sink-ns", 12L)
+    val applied = mutable.Set.empty[(String, String)]
+    val hashes = mutable.Map.empty[String, Map[String, String]]
+    var failAfterFirstApply = true
+    val eval = (_: String, keys: util.List[String], args: util.List[String]) => {
+      val values = args.asScala.toSeq
+      val ledgerEffect = keys.get(0) -> values(3)
+      if (applied.add(ledgerEffect)) hashes(keys.get(3)) = values.drop(4).grouped(2).map {
+        case Seq(field, value) => field -> value
+      }.toMap
+      if (failAfterFirstApply) {
+        failAfterFirstApply = false
+        throw new RuntimeException("connection lost after Redis applied the script")
+      }
+      java.lang.Long.valueOf(1L)
+    }
+    val ledger = RedisBatchLedger.ledgerKey(context, "sequence")
+    val state = RedisBatchLedger.stateKey(context, "sequence")
+    val index = RedisBatchLedger.indexKey(context, "sequence")
+    val fields = Map("item_id" -> "m1", "n" -> "1")
+
+    intercept[RuntimeException] {
+      RedisBatchLedger.hashOnce(
+        eval, ledger, state, index, "sequence:u1:click:20260723",
+        "u1:click:20260723", 3600, fields, 12L)
+    }
+    RedisBatchLedger.hashOnce(
+      eval, ledger, state, index, "sequence:u1:click:20260723",
+      "u1:click:20260723", 3600, fields, 12L)
+
+    hashes("sequence:u1:click:20260723") shouldBe fields
+    applied should contain only (ledger -> "u1:click:20260723")
   }
 }

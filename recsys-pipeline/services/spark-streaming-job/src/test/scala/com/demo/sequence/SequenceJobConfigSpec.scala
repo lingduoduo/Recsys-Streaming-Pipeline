@@ -11,17 +11,20 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     cfg.lookbackDays shouldBe 90
     cfg.maxRowsPerBucket shouldBe 500
     cfg.parquetPath shouldBe None
+    cfg.ledgerRetentionBatches shouldBe 2
   }
 
   it should "use overrides when all keys are set to valid values" in {
     val cfg = SequenceJobConfig.from(Map(
       "SEQ_LOOKBACK_DAYS" -> "7",
       "SEQ_MAX_ROWS_PER_BUCKET" -> "50",
-      "SEQ_PARQUET_PATH" -> "/tmp/x"
+      "SEQ_PARQUET_PATH" -> "/tmp/x",
+      "REDIS_LEDGER_RETENTION_BATCHES" -> "5"
     ))
     cfg.lookbackDays shouldBe 7
     cfg.maxRowsPerBucket shouldBe 50
     cfg.parquetPath shouldBe Some("/tmp/x")
+    cfg.ledgerRetentionBatches shouldBe 5
   }
 
   it should "floor lookbackDays and maxRowsPerBucket at 1" in {

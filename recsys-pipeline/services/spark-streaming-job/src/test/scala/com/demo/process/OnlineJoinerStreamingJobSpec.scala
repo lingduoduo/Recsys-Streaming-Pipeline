@@ -1,6 +1,7 @@
 package com.demo.process
 
-import org.apache.spark.sql.SparkSession
+import com.demo.event.{EventParsing, EventSchemas}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions.{coalesce, col, struct, to_json}
 import org.apache.spark.sql.types.LongType
@@ -24,6 +25,10 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
   override def afterAll(): Unit = {
     spark.stop()
   }
+
+  private def decodedJson(rawJson: DataFrame): DataFrame =
+    EventParsing.fromJson(rawJson, EventSchemas.joiner)
+      .withColumn("timestamp_ms", coalesce(col("timestamp_ms"), col("timestamp") * 1000L))
 
   "buildTrainingSamples" should "join impressions with click and order labels" in {
     val sparkSession = spark
@@ -64,7 +69,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     row.getAs[Double]("label") shouldBe 0.0
   }
 
-  it should "parse unified schema with timestamp_ms field" in {
+  it should "normalize decoded canonical events and ignore Kafka lineage" in {
     val sparkSession = spark
     import sparkSession.implicits._
 
@@ -72,18 +77,20 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     // This mirrors what parseEvents produces after normalisation.
     val events = Seq(
       // impression at ms 1718400000000
-      ("sess_3", "req_3", "user_5", "movie_3", "impression", Some(1718400000000L), None: Option[Long],
+      ("sess_3", "req_3", "user_5", "movie_3", "impression", 1718400000000L,
         0, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String]),
       // click at ms 1718400005000
-      ("sess_3", "req_3", "user_5", "movie_3", "click", Some(1718400005000L), None: Option[Long],
+      ("sess_3", "req_3", "user_5", "movie_3", "click", 1718400005000L,
         0, Map.empty[String, String], Map.empty[String, String], Map.empty[String, String])
-    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp_ms", "timestamp",
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp_ms",
            "position", "user_features", "item_features", "context_features")
+      .withColumn("event_id", org.apache.spark.sql.functions.concat_ws("-", col("event_type"), col("item_id")))
+      .withColumn("kafka_topic", org.apache.spark.sql.functions.lit("recsys_events"))
+      .withColumn("kafka_offset", org.apache.spark.sql.functions.lit(10L))
 
-    // Apply the same normalisation that parseEvents performs
-    val normalised = events
-      .withColumn("timestamp", coalesce(col("timestamp_ms") / 1000L, col("timestamp")))
-      .drop("timestamp_ms")
+    val normalised = OnlineJoinerStreamingJob.parseEvents(events)
+    normalised.columns should not contain "kafka_topic"
+    normalised.columns should not contain "kafka_offset"
 
     val rows = OnlineJoinerStreamingJob.buildTrainingSamples(normalised).collect()
     rows should have length 1
@@ -106,7 +113,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       """{"event_id":"millis-feedback","session_id":"millis-session","request_id":"millis-request","user_id":"millis-user","item_id":"millis-item","event_type":"order","timestamp_ms":205000,"position":0}"""
     ).toDF("value")
 
-    val samples = OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(rawEvents))
+    val samples = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(rawEvents)))
     Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
       samples.schema(field).dataType shouldBe LongType
     }
@@ -137,7 +145,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     )
 
     def attribution(input: Seq[String]) =
-      OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(input.toDF("value")))
+      OnlineJoinerStreamingJob.buildTrainingSamples(
+        OnlineJoinerStreamingJob.parseEvents(decodedJson(input.toDF("value"))))
         .select(
           "model_version", "policy_version", "algorithm_version", "last_feedback_ts", "feedback_delay_ms",
           "rating", "negative_feedback_reason", "dwell_millis", "completion_rate"
@@ -178,7 +187,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       """{"event_id":"order","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"order","timestamp":110,"rating":4.5}"""
 
     def sample(events: Seq[String]) =
-      OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(events.toDF("value"))).first()
+      OnlineJoinerStreamingJob.buildTrainingSamples(
+        OnlineJoinerStreamingJob.parseEvents(decodedJson(events.toDF("value")))).first()
 
     val row = sample(Seq(impression, click, ratingOnlyOrder))
 
@@ -211,7 +221,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       """{"event_id":"enriched-feedback","session_id":"sess_enriched","request_id":"req_enriched","user_id":"user_enriched","item_id":"item_enriched","event_type":"click","timestamp":105,"rating":4.5,"negative_feedback_reason":"not_interested","dwell_millis":12000,"completion_rate":0.75}"""
     ).toDF("value")
 
-    val rows = OnlineJoinerStreamingJob.buildTrainingSamples(OnlineJoinerStreamingJob.parseEvents(raw))
+    val rows = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(raw)))
       .select(
         "request_id", "model_version", "policy_version", "algorithm_version", "rating",
         "negative_feedback_reason", "dwell_millis", "completion_rate", "published_at",
@@ -297,7 +308,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     val s = spark; import s.implicits._
     implicit val sqlCtx = s.sqlContext
     val input = MemoryStream[String]
-    val deduped = OnlineJoinerStreamingJob.dedupedEvents(input.toDF(), "10 minutes")
+    val deduped = OnlineJoinerStreamingJob.dedupedEvents(decodedJson(input.toDF()), "10 minutes")
     val q = deduped.writeStream.format("memory").queryName("oj_out").outputMode("append").start()
     try {
       val e = """{"event_id":"x1","request_id":"r1","user_id":"u1","item_id":"i1","event_type":"impression","timestamp_ms":1718400000000,"position":0}"""

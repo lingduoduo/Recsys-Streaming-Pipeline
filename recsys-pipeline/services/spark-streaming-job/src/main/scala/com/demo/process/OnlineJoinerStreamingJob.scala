@@ -1,7 +1,7 @@
 package com.demo.process
 
-import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, Sink, Stage}
-import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, RawArchiveSink, Sink, Stage}
+import com.demo.event.{DecodedEventBatch, EventParsing}
 import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -49,6 +49,11 @@ object OnlineJoinerStreamingJob {
     val outputFiles = math.max(1, Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
     val catalogPath = sys.env.getOrElse("ONLINE_JOINER_CATALOG_PATH", "")
     val catalog: Option[DataFrame] = if (catalogPath.nonEmpty) Some(loadCatalog(spark, catalogPath)) else None
+    val archive = new RawArchiveSink(
+      sys.env.getOrElse("RECSYS_EVENT_ARCHIVE_PATH", "/tmp/spark-recsys/recsys-events-archive"),
+      sys.env.getOrElse("RECSYS_EVENT_DEAD_LETTER_PATH", "/tmp/spark-recsys/recsys-events-dead-letter"),
+      cfg.checkpointLocation
+    )
 
     val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedEvents(df, cfg.watermarkDelay))
     val batchStages: Seq[BatchStage] =
@@ -59,7 +64,8 @@ object OnlineJoinerStreamingJob {
         (df: DataFrame) => withCatalog(df, catalog).withColumn("date", to_date(col("impression_time"))))
     )
 
-    ExecutionEngine.run(spark, cfg, KafkaSource, streamingStages, batchStages, sinks)
+    ExecutionEngine.run(
+      spark, cfg, KafkaSource, DecodedEventBatch.decode _, archive, streamingStages, batchStages, sinks)
   }
 
   /** Read the shared catalog JSON ({itemId: {genres:[...], tags:[...], ...}}) into a long-form
@@ -103,9 +109,8 @@ object OnlineJoinerStreamingJob {
     EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
 
   def parseEvents(rawKafka: DataFrame): DataFrame =
-    EventParsing.observeIngest(EventParsing.fromJson(rawKafka, EventSchemas.joiner))
-      .withColumn("timestamp",
-        coalesce((col("timestamp_ms") / 1000L).cast(LongType), col("timestamp")).cast(LongType))
+    EventParsing.observeIngest(EventParsing.canonicalEvents(rawKafka))
+      .withColumn("timestamp", (col("timestamp_ms") / 1000L).cast(LongType))
       .drop("timestamp_ms")
       .filter(
         col("request_id").isNotNull &&

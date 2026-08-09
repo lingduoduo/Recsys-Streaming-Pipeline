@@ -1,6 +1,7 @@
 package com.demo.engine
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.streaming.StreamingRelationV2
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -19,5 +20,14 @@ class SourceSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     val df = KafkaSource.read(spark, cfg)
     df.isStreaming shouldBe true
     df.columns should contain ("value")
+  }
+
+  it should "preserve Kafka headers and fail rather than skip missing source data" in {
+    val df = KafkaSource.read(spark, cfg)
+    val options = df.queryExecution.logical.asInstanceOf[StreamingRelationV2].extraOptions
+
+    df.columns should contain ("headers")
+    options.get("includeHeaders") shouldBe "true"
+    options.get("failOnDataLoss") shouldBe "true"
   }
 }

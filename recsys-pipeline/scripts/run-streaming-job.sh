@@ -27,11 +27,10 @@ fi
 MAIN_CLASS="${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}"
 
 # Spark's Kafka AdminClient does not trigger broker-side topic auto-creation when it
-# asks for initial offsets. Bootstrap the default job's input topic when using the
-# local Docker stack so a consumer can be started before the first producer.
+# asks for initial offsets. Provision the checked-in catalog before starting the
+# default consumer so topics and retention policy are explicit and repeatable.
 if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
   KAFKA_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"
-  INPUT_TOPIC="${KAFKA_TOPIC:-recsys_events}"
 
   # Bash's /dev/tcp builtin is the only bounded check available here: nc -w does not
   # bound connect on macOS, curl telnet:// never returns on a live port, and timeout
@@ -50,16 +49,30 @@ if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
     exit 1
   fi
 
-  if command -v kafka-topics >/dev/null 2>&1; then
-    kafka-topics --bootstrap-server "$KAFKA_SERVERS" \
-      --create --if-not-exists --topic "$INPUT_TOPIC"
-  elif [[ "$KAFKA_SERVERS" == "localhost:9092" ]] &&
-       command -v docker >/dev/null 2>&1 &&
-       docker compose ps --status running kafka >/dev/null 2>&1; then
-    docker compose exec -T kafka kafka-topics \
-      --bootstrap-server localhost:9092 \
-      --create --if-not-exists --topic "$INPUT_TOPIC"
+  PROVISION_COMMAND_MODE="host"
+  PROVISION_BOOTSTRAP_SERVER="$KAFKA_SERVERS"
+  if ! command -v kafka-topics >/dev/null 2>&1 || ! command -v kafka-configs >/dev/null 2>&1; then
+    # The local Compose file exposes only these host endpoints.  Do not run an
+    # in-container CLI for another loopback port: it would target a different
+    # broker than Spark's configured bootstrap server.
+    if [[ "$KAFKA_SERVERS" != "localhost:9092" && "$KAFKA_SERVERS" != "127.0.0.1:9092" ]]; then
+      echo "Kafka CLIs not found. Docker Compose fallback is only available for localhost:9092 or 127.0.0.1:9092; install kafka-topics and kafka-configs for $KAFKA_SERVERS." >&2
+      exit 127
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker compose ps --status running kafka >/dev/null 2>&1; then
+      PROVISION_COMMAND_MODE="docker-compose"
+      # The CLI runs inside the Kafka container, where the broker listens on 9092.
+      PROVISION_BOOTSTRAP_SERVER="localhost:9092"
+    else
+      echo "Kafka CLIs not found and the local Docker Kafka service is unavailable." >&2
+      exit 127
+    fi
   fi
+
+  python3 scripts/provision-kafka-topics.py \
+    --bootstrap-server "$PROVISION_BOOTSTRAP_SERVER" \
+    --command-mode "$PROVISION_COMMAND_MODE"
 fi
 
 exec "$SPARK_SUBMIT" \

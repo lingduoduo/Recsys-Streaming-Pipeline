@@ -39,9 +39,9 @@ class SequenceSchemaSpec extends AnyFlatSpec with Matchers with SparkTestSupport
   }
 
   "Columns" should "match the shared cross-language fixture" in {
-    val fixture = scala.io.Source.fromInputStream(
-      getClass.getResourceAsStream("/sequence-schema.json")
-    ).mkString
+    val stream = getClass.getResourceAsStream("/sequence-schema.json")
+    val source = scala.io.Source.fromInputStream(stream)
+    val fixture = try source.mkString finally source.close()
     // Deliberately a substring assertion, not a JSON parse: the fixture exists to
     // detect drift, and adding a JSON library to this module for one test is not worth it.
     SequenceSchema.Columns.foreach(c => fixture should include(s""""$c""""))

@@ -14,7 +14,8 @@ object KafkaSource extends Source {
       .option("subscribe", cfg.inputTopic)
       .option("startingOffsets", cfg.startingOffsets)
       .option("kafka.group.id", cfg.groupId)
-      .option("failOnDataLoss", "false")
+      .option("includeHeaders", "true")
+      .option("failOnDataLoss", "true")
       .option("maxOffsetsPerTrigger", cfg.maxOffsetsPerTrigger.toString)
       .load()
 }

@@ -48,6 +48,170 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
 > training/report enrichment. `user:{id}:candidates` (written by
 > `EmbeddingCandidateGenerationJob`) is also not currently read by the retrieval service.
 
+## Avro Kafka ingestion, archive, and replay
+
+`recsys_events` is the live canonical-event topic. Its only replay counterpart is
+`recsys_events.backfill`; this is a separate topic, not a mode on the live topic. Kafka
+auto-creation is disabled. Provision both catalog entries after Kafka is healthy and before
+starting producers or consumers:
+
+```bash
+python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
+```
+
+For a host installation, that command requires `kafka-topics` and `kafka-configs` on `PATH`. For
+the local Docker Compose service, run the same provisioner in its explicit in-container mode:
+
+```bash
+python scripts/provision-kafka-topics.py \
+  --bootstrap-server localhost:9092 --command-mode docker-compose
+```
+
+The opt-in live round-trip test needs the Python modeling requirements, an assembled Spark JAR,
+and reachable Kafka plus Redis:
+
+```bash
+python -m pip install -r services/python-modeling/requirements.txt pytest
+(cd services/spark-streaming-job && sbt assembly)
+RUN_KAFKA_INTEGRATION=1 KAFKA_INTEGRATION_COMMAND_MODE=docker-compose \
+  pytest -q integration-tests/test_avro_kafka_round_trip.py
+```
+
+`KAFKA_INTEGRATION_COMMAND_MODE=host` is the default when the host Kafka CLIs are available;
+`docker-compose` requires the local Compose Kafka service. With `RUN_KAFKA_INTEGRATION` unset,
+the test cleanly skips without importing Kafka/Spark/Parquet dependencies. With it set, any absent
+package, JAR, Kafka/Redis endpoint, or provisioning mode skips with an exact remediation message.
+
+`./scripts/run-data-pipeline.sh` performs that same health-then-provision sequence before it
+starts the clickstream producer and `UserEventStreamingJob`. That wrapper is intentionally limited
+to the direct Avro vertical slice: `recsys_events` → archive/Redis popularity. Topic creation is
+idempotent, so `run-streaming-job.sh` also verifies the default consumer's catalog. For a host
+without Kafka CLIs, the scripts use the local Docker Compose Kafka CLI only for
+`localhost:9092`/`127.0.0.1:9092`; install the CLIs for any other broker endpoint.
+
+The derived-topic jobs are not part of this wrapper. `OnlineJoinerStreamingJob` and
+`ExperienceCollectorStreamingJob` retain their standalone launch commands and their
+`training_samples`/`training_experiences` payloads are legacy JSON. Before running those jobs, an
+operator must separately create and govern every legacy input/output topic they select; the Avro
+catalog deliberately provisions only `recsys_events` and `recsys_events.backfill`.
+
+### Topic policy and capacity boundary
+
+The checked-in catalog is `config/kafka-topics.json`. `retention.bytes` is Kafka's **per-partition**
+ceiling, while `storage_budget_bytes` is a separate whole-topic replicated-storage validation
+budget. The provisioner rejects a policy before running Kafka commands unless:
+
+```text
+ceil(messages_per_second × average_record_bytes × 86400 × retention_days
+     × replication_factor × overhead_factor) <= storage_budget_bytes
+```
+
+The current values are a committed development policy, not a 1M messages/second capacity claim.
+`recsys_events` has three live partitions and one day / 500 MB-per-partition retention; the
+one-partition `recsys_events.backfill` target has six hours / 250 MB-per-partition retention.
+Adjust topic-policy inputs and validate storage before treating any higher workload as supported.
+
+### Writer schema and dead letters
+
+Producers emit Avro single-object messages: marker `c3 01`, followed by the eight-byte
+little-endian CRC-64-AVRO parsing fingerprint, then the record. The shared schema is
+`schemas/recsys-event-v1.avsc`; its current fingerprint is `225b275f487979ab`. Required fields
+are `event_id`, `user_id`, `item_id`, `event_type`, and `timestamp_ms`.
+
+Schema changes must be backwards-compatible additions with Avro defaults. Do not rename, remove,
+or change the type of existing fields. The Spark reader accepts only fingerprints registered in its
+local schema catalog, and archive replay requires every selected row's fingerprint to match the
+local writer schema. Therefore deploy a compatible producer/consumer schema change together and
+do not replay an archive under an unregistered schema.
+
+Malformed records are archived separately at `RECSYS_EVENT_DEAD_LETTER_PATH` with Kafka topic,
+partition, offset, timestamp, optional headers, `raw_value`, `schema_fingerprint`, `error_code`,
+and `error_detail`. Codes are `invalid_marker`, `unknown_fingerprint`, `corrupt_payload`, and
+`required_field`. The fingerprint is retained when a valid single-object header supplies one;
+`invalid_marker` has no fingerprint.
+
+### Archive and bounded replay operations
+
+Run ingestion with explicit archive roots:
+
+```bash
+RECSYS_EVENT_ARCHIVE_PATH=/data/recsys-events \
+RECSYS_EVENT_DEAD_LETTER_PATH=/data/recsys-events-dead-letter \
+  ./scripts/run-streaming-job.sh
+```
+
+Archive roots require a filesystem with atomic, non-overwriting directory rename semantics (local
+or HDFS via Hadoop `FileContext`). Do not place this archive on an object store that lacks that
+atomic rename contract. Valid and dead-letter data is partitioned by UTC date below a
+checkpoint-hash namespace. A batch is consumable only when its directory has both `_SUCCESS` and
+the version-2 `_COMMITTED` manifest with the expected query, kind, batch identity, row count, and
+exact Parquet inventory. Every inventory entry records relative path, byte size, and SHA-256 digest;
+replay validates all three before publishing. An explicit zero row count and empty inventory is a
+committed all-invalid batch, not an incomplete write. Protocol v1 was a pre-release archive format:
+replay rejects it with an instruction to regenerate the data. There is no v1 migration or
+backward-compatibility path.
+
+Replay is an explicit half-open UTC date range (`start <= date < end`), enforces its row limit
+before creating a producer, rate-limits sends, and strips archive/Kafka lineage before encoding the
+canonical event again. It can only target `recsys_events.backfill`. The query namespace and durable
+operation identity are required rather than inferred:
+
+```bash
+REPLAY_ARCHIVE_PATH=/data/recsys-events \
+REPLAY_ARCHIVE_QUERY_NAMESPACE=<checkpoint-hash> \
+REPLAY_OPERATION_ID=incident-2026-08-01 \
+REPLAY_START_DATE=2026-08-01 REPLAY_END_DATE=2026-08-02 \
+REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
+  ./scripts/run-archive-replay.sh
+```
+
+Only numeric `_queries/<selected-query>/_batches/<batch>` directories with `_SUCCESS` and an exact
+version/query/kind/batch/row-count/inventory `_COMMITTED` manifest are read. Orphan attempts, dedupe snapshots,
+incomplete batches, and batches owned by another query are excluded; a missing or ambiguous query
+identity is rejected.
+
+Set `REPLAY_MANIFEST_DIR` to choose the operation directory; otherwise the deterministic manifest
+is written to `$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. It records the stable
+operation ID, status, immutable selection contract, ordered source signature, acknowledged
+physical `(file path, row group, row)` cursor,
+schema fingerprints, timestamps, and any error. Reusing a completed operation ID is a no-op;
+reusing an interrupted one resumes after the last persisted acknowledgement. Each record retains
+`event_id`, uses `operation_id:event_id` as its Kafka key, and carries `replay_operation_id` and
+`replay_event_id` headers.
+
+This is at-least-once replay, not exactly-once. The cursor is persisted after every broker
+acknowledgement, but a crash between that acknowledgement and cursor persistence can publish one
+record again. Backfill consumers must deduplicate `event_id` or the stable operation/event identity.
+Set `REPLAY_OVERRIDE_LIMIT=1` only after reviewing the selection. Consumers stay on the live topic
+unless explicitly configured for the backfill stream, for example:
+
+```bash
+KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
+```
+
+The migrated Avro engine also scopes business completion to the stable
+`(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
+identity before archival or business effects. A successful sink is not invoked again when a later
+sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic visible
+`query=<hash>/sink=<hash>/batch=<id>` directories. Payload schemas must not contain the reserved
+control columns `query`, `sink`, or `batch`. A root may contain several query/sink identities, so a
+reader must not perform schema discovery at the configured root. Scala/Spark readers use
+`DurableParquetCommit.readIdentity` with `spark`, `configuredRoot`, `queryNamespace`,
+`sinkNamespace`, and `expectedPayloadSchema`. The helper first resolves the exact visible
+`query=<hash>/sink=<hash>` identity path, sets `basePath` to `configuredRoot`, and applies the
+explicit payload schema. The returned frame includes visible `query`, `sink`, and `batch` partition
+columns, so callers may filter `batch` after the identity-safe read.
+Redis popularity increments and sequence hash updates atomically pair each effect with a ledger
+field in that batch's hash. A bounded sorted-set index retains only the configured batch window and
+a stable per-query/sink watermark fences delayed work below the recovery horizon. The window is at
+least two batches, preserves N and N-1 retries, and is pruned only after the newer batch completes;
+an executing higher batch cannot prune older recovery state. Each sequence effect atomically renews
+the target plus the state, index, current ledger, and every retained ledger. Control keys share a
+retry horizon one second longer than the target, then expire. Kafka output enables producer idempotence and carries a
+stable key plus query/sink/batch headers; because a later producer session may repeat a record after
+a partial batch failure, derived-topic consumers still must deduplicate that stable key. These are
+retry-safe per-sink contracts, not a cross-system exactly-once transaction.
+
 ## Derived ML Datasets
 
 All three jobs below consume `training_samples` (the OnlineJoiner output, which now carries
@@ -281,7 +445,8 @@ Consumes click events from Kafka and writes global item popularity to Redis. Con
 For each micro-batch, it:
 
 1. Filters to click events, then aggregates per-item click counts in a single pass.
-2. Writes one `ZINCRBY` per unique item to `global:item_popularity`.
+2. Atomically pairs one `ZINCRBY` per unique item with a stable query/sink/batch Lua-ledger entry,
+   so a partial micro-batch retry cannot increment an acknowledged item twice.
 
 Redis keys written:
 
@@ -303,6 +468,7 @@ Environment variables:
 | `REDIS_PORT` | `6379` |
 | `REDIS_PIPELINE_SIZE` | `500` |
 | `REDIS_POOL_MAX_TOTAL` | `8` |
+| `REDIS_LEDGER_RETENTION_BATCHES` | `2` (minimum `2`; preserves retry state for N and N-1) |
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |

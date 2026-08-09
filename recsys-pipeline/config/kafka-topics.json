@@ -1,0 +1,32 @@
+{
+  "topics": [
+    {
+      "name": "recsys_events",
+      "partitions": 3,
+      "replication_factor": 1,
+      "messages_per_second": 10,
+      "average_record_bytes": 1024,
+      "retention_ms": 86400000,
+      "retention_bytes": 500000000,
+      "storage_budget_bytes": 1500000000,
+      "overhead_factor": 1.1,
+      "cleanup_policy": "delete",
+      "schema_subject": "recsys-event",
+      "schema_fingerprint": "225b275f487979ab"
+    },
+    {
+      "name": "recsys_events.backfill",
+      "partitions": 1,
+      "replication_factor": 1,
+      "messages_per_second": 5,
+      "average_record_bytes": 1024,
+      "retention_ms": 21600000,
+      "retention_bytes": 250000000,
+      "storage_budget_bytes": 150000000,
+      "overhead_factor": 1.1,
+      "cleanup_policy": "delete",
+      "schema_subject": "recsys-event",
+      "schema_fingerprint": "225b275f487979ab"
+    }
+  ]
+}
