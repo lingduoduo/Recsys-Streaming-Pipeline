@@ -8,43 +8,57 @@ import org.scalatest.matchers.should.Matchers
 
 class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
-  "UserEventStreamingJob.parseEvents" should "parse unified schema with string IDs and timestamp_ms" in {
+  "UserEventStreamingJob.parseEvents" should "normalize decoded canonical columns and ignore Kafka lineage" in {
     val s = spark; import s.implicits._
-    val json = Seq(
-      """{"event_id":"e1","user_id":"user_5","item_id":"movie_3","event_type":"click","timestamp_ms":1718400000000}""",
-      """{"event_id":"e2","user_id":"user_5","item_id":"movie_4","event_type":"impression","timestamp_ms":1718400001000}"""
-    ).toDF("value")
+    val decoded = Seq(
+      ("e1", "user_5", "movie_3", "click", 1718400000000L, "recsys_events", 10L),
+      ("e2", "user_5", "movie_4", "impression", 1718400001000L, "recsys_events", 11L)
+    ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms", "kafka_topic", "kafka_offset")
 
-    val parsed = UserEventStreamingJob.parseEvents(json)
+    val parsed = UserEventStreamingJob.parseEvents(decoded)
     val clicks = parsed.filter($"event_type" === "click").collect()
     clicks should have length 1
     clicks.head.getAs[String]("user_id") shouldBe "user_5"
     clicks.head.getAs[String]("item_id") shouldBe "movie_3"
     clicks.head.getAs[Long]("timestamp_ms") shouldBe 1718400000000L
+    parsed.columns should not contain "kafka_topic"
+    parsed.columns should not contain "kafka_offset"
   }
 
-  it should "parse legacy schema with integer timestamp field" in {
+  it should "filter decoded rows missing required business identifiers" in {
     val s = spark; import s.implicits._
-    val json = Seq(
-      """{"user_id":"user_1","item_id":"item_1","event_type":"click","timestamp":1718400000}"""
-    ).toDF("value")
+    val decoded = Seq(
+      ("e1", Some("user_1"), Some("item_1"), "click", 1718400000000L),
+      ("e2", None: Option[String], Some("item_2"), "click", 1718400001000L)
+    ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
 
-    val parsed = UserEventStreamingJob.parseEvents(json)
-    parsed.filter($"event_type" === "click").count() shouldBe 1
+    UserEventStreamingJob.parseEvents(decoded).select("event_id").as[String].collect() should contain only "e1"
   }
 
   it should "drop duplicate event_id within the watermark across micro-batches" in {
     val s = spark; import s.implicits._
     implicit val sqlCtx = s.sqlContext
-    val input = MemoryStream[String]
-    val deduped = UserEventStreamingJob.dedupedClicks(input.toDF(), "10 minutes")
+    val input = MemoryStream[(String, String, String, String, Long)]
+    val decoded = input.toDS().toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
+    val deduped = UserEventStreamingJob.dedupedClicks(decoded, "10 minutes")
     val q = deduped.writeStream.format("memory").queryName("ue_out").outputMode("append").start()
     try {
-      val e = """{"event_id":"e1","user_id":"u1","item_id":"i1","event_type":"click","timestamp_ms":1718400000000}"""
+      val e = ("e1", "u1", "i1", "click", 1718400000000L)
       input.addData(e); q.processAllAvailable()
       input.addData(e); q.processAllAvailable()   // identical event_id again
       s.table("ue_out").count() shouldBe 1
     } finally q.stop()
+  }
+
+  it should "deduplicate decoded clicks when the engine supplies a static micro-batch" in {
+    val s = spark
+    import s.implicits._
+    val decoded = Seq(
+      ("e1", "u1", "i1", "click", 1718400000000L),
+      ("e1", "u1", "i1", "click", 1718400000000L)
+    ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
+
+    UserEventStreamingJob.dedupedClicks(decoded, "10 minutes").count() shouldBe 1L
   }
 
   "UserEventStreamingJob.itemClickCounts" should "count clicks per item" in {

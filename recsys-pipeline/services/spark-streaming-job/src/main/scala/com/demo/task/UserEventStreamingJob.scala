@@ -1,12 +1,11 @@
 package com.demo.task
 
-import com.demo.engine.RedisSink
-import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.engine.{EngineConfig, ExecutionEngine, KafkaSource, RawArchiveSink, RedisSink, Sink, Stage}
+import com.demo.event.{DecodedEventBatch, EventParsing}
 import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
-import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.streaming.Trigger
 
 object UserEventStreamingJob {
 
@@ -15,21 +14,13 @@ object UserEventStreamingJob {
   lazy val spark: SparkSession =
     SparkSessions.create("UserEventStreamingJob", defaultShufflePartitions = 4)
 
-  // the coalesce + null-filter tail of the old parseEvents
+  // Decoding guarantees timestamp_ms; business filtering remains local to this consumer.
   def normalize(df: DataFrame): DataFrame =
-    df.withColumn("timestamp_ms", coalesce(col("timestamp_ms"), col("timestamp") * 1000L))
-      .filter(col("user_id").isNotNull && col("item_id").isNotNull)
+    df.filter(col("user_id").isNotNull && col("item_id").isNotNull)
 
-  /**
-   * Parse a DataFrame that has a string "value" column (raw Kafka JSON payloads)
-   * into the unified event schema.  Supports both:
-   *   - new schema: timestamp_ms (millis)
-   *   - legacy schema: timestamp (seconds) — normalised to millis via timestamp * 1000
-   *
-   * Filters out rows where user_id or item_id is null.
-   */
+  /** Select the canonical Avro event view and filter unusable business identifiers. */
   def parseEvents(raw: DataFrame): DataFrame =
-    normalize(EventParsing.fromJson(raw, EventSchemas.userEvent))
+    normalize(EventParsing.canonicalEvents(raw))
 
   /** Per-item click counts for one micro-batch (columns: item_id, count). */
   def itemClickCounts(batch: DataFrame): DataFrame = batch.groupBy("item_id").count()
@@ -53,8 +44,7 @@ object UserEventStreamingJob {
 
   /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
   def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
-    val parsedAll = EventParsing.observeIngest(EventParsing.fromJson(raw, EventSchemas.userEvent))
-    val valid = normalize(parsedAll)
+    val valid = EventParsing.observeIngest(parseEvents(raw))
     EventParsing.dedupeWithinWatermark(valid, to_timestamp(from_unixtime(col("timestamp_ms") / 1000)), watermarkDelay)
       .filter(col("event_type") === "click")
   }
@@ -68,44 +58,44 @@ object UserEventStreamingJob {
       "SPARK_CHECKPOINT_LOCATION",
       "/tmp/spark-recsys/user-event-streaming-job"
     )
-    val maxOffsetsPerTrigger = sys.env.getOrElse("MAX_OFFSETS_PER_TRIGGER", "5000")
+    val maxOffsetsPerTrigger = Env.int("MAX_OFFSETS_PER_TRIGGER", 5000)
     val triggerInterval      = sys.env.getOrElse("TRIGGER_INTERVAL", "5 seconds")
     val redisPipelineSize    = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
     val redisPoolMaxTotal    = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
     val sequenceConfig = SequenceJobConfig.fromEnv()
 
-    BatchMetricsListener.register(spark)
-
-    val df = spark.readStream
-      .format("kafka")
-      .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-      .option("subscribe", kafkaTopic)
-      .option("kafka.group.id", "training-user-history")
-      .option("startingOffsets", "earliest")
-      .option("failOnDataLoss", "false")
-      .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
-      .load()                       // raw `value` (binary) — fromJson casts it
-
-    // Only keep click events for item popularity counting, with watermarked dedup.
     val watermarkDelay = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes")
-    val parsed = dedupedClicks(df, watermarkDelay)
-
-    parsed.writeStream.foreachBatch { (batch: DataFrame, batchId: Long) =>
-      val counts = itemClickCounts(batch)
+    val cfg = EngineConfig(
+      bootstrapServers = kafkaBootstrapServers,
+      inputTopic = kafkaTopic,
+      startingOffsets = "earliest",
+      groupId = "training-user-history",
+      maxOffsetsPerTrigger = maxOffsetsPerTrigger,
+      triggerInterval = triggerInterval,
+      checkpointLocation = checkpointLocation,
+      watermarkDelay = watermarkDelay,
+      sinkMaxRetries = Env.int("SINK_MAX_RETRIES", 0)
+    )
+    val archive = new RawArchiveSink(
+      sys.env.getOrElse("RECSYS_EVENT_ARCHIVE_PATH", "/tmp/spark-recsys/recsys-events-archive"),
+      sys.env.getOrElse("RECSYS_EVENT_DEAD_LETTER_PATH", "/tmp/spark-recsys/recsys-events-dead-letter"),
+      cfg.groupId
+    )
+    val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedClicks(df, cfg.watermarkDelay))
+    val popularitySink: Sink = (batch: DataFrame, batchId: Long) =>
       new RedisSink(redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
         (p, r) => p.zincrby("global:item_popularity",
                             r.getAs[Long]("count").toDouble, r.getAs[String]("item_id"))
-      ).write(counts, batchId)
-
+      ).write(itemClickCounts(batch), batchId)
+    val sequenceSink: Sink = (batch: DataFrame, batchId: Long) =>
       SequenceSinks.write(
         SequenceEncoder.toColumnChunks(buildSequenceEvents(batch)),
         sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
         SequenceWriteMode.Append, batchId
       )
-    }
-      .option("checkpointLocation", checkpointLocation)
-      .trigger(Trigger.ProcessingTime(triggerInterval))
-      .start()
-      .awaitTermination()
+
+    ExecutionEngine.run(
+      spark, cfg, KafkaSource, DecodedEventBatch.decode _, archive,
+      streamingStages, Seq.empty, Seq(popularitySink, sequenceSink))
   }
 }
