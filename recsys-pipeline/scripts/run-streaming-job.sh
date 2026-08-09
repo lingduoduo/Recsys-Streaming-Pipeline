@@ -27,11 +27,10 @@ fi
 MAIN_CLASS="${SPARK_MAIN_CLASS:-com.demo.task.UserEventStreamingJob}"
 
 # Spark's Kafka AdminClient does not trigger broker-side topic auto-creation when it
-# asks for initial offsets. Bootstrap the default job's input topic when using the
-# local Docker stack so a consumer can be started before the first producer.
+# asks for initial offsets. Provision the checked-in catalog before starting the
+# default consumer so topics and retention policy are explicit and repeatable.
 if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
   KAFKA_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"
-  INPUT_TOPIC="${KAFKA_TOPIC:-recsys_events}"
 
   # Bash's /dev/tcp builtin is the only bounded check available here: nc -w does not
   # bound connect on macOS, curl telnet:// never returns on a live port, and timeout
@@ -50,16 +49,7 @@ if [[ "$MAIN_CLASS" == "com.demo.task.UserEventStreamingJob" ]]; then
     exit 1
   fi
 
-  if command -v kafka-topics >/dev/null 2>&1; then
-    kafka-topics --bootstrap-server "$KAFKA_SERVERS" \
-      --create --if-not-exists --topic "$INPUT_TOPIC"
-  elif [[ "$KAFKA_SERVERS" == "localhost:9092" ]] &&
-       command -v docker >/dev/null 2>&1 &&
-       docker compose ps --status running kafka >/dev/null 2>&1; then
-    docker compose exec -T kafka kafka-topics \
-      --bootstrap-server localhost:9092 \
-      --create --if-not-exists --topic "$INPUT_TOPIC"
-  fi
+  python3 scripts/provision-kafka-topics.py --bootstrap-server "$KAFKA_SERVERS"
 fi
 
 exec "$SPARK_SUBMIT" \

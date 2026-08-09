@@ -14,3 +14,9 @@ def test_every_service_declares_a_restart_policy() -> None:
         if config.get("restart") != "unless-stopped"
     ]
     assert not missing, f"services without 'restart: unless-stopped': {missing}"
+
+
+def test_kafka_disables_automatic_topic_creation() -> None:
+    services = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]
+
+    assert services["kafka"]["environment"]["KAFKA_AUTO_CREATE_TOPICS_ENABLE"] == "false"

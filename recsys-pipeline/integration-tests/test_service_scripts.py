@@ -23,7 +23,17 @@ def copy_pipeline_scripts(tmp_path: Path) -> Path:
     scripts = pipeline / "scripts"
     scripts.mkdir(parents=True)
     shutil.copy2(SCRIPTS_DIR / "run-streaming-job.sh", scripts / "run-streaming-job.sh")
+    shutil.copy2(SCRIPTS_DIR / "provision-kafka-topics.py", scripts / "provision-kafka-topics.py")
     shutil.copy2(SCRIPTS_DIR / "run-offline-pipeline.sh", scripts / "run-offline-pipeline.sh")
+    config = pipeline / "config"
+    config.mkdir()
+    shutil.copy2(REPO_ROOT / "config" / "kafka-topics.json", config / "kafka-topics.json")
+    python_modeling = pipeline / "services" / "python-modeling"
+    python_modeling.mkdir(parents=True)
+    shutil.copy2(
+        REPO_ROOT / "services" / "python-modeling" / "topic_policy.py",
+        python_modeling / "topic_policy.py",
+    )
     return pipeline
 
 
@@ -51,9 +61,10 @@ def add_fake_spark_submit(spark_home: Path) -> Path:
 def add_fake_kafka_topics(tmp_path: Path) -> Path:
     bin_dir = tmp_path / "stub-bin"
     bin_dir.mkdir()
-    kafka_topics = bin_dir / "kafka-topics"
-    kafka_topics.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    kafka_topics.chmod(kafka_topics.stat().st_mode | stat.S_IXUSR)
+    for command in ("kafka-topics", "kafka-configs"):
+        executable = bin_dir / command
+        executable.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
     return bin_dir
 
 
