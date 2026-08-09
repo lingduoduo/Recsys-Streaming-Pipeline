@@ -7,16 +7,25 @@ from pathlib import Path
 
 
 PRODUCER_PATH = Path(__file__).resolve().parents[2] / "services/python-modeling/producer.py"
+PYTHON_MODELING = PRODUCER_PATH.parent
+sys.path.insert(0, str(PYTHON_MODELING))
+
+import event_avro
 
 
 def load_producer_module():
     """Import producer.py without creating a KafkaProducer connection."""
     kafka_stub = types.ModuleType("kafka")
     kafka_errors_stub = types.ModuleType("kafka.errors")
-    kafka_stub.KafkaProducer = lambda **kwargs: None
+
+    class KafkaProducerStub:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    kafka_stub.KafkaProducer = KafkaProducerStub
     kafka_errors_stub.NoBrokersAvailable = RuntimeError
-    sys.modules.setdefault("kafka", kafka_stub)
-    sys.modules.setdefault("kafka.errors", kafka_errors_stub)
+    sys.modules["kafka"] = kafka_stub
+    sys.modules["kafka.errors"] = kafka_errors_stub
 
     spec = importlib.util.spec_from_file_location(
         "producer",
@@ -25,6 +34,27 @@ def load_producer_module():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_kafka_value_serializer_emits_avro_single_object():
+    """Fails if producer values bypass the canonical Avro single-object encoder."""
+    mod = load_producer_module()
+
+    payload = mod.serialize_event(mod.make_click_event(["u"], ["i"]))
+
+    assert payload[:10] == b"\xc3\x01\xab\x79\x79\x48\x5f\x27\x5b\x22"
+    assert event_avro.decode_event(payload)["event_type"] == "click"
+
+
+def test_make_producer_installs_shared_avro_value_serializer():
+    """Fails if KafkaProducer is configured with JSON rather than serialize_event."""
+    mod = load_producer_module()
+
+    producer = mod.make_producer()
+    event = mod.make_click_event(["u"], ["i"])
+
+    assert producer.kwargs["value_serializer"] is mod.serialize_event
+    assert event_avro.decode_event(producer.kwargs["value_serializer"](event))["event_id"] == event["event_id"]
 
 
 def make_event(users, items):
