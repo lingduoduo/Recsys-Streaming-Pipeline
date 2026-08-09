@@ -54,9 +54,11 @@ object UserEventStreamingJob {
       redisPort: Int,
       redisPoolMaxTotal: Int,
       sequenceConfig: SequenceJobConfig,
-      redisPipelineSize: Int = 500
+      redisPipelineSize: Int = 500,
+      ledgerRetentionBatches: Int = 2
   ): Seq[DurableSink] = Seq(
-    new RedisPopularitySink(redisHost, redisPort, redisPoolMaxTotal),
+    new RedisPopularitySink(redisHost, redisPort, redisPoolMaxTotal,
+      ledgerRetentionBatches = ledgerRetentionBatches),
     new SequenceBusinessSink(
       sequenceConfig,
       redisHost,
@@ -80,6 +82,7 @@ object UserEventStreamingJob {
     val triggerInterval      = sys.env.getOrElse("TRIGGER_INTERVAL", "5 seconds")
     val redisPipelineSize    = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
     val redisPoolMaxTotal    = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
+    val ledgerRetentionBatches = math.max(2, Env.int("REDIS_LEDGER_RETENTION_BATCHES", 2))
     val sequenceConfig = SequenceJobConfig.fromEnv()
 
     val watermarkDelay = sys.env.getOrElse("EVENT_WATERMARK_DELAY", "10 minutes")
@@ -101,7 +104,8 @@ object UserEventStreamingJob {
     )
     val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedClicks(df, cfg.watermarkDelay))
     val sinks: Seq[Sink] = businessSinks(
-      redisHost, redisPort, redisPoolMaxTotal, sequenceConfig, redisPipelineSize)
+      redisHost, redisPort, redisPoolMaxTotal, sequenceConfig, redisPipelineSize,
+      ledgerRetentionBatches)
 
     ExecutionEngine.run(
       spark, cfg, KafkaSource, DecodedEventBatch.decode _, archive,

@@ -144,7 +144,9 @@ Archive roots require a filesystem with atomic, non-overwriting directory rename
 or HDFS via Hadoop `FileContext`). Do not place this archive on an object store that lacks that
 atomic rename contract. Valid and dead-letter data is partitioned by UTC date below a
 checkpoint-hash namespace. A batch is consumable only when its directory has both `_SUCCESS` and
-the `_COMMITTED` manifest with the expected query, kind, and batch identity.
+the version-2 `_COMMITTED` manifest with the expected query, kind, batch identity, row count, and
+exact Parquet inventory. An explicit zero row count and empty inventory is a committed all-invalid
+batch, not an incomplete write.
 
 Replay is an explicit half-open UTC date range (`start <= date < end`), enforces its row limit
 before creating a producer, rate-limits sends, and strips archive/Kafka lineage before encoding the
@@ -161,13 +163,14 @@ REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
 ```
 
 Only numeric `_queries/<selected-query>/_batches/<batch>` directories with `_SUCCESS` and an exact
-version/query/kind/batch `_COMMITTED` manifest are read. Orphan attempts, dedupe snapshots,
+version/query/kind/batch/row-count/inventory `_COMMITTED` manifest are read. Orphan attempts, dedupe snapshots,
 incomplete batches, and batches owned by another query are excluded; a missing or ambiguous query
 identity is rejected.
 
 Set `REPLAY_MANIFEST_DIR` to choose the operation directory; otherwise the deterministic manifest
 is written to `$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. It records the stable
-operation ID, status, immutable selection contract, ordered source signature, acknowledged cursor,
+operation ID, status, immutable selection contract, ordered source signature, acknowledged
+physical `(file path, row group, row)` cursor,
 schema fingerprints, timestamps, and any error. Reusing a completed operation ID is a no-op;
 reusing an interrupted one resumes after the last persisted acknowledgement. Each record retains
 `event_id`, uses `operation_id:event_id` as its Kafka key, and carries `replay_operation_id` and
@@ -186,9 +189,12 @@ KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
 The migrated Avro engine also scopes business completion to the stable
 `(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
 identity before archival or business effects. A successful sink is not invoked again when a later
-sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic batch
-directories. Redis popularity increments and sequence hash updates atomically pair each effect with
-a non-expiring batch ledger entry using Lua. Kafka output enables producer idempotence and carries a
+sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic visible
+`query=<hash>/sink=<hash>/batch=<id>` directories; readers use
+`spark.read.parquet(configuredRoot)`. Redis popularity increments and sequence hash updates
+atomically pair each effect with a bounded per-item/per-sequence Lua ledger. The configured recovery
+window is at least two batches and never prunes N or N-1; advancing to N proves older batches are no
+longer reachable from the unmodified Structured Streaming checkpoint. Kafka output enables producer idempotence and carries a
 stable key plus query/sink/batch headers; because a later producer session may repeat a record after
 a partial batch failure, derived-topic consumers still must deduplicate that stable key. These are
 retry-safe per-sink contracts, not a cross-system exactly-once transaction.
@@ -449,6 +455,7 @@ Environment variables:
 | `REDIS_PORT` | `6379` |
 | `REDIS_PIPELINE_SIZE` | `500` |
 | `REDIS_POOL_MAX_TOTAL` | `8` |
+| `REDIS_LEDGER_RETENTION_BATCHES` | `2` (minimum `2`; preserves retry state for N and N-1) |
 | `MAX_OFFSETS_PER_TRIGGER` | `5000` |
 | `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |

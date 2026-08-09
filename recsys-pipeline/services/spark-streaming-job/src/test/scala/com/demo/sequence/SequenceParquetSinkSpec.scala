@@ -152,5 +152,6 @@ class SequenceParquetSinkSpec extends AnyFlatSpec with Matchers with SparkTestSu
     java.nio.file.Files.exists(committed.resolve("_SUCCESS")) shouldBe true
     java.nio.file.Files.exists(committed.resolve("_COMMITTED")) shouldBe true
     spark.read.parquet(committed.toString).count() shouldBe 2L
+    spark.read.parquet(path).count() shouldBe 2L
   }
 }

@@ -98,6 +98,22 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
         "schema_fingerprint", "archived_at", "date")
   }
 
+  it should "commit an explicit validated zero-row inventory for an all-invalid batch" in {
+    val root = Files.createTempDirectory("raw-archive-empty-valid")
+    val validPath = root.resolve("valid")
+    val sink = new RawArchiveSink(validPath.toString, root.resolve("dead").toString, QueryIdentity)
+    val emptyValid = decodedFrames("unused", 1718409600000L, 1L).valid.limit(0)
+
+    sink.writeValid(emptyValid, batchId = 9L)
+
+    val committed = batchPath(validPath, QueryIdentity, 9L)
+    val manifest = new String(Files.readAllBytes(committed.resolve("_COMMITTED")), "UTF-8")
+    manifest should include ("version=2\n")
+    manifest should include ("row_count=0\n")
+    manifest.linesIterator.filter(_.startsWith("file=")).toSeq shouldBe empty
+    Files.walk(committed).iterator().asScala.count(_.toString.endsWith(".parquet")) shouldBe 0
+  }
+
   "RawArchiveSink.writeDeadLetters" should "use Kafka ingestion date and a separate idempotent batch path" in {
     val s = spark
     import s.implicits._

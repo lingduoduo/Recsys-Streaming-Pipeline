@@ -23,8 +23,11 @@ class SequenceRedisSink(
     pipelineSize: Int,
     ttlSeconds: Int,
     maxRowsPerBucket: Int,
-    mode: SequenceWriteMode
+    mode: SequenceWriteMode,
+    ledgerRetentionBatches: Int = 2
 ) extends Sink {
+
+  require(ledgerRetentionBatches >= 2, "Redis ledger retention must preserve batches N and N-1")
 
   def write(batch: DataFrame, batchId: Long): Unit = {
     // Copy to locals so the partition closure doesn't capture `this`.
@@ -88,7 +91,7 @@ class SequenceRedisSink(
     val h = host; val pt = port; val mx = poolMax
     val ttl = ttlSeconds; val cap = maxRowsPerBucket; val m = mode
     val fields = (SequenceSchema.Columns :+ SequenceSchema.ColCount).toArray
-    val ledger = RedisBatchLedger.ledgerKey(context, "sequence")
+    val retention = ledgerRetentionBatches
 
     batch.foreachPartition { rows: Iterator[Row] =>
       val log = LoggerFactory.getLogger(classOf[SequenceRedisSink])
@@ -110,13 +113,16 @@ class SequenceRedisSink(
                 fields.zip(values).collect { case (field, value) if value != null => field -> value }.toMap
             }
             val resolved = SequenceRedisSink.resolve(existing, fresh, cap, m)
+            val ledger = RedisBatchLedger.ledgerKey(context, "sequence", key)
             RedisBatchLedger.hashOnce(
               (script, keys, arguments) => jedis.eval(script, keys, arguments),
               ledger,
               key,
               key,
               ttl,
-              resolved)
+              resolved,
+              context.batchId,
+              retention)
           } catch {
             case e: Exception if SequenceRedisSink.isFatal(e) => throw e
             case e: Exception =>

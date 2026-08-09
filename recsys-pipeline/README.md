@@ -90,7 +90,9 @@ RECSYS_EVENT_DEAD_LETTER_PATH=/data/recsys-events-dead-letter \
 Those paths must be on a filesystem that supports atomic, non-overwriting directory renames
 (local/HDFS through Hadoop `FileContext`, for example). Object stores without that rename
 guarantee are not a supported archive target. A committed archive batch has both `_SUCCESS` and
-its `_COMMITTED` identity manifest below `_queries/<checkpoint-hash>/_batches/<batch-id>/`.
+its version-2 `_COMMITTED` identity manifest below
+`_queries/<checkpoint-hash>/_batches/<batch-id>/`. The manifest inventories every Parquet file and
+its total row count; `row_count=0` with an empty inventory is a valid all-invalid micro-batch.
 
 Replay is always bounded and only publishes to `recsys_events.backfill`:
 
@@ -108,7 +110,8 @@ Replay reads only numeric batches below the selected query namespace whose `_SUC
 not eligible. `REPLAY_OPERATION_ID` is a stable operator-owned identity. Its atomic JSON manifest
 is `$REPLAY_MANIFEST_DIR/<operation-id>.json` when configured, otherwise
 `$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. A completed operation is a no-op on
-rerun; an interrupted operation resumes after its last durably recorded broker acknowledgement.
+rerun; an interrupted operation resumes from its last durably recorded
+`(sorted committed file path, row group, row)` position.
 Published records retain `event_id` and carry a stable `operation_id:event_id` Kafka key plus
 operation/event headers.
 
@@ -120,8 +123,12 @@ for schema, retention, dead-letter, and replay constraints.
 
 On the migrated Avro engine path, every business sink has a stable identity and a durable
 `(query, sink, batchId)` completion marker. A completed first sink is skipped when a later sink
-causes the micro-batch to retry. Parquet uses deterministic batch directories, and Redis popularity
-and sequence effects use atomic Lua ledgers. Kafka enables producer idempotence and publishes a
+causes the micro-batch to retry. Parquet uses visible
+`query=<hash>/sink=<hash>/batch=<id>` directories, so `spark.read.parquet(configuredRoot)` reads
+the committed rows directly. Redis popularity and sequence effects use atomic Lua ledgers. Each
+per-item/per-sequence ledger retains the configurable current recovery window (minimum two batches,
+so N and N-1 remain retry-safe) rather than growing one key per batch forever. Kafka enables
+producer idempotence and publishes a
 stable record key and query/sink/batch headers; a failure across producer sessions can still repeat
 an acknowledged record, so derived-topic consumers must deduplicate the stable key. The engine
 rejects sinks without this retry contract and does not claim cross-system exactly-once delivery.

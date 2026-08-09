@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 
 from event_avro import encode_event, load_schema, schema_fingerprint
 
@@ -65,12 +66,14 @@ class ReplayManifest:
     bootstrap_servers: str
     selected_rows: int
     acknowledged_cursor: int
+    acknowledged_position: _ArchivePosition | None
     source_paths: tuple[str, ...]
     source_signature: str
     schema_fingerprints: tuple[int, ...]
     target_topic: str
     started_at: str
-    completed_at: str
+    updated_at: str
+    completed_at: str | None
     error: str | None
     path: Path
 
@@ -94,11 +97,21 @@ class ReplayManifest:
             "bootstrap_servers": self.bootstrap_servers,
             "selected_rows": self.selected_rows,
             "acknowledged_cursor": self.acknowledged_cursor,
+            "acknowledged_position": (
+                None
+                if self.acknowledged_position is None
+                else {
+                    "path": self.acknowledged_position.path,
+                    "row_group": self.acknowledged_position.row_group,
+                    "row": self.acknowledged_position.row,
+                }
+            ),
             "source_paths": list(self.source_paths),
             "source_signature": self.source_signature,
             "schema_fingerprints": list(self.schema_fingerprints),
             "target_topic": self.target_topic,
             "started_at": self.started_at,
+            "updated_at": self.updated_at,
             "completed_at": self.completed_at,
             "error": self.error,
         }
@@ -108,6 +121,13 @@ class ReplayManifest:
 class _CommittedArchive:
     datasets: tuple[Any, ...]
     source_paths: tuple[Path, ...]
+
+
+@dataclass(frozen=True, order=True)
+class _ArchivePosition:
+    path: str
+    row_group: int
+    row: int
 
 
 CANONICAL_EVENT_FIELDS = tuple(field["name"] for field in load_schema()["fields"])
@@ -151,13 +171,20 @@ def validate_config(config: ReplayConfig) -> None:
         raise ReplayConfigError("bootstrap_servers must not be blank")
 
 
-def _batch_manifest(query_namespace: str, batch_id: int) -> str:
-    return (
-        "version=1\n"
-        f"query={query_namespace}\n"
-        "kind=valid\n"
-        f"batch_id={batch_id}\n"
-    )
+def _parse_batch_manifest(path: Path) -> tuple[dict[str, str], tuple[str, ...]]:
+    values: dict[str, str] = {}
+    files: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line:
+            raise ReplayConfigError(f"commit manifest has malformed line: {path}")
+        key, value = line.split("=", 1)
+        if key == "file":
+            files.append(value)
+        elif key in values:
+            raise ReplayConfigError(f"commit manifest has duplicate {key}: {path}")
+        else:
+            values[key] = value
+    return values, tuple(files)
 
 
 def _partition_date(path: Path) -> date:
@@ -200,15 +227,42 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
             raise ReplayConfigError(
                 f"uncommitted or incomplete archive batch {batch_directory}"
             )
-        actual_manifest = committed.read_text(encoding="utf-8")
-        if actual_manifest != _batch_manifest(config.archive_query_namespace, batch_id):
+        manifest, inventory = _parse_batch_manifest(committed)
+        expected_identity = {
+            "version": "2",
+            "query": config.archive_query_namespace,
+            "kind": "valid",
+            "batch_id": str(batch_id),
+        }
+        allowed_fields = {*expected_identity, "row_count"}
+        if set(manifest) != allowed_fields or any(
+            manifest.get(key) != value for key, value in expected_identity.items()
+        ):
             raise ReplayConfigError(
                 f"commit identity mismatch for archive batch {batch_directory}"
             )
         batch_files = sorted(batch_directory.rglob("*.parquet"))
-        if not batch_files:
+        actual_inventory = tuple(
+            path.relative_to(batch_directory).as_posix() for path in batch_files
+        )
+        if inventory != actual_inventory:
             raise ReplayConfigError(
-                f"uncommitted or incomplete archive batch {batch_directory}: no parquet data"
+                f"commit inventory mismatch for archive batch {batch_directory}"
+            )
+        try:
+            row_count = int(manifest["row_count"])
+        except (KeyError, ValueError) as exc:
+            raise ReplayConfigError(
+                f"commit row_count is missing or invalid for archive batch {batch_directory}"
+            ) from exc
+        if row_count < 0:
+            raise ReplayConfigError(
+                f"commit row_count is invalid for archive batch {batch_directory}"
+            )
+        actual_rows = sum(pq.ParquetFile(path).metadata.num_rows for path in batch_files)
+        if actual_rows != row_count or (row_count == 0 and batch_files):
+            raise ReplayConfigError(
+                f"commit row_count mismatch for archive batch {batch_directory}"
             )
         for parquet_file in batch_files:
             partition_date = _partition_date(parquet_file)
@@ -238,14 +292,29 @@ def _archive_filter(config: ReplayConfig):
     )
 
 
+def _relative_physical_path(path: Path) -> str:
+    parts = path.parts
+    try:
+        return Path(*parts[parts.index("_queries") :]).as_posix()
+    except ValueError as exc:
+        raise ReplayConfigError(f"archive path is outside the committed query layout: {path}") from exc
+
+
 def _iter_archive_rows(
-    archive: _CommittedArchive, date_filter: Any
-) -> Iterable[dict[str, object]]:
-    """Yield record batches file-by-file in deterministic source-path order."""
-    for dataset in archive.datasets:
-        scanner = dataset.scanner(columns=list(ARCHIVE_COLUMNS), filter=date_filter)
-        for batch in scanner.to_batches():
-            yield from batch.to_pylist()
+    archive: _CommittedArchive, _date_filter: Any
+) -> Iterable[tuple[_ArchivePosition, dict[str, object]]]:
+    """Yield explicit file/row-group/row order independent of Arrow scanner scheduling."""
+    for path in sorted(archive.source_paths):
+        parquet = pq.ParquetFile(path)
+        relative_path = _relative_physical_path(path)
+        for row_group in range(parquet.num_row_groups):
+            row_index = 0
+            for batch in parquet.iter_batches(
+                row_groups=[row_group], columns=list(ARCHIVE_COLUMNS)
+            ):
+                for row in batch.to_pylist():
+                    yield _ArchivePosition(relative_path, row_group, row_index), row
+                    row_index += 1
 
 
 def _count_archive_rows(archive: _CommittedArchive, date_filter: Any) -> int:
@@ -280,7 +349,10 @@ def _validate_archive_fingerprints(
 def select_archive(config: ReplayConfig) -> Iterable[dict[str, object]]:
     """Yield canonical rows only from validated committed batches for one query."""
     validate_config(config)
-    return _iter_archive_rows(_open_archive(config), _archive_filter(config))
+    return (
+        row
+        for _, row in _iter_archive_rows(_open_archive(config), _archive_filter(config))
+    )
 
 
 def _manifest_directory(config: ReplayConfig) -> Path:
@@ -353,6 +425,16 @@ def _write_manifest(manifest: ReplayManifest) -> None:
 def _read_manifest(path: Path) -> ReplayManifest:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
+        raw_position = raw.get("acknowledged_position")
+        acknowledged_position = (
+            None
+            if raw_position is None
+            else _ArchivePosition(
+                path=str(raw_position["path"]),
+                row_group=int(raw_position["row_group"]),
+                row=int(raw_position["row"]),
+            )
+        )
         return ReplayManifest(
             operation_id=str(raw["operation_id"]),
             status=str(raw["status"]),
@@ -366,12 +448,16 @@ def _read_manifest(path: Path) -> ReplayManifest:
             bootstrap_servers=str(raw["bootstrap_servers"]),
             selected_rows=int(raw["selected_rows"]),
             acknowledged_cursor=int(raw["acknowledged_cursor"]),
+            acknowledged_position=acknowledged_position,
             source_paths=tuple(str(value) for value in raw["source_paths"]),
             source_signature=str(raw["source_signature"]),
             schema_fingerprints=tuple(int(value) for value in raw["schema_fingerprints"]),
             target_topic=str(raw["target_topic"]),
             started_at=str(raw["started_at"]),
-            completed_at=str(raw["completed_at"]),
+            updated_at=str(raw["updated_at"]),
+            completed_at=(
+                None if raw.get("completed_at") is None else str(raw["completed_at"])
+            ),
             error=None if raw.get("error") is None else str(raw["error"]),
             path=path,
         )
@@ -438,11 +524,13 @@ def _new_manifest(
     status: str,
     selected_rows: int,
     acknowledged_cursor: int,
+    acknowledged_position: _ArchivePosition | None,
     source_paths: tuple[str, ...],
     source_signature: str,
     fingerprints: tuple[int, ...],
     error: str | None,
 ) -> ReplayManifest:
+    now = _timestamp()
     return ReplayManifest(
         operation_id=config.operation_id,
         status=status,
@@ -456,12 +544,14 @@ def _new_manifest(
         bootstrap_servers=config.bootstrap_servers,
         selected_rows=selected_rows,
         acknowledged_cursor=acknowledged_cursor,
+        acknowledged_position=acknowledged_position,
         source_paths=source_paths,
         source_signature=source_signature,
         schema_fingerprints=fingerprints,
         target_topic=ReplayConfig.target_topic,
         started_at=started_at,
-        completed_at=_timestamp(),
+        updated_at=now,
+        completed_at=now if status == "completed" else None,
         error=error,
         path=path,
     )
@@ -492,6 +582,9 @@ def run_replay(
 
     started_at = existing.started_at if existing is not None else _timestamp()
     acknowledged_cursor = existing.acknowledged_cursor if existing is not None else 0
+    acknowledged_position = (
+        existing.acknowledged_position if existing is not None else None
+    )
     producer = None
     status = "failed"
     error: str | None = None
@@ -532,6 +625,10 @@ def run_replay(
                 raise ReplayConfigError(
                     f"operation_id {config.operation_id} has invalid acknowledged cursor"
                 )
+            if (acknowledged_cursor == 0) != (acknowledged_position is None):
+                raise ReplayConfigError(
+                    f"operation_id {config.operation_id} has invalid physical cursor"
+                )
             can_persist_progress = True
 
         manifest = _new_manifest(
@@ -541,6 +638,7 @@ def run_replay(
             status="running",
             selected_rows=selected_rows,
             acknowledged_cursor=acknowledged_cursor,
+            acknowledged_position=acknowledged_position,
             source_paths=source_paths,
             source_signature=source_signature,
             fingerprints=fingerprints,
@@ -552,8 +650,11 @@ def run_replay(
             producer = producer_factory(config)
             interval = 1.0 / float(config.records_per_second)
             next_deadline = monotonic_clock()
-            for cursor, row in enumerate(_iter_archive_rows(archive, date_filter)):
-                if cursor < acknowledged_cursor:
+            cursor_found = acknowledged_position is None
+            for position, row in _iter_archive_rows(archive, date_filter):
+                if not cursor_found:
+                    if position == acknowledged_position:
+                        cursor_found = True
                     continue
                 remaining = next_deadline - monotonic_clock()
                 if remaining > 0:
@@ -571,14 +672,20 @@ def run_replay(
                     ],
                 )
                 delivery.get(timeout=DELIVERY_TIMEOUT_SECONDS)
-                acknowledged_cursor = cursor + 1
+                acknowledged_cursor += 1
+                acknowledged_position = position
                 manifest = replace(
                     manifest,
                     acknowledged_cursor=acknowledged_cursor,
-                    completed_at=_timestamp(),
+                    acknowledged_position=acknowledged_position,
+                    updated_at=_timestamp(),
                 )
                 _write_manifest(manifest)
                 next_deadline += interval
+            if not cursor_found:
+                raise ReplayConfigError(
+                    f"operation_id {config.operation_id} physical cursor is not in the source"
+                )
             producer.flush()
             producer.close()
             producer = None
@@ -602,6 +709,7 @@ def run_replay(
                 status=status,
                 selected_rows=selected_rows,
                 acknowledged_cursor=acknowledged_cursor,
+                acknowledged_position=acknowledged_position,
                 source_paths=source_paths,
                 source_signature=source_signature,
                 fingerprints=fingerprints,

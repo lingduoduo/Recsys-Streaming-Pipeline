@@ -112,8 +112,8 @@ object DurableParquetCommit {
     new Path(
       new Path(
         new Path(root),
-        s"_queries/${context.queryNamespace}/_sinks/${context.sinkNamespace}/_batches"),
-      context.batchId.toString)
+        s"query=${context.queryNamespace}/sink=${context.sinkNamespace}"),
+      s"batch=${context.batchId}")
 
   private def manifest(context: SinkWriteContext): String =
     s"version=1\nquery=${context.queryNamespace}\nkind=business-parquet\n" +
@@ -134,7 +134,8 @@ object DurableParquetCommit {
       return
     }
 
-    val attempts = new Path(destination.getParent, s"_attempts/${context.batchId}")
+    val attempts = new Path(new Path(root),
+      s"_attempts/${context.queryNamespace}/${context.sinkNamespace}/${context.batchId}")
     val attempt = new Path(attempts, UUID.randomUUID().toString)
     try {
       batch.write.mode("errorifexists").partitionBy(partitionCols: _*).parquet(attempt.toString)

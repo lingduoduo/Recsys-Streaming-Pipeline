@@ -127,13 +127,22 @@ def write_archive(
     pq.write_table(pa.Table.from_pylist(rows), destination / "part-0.parquet")
     if area == "_batches" and committed:
         (batch_root / "_SUCCESS").touch()
+        inventory = sorted(
+            path.relative_to(batch_root).as_posix()
+            for path in batch_root.rglob("*.parquet")
+        )
+        committed_rows = sum(
+            pq.ParquetFile(batch_root / path).metadata.num_rows for path in inventory
+        )
         (batch_root / "_COMMITTED").write_text(
             manifest
             or (
-                "version=1\n"
+                "version=2\n"
                 f"query={query_namespace}\n"
                 "kind=valid\n"
                 f"batch_id={batch_id}\n"
+                f"row_count={committed_rows}\n"
+                + "".join(f"file={path}\n" for path in inventory)
             ),
             encoding="utf-8",
         )
@@ -346,6 +355,46 @@ def test_interrupted_operation_resumes_after_durable_acknowledged_cursor(
     ] == 3
 
 
+def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    write_archive(tmp_path, event_prefix="first", batch_id=7)
+    write_archive(tmp_path, event_prefix="second", batch_id=8)
+
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        run_replay(
+            config(tmp_path),
+            lambda _: FakeProducer(fail_on_send_number=2),
+            lambda: 0.0,
+            lambda _: None,
+        )
+
+    original_open = archive_replay._open_archive
+
+    def reverse_scanner_order(replay_config: ReplayConfig):
+        opened = original_open(replay_config)
+        return archive_replay._CommittedArchive(
+            datasets=tuple(reversed(opened.datasets)),
+            source_paths=opened.source_paths,
+        )
+
+    monkeypatch.setattr(archive_replay, "_open_archive", reverse_scanner_order)
+    resumed = FakeProducer()
+    result = run_replay(
+        config(tmp_path), lambda _: resumed, lambda: 0.0, lambda _: None
+    )
+
+    assert [
+        event_avro.decode_event(sent.value)["event_id"] for sent in resumed.sent
+    ] == ["second-1"]
+    durable = json.loads(result.path.read_text(encoding="utf-8"))
+    assert durable["acknowledged_position"] == {
+        "path": durable["source_paths"][1],
+        "row_group": 0,
+        "row": 0,
+    }
+
+
 def test_interrupted_operation_refuses_changed_source_without_rewriting_manifest(
     tmp_path: Path,
 ) -> None:
@@ -406,6 +455,29 @@ def test_publish_failure_records_failed_manifest_atomically(tmp_path: Path) -> N
     manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
     assert manifest["status"] == "failed"
     assert manifest["error"] == "delivery timed out"
+    assert manifest["updated_at"]
+    assert manifest["completed_at"] is None
+
+
+def test_running_manifest_has_updated_at_but_no_completed_at(tmp_path: Path) -> None:
+    write_archive(tmp_path)
+
+    def producer_factory(_: ReplayConfig) -> FakeProducer:
+        manifest = json.loads(
+            next((tmp_path / "_replay_manifests").glob("*.json")).read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["status"] == "running"
+        assert manifest["updated_at"]
+        assert manifest["completed_at"] is None
+        return FakeProducer()
+
+    completed = run_replay(
+        config(tmp_path), producer_factory, lambda: 0.0, lambda _: None
+    )
+
+    assert completed.completed_at is not None
 
 
 def test_close_failure_still_records_a_failed_manifest(tmp_path: Path) -> None:
@@ -471,6 +543,47 @@ def test_zero_selected_rows_skips_producer_and_completes_manifest(tmp_path: Path
     assert result.status == "completed"
     assert result.selected_rows == 0
     assert json.loads(result.path.read_text(encoding="utf-8"))["status"] == "completed"
+
+
+def test_replay_skips_validated_zero_row_commit_and_continues(tmp_path: Path) -> None:
+    empty = tmp_path / "_queries" / ARCHIVE_QUERY_NAMESPACE / "_batches" / "7"
+    empty.mkdir(parents=True)
+    (empty / "_SUCCESS").touch()
+    (empty / "_COMMITTED").write_text(
+        "version=2\nquery=query-1\nkind=valid\nbatch_id=7\nrow_count=0\n",
+        encoding="utf-8",
+    )
+    write_archive(tmp_path, batch_id=8, event_prefix="replayable")
+    producer = FakeProducer()
+
+    result = run_replay(
+        config(tmp_path), lambda _: producer, lambda: 0.0, lambda _: None
+    )
+
+    assert result.selected_rows == 1
+    assert [
+        event_avro.decode_event(sent.value)["event_id"] for sent in producer.sent
+    ] == ["replayable-1"]
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        "version=2\nquery=query-1\nkind=valid\nbatch_id=7\n",
+        "version=2\nquery=query-1\nkind=valid\nbatch_id=7\nrow_count=1\n",
+        "version=2\nquery=query-1\nkind=valid\nbatch_id=7\nrow_count=0\nfile=date=2024-06-15/missing.parquet\n",
+    ],
+)
+def test_replay_rejects_empty_commit_without_exact_zero_row_metadata(
+    tmp_path: Path, manifest: str
+) -> None:
+    batch = tmp_path / "_queries" / ARCHIVE_QUERY_NAMESPACE / "_batches" / "7"
+    batch.mkdir(parents=True)
+    (batch / "_SUCCESS").touch()
+    (batch / "_COMMITTED").write_text(manifest, encoding="utf-8")
+
+    with pytest.raises(ReplayConfigError, match="commit|inventory|row_count"):
+        list(select_archive(config(tmp_path)))
 
 
 def test_replay_counts_then_streams_arrow_batches_without_whole_table_materialization(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

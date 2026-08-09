@@ -83,5 +83,8 @@ class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     Files.exists(committed.resolve("_SUCCESS")) shouldBe true
     Files.exists(committed.resolve("_COMMITTED")) shouldBe true
     spark.read.parquet(committed.toString).count() shouldBe 2L
+    val fromConfiguredRoot = spark.read.parquet(root.toString)
+    fromConfiguredRoot.select("sample_id").as[String].collect().toSet shouldBe Set("s1", "s2")
+    fromConfiguredRoot.columns should contain allOf ("date", "query", "sink", "batch")
   }
 }
