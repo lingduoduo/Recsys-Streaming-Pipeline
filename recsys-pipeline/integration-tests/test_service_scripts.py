@@ -404,12 +404,20 @@ def test_archive_replay_script_requires_bounds_before_starting_python(tmp_path: 
     (stub_bin / "python3").chmod(stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
     env["PATH"] = os.pathsep.join([str(stub_bin), env["PATH"]])
     env["PYTHON_LOG"] = str(python_log)
-    env.update({"REPLAY_ARCHIVE_PATH": "/tmp/archive", "REPLAY_MAX_ROWS": "10"})
+    env.update(
+        {
+            "REPLAY_ARCHIVE_PATH": "/tmp/archive",
+            "REPLAY_START_DATE": "2024-06-15",
+            "REPLAY_END_DATE": "2024-06-16",
+            "REPLAY_MAX_ROWS": "10",
+            "REPLAY_RECORDS_PER_SECOND": "1",
+        }
+    )
 
     result = run_script(pipeline / "scripts" / "run-archive-replay.sh", env)
 
     assert result.returncode == 1
-    assert "REPLAY_START_DATE is required" in result.stderr
+    assert "REPLAY_ARCHIVE_QUERY_NAMESPACE is required" in result.stderr
     assert not python_log.exists()
 
 
@@ -429,6 +437,8 @@ def test_archive_replay_script_passes_exact_operator_bounds(tmp_path: Path) -> N
     env.update(
         {
             "REPLAY_ARCHIVE_PATH": "/data/archive",
+            "REPLAY_ARCHIVE_QUERY_NAMESPACE": "query-namespace-1",
+            "REPLAY_OPERATION_ID": "incident-2024-06-15",
             "REPLAY_START_DATE": "2024-06-15",
             "REPLAY_END_DATE": "2024-06-16",
             "REPLAY_MAX_ROWS": "123",
@@ -444,6 +454,8 @@ def test_archive_replay_script_passes_exact_operator_bounds(tmp_path: Path) -> N
     assert python_log.read_text(encoding="utf-8").splitlines() == [
         "services/python-modeling/archive_replay.py",
         "--archive-path", "/data/archive",
+        "--archive-query-namespace", "query-namespace-1",
+        "--operation-id", "incident-2024-06-15",
         "--start-date", "2024-06-15",
         "--end-date", "2024-06-16",
         "--max-rows", "123",

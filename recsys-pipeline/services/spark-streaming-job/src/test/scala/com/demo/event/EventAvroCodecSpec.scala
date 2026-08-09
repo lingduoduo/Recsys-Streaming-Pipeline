@@ -12,6 +12,12 @@ import org.scalatest.matchers.should.Matchers
 
 class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
 
+  private def readResource(path: String): Array[Byte] = {
+    val stream = getClass.getResourceAsStream(path)
+    try stream.readAllBytes()
+    finally stream.close()
+  }
+
   private val requiredStringFields = Seq(
     "event_id" -> "e-cross-language",
     "user_id" -> "u-cross-language",
@@ -23,7 +29,7 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
   "EventAvroCodec" should "decode the Python single-object fixture" in {
     val bytes = Files.readAllBytes(Paths.get(getClass.getResource("/avro/python-recsys-event-v1.bin").toURI))
     val schema = new Schema.Parser().parse(
-      new String(getClass.getResourceAsStream("/schemas/recsys-event-v1.avsc").readAllBytes(), StandardCharsets.UTF_8)
+      new String(readResource("/schemas/recsys-event-v1.avsc"), StandardCharsets.UTF_8)
     )
 
     bytes.take(10).toSeq shouldBe Seq(
@@ -41,7 +47,7 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
 
   it should "keep its checked-in schema semantically identical to the canonical schema" in {
     val resourceSchema = new Schema.Parser().parse(
-      new String(getClass.getResourceAsStream("/schemas/recsys-event-v1.avsc").readAllBytes(), StandardCharsets.UTF_8)
+      new String(readResource("/schemas/recsys-event-v1.avsc"), StandardCharsets.UTF_8)
     )
     val canonicalSchemaPath = Seq(
       Paths.get("recsys-pipeline/schemas/recsys-event-v1.avsc"),

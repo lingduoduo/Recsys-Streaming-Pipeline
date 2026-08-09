@@ -20,11 +20,23 @@ import scala.util.control.NonFatal
   * concurrently active queries. Commits require a filesystem with atomic, non-overwriting
   * directory rename semantics (for example local/HDFS through Hadoop FileContext).
   */
-class RawArchiveSink(validRoot: String, deadLetterRoot: String, queryIdentity: String) {
+class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentity: String) {
 
   require(Option(queryIdentity).exists(_.trim.nonEmpty), "queryIdentity must not be blank")
 
   private val queryNamespace = RawArchiveSink.queryNamespace(queryIdentity)
+
+  def stableQueryNamespace: String = queryNamespace
+
+  def sinkContext(sinkIdentity: String, batchId: Long): SinkWriteContext = {
+    require(Option(sinkIdentity).exists(_.trim.nonEmpty), "sinkIdentity must not be blank")
+    SinkWriteContext(
+      queryIdentity,
+      queryNamespace,
+      sinkIdentity,
+      RawArchiveSink.queryNamespace(sinkIdentity),
+      batchId)
+  }
 
   def writeValid(df: DataFrame, batchId: Long): Unit = {
     val utcDate = udf((timestampMs: java.lang.Long) => RawArchiveSink.toUtcDate(timestampMs))
@@ -73,8 +85,9 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, queryIdentity: S
     } else {
       val cutoff = RawArchiveSink.watermarkCutoff(latest.getLong(0), watermarkDelay)
       val activePrevious = previousState.filter(col("timestamp_ms") >= lit(cutoff))
-      val eligibleCurrent = df.filter(col("timestamp_ms") >= lit(cutoff))
-      val unseen = eligibleCurrent.join(activePrevious.select("event_id"), Seq("event_id"), "left_anti")
+      // The watermark bounds retained *prior* state. It must not discard a unique row merely
+      // because another row in this static micro-batch has a much newer event timestamp.
+      val unseen = df.join(activePrevious.select("event_id"), Seq("event_id"), "left_anti")
       val nextState = activePrevious
         .unionByName(currentState.filter(col("timestamp_ms") >= lit(cutoff)))
         .groupBy("event_id")
@@ -103,10 +116,70 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, queryIdentity: S
     }
   }
 
+  /** Return true only for a validated per-sink completion marker. */
+  def isBusinessSinkComplete(df: DataFrame, sinkIdentity: String, batchId: Long): Boolean = {
+    val context = sinkContext(sinkIdentity, batchId)
+    val path = businessSinkPath(context)
+    val fileSystem = path.getFileSystem(df.sparkSession.sparkContext.hadoopConfiguration)
+    if (!fileSystem.exists(path)) false
+    else {
+      validateCommitted(fileSystem, path, businessSinkManifest(context))
+      true
+    }
+  }
+
+  /** Atomically commit one stable query/sink/batch completion marker. */
+  def completeBusinessSink(df: DataFrame, sinkIdentity: String, batchId: Long): Unit = {
+    val context = sinkContext(sinkIdentity, batchId)
+    val finalPath = businessSinkPath(context)
+    val configuration = df.sparkSession.sparkContext.hadoopConfiguration
+    val fileSystem = finalPath.getFileSystem(configuration)
+    val expectedManifest = businessSinkManifest(context)
+    if (fileSystem.exists(finalPath)) {
+      validateCommitted(fileSystem, finalPath, expectedManifest)
+      return
+    }
+
+    val attemptsRoot = new Path(finalPath.getParent, "_attempts")
+    val attemptPath = new Path(attemptsRoot, UUID.randomUUID().toString)
+    try {
+      fileSystem.mkdirs(attemptPath)
+      val success = fileSystem.create(new Path(attemptPath, "_SUCCESS"), false)
+      success.close()
+      writeManifest(fileSystem, attemptPath, expectedManifest)
+      fileSystem.mkdirs(finalPath.getParent)
+      val contextFs = FileContext.getFileContext(fileSystem.getUri, configuration)
+      try {
+        contextFs.rename(
+          fileSystem.makeQualified(attemptPath),
+          fileSystem.makeQualified(finalPath),
+          Options.Rename.NONE)
+      } catch {
+        case _: FileAlreadyExistsException => fileSystem.delete(attemptPath, true)
+      }
+      if (!fileSystem.exists(finalPath))
+        throw new IllegalStateException(s"failed to commit business sink ${context.sinkIdentity}")
+      validateCommitted(fileSystem, finalPath, expectedManifest)
+    } catch {
+      case NonFatal(error) =>
+        if (fileSystem.exists(attemptPath)) fileSystem.delete(attemptPath, true)
+        throw error
+    }
+  }
+
   private def queryRoot(root: String): Path =
     new Path(new Path(root), s"_queries/$queryNamespace")
 
   private def dedupeRoot: Path = new Path(queryRoot(validRoot), "_dedupe")
+
+  private def businessSinkPath(context: SinkWriteContext): Path =
+    new Path(
+      new Path(queryRoot(validRoot), s"_business_sinks/${context.sinkNamespace}/_batches"),
+      context.batchId.toString)
+
+  private def businessSinkManifest(context: SinkWriteContext): String =
+    s"version=1\nquery=$queryNamespace\nkind=business-sink\n" +
+      s"sink=${context.sinkNamespace}\nbatch_id=${context.batchId}\n"
 
   private def readPreviousDedupeState(df: DataFrame, batchId: Long): DataFrame = {
     val empty = df.select(

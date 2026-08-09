@@ -53,6 +53,7 @@ object ExecutionEngine {
       maxRetries: Int,
       watermarkDelay: String = "10 minutes"
   ): Unit = {
+    val durableSinks = requireDurableSinks(sinks)
     val decoded = decode(batch)
     val valid = decoded.valid.persist(StorageLevel.MEMORY_AND_DISK_SER)
     val deadLetters = decoded.deadLetters.persist(StorageLevel.MEMORY_AND_DISK_SER)
@@ -61,12 +62,54 @@ object ExecutionEngine {
       withRetry(maxRetries)(archive.writeDeadLetters(deadLetters, batchId))
       val unseenValid = archive.deduplicateValid(valid, batchId, watermarkDelay)
       val stagedValid = streamingStages.foldLeft(unseenValid)((df, stage) => stage(df))
-      processBatch(stagedValid, batchId, batchStages, sinks, maxRetries)
+      processDurableBatch(stagedValid, batchId, batchStages, durableSinks, archive, maxRetries)
       archive.completeBusinessBatch(valid, batchId)
     } finally {
       valid.unpersist()
       deadLetters.unpersist()
     }
+  }
+
+  private def requireDurableSinks(sinks: Seq[Sink]): Seq[DurableSink] = {
+    val durable = sinks.map {
+      case sink: DurableSink if Option(sink.sinkIdentity).exists(_.trim.nonEmpty) => sink
+      case sink: DurableSink =>
+        throw new IllegalArgumentException(
+          s"Avro business sink ${sink.getClass.getName} has a blank stable identity")
+      case sink =>
+        throw new IllegalArgumentException(
+          s"Avro business sink ${sink.getClass.getName} has no durable retry contract")
+    }
+    val duplicates = durable.groupBy(_.sinkIdentity).collect {
+      case (identity, values) if values.size > 1 => identity
+    }.toSeq.sorted
+    if (duplicates.nonEmpty)
+      throw new IllegalArgumentException(
+        s"Avro business sink identities must be unique: ${duplicates.mkString(", ")}")
+    durable
+  }
+
+  private def processDurableBatch(
+      batch: DataFrame,
+      batchId: Long,
+      batchStages: Seq[BatchStage],
+      sinks: Seq[DurableSink],
+      archive: RawArchiveSink,
+      maxRetries: Int
+  ): Unit = {
+    val records = batchStages.foldLeft(batch)((df, stage) => stage(df, batchId))
+      .persist(StorageLevel.MEMORY_AND_DISK_SER)
+    try {
+      sinks.foreach { sink =>
+        val context = archive.sinkContext(sink.sinkIdentity, batchId)
+        withRetry(maxRetries) {
+          if (!archive.isBusinessSinkComplete(records, sink.sinkIdentity, batchId)) {
+            sink.writeDurably(records, context)
+            archive.completeBusinessSink(records, sink.sinkIdentity, batchId)
+          }
+        }
+      }
+    } finally records.unpersist()
   }
 
   /** Wire source -> streaming stages -> foreachBatch(processBatch) -> start/await. */

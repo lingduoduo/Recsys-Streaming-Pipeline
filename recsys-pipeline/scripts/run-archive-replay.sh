@@ -14,6 +14,8 @@ require_env() {
 }
 
 require_env REPLAY_ARCHIVE_PATH
+require_env REPLAY_ARCHIVE_QUERY_NAMESPACE
+require_env REPLAY_OPERATION_ID
 require_env REPLAY_START_DATE
 require_env REPLAY_END_DATE
 require_env REPLAY_MAX_ROWS
@@ -22,6 +24,8 @@ require_env REPLAY_RECORDS_PER_SECOND
 args=(
   services/python-modeling/archive_replay.py
   --archive-path "${REPLAY_ARCHIVE_PATH}"
+  --archive-query-namespace "${REPLAY_ARCHIVE_QUERY_NAMESPACE}"
+  --operation-id "${REPLAY_OPERATION_ID}"
   --start-date "${REPLAY_START_DATE}"
   --end-date "${REPLAY_END_DATE}"
   --max-rows "${REPLAY_MAX_ROWS}"

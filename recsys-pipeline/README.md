@@ -96,16 +96,35 @@ Replay is always bounded and only publishes to `recsys_events.backfill`:
 
 ```bash
 REPLAY_ARCHIVE_PATH=/data/recsys-events \
+REPLAY_ARCHIVE_QUERY_NAMESPACE=<checkpoint-hash> \
+REPLAY_OPERATION_ID=incident-2026-08-01 \
 REPLAY_START_DATE=2026-08-01 REPLAY_END_DATE=2026-08-02 \
 REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
   ./scripts/run-archive-replay.sh
 ```
 
-Each replay writes an atomic JSON audit manifest to
-`$REPLAY_MANIFEST_DIR` when set, otherwise to
-`$REPLAY_ARCHIVE_PATH/_replay_manifests/`. See
+Replay reads only numeric batches below the selected query namespace whose `_SUCCESS` and exact
+`_COMMITTED` identity manifest both validate; attempt, dedupe, incomplete, and other-query data is
+not eligible. `REPLAY_OPERATION_ID` is a stable operator-owned identity. Its atomic JSON manifest
+is `$REPLAY_MANIFEST_DIR/<operation-id>.json` when configured, otherwise
+`$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. A completed operation is a no-op on
+rerun; an interrupted operation resumes after its last durably recorded broker acknowledgement.
+Published records retain `event_id` and carry a stable `operation_id:event_id` Kafka key plus
+operation/event headers.
+
+Replay is at-least-once, not exactly-once. A process can stop after Kafka acknowledges a record but
+before its cursor is persisted, so the cursor narrows but cannot eliminate duplicates. Backfill
+consumers must deduplicate `event_id` (or the stable operation/event identity). See
 [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#avro-kafka-ingestion-archive-and-replay)
 for schema, retention, dead-letter, and replay constraints.
+
+On the migrated Avro engine path, every business sink has a stable identity and a durable
+`(query, sink, batchId)` completion marker. A completed first sink is skipped when a later sink
+causes the micro-batch to retry. Parquet uses deterministic batch directories, and Redis popularity
+and sequence effects use atomic Lua ledgers. Kafka enables producer idempotence and publishes a
+stable record key and query/sink/batch headers; a failure across producer sessions can still repeat
+an acknowledged record, so derived-topic consumers must deduplicate the stable key. The engine
+rejects sinks without this retry contract and does not claim cross-system exactly-once delivery.
 
 `./scripts/run-data-pipeline.sh` is deliberately the small operable vertical slice: it starts the
 clickstream producer and `UserEventStreamingJob`, which reads `recsys_events`, archives its Avro

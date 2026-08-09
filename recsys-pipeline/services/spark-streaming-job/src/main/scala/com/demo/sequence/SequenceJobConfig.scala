@@ -1,5 +1,6 @@
 package com.demo.sequence
 
+import com.demo.engine.{DurableSink, SinkWriteContext}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.storage.StorageLevel
 
@@ -58,5 +59,39 @@ object SequenceSinks {
     } finally {
       chunks.unpersist()
     }
+  }
+}
+
+/** Composite durable sink used by the Avro user-event job. Redis effects have an atomic
+  * per-key ledger and the optional Parquet mirror uses a deterministic batch commit. This lets
+  * the whole composite safely retry when either inner write fails after the other succeeded.
+  */
+class SequenceBusinessSink(
+    cfg: SequenceJobConfig,
+    redisHost: String,
+    redisPort: Int,
+    poolMax: Int,
+    pipelineSize: Int,
+    mode: SequenceWriteMode,
+    toChunks: DataFrame => DataFrame,
+    override val sinkIdentity: String
+) extends DurableSink {
+  require(Option(sinkIdentity).exists(_.trim.nonEmpty), "sequence sink identity must not be blank")
+
+  override def write(batch: DataFrame, batchId: Long): Unit =
+    SequenceSinks.write(
+      toChunks(batch), cfg, redisHost, redisPort, poolMax, pipelineSize, mode, batchId)
+
+  override def writeDurably(batch: DataFrame, context: SinkWriteContext): Unit = {
+    val chunks = toChunks(batch).persist(StorageLevel.MEMORY_AND_DISK_SER)
+    try {
+      new SequenceRedisSink(
+        redisHost, redisPort, poolMax, pipelineSize,
+        cfg.ttlSeconds, cfg.maxRowsPerBucket, mode
+      ).writeDurably(chunks, context)
+      cfg.parquetPath.foreach { path =>
+        new SequenceParquetSink(path, mode).writeDurably(chunks, context)
+      }
+    } finally chunks.unpersist()
   }
 }

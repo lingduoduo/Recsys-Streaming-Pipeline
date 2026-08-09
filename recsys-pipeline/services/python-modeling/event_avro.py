@@ -67,7 +67,11 @@ def decode_event(payload: bytes, catalog: Mapping[int, dict] | None = None) -> d
     schemas = catalog if catalog is not None else {schema_fingerprint(load_schema()): load_schema()}
     if fingerprint not in schemas:
         raise SchemaFingerprintError(f"unknown schema fingerprint {fingerprint}")
+    encoded_record = io.BytesIO(payload[10:])
     try:
-        return fastavro.schemaless_reader(io.BytesIO(payload[10:]), schemas[fingerprint])
+        decoded = fastavro.schemaless_reader(encoded_record, schemas[fingerprint])
     except (TypeError, ValueError, EOFError) as exc:
         raise EventValidationError(str(exc)) from exc
+    if encoded_record.read(1):
+        raise EventValidationError("trailing bytes after Avro record")
+    return decoded

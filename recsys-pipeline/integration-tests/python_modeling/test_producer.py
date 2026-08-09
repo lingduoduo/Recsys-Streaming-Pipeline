@@ -3,7 +3,11 @@ import os
 import sys
 import time
 import types
+from collections.abc import Mapping
 from pathlib import Path
+from typing import get_type_hints
+
+import pytest
 
 
 PRODUCER_PATH = Path(__file__).resolve().parents[2] / "services/python-modeling/producer.py"
@@ -13,8 +17,9 @@ sys.path.insert(0, str(PYTHON_MODELING))
 import event_avro
 
 
-def load_producer_module():
-    """Import producer.py without creating a KafkaProducer connection."""
+@pytest.fixture(autouse=True)
+def isolated_kafka_modules(monkeypatch: pytest.MonkeyPatch):
+    """Install Kafka stubs for one test and restore the prior modules afterwards."""
     kafka_stub = types.ModuleType("kafka")
     kafka_errors_stub = types.ModuleType("kafka.errors")
 
@@ -24,8 +29,12 @@ def load_producer_module():
 
     kafka_stub.KafkaProducer = KafkaProducerStub
     kafka_errors_stub.NoBrokersAvailable = RuntimeError
-    sys.modules["kafka"] = kafka_stub
-    sys.modules["kafka.errors"] = kafka_errors_stub
+    monkeypatch.setitem(sys.modules, "kafka", kafka_stub)
+    monkeypatch.setitem(sys.modules, "kafka.errors", kafka_errors_stub)
+
+
+def load_producer_module():
+    """Import producer.py without creating a KafkaProducer connection."""
 
     spec = importlib.util.spec_from_file_location(
         "producer",
@@ -55,6 +64,14 @@ def test_make_producer_installs_shared_avro_value_serializer():
 
     assert producer.kwargs["value_serializer"] is mod.serialize_event
     assert event_avro.decode_event(producer.kwargs["value_serializer"](event))["event_id"] == event["event_id"]
+
+
+def test_serialize_event_declares_the_kafka_boundary_types():
+    mod = load_producer_module()
+
+    hints = get_type_hints(mod.serialize_event)
+
+    assert hints == {"event": Mapping[str, object], "return": bytes}
 
 
 def make_event(users, items):

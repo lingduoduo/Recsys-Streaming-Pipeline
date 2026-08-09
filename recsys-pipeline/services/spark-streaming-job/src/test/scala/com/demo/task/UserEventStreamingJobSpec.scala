@@ -1,12 +1,25 @@
 package com.demo.task
 
 import com.demo.SparkTestSupport
+import com.demo.engine.DurableSink
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
+
+  "UserEventStreamingJob.businessSinks" should "configure only durable sinks for the Avro engine" in {
+    val sinks = UserEventStreamingJob.businessSinks(
+      redisHost = "localhost",
+      redisPort = 6379,
+      redisPoolMaxTotal = 1,
+      sequenceConfig = com.demo.sequence.SequenceJobConfig(90, 500, None))
+
+    sinks should have length 2
+    all(sinks) shouldBe a[DurableSink]
+    sinks.map(_.asInstanceOf[DurableSink].sinkIdentity).distinct should have length 2
+  }
 
   "UserEventStreamingJob.parseEvents" should "normalize decoded canonical columns and ignore Kafka lineage" in {
     val s = spark; import s.implicits._

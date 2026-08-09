@@ -148,24 +148,50 @@ the `_COMMITTED` manifest with the expected query, kind, and batch identity.
 
 Replay is an explicit half-open UTC date range (`start <= date < end`), enforces its row limit
 before creating a producer, rate-limits sends, and strips archive/Kafka lineage before encoding the
-canonical event again. It can only target `recsys_events.backfill`:
+canonical event again. It can only target `recsys_events.backfill`. The query namespace and durable
+operation identity are required rather than inferred:
 
 ```bash
 REPLAY_ARCHIVE_PATH=/data/recsys-events \
+REPLAY_ARCHIVE_QUERY_NAMESPACE=<checkpoint-hash> \
+REPLAY_OPERATION_ID=incident-2026-08-01 \
 REPLAY_START_DATE=2026-08-01 REPLAY_END_DATE=2026-08-02 \
 REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
   ./scripts/run-archive-replay.sh
 ```
 
-Set `REPLAY_MANIFEST_DIR` to choose the replay audit-manifest directory; otherwise manifests are
-atomically written under `$REPLAY_ARCHIVE_PATH/_replay_manifests/`. A manifest records the run ID,
-status, selection bounds and count, schema fingerprints, target topic, timestamps, and any error.
-Set `REPLAY_OVERRIDE_LIMIT=1` only after reviewing that selection. Consumers stay on the live topic
+Only numeric `_queries/<selected-query>/_batches/<batch>` directories with `_SUCCESS` and an exact
+version/query/kind/batch `_COMMITTED` manifest are read. Orphan attempts, dedupe snapshots,
+incomplete batches, and batches owned by another query are excluded; a missing or ambiguous query
+identity is rejected.
+
+Set `REPLAY_MANIFEST_DIR` to choose the operation directory; otherwise the deterministic manifest
+is written to `$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. It records the stable
+operation ID, status, immutable selection contract, ordered source signature, acknowledged cursor,
+schema fingerprints, timestamps, and any error. Reusing a completed operation ID is a no-op;
+reusing an interrupted one resumes after the last persisted acknowledgement. Each record retains
+`event_id`, uses `operation_id:event_id` as its Kafka key, and carries `replay_operation_id` and
+`replay_event_id` headers.
+
+This is at-least-once replay, not exactly-once. The cursor is persisted after every broker
+acknowledgement, but a crash between that acknowledgement and cursor persistence can publish one
+record again. Backfill consumers must deduplicate `event_id` or the stable operation/event identity.
+Set `REPLAY_OVERRIDE_LIMIT=1` only after reviewing the selection. Consumers stay on the live topic
 unless explicitly configured for the backfill stream, for example:
 
 ```bash
 KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
 ```
+
+The migrated Avro engine also scopes business completion to the stable
+`(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
+identity before archival or business effects. A successful sink is not invoked again when a later
+sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic batch
+directories. Redis popularity increments and sequence hash updates atomically pair each effect with
+a non-expiring batch ledger entry using Lua. Kafka output enables producer idempotence and carries a
+stable key plus query/sink/batch headers; because a later producer session may repeat a record after
+a partial batch failure, derived-topic consumers still must deduplicate that stable key. These are
+retry-safe per-sink contracts, not a cross-system exactly-once transaction.
 
 ## Derived ML Datasets
 
@@ -400,7 +426,8 @@ Consumes click events from Kafka and writes global item popularity to Redis. Con
 For each micro-batch, it:
 
 1. Filters to click events, then aggregates per-item click counts in a single pass.
-2. Writes one `ZINCRBY` per unique item to `global:item_popularity`.
+2. Atomically pairs one `ZINCRBY` per unique item with a stable query/sink/batch Lua-ledger entry,
+   so a partial micro-batch retry cannot increment an acknowledged item twice.
 
 Redis keys written:
 

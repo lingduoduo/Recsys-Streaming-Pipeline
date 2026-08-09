@@ -1,12 +1,14 @@
 package com.demo.engine
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.functions.{col, to_date}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
+  private val durableContext = SinkWriteContext(
+    "checkpoint://sink-spec", "query-ns", "sink-spec", "sink-ns", 7L)
   private var spark: SparkSession = _
   override def beforeAll(): Unit =
     spark = SparkSession.builder().master("local[1]").appName("SinkSpec")
@@ -23,6 +25,24 @@ class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
     val json = row.getAs[String]("value")
     json should include ("\"id\":\"k1\"")
     json should include ("\"other\":\"v1\"")
+  }
+
+  it should "carry the stable query sink and batch identity on durable writes" in {
+    val s = spark; import s.implicits._
+    val df = Seq(("k1", "v1")).toDF("id", "other")
+
+    val row = new KafkaSink("localhost:9092", "t", "id")
+      .durablePayload(df, durableContext).first()
+    val headers = row.getAs[Seq[Row]]("headers")
+      .map(header => header.getAs[String]("key") ->
+        new String(header.getAs[Array[Byte]]("value"), "UTF-8"))
+      .toMap
+
+    row.getAs[String]("key") shouldBe "k1"
+    headers shouldBe Map(
+      "recsys_query_namespace" -> "query-ns",
+      "recsys_sink_namespace" -> "sink-ns",
+      "recsys_batch_id" -> "7")
   }
 
   "ParquetSink" should "write at most outputFiles parquet files per partition" in {
@@ -43,5 +63,25 @@ class SinkSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
 
     val partDir = new java.io.File(out, "date=2026-06-26")
     partDir.listFiles().count(_.getName.endsWith(".parquet")) shouldBe 1
+  }
+
+  it should "commit one deterministic durable directory per query sink and batch" in {
+    import java.nio.file.{Files, Paths}
+    val s = spark; import s.implicits._
+    val root = Files.createTempDirectory("durable-parquet-sink")
+    val batch = Seq(
+      ("s1", java.sql.Timestamp.valueOf("2026-06-26 00:00:00")),
+      ("s2", java.sql.Timestamp.valueOf("2026-06-26 00:00:00"))
+    ).toDF("sample_id", "impression_time")
+    val sink = new ParquetSink(root.toString, "date", outputFiles = 1,
+      transform = df => df.withColumn("date", to_date(col("impression_time"))))
+
+    sink.writeDurably(batch, durableContext)
+    sink.writeDurably(batch, durableContext)
+
+    val committed = Paths.get(sink.committedBatchPath(durableContext))
+    Files.exists(committed.resolve("_SUCCESS")) shouldBe true
+    Files.exists(committed.resolve("_COMMITTED")) shouldBe true
+    spark.read.parquet(committed.toString).count() shouldBe 2L
   }
 }

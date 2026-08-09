@@ -74,3 +74,19 @@ def test_empty_catalog_rejects_default_fingerprint():
 
     with pytest.raises(event_avro.SchemaFingerprintError, match="unknown schema fingerprint"):
         event_avro.decode_event(payload, catalog={})
+
+
+def test_decode_rejects_trailing_bytes_after_a_valid_record():
+    """Fails if Python accepts bytes that the Scala boundary classifies as corrupt."""
+    payload = event_avro.encode_event(
+        {
+            "event_id": "e-trailing",
+            "user_id": "u-1",
+            "item_id": "i-1",
+            "event_type": "click",
+            "timestamp_ms": 1718400000000,
+        }
+    )
+
+    with pytest.raises(event_avro.EventValidationError, match="trailing"):
+        event_avro.decode_event(payload + b"\x00")

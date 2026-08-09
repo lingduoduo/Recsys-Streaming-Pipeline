@@ -248,11 +248,17 @@ def run_bounded_ingestion(tmp_path: Path, event_id: str) -> tuple[dict[str, Any]
 
 
 def run_archive_replay(archive_root: Path, manifest_root: Path) -> dict[str, Any]:
+    query_namespaces = [
+        path.name for path in (archive_root / "_queries").iterdir() if path.is_dir()
+    ]
+    assert len(query_namespaces) == 1, "integration archive must have one explicit query owner"
     environment = os.environ.copy()
     environment.update(
         {
             "KAFKA_BOOTSTRAP_SERVERS": BOOTSTRAP_SERVERS,
             "REPLAY_ARCHIVE_PATH": str(archive_root),
+            "REPLAY_ARCHIVE_QUERY_NAMESPACE": query_namespaces[0],
+            "REPLAY_OPERATION_ID": "avro-round-trip",
             "REPLAY_START_DATE": FIXED_EVENT_DATE.isoformat(),
             "REPLAY_END_DATE": date(2026, 1, 2).isoformat(),
             "REPLAY_MAX_ROWS": "10000",

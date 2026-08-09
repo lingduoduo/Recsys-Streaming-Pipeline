@@ -60,6 +60,18 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     DecodedEventFrames(valid, deadLetters)
   }
 
+  private def durableSink(identity: String)(
+      writer: (org.apache.spark.sql.DataFrame, SinkWriteContext) => Unit
+  ): DurableSink = new DurableSink {
+    override val sinkIdentity: String = identity
+    override def writeDurably(
+        batch: org.apache.spark.sql.DataFrame,
+        context: SinkWriteContext
+    ): Unit = writer(batch, context)
+    override def write(batch: org.apache.spark.sql.DataFrame, batchId: Long): Unit =
+      throw new AssertionError("legacy write must not be used")
+  }
+
   "RawArchiveSink.writeValid" should "archive lineage by UTC event date exactly once per batch" in {
     val s = spark
     import s.implicits._
@@ -169,12 +181,14 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     import s.implicits._
     val calls = scala.collection.mutable.ArrayBuffer[String]()
     val frames = DecodedEventFrames(Seq("e1").toDF("event_id"), Seq("bad").toDF("error_code"))
-    val archive = new RawArchiveSink("unused-valid", "unused-dead", QueryIdentity) {
+    val root = Files.createTempDirectory("engine-ordering")
+    val archive = new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity) {
       override def writeValid(df: org.apache.spark.sql.DataFrame, batchId: Long): Unit = calls += "valid-archive"
       override def writeDeadLetters(df: org.apache.spark.sql.DataFrame, batchId: Long): Unit = calls += "dead-archive"
     }
     val stage: Stage = df => { calls += "stage"; df }
-    val sink: Sink = (_, _) => calls += "business-sink"
+    val sink = durableSink("ordering")((_, _) => calls += "business-sink")
 
     ExecutionEngine.processDecodedBatch(
       Seq(Array[Byte](1)).toDF("value"), 3L,
@@ -194,13 +208,15 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     Seq("valid", "dead").foreach { failingWrite =>
       var businessCalls = 0
       val frames = DecodedEventFrames(Seq("e1").toDF("event_id"), Seq("bad").toDF("error_code"))
-      val archive = new RawArchiveSink("unused-valid", "unused-dead", QueryIdentity) {
+      val root = Files.createTempDirectory(s"engine-archive-failure-$failingWrite")
+      val archive = new RawArchiveSink(
+        root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity) {
         override def writeValid(df: org.apache.spark.sql.DataFrame, batchId: Long): Unit =
           if (failingWrite == "valid") throw new RuntimeException("valid archive failed")
         override def writeDeadLetters(df: org.apache.spark.sql.DataFrame, batchId: Long): Unit =
           if (failingWrite == "dead") throw new RuntimeException("dead archive failed")
       }
-      val sink: Sink = (_, _) => businessCalls += 1
+      val sink = durableSink(s"archive-failure-$failingWrite")((_, _) => businessCalls += 1)
 
       an[RuntimeException] should be thrownBy ExecutionEngine.processDecodedBatch(
         Seq(Array[Byte](1)).toDF("value"), 4L, _ => frames, archive,
@@ -221,8 +237,9 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
       root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
     val frames = decodedFrames("e1", 1718409600000L, 10L)
     val received = scala.collection.mutable.ArrayBuffer[String]()
-    val sink: Sink = (batch, _) =>
+    val sink = durableSink("cross-batch")((batch, _) =>
       batch.select("event_id").as[String].collect().foreach(received += _)
+    )
 
     Seq(0L, 1L).foreach { batchId =>
       ExecutionEngine.processDecodedBatch(
@@ -242,8 +259,9 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
       root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
     val frames = decodedFrames("e1", 1718409600000L, 10L)
     val received = scala.collection.mutable.ArrayBuffer[String]()
-    val sink: Sink = (batch, _) =>
+    val sink = durableSink("checkpoint-retry")((batch, _) =>
       batch.select("event_id").as[String].collect().foreach(received += _)
+    )
 
     Seq(0L, 1L, 1L).foreach { batchId =>
       ExecutionEngine.processDecodedBatch(
@@ -266,8 +284,9 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     val archiveB = new RawArchiveSink(
       root.resolve("valid").toString, root.resolve("dead").toString, queryB)
     val received = scala.collection.mutable.ArrayBuffer[String]()
-    val sink: Sink = (batch, _) =>
+    val sink = durableSink("query-separation")((batch, _) =>
       batch.select("event_id").as[String].collect().foreach(received += _)
+    )
 
     Seq((archiveA, 0L), (archiveB, 0L)).foreach { case (archive, batchId) =>
       ExecutionEngine.processDecodedBatch(
@@ -287,8 +306,9 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     val archive = new RawArchiveSink(
       root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
     val received = scala.collection.mutable.ArrayBuffer[String]()
-    val sink: Sink = (batch, _) =>
+    val sink = durableSink("watermark-state")((batch, _) =>
       batch.select("event_id").as[String].collect().foreach(received += _)
+    )
     val inputs = Seq(
       decodedFrames("e1", 1718409600000L, 10L),
       decodedFrames("future", 1718410260000L, 11L),
@@ -310,5 +330,143 @@ class RawArchiveSinkSpec extends AnyFlatSpec with Matchers with SparkTestSupport
         .filter(_.forall(_.isDigit))
         .toSet shouldBe Set("1", "2")
     } finally stateDirectories.close()
+  }
+
+  it should "retain unique current-batch events on both sides of the watermark horizon" in {
+    val s = spark
+    import s.implicits._
+    val root = Files.createTempDirectory("engine-current-batch-watermark")
+    val archive = new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
+    val valid = Seq(
+      ("old", 1718409600000L, "recsys_events", 0, 10L,
+        Timestamp.valueOf("2024-06-15 00:00:01"), 1234L),
+      ("new", 1718413200000L, "recsys_events", 0, 11L,
+        Timestamp.valueOf("2024-06-15 01:00:01"), 1234L)
+    ).toDF("event_id", "timestamp_ms", "kafka_topic", "kafka_partition", "kafka_offset",
+      "kafka_timestamp", "schema_fingerprint")
+    val frames = DecodedEventFrames(valid, decodedFrames("unused", 1718409600000L, 0L).deadLetters)
+    val received = scala.collection.mutable.ArrayBuffer[String]()
+    val sink = durableSink("current-batch")((batch, _) =>
+      batch.select("event_id").as[String].collect().foreach(received += _)
+    )
+
+    ExecutionEngine.processDecodedBatch(
+      Seq(Array[Byte](1)).toDF("value"), 0L, _ => frames, archive,
+      Seq(identity[org.apache.spark.sql.DataFrame]), Seq.empty, Seq(sink), maxRetries = 0,
+      watermarkDelay = "10 minutes"
+    )
+
+    received.toSet shouldBe Set("old", "new")
+  }
+
+  it should "reject a plain sink on the migrated Avro path" in {
+    val s = spark
+    import s.implicits._
+    val root = Files.createTempDirectory("engine-unsupported-sink")
+    val archive = new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
+    var writes = 0
+    val unsupported: Sink = (_, _) => writes += 1
+
+    an[IllegalArgumentException] should be thrownBy ExecutionEngine.processDecodedBatch(
+      Seq(Array[Byte](1)).toDF("value"), 0L,
+      _ => decodedFrames("e1", 1718409600000L, 1L), archive,
+      Seq(identity[org.apache.spark.sql.DataFrame]), Seq.empty, Seq(unsupported), maxRetries = 0)
+
+    writes shouldBe 0
+  }
+
+  it should "reject duplicate stable sink identities before writing" in {
+    val s = spark
+    import s.implicits._
+    val root = Files.createTempDirectory("engine-duplicate-sink")
+    val archive = new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
+    var writes = 0
+    val first = durableSink("duplicate")((_, _) => writes += 1)
+    val second = durableSink("duplicate")((_, _) => writes += 1)
+
+    an[IllegalArgumentException] should be thrownBy ExecutionEngine.processDecodedBatch(
+      Seq(Array[Byte](1)).toDF("value"), 0L,
+      _ => decodedFrames("e1", 1718409600000L, 1L), archive,
+      Seq(identity[org.apache.spark.sql.DataFrame]), Seq.empty, Seq(first, second), maxRetries = 0)
+
+    writes shouldBe 0
+  }
+
+  it should "skip a completed first sink when a later sink fails and the batch retries" in {
+    val s = spark
+    import s.implicits._
+    val root = Files.createTempDirectory("engine-multi-sink-retry")
+    val archive = new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
+    var firstWrites = 0
+    var secondWrites = 0
+    val first = new DurableSink {
+      override val sinkIdentity: String = "first"
+      override def writeDurably(batch: org.apache.spark.sql.DataFrame, context: SinkWriteContext): Unit =
+        firstWrites += 1
+      override def write(batch: org.apache.spark.sql.DataFrame, batchId: Long): Unit =
+        throw new AssertionError("legacy write must not be used")
+    }
+    val second = new DurableSink {
+      override val sinkIdentity: String = "second"
+      override def writeDurably(batch: org.apache.spark.sql.DataFrame, context: SinkWriteContext): Unit = {
+        secondWrites += 1
+        if (secondWrites == 1) throw new RuntimeException("second failed")
+      }
+      override def write(batch: org.apache.spark.sql.DataFrame, batchId: Long): Unit =
+        throw new AssertionError("legacy write must not be used")
+    }
+    def process(): Unit = ExecutionEngine.processDecodedBatch(
+      Seq(Array[Byte](1)).toDF("value"), 4L,
+      _ => decodedFrames("e1", 1718409600000L, 1L), archive,
+      Seq(identity[org.apache.spark.sql.DataFrame]), Seq.empty, Seq(first, second), maxRetries = 0)
+
+    an[RuntimeException] should be thrownBy process()
+    process()
+
+    firstWrites shouldBe 1
+    secondWrites shouldBe 2
+  }
+
+  it should "pass one stable sink context to a partial-write retry" in {
+    val s = spark
+    import s.implicits._
+    val root = Files.createTempDirectory("engine-partial-sink-retry")
+    val archive = new RawArchiveSink(
+      root.resolve("valid").toString, root.resolve("dead").toString, QueryIdentity)
+    val contexts = scala.collection.mutable.ArrayBuffer[SinkWriteContext]()
+    val applied = scala.collection.mutable.ArrayBuffer[String]()
+    val completedEffects = scala.collection.mutable.Set[String]()
+    var invocations = 0
+    val partial = new DurableSink {
+      override val sinkIdentity: String = "partial"
+      override def writeDurably(batch: org.apache.spark.sql.DataFrame, context: SinkWriteContext): Unit = {
+        contexts += context
+        invocations += 1
+        val eventIds = batch.select("event_id").as[String].collect().sorted
+        eventIds.foreach { eventId =>
+          if (invocations == 1 && eventId == "e2") throw new RuntimeException("mid-write")
+          if (completedEffects.add(eventId)) applied += eventId
+        }
+      }
+      override def write(batch: org.apache.spark.sql.DataFrame, batchId: Long): Unit =
+        throw new AssertionError("legacy write must not be used")
+    }
+    val base = decodedFrames("e1", 1718409600000L, 1L)
+    val valid = base.valid.unionByName(decodedFrames("e2", 1718409601000L, 2L).valid)
+
+    ExecutionEngine.processDecodedBatch(
+      Seq(Array[Byte](1)).toDF("value"), 5L,
+      _ => DecodedEventFrames(valid, base.deadLetters), archive,
+      Seq(identity[org.apache.spark.sql.DataFrame]), Seq.empty, Seq(partial), maxRetries = 1)
+
+    applied shouldBe Seq("e1", "e2")
+    contexts should have size 2
+    contexts.distinct should have size 1
+    contexts.head.batchId shouldBe 5L
+    contexts.head.queryIdentity shouldBe QueryIdentity
   }
 }

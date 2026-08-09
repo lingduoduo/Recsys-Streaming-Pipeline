@@ -119,6 +119,11 @@ Parquet is the local warehouse-table analogue. A future warehouse sink must pres
 
 The replay command:
 
+- Requires the explicit archive query namespace and reads only its validated committed numeric
+  batch directories; attempts, dedupe state, incomplete batches, and other query owners are not
+  eligible.
+- Requires a stable operator-supplied operation ID. Its deterministic manifest and acknowledged
+  cursor allow an interrupted operation to resume and make a completed rerun a no-op.
 - Requires an explicit inclusive start date and exclusive end date.
 - Reads only matching archive partitions.
 - Requires a maximum row count and fails when the selection exceeds it unless the operator explicitly overrides the guard.
@@ -126,9 +131,15 @@ The replay command:
 - Preserves `event_id`, `timestamp_ms`, and the canonical record contents.
 - Re-encodes records with their resolved writer schema.
 - Applies a configurable records-per-second limit.
-- Produces a manifest with run ID, source paths and date bounds, selected row count, schema fingerprints, publish target, start/end timestamps, and final status.
+- Produces a manifest with operation ID, ordered source signature and date bounds, selected row
+  count, acknowledged cursor, schema fingerprints, publish target, timestamps, and final status.
+- Publishes a stable `(operation_id, event_id)` key/metadata contract while retaining `event_id` in
+  the canonical value.
 
-Stable event IDs let downstream consumers deduplicate records. The separate topic prevents replay from surprising live-only consumer groups.
+Stable event IDs let downstream consumers deduplicate records. The separate topic prevents replay
+from surprising live-only consumer groups. Replay is at-least-once: a Kafka acknowledgement can
+precede cursor persistence, so a crash in that interval can repeat one record and downstream
+event-ID deduplication remains required.
 
 ## Error Handling and Availability
 

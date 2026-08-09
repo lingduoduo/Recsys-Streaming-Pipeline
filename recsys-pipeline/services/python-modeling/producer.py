@@ -2,6 +2,7 @@ import os
 import random
 import time
 import uuid
+from collections.abc import Mapping
 
 from event_avro import encode_event
 
@@ -97,7 +98,7 @@ def make_behavior_slate(users, items):
     return events
 
 
-def serialize_event(event):
+def serialize_event(event: Mapping[str, object]) -> bytes:
     return encode_event(event)
 
 

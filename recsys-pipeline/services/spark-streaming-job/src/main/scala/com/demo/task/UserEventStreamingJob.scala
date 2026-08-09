@@ -1,8 +1,8 @@
 package com.demo.task
 
-import com.demo.engine.{EngineConfig, ExecutionEngine, KafkaSource, RawArchiveSink, RedisSink, Sink, Stage}
+import com.demo.engine.{DurableSink, EngineConfig, ExecutionEngine, KafkaSource, RawArchiveSink, RedisPopularitySink, Sink, Stage}
 import com.demo.event.{DecodedEventBatch, EventParsing}
-import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
+import com.demo.sequence.{SequenceBusinessSink, SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceWriteMode}
 import com.demo.util.{Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -49,6 +49,24 @@ object UserEventStreamingJob {
       .filter(col("event_type") === "click")
   }
 
+  def businessSinks(
+      redisHost: String,
+      redisPort: Int,
+      redisPoolMaxTotal: Int,
+      sequenceConfig: SequenceJobConfig,
+      redisPipelineSize: Int = 500
+  ): Seq[DurableSink] = Seq(
+    new RedisPopularitySink(redisHost, redisPort, redisPoolMaxTotal),
+    new SequenceBusinessSink(
+      sequenceConfig,
+      redisHost,
+      redisPort,
+      redisPoolMaxTotal,
+      redisPipelineSize,
+      SequenceWriteMode.Append,
+      (batch: DataFrame) => SequenceEncoder.toColumnChunks(buildSequenceEvents(batch)),
+      "sequence:user-event"))
+
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     val kafkaTopic            = sys.env.getOrElse("KAFKA_TOPIC", "recsys_events")
@@ -82,20 +100,11 @@ object UserEventStreamingJob {
       cfg.checkpointLocation
     )
     val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedClicks(df, cfg.watermarkDelay))
-    val popularitySink: Sink = (batch: DataFrame, batchId: Long) =>
-      new RedisSink(redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
-        (p, r) => p.zincrby("global:item_popularity",
-                            r.getAs[Long]("count").toDouble, r.getAs[String]("item_id"))
-      ).write(itemClickCounts(batch), batchId)
-    val sequenceSink: Sink = (batch: DataFrame, batchId: Long) =>
-      SequenceSinks.write(
-        SequenceEncoder.toColumnChunks(buildSequenceEvents(batch)),
-        sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
-        SequenceWriteMode.Append, batchId
-      )
+    val sinks: Seq[Sink] = businessSinks(
+      redisHost, redisPort, redisPoolMaxTotal, sequenceConfig, redisPipelineSize)
 
     ExecutionEngine.run(
       spark, cfg, KafkaSource, DecodedEventBatch.decode _, archive,
-      streamingStages, Seq.empty, Seq(popularitySink, sequenceSink))
+      streamingStages, Seq.empty, sinks)
   }
 }

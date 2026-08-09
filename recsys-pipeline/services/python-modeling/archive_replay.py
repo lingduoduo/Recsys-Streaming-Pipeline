@@ -1,14 +1,15 @@
-"""Safely replay bounded canonical-event archive partitions to the backfill topic."""
+"""Safely replay committed canonical-event archive batches to the backfill topic."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
-import uuid
+import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
@@ -37,6 +38,8 @@ class ReplaySchemaFingerprintError(ReplayConfigError):
 @dataclass(frozen=True)
 class ReplayConfig:
     archive_path: Path
+    archive_query_namespace: str
+    operation_id: str
     start_date: date
     end_date: date
     max_rows: int
@@ -50,12 +53,20 @@ class ReplayConfig:
 
 @dataclass(frozen=True)
 class ReplayManifest:
-    run_id: str
+    operation_id: str
     status: str
     archive_path: str
+    archive_query_namespace: str
     start_date: str
     end_date: str
+    max_rows: int
+    override_limit: bool
+    records_per_second: float
+    bootstrap_servers: str
     selected_rows: int
+    acknowledged_cursor: int
+    source_paths: tuple[str, ...]
+    source_signature: str
     schema_fingerprints: tuple[int, ...]
     target_topic: str
     started_at: str
@@ -63,14 +74,28 @@ class ReplayManifest:
     error: str | None
     path: Path
 
+    @property
+    def run_id(self) -> str:
+        """Compatibility alias: durable operations replace random per-run IDs."""
+        return self.operation_id
+
     def as_json(self) -> dict[str, Any]:
         return {
-            "run_id": self.run_id,
+            "operation_id": self.operation_id,
+            "run_id": self.operation_id,
             "status": self.status,
             "archive_path": self.archive_path,
+            "archive_query_namespace": self.archive_query_namespace,
             "start_date": self.start_date,
             "end_date": self.end_date,
+            "max_rows": self.max_rows,
+            "override_limit": self.override_limit,
+            "records_per_second": self.records_per_second,
+            "bootstrap_servers": self.bootstrap_servers,
             "selected_rows": self.selected_rows,
+            "acknowledged_cursor": self.acknowledged_cursor,
+            "source_paths": list(self.source_paths),
+            "source_signature": self.source_signature,
             "schema_fingerprints": list(self.schema_fingerprints),
             "target_topic": self.target_topic,
             "started_at": self.started_at,
@@ -79,18 +104,41 @@ class ReplayManifest:
         }
 
 
+@dataclass(frozen=True)
+class _CommittedArchive:
+    datasets: tuple[Any, ...]
+    source_paths: tuple[Path, ...]
+
+
 CANONICAL_EVENT_FIELDS = tuple(field["name"] for field in load_schema()["fields"])
-ARCHIVE_COLUMNS = (*CANONICAL_EVENT_FIELDS, "schema_fingerprint")
+ARCHIVE_COLUMNS = (
+    *CANONICAL_EVENT_FIELDS,
+    "schema_fingerprint",
+)
 DELIVERY_TIMEOUT_SECONDS = 10.0
+_SAFE_IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _validate_identity(value: str, name: str) -> None:
+    if not isinstance(value, str) or not _SAFE_IDENTITY.fullmatch(value):
+        raise ReplayConfigError(
+            f"{name} must be a non-blank, path-safe identifier of at most 128 characters"
+        )
 
 
 def validate_config(config: ReplayConfig) -> None:
-    """Reject unsafe bounds before opening the archive or a Kafka producer."""
+    """Reject unsafe bounds and identities before opening the archive or Kafka."""
+    _validate_identity(config.archive_query_namespace, "archive_query_namespace")
+    _validate_identity(config.operation_id, "operation_id")
     if not isinstance(config.start_date, date) or not isinstance(config.end_date, date):
         raise ReplayConfigError("start_date and end_date must be ISO calendar dates")
     if config.end_date <= config.start_date:
         raise ReplayConfigError("end_date must be later than start_date")
-    if isinstance(config.max_rows, bool) or not isinstance(config.max_rows, int) or config.max_rows <= 0:
+    if (
+        isinstance(config.max_rows, bool)
+        or not isinstance(config.max_rows, int)
+        or config.max_rows <= 0
+    ):
         raise ReplayConfigError("max_rows must be a positive integer")
     if (
         isinstance(config.records_per_second, bool)
@@ -103,64 +151,145 @@ def validate_config(config: ReplayConfig) -> None:
         raise ReplayConfigError("bootstrap_servers must not be blank")
 
 
-def _open_archive(config: ReplayConfig):
-    return ds.dataset(
-        str(config.archive_path),
-        format="parquet",
-        partitioning="hive",
-        # Task 4 deliberately namespaces committed data below `_queries/_batches`.
-        # Do not let Arrow's hidden-path default silently skip all archived records.
-        ignore_prefixes=[],
-        exclude_invalid_files=True,
+def _batch_manifest(query_namespace: str, batch_id: int) -> str:
+    return (
+        "version=1\n"
+        f"query={query_namespace}\n"
+        "kind=valid\n"
+        f"batch_id={batch_id}\n"
     )
 
 
+def _partition_date(path: Path) -> date:
+    values = [part.removeprefix("date=") for part in path.parts if part.startswith("date=")]
+    if len(values) != 1:
+        raise ReplayConfigError(f"archive parquet path has no unambiguous date partition: {path}")
+    try:
+        return date.fromisoformat(values[0])
+    except ValueError as exc:
+        raise ReplayConfigError(f"archive parquet path has invalid date partition: {path}") from exc
+
+
+def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
+    query_root = (
+        config.archive_path
+        / "_queries"
+        / config.archive_query_namespace
+        / "_batches"
+    )
+    if not query_root.is_dir():
+        raise ReplayConfigError(
+            "archive query namespace has no committed batch directory: "
+            f"{config.archive_query_namespace}"
+        )
+
+    files: list[Path] = []
+    batch_directories = sorted(
+        (path for path in query_root.iterdir() if path.is_dir()),
+        key=lambda path: (not path.name.isdigit(), int(path.name) if path.name.isdigit() else path.name),
+    )
+    for batch_directory in batch_directories:
+        if not batch_directory.name.isdigit():
+            raise ReplayConfigError(
+                f"archive batch directory is not a numeric batch identity: {batch_directory}"
+            )
+        batch_id = int(batch_directory.name)
+        success = batch_directory / "_SUCCESS"
+        committed = batch_directory / "_COMMITTED"
+        if not success.is_file() or not committed.is_file():
+            raise ReplayConfigError(
+                f"uncommitted or incomplete archive batch {batch_directory}"
+            )
+        actual_manifest = committed.read_text(encoding="utf-8")
+        if actual_manifest != _batch_manifest(config.archive_query_namespace, batch_id):
+            raise ReplayConfigError(
+                f"commit identity mismatch for archive batch {batch_directory}"
+            )
+        batch_files = sorted(batch_directory.rglob("*.parquet"))
+        if not batch_files:
+            raise ReplayConfigError(
+                f"uncommitted or incomplete archive batch {batch_directory}: no parquet data"
+            )
+        for parquet_file in batch_files:
+            partition_date = _partition_date(parquet_file)
+            if config.start_date <= partition_date < config.end_date:
+                files.append(parquet_file)
+    return tuple(files)
+
+
+def _open_archive(config: ReplayConfig) -> _CommittedArchive:
+    source_paths = _committed_parquet_files(config)
+    datasets = tuple(
+        ds.dataset(
+            str(path),
+            format="parquet",
+            partitioning="hive",
+            partition_base_dir=str(config.archive_path),
+        )
+        for path in source_paths
+    )
+    return _CommittedArchive(datasets=datasets, source_paths=source_paths)
+
+
 def _archive_filter(config: ReplayConfig):
-    # Hive discovery exposes ``date=YYYY-MM-DD`` path values as strings unless an
-    # external Arrow schema is supplied. ISO dates retain chronological ordering.
     return (
         (ds.field("date") >= config.start_date.isoformat())
         & (ds.field("date") < config.end_date.isoformat())
     )
 
 
-def _iter_archive_rows(dataset: Any, date_filter: Any) -> Iterable[dict[str, object]]:
-    """Yield bounded Arrow record batches, never a table-sized Python list."""
-    scanner = dataset.scanner(columns=list(ARCHIVE_COLUMNS), filter=date_filter)
-    for batch in scanner.to_batches():
-        yield from batch.to_pylist()
+def _iter_archive_rows(
+    archive: _CommittedArchive, date_filter: Any
+) -> Iterable[dict[str, object]]:
+    """Yield record batches file-by-file in deterministic source-path order."""
+    for dataset in archive.datasets:
+        scanner = dataset.scanner(columns=list(ARCHIVE_COLUMNS), filter=date_filter)
+        for batch in scanner.to_batches():
+            yield from batch.to_pylist()
 
 
-def _validate_archive_fingerprints(dataset: Any, date_filter: Any) -> tuple[int, ...]:
-    """Ensure every selected record uses the sole local writer schema before publishing."""
+def _count_archive_rows(archive: _CommittedArchive, date_filter: Any) -> int:
+    return sum(dataset.count_rows(filter=date_filter) for dataset in archive.datasets)
+
+
+def _validate_archive_fingerprints(
+    archive: _CommittedArchive, date_filter: Any
+) -> tuple[int, ...]:
     expected = schema_fingerprint(load_schema())
     observed: set[int] = set()
-    scanner = dataset.scanner(columns=["schema_fingerprint"], filter=date_filter)
-    for batch in scanner.to_batches():
-        for row in batch.to_pylist():
-            raw_fingerprint = row.get("schema_fingerprint")
-            if raw_fingerprint is None:
-                raise ReplaySchemaFingerprintError(
-                    "archive row is missing schema_fingerprint", observed
-                )
-            fingerprint = int(raw_fingerprint)
-            observed.add(fingerprint)
-            if fingerprint != expected:
-                raise ReplaySchemaFingerprintError(
-                    f"archive schema_fingerprint {fingerprint} does not match local schema_fingerprint {expected}",
-                    observed,
-                )
+    for dataset in archive.datasets:
+        scanner = dataset.scanner(columns=["schema_fingerprint"], filter=date_filter)
+        for batch in scanner.to_batches():
+            for row in batch.to_pylist():
+                raw_fingerprint = row.get("schema_fingerprint")
+                if raw_fingerprint is None:
+                    raise ReplaySchemaFingerprintError(
+                        "archive row is missing schema_fingerprint", observed
+                    )
+                fingerprint = int(raw_fingerprint)
+                observed.add(fingerprint)
+                if fingerprint != expected:
+                    raise ReplaySchemaFingerprintError(
+                        "archive schema_fingerprint "
+                        f"{fingerprint} does not match local schema_fingerprint {expected}",
+                        observed,
+                    )
     return tuple(sorted(observed))
 
 
 def select_archive(config: ReplayConfig) -> Iterable[dict[str, object]]:
-    """Yield canonical records in the inclusive/exclusive UTC date range."""
+    """Yield canonical rows only from validated committed batches for one query."""
     validate_config(config)
     return _iter_archive_rows(_open_archive(config), _archive_filter(config))
 
 
 def _manifest_directory(config: ReplayConfig) -> Path:
     return config.manifest_dir or config.archive_path / "_replay_manifests"
+
+
+def _manifest_path(config: ReplayConfig) -> Path:
+    _validate_identity(config.operation_id, "operation_id")
+    return _manifest_directory(config) / f"{config.operation_id}.json"
 
 
 def _timestamp() -> str:
@@ -171,13 +300,107 @@ def _manifest_date(value: object) -> str:
     return value.isoformat() if isinstance(value, date) else str(value)
 
 
+def _relative_source_paths(config: ReplayConfig, archive: _CommittedArchive) -> tuple[str, ...]:
+    return tuple(
+        path.relative_to(config.archive_path).as_posix() for path in archive.source_paths
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _source_signature(config: ReplayConfig, archive: _CommittedArchive) -> str:
+    source = {
+        "archive_path": str(config.archive_path.resolve()),
+        "archive_query_namespace": config.archive_query_namespace,
+        "start_date": config.start_date.isoformat(),
+        "end_date": config.end_date.isoformat(),
+        "files": [
+            {
+                "path": path.relative_to(config.archive_path).as_posix(),
+                "size": path.stat().st_size,
+                "sha256": _file_sha256(path),
+            }
+            for path in archive.source_paths
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(source, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 def _write_manifest(manifest: ReplayManifest) -> None:
     manifest.path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = manifest.path.with_suffix(manifest.path.suffix + ".tmp")
     with temporary_path.open("w", encoding="utf-8") as output:
         json.dump(manifest.as_json(), output, sort_keys=True)
         output.write("\n")
+        output.flush()
+        os.fsync(output.fileno())
     os.replace(temporary_path, manifest.path)
+    directory_fd = os.open(manifest.path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _read_manifest(path: Path) -> ReplayManifest:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return ReplayManifest(
+            operation_id=str(raw["operation_id"]),
+            status=str(raw["status"]),
+            archive_path=str(raw["archive_path"]),
+            archive_query_namespace=str(raw["archive_query_namespace"]),
+            start_date=str(raw["start_date"]),
+            end_date=str(raw["end_date"]),
+            max_rows=int(raw["max_rows"]),
+            override_limit=bool(raw["override_limit"]),
+            records_per_second=float(raw["records_per_second"]),
+            bootstrap_servers=str(raw["bootstrap_servers"]),
+            selected_rows=int(raw["selected_rows"]),
+            acknowledged_cursor=int(raw["acknowledged_cursor"]),
+            source_paths=tuple(str(value) for value in raw["source_paths"]),
+            source_signature=str(raw["source_signature"]),
+            schema_fingerprints=tuple(int(value) for value in raw["schema_fingerprints"]),
+            target_topic=str(raw["target_topic"]),
+            started_at=str(raw["started_at"]),
+            completed_at=str(raw["completed_at"]),
+            error=None if raw.get("error") is None else str(raw["error"]),
+            path=path,
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ReplayConfigError(f"invalid replay operation manifest {path}: {exc}") from exc
+
+
+def _validate_existing_contract(config: ReplayConfig, manifest: ReplayManifest) -> None:
+    expected = {
+        "operation_id": config.operation_id,
+        "archive_path": str(config.archive_path),
+        "archive_query_namespace": config.archive_query_namespace,
+        "start_date": _manifest_date(config.start_date),
+        "end_date": _manifest_date(config.end_date),
+        "max_rows": config.max_rows,
+        "override_limit": config.override_limit,
+        "records_per_second": float(config.records_per_second),
+        "bootstrap_servers": config.bootstrap_servers,
+        "target_topic": ReplayConfig.target_topic,
+    }
+    actual = {name: getattr(manifest, name) for name in expected}
+    if actual != expected:
+        raise ReplayConfigError(
+            f"operation_id {config.operation_id} already exists with a different replay contract"
+        )
+    if manifest.status not in {"running", "failed", "completed"}:
+        raise ReplayConfigError(
+            f"operation_id {config.operation_id} has invalid status {manifest.status}"
+        )
 
 
 def _make_kafka_producer(config: ReplayConfig):
@@ -204,8 +427,44 @@ def _make_kafka_producer(config: ReplayConfig):
 
 
 def _canonical_event(row: Mapping[str, object]) -> dict[str, object]:
-    """Drop Kafka/archive lineage before serializing an Avro canonical event."""
     return {field: row.get(field) for field in CANONICAL_EVENT_FIELDS}
+
+
+def _new_manifest(
+    config: ReplayConfig,
+    path: Path,
+    started_at: str,
+    *,
+    status: str,
+    selected_rows: int,
+    acknowledged_cursor: int,
+    source_paths: tuple[str, ...],
+    source_signature: str,
+    fingerprints: tuple[int, ...],
+    error: str | None,
+) -> ReplayManifest:
+    return ReplayManifest(
+        operation_id=config.operation_id,
+        status=status,
+        archive_path=str(config.archive_path),
+        archive_query_namespace=config.archive_query_namespace,
+        start_date=_manifest_date(config.start_date),
+        end_date=_manifest_date(config.end_date),
+        max_rows=config.max_rows,
+        override_limit=config.override_limit,
+        records_per_second=float(config.records_per_second),
+        bootstrap_servers=config.bootstrap_servers,
+        selected_rows=selected_rows,
+        acknowledged_cursor=acknowledged_cursor,
+        source_paths=source_paths,
+        source_signature=source_signature,
+        schema_fingerprints=fingerprints,
+        target_topic=ReplayConfig.target_topic,
+        started_at=started_at,
+        completed_at=_timestamp(),
+        error=error,
+        path=path,
+    )
 
 
 def run_replay(
@@ -214,45 +473,111 @@ def run_replay(
     clock: Callable[[], float] | None = None,
     sleeper: Callable[[float], None] | None = None,
 ) -> ReplayManifest:
-    """Count a bounded selection, then publish it at a monotonic limited rate."""
+    """Publish a durable operation, resuming after its last persisted Kafka acknowledgement.
+
+    The cursor is persisted after each broker acknowledgement. A process crash in the small window
+    after Kafka acknowledges a record but before cursor persistence can publish that record again;
+    consumers must therefore deduplicate the retained event_id (or operation/event key).
+    """
     import time
 
     monotonic_clock = clock or time.monotonic
     sleep = sleeper or time.sleep
-    run_id = uuid.uuid4().hex
-    manifest_path = _manifest_directory(config) / f"{run_id}.json"
-    started_at = _timestamp()
+    manifest_path = _manifest_path(config)
+    existing = _read_manifest(manifest_path) if manifest_path.exists() else None
+    if existing is not None:
+        _validate_existing_contract(config, existing)
+        if existing.status == "completed":
+            return existing
+
+    started_at = existing.started_at if existing is not None else _timestamp()
+    acknowledged_cursor = existing.acknowledged_cursor if existing is not None else 0
     producer = None
     status = "failed"
     error: str | None = None
     selected_rows = 0
     fingerprints: tuple[int, ...] = ()
+    source_paths: tuple[str, ...] = ()
+    source_signature = ""
+    manifest: ReplayManifest | None = None
+    # Once an operation exists, its original source contract remains immutable until the current
+    # source selection has been revalidated. Refusal paths must never replace durable progress
+    # with metadata from a different or unreadable archive snapshot.
+    can_persist_progress = existing is None
 
     try:
         validate_config(config)
-        dataset = _open_archive(config)
+        archive = _open_archive(config)
         date_filter = _archive_filter(config)
-        selected_rows = dataset.count_rows(filter=date_filter)
+        selected_rows = _count_archive_rows(archive, date_filter)
+        source_paths = _relative_source_paths(config, archive)
+        source_signature = _source_signature(config, archive)
         if selected_rows > config.max_rows and not config.override_limit:
-            raise ReplayLimitError(f"{selected_rows} rows exceeds max_rows={config.max_rows}")
-        fingerprints = _validate_archive_fingerprints(dataset, date_filter)
-        if selected_rows:
+            raise ReplayLimitError(
+                f"{selected_rows} rows exceeds max_rows={config.max_rows}"
+            )
+        fingerprints = _validate_archive_fingerprints(archive, date_filter)
+
+        if existing is not None:
+            if (
+                existing.selected_rows != selected_rows
+                or existing.source_paths != source_paths
+                or existing.source_signature != source_signature
+                or existing.schema_fingerprints != fingerprints
+            ):
+                raise ReplayConfigError(
+                    f"operation_id {config.operation_id} source selection changed since it started"
+                )
+            if not 0 <= acknowledged_cursor <= selected_rows:
+                raise ReplayConfigError(
+                    f"operation_id {config.operation_id} has invalid acknowledged cursor"
+                )
+            can_persist_progress = True
+
+        manifest = _new_manifest(
+            config,
+            manifest_path,
+            started_at,
+            status="running",
+            selected_rows=selected_rows,
+            acknowledged_cursor=acknowledged_cursor,
+            source_paths=source_paths,
+            source_signature=source_signature,
+            fingerprints=fingerprints,
+            error=None,
+        )
+        _write_manifest(manifest)
+
+        if acknowledged_cursor < selected_rows:
             producer = producer_factory(config)
             interval = 1.0 / float(config.records_per_second)
             next_deadline = monotonic_clock()
-            for row in _iter_archive_rows(dataset, date_filter):
+            for cursor, row in enumerate(_iter_archive_rows(archive, date_filter)):
+                if cursor < acknowledged_cursor:
+                    continue
                 remaining = next_deadline - monotonic_clock()
                 if remaining > 0:
                     sleep(remaining)
                 event = _canonical_event(row)
-                key = event.get("request_id") or event["user_id"]
+                event_id = str(event["event_id"])
+                operation_id = config.operation_id
                 delivery = producer.send(
                     ReplayConfig.target_topic,
                     value=encode_event(event),
-                    key=str(key).encode("utf-8"),
+                    key=f"{operation_id}:{event_id}".encode("utf-8"),
+                    headers=[
+                        ("replay_operation_id", operation_id.encode("utf-8")),
+                        ("replay_event_id", event_id.encode("utf-8")),
+                    ],
                 )
-                # Wait per record: delivery failures become run failures while memory remains bounded.
                 delivery.get(timeout=DELIVERY_TIMEOUT_SECONDS)
+                acknowledged_cursor = cursor + 1
+                manifest = replace(
+                    manifest,
+                    acknowledged_cursor=acknowledged_cursor,
+                    completed_at=_timestamp(),
+                )
+                _write_manifest(manifest)
                 next_deadline += interval
             producer.flush()
             producer.close()
@@ -266,25 +591,23 @@ def run_replay(
             try:
                 producer.close()
             except BaseException:
-                # The primary publication/flush/close failure is the useful error.
                 pass
         raise
     finally:
-        manifest = ReplayManifest(
-            run_id=run_id,
-            status=status,
-            archive_path=str(config.archive_path),
-            start_date=_manifest_date(config.start_date),
-            end_date=_manifest_date(config.end_date),
-            selected_rows=selected_rows,
-            schema_fingerprints=fingerprints,
-            target_topic=ReplayConfig.target_topic,
-            started_at=started_at,
-            completed_at=_timestamp(),
-            error=error,
-            path=manifest_path,
-        )
-        _write_manifest(manifest)
+        if can_persist_progress:
+            manifest = _new_manifest(
+                config,
+                manifest_path,
+                started_at,
+                status=status,
+                selected_rows=selected_rows,
+                acknowledged_cursor=acknowledged_cursor,
+                source_paths=source_paths,
+                source_signature=source_signature,
+                fingerprints=fingerprints,
+                error=error,
+            )
+            _write_manifest(manifest)
 
     return manifest
 
@@ -299,6 +622,8 @@ def _parse_date(value: str) -> date:
 def parse_args(argv: list[str] | None = None) -> ReplayConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive-path", type=Path, required=True)
+    parser.add_argument("--archive-query-namespace", required=True)
+    parser.add_argument("--operation-id", required=True)
     parser.add_argument("--start-date", type=_parse_date, required=True)
     parser.add_argument("--end-date", type=_parse_date, required=True)
     parser.add_argument("--max-rows", type=int, required=True)
@@ -309,6 +634,8 @@ def parse_args(argv: list[str] | None = None) -> ReplayConfig:
     args = parser.parse_args(argv)
     return ReplayConfig(
         archive_path=args.archive_path,
+        archive_query_namespace=args.archive_query_namespace,
+        operation_id=args.operation_id,
         start_date=args.start_date,
         end_date=args.end_date,
         max_rows=args.max_rows,
@@ -322,7 +649,10 @@ def parse_args(argv: list[str] | None = None) -> ReplayConfig:
 def main(argv: list[str] | None = None) -> int:
     config = parse_args(argv)
     manifest = run_replay(config)
-    print(f"replay {manifest.status}: {manifest.selected_rows} rows -> {manifest.target_topic}")
+    print(
+        f"replay {manifest.status}: {manifest.selected_rows} rows -> "
+        f"{manifest.target_topic} (cursor={manifest.acknowledged_cursor})"
+    )
     print(f"manifest: {manifest.path}")
     return 0
 

@@ -1,6 +1,6 @@
 package com.demo.sequence
 
-import com.demo.engine.Sink
+import com.demo.engine.{DurableParquetCommit, Sink, SinkWriteContext}
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions._
 
@@ -19,6 +19,16 @@ class SequenceParquetSink(outputPath: String, mode: SequenceWriteMode) extends S
       .partitionBy("bucket", "kind")
       .parquet(outputPath)
   }
+
+  def committedBatchPath(context: SinkWriteContext): String =
+    DurableParquetCommit.finalPath(outputPath, context).toString
+
+  def writeDurably(batch: DataFrame, context: SinkWriteContext): Unit =
+    DurableParquetCommit.write(
+      SequenceParquetSink.explodeChunks(batch),
+      outputPath,
+      Seq("bucket", "kind"),
+      context)
 }
 
 object SequenceParquetSink {
