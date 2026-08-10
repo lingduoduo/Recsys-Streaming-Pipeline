@@ -407,7 +407,7 @@ def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
             lambda _: None,
         )
 
-    original_open = archive_replay._open_archive
+    original_open = archive_replay.open_archive
 
     def reverse_scanner_order(replay_config: ReplayConfig):
         opened = original_open(replay_config)
@@ -417,7 +417,7 @@ def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
             file_identities=opened.file_identities,
         )
 
-    monkeypatch.setattr(archive_replay, "_open_archive", reverse_scanner_order)
+    monkeypatch.setattr(archive_replay, "open_archive", reverse_scanner_order)
     resumed = FakeProducer()
     result = run_replay(
         config(tmp_path), lambda _: resumed, lambda: 0.0, lambda _: None
@@ -743,7 +743,7 @@ def test_untouched_batches_are_never_hashed(
     write_archive(tmp_path, partition_date="2024-06-17", batch_id=3, event_prefix="c")
     hashed = record_hashed_paths(monkeypatch)
 
-    files = archive_replay._committed_parquet_files(
+    files = archive_replay.committed_parquet_files(
         config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
     )
 
@@ -777,7 +777,7 @@ def test_corrupt_batch_outside_range_does_not_block_replay(tmp_path: Path) -> No
     write_archive(tmp_path, partition_date="2024-06-16", batch_id=2, event_prefix="b")
     tamper_commit_digest(tmp_path, batch_id=1)
 
-    files = archive_replay._committed_parquet_files(
+    files = archive_replay.committed_parquet_files(
         config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
     )
 
@@ -789,7 +789,7 @@ def test_corrupt_batch_inside_range_still_raises(tmp_path: Path) -> None:
     tamper_commit_digest(tmp_path, batch_id=2)
 
     with pytest.raises(ReplayConfigError, match="commit inventory"):
-        archive_replay._committed_parquet_files(
+        archive_replay.committed_parquet_files(
             config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
         )
 
@@ -805,7 +805,7 @@ def test_batch_declaring_a_missing_in_range_partition_is_not_pruned(
     partition.rmdir()
 
     with pytest.raises(ReplayConfigError, match="commit inventory"):
-        archive_replay._committed_parquet_files(config(tmp_path))
+        archive_replay.committed_parquet_files(config(tmp_path))
 
 
 def test_coherent_zero_row_batch_is_pruned_without_validation(tmp_path: Path) -> None:
@@ -817,7 +817,7 @@ def test_coherent_zero_row_batch_is_pruned_without_validation(tmp_path: Path) ->
     write_archive(tmp_path, partition_date="2024-06-15", batch_id=1)
     write_empty_batch(tmp_path, batch_id=2, success=False)
 
-    files = archive_replay._committed_parquet_files(config(tmp_path))
+    files = archive_replay.committed_parquet_files(config(tmp_path))
 
     assert len(files) == 1
 
@@ -831,7 +831,7 @@ def test_incoherent_empty_manifest_is_validated_not_pruned(tmp_path: Path) -> No
     )
 
     with pytest.raises(ReplayConfigError, match="commit"):
-        archive_replay._committed_parquet_files(config(tmp_path))
+        archive_replay.committed_parquet_files(config(tmp_path))
 
 
 def test_batch_straddling_the_boundary_is_fully_validated(
@@ -841,7 +841,7 @@ def test_batch_straddling_the_boundary_is_fully_validated(
     write_archive(tmp_path, partition_date="2024-06-16", batch_id=1, event_prefix="b")
     hashed = record_hashed_paths(monkeypatch)
 
-    files = archive_replay._committed_parquet_files(
+    files = archive_replay.committed_parquet_files(
         config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
     )
 
@@ -853,7 +853,7 @@ def test_batch_straddling_the_boundary_is_fully_validated(
 def test_dead_letter_kind_reads_dead_letter_batches(tmp_path: Path) -> None:
     write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, kind="dead-letter")
 
-    files = archive_replay._committed_parquet_files(config(tmp_path), kind="dead-letter")
+    files = archive_replay.committed_parquet_files(config(tmp_path), kind="dead-letter")
 
     assert len(files) == 1
 
@@ -862,14 +862,14 @@ def test_kind_defaults_to_valid_and_rejects_a_dead_letter_batch(tmp_path: Path) 
     write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, kind="dead-letter")
 
     with pytest.raises(ReplayConfigError, match="commit identity mismatch"):
-        archive_replay._committed_parquet_files(config(tmp_path))
+        archive_replay.committed_parquet_files(config(tmp_path))
 
 
 def test_dead_letter_kind_rejects_a_valid_batch(tmp_path: Path) -> None:
     write_archive(tmp_path, partition_date="2024-06-15", batch_id=1)
 
     with pytest.raises(ReplayConfigError, match="commit identity mismatch"):
-        archive_replay._committed_parquet_files(config(tmp_path), kind="dead-letter")
+        archive_replay.committed_parquet_files(config(tmp_path), kind="dead-letter")
 
 
 def expected_source_signature(
@@ -903,7 +903,7 @@ def expected_source_signature(
 def test_source_signature_format_is_unchanged(tmp_path: Path) -> None:
     write_archive(tmp_path, events=2, partition_date="2024-06-15", batch_id=1)
     replay_config = config(tmp_path)
-    archive = archive_replay._open_archive(replay_config)
+    archive = archive_replay.open_archive(replay_config)
 
     assert archive_replay._source_signature(replay_config, archive) == (
         expected_source_signature(replay_config, archive.source_paths)
@@ -917,7 +917,7 @@ def test_each_selected_file_is_hashed_once(
     replay_config = config(tmp_path)
     hashed = record_hashed_paths(monkeypatch)
 
-    archive = archive_replay._open_archive(replay_config)
+    archive = archive_replay.open_archive(replay_config)
     archive_replay._source_signature(replay_config, archive)
 
     assert sorted(hashed) == sorted(archive.source_paths)

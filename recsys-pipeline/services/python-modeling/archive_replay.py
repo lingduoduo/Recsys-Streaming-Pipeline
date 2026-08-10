@@ -274,13 +274,16 @@ def _batch_declared_dates(batch_directory: Path) -> tuple[date, ...] | None:
     return tuple(sorted(dates))
 
 
-def _committed_parquet_files(
+def committed_parquet_files(
     config: ReplayConfig, kind: str = "valid"
 ) -> dict[Path, _ArchiveFileIdentity]:
     """Select in-range files, mapped to the identity validation just verified for each.
 
     Returning the verified identities lets the source signature reuse them instead of
     hashing every selected file a second time.
+
+    Public: `dead_letter_redrive` calls this with kind="dead-letter". It carries the whole
+    commit-protocol check, so both flows validate archives identically; do not copy it.
     """
     query_root = (
         config.archive_path
@@ -380,8 +383,8 @@ def _committed_parquet_files(
     return selected
 
 
-def _open_archive(config: ReplayConfig, kind: str = "valid") -> _CommittedArchive:
-    file_identities = _committed_parquet_files(config, kind)
+def open_archive(config: ReplayConfig, kind: str = "valid") -> _CommittedArchive:
+    file_identities = committed_parquet_files(config, kind)
     source_paths = tuple(file_identities)
     datasets = tuple(
         ds.dataset(
@@ -463,7 +466,7 @@ def select_archive(config: ReplayConfig) -> Iterable[dict[str, object]]:
     validate_config(config)
     return (
         row
-        for _, row in _iter_archive_rows(_open_archive(config), _archive_filter(config))
+        for _, row in _iter_archive_rows(open_archive(config), _archive_filter(config))
     )
 
 
@@ -715,7 +718,7 @@ def run_replay(
 
     try:
         validate_config(config)
-        archive = _open_archive(config)
+        archive = open_archive(config)
         date_filter = _archive_filter(config)
         selected_rows = _count_archive_rows(archive, date_filter)
         source_paths = _relative_source_paths(config, archive)
