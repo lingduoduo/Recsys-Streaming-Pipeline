@@ -121,6 +121,7 @@ class ReplayManifest:
 class _CommittedArchive:
     datasets: tuple[Any, ...]
     source_paths: tuple[Path, ...]
+    file_identities: Mapping[Path, _ArchiveFileIdentity]
 
 
 @dataclass(frozen=True, order=True)
@@ -231,7 +232,56 @@ def _partition_date(path: Path) -> date:
         raise ReplayConfigError(f"archive parquet path has invalid date partition: {path}") from exc
 
 
-def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
+def _batch_declared_dates(batch_directory: Path) -> tuple[date, ...] | None:
+    """Partition dates a batch *declares* in its commit manifest, without opening any Parquet.
+
+    The manifest is authoritative, never the directory listing. A deleted partition still
+    appears in the declared inventory, so an in-range batch whose files have vanished stays
+    eligible and fails validation instead of being silently skipped.
+
+    Returns None whenever the declaration cannot be trusted -- missing or unparseable
+    manifest, or any version other than 2. Those batches stay eligible so the full commit
+    validation runs and raises; pruning is never what decides an unreadable batch is fine.
+    """
+    committed = batch_directory / "_COMMITTED"
+    if not committed.is_file():
+        return None
+    try:
+        values, inventory = _parse_batch_manifest(committed)
+    except ReplayConfigError:
+        return None
+    if values.get("version") != "2":
+        return None
+    try:
+        row_count = int(values["row_count"])
+    except (KeyError, ValueError):
+        return None
+    if row_count < 0:
+        return None
+    if not inventory:
+        # An empty inventory is only a trustworthy "nothing here" when it declares zero
+        # rows. Claiming rows while listing no files is incoherent, so validate instead.
+        return () if row_count == 0 else None
+    dates: set[date] = set()
+    for entry in inventory:
+        head = entry.path.split("/", 1)[0]
+        if not head.startswith("date="):
+            return None
+        try:
+            dates.add(date.fromisoformat(head.removeprefix("date=")))
+        except ValueError:
+            return None
+    return tuple(sorted(dates))
+
+
+def _committed_parquet_files(
+    config: ReplayConfig, kind: str = "valid"
+) -> dict[Path, _ArchiveFileIdentity]:
+    """Select in-range files, mapped to the identity validation just verified for each.
+
+    Returning the verified identities lets the source signature reuse them instead of
+    hashing every selected file a second time.
+    """
     query_root = (
         config.archive_path
         / "_queries"
@@ -244,7 +294,7 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
             f"{config.archive_query_namespace}"
         )
 
-    files: list[Path] = []
+    selected: dict[Path, _ArchiveFileIdentity] = {}
     batch_directories = sorted(
         (path for path in query_root.iterdir() if path.is_dir()),
         key=lambda path: (not path.name.isdigit(), int(path.name) if path.name.isdigit() else path.name),
@@ -255,6 +305,13 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
                 f"archive batch directory is not a numeric batch identity: {batch_directory}"
             )
         batch_id = int(batch_directory.name)
+        # Skip batches that declare no selected date before hashing or opening anything
+        # inside them. Verification is scoped to what this replay actually publishes.
+        declared_dates = _batch_declared_dates(batch_directory)
+        if declared_dates is not None and not any(
+            config.start_date <= value < config.end_date for value in declared_dates
+        ):
+            continue
         success = batch_directory / "_SUCCESS"
         committed = batch_directory / "_COMMITTED"
         if not success.is_file() or not committed.is_file():
@@ -270,7 +327,7 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
         expected_identity = {
             "version": "2",
             "query": config.archive_query_namespace,
-            "kind": "valid",
+            "kind": kind,
             "batch_id": str(batch_id),
         }
         allowed_fields = {*expected_identity, "row_count"}
@@ -316,15 +373,16 @@ def _committed_parquet_files(config: ReplayConfig) -> tuple[Path, ...]:
             raise ReplayConfigError(
                 f"commit row_count mismatch for archive batch {batch_directory}"
             )
-        for parquet_file in batch_files:
+        for parquet_file, identity in zip(batch_files, actual_inventory):
             partition_date = _partition_date(parquet_file)
             if config.start_date <= partition_date < config.end_date:
-                files.append(parquet_file)
-    return tuple(files)
+                selected[parquet_file] = identity
+    return selected
 
 
-def _open_archive(config: ReplayConfig) -> _CommittedArchive:
-    source_paths = _committed_parquet_files(config)
+def _open_archive(config: ReplayConfig, kind: str = "valid") -> _CommittedArchive:
+    file_identities = _committed_parquet_files(config, kind)
+    source_paths = tuple(file_identities)
     datasets = tuple(
         ds.dataset(
             str(path),
@@ -334,7 +392,9 @@ def _open_archive(config: ReplayConfig) -> _CommittedArchive:
         )
         for path in source_paths
     )
-    return _CommittedArchive(datasets=datasets, source_paths=source_paths)
+    return _CommittedArchive(
+        datasets=datasets, source_paths=source_paths, file_identities=file_identities
+    )
 
 
 def _archive_filter(config: ReplayConfig):
@@ -444,11 +504,14 @@ def _source_signature(config: ReplayConfig, archive: _CommittedArchive) -> str:
         "archive_query_namespace": config.archive_query_namespace,
         "start_date": config.start_date.isoformat(),
         "end_date": config.end_date.isoformat(),
+        # Reuse the identity that batch validation already verified for this exact file.
+        # The values are identical, so the signature is unchanged and operations started
+        # before this reuse still resume.
         "files": [
             {
                 "path": path.relative_to(config.archive_path).as_posix(),
-                "size": path.stat().st_size,
-                "sha256": _file_sha256(path),
+                "size": archive.file_identities[path].size,
+                "sha256": archive.file_identities[path].sha256,
             }
             for path in archive.source_paths
         ],
