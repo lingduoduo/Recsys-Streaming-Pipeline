@@ -16,6 +16,8 @@ import dead_letter_redrive
 from dead_letter_redrive import (
     RedriveConfig,
     RedriveConfigError,
+    RedriveLimitError,
+    run_redrive,
     select_dead_letters,
 )
 
@@ -334,3 +336,183 @@ def test_selection_accepts_rows_whose_fingerprint_is_unknown_or_null(
     )
 
     assert len(list(select_dead_letters(config(tmp_path)))) == 2
+
+
+def redrive(root: Path, producer: FakeProducer, **overrides: object):
+    sleeps: list[float] = []
+    manifest = run_redrive(
+        config(root, **overrides),
+        producer_factory=lambda _: producer,
+        clock=lambda: 0.0,
+        sleeper=sleeps.append,
+    )
+    return manifest, sleeps
+
+
+def test_published_value_is_byte_identical_to_raw_value(tmp_path: Path) -> None:
+    payload = encoded()
+    write_dead_letter_archive(tmp_path, [dead_letter(raw_value=payload)])
+    producer = FakeProducer()
+
+    manifest, _ = redrive(tmp_path, producer)
+
+    assert [sent["value"] for sent in producer.sent] == [payload]
+    assert manifest.status == "completed"
+
+
+def test_publishes_only_to_the_backfill_topic(tmp_path: Path) -> None:
+    write_dead_letter_archive(tmp_path, [dead_letter()])
+    producer = FakeProducer()
+
+    redrive(tmp_path, producer)
+
+    assert {sent["topic"] for sent in producer.sent} == {"recsys_events.backfill"}
+
+
+def test_key_and_headers_carry_event_id_and_original_error_code(tmp_path: Path) -> None:
+    write_dead_letter_archive(tmp_path, [dead_letter(error_code="unknown_fingerprint")])
+    producer = FakeProducer()
+
+    redrive(tmp_path, producer)
+
+    sent = producer.sent[0]
+    assert sent["key"] == b"op-1:e-1"
+    assert ("replay_operation_id", b"op-1") in sent["headers"]
+    assert ("replay_event_id", b"e-1") in sent["headers"]
+    assert ("redrive_error_code", b"unknown_fingerprint") in sent["headers"]
+
+
+def test_counts_are_reported_for_a_mixed_batch(tmp_path: Path) -> None:
+    write_dead_letter_archive(
+        tmp_path,
+        [
+            dead_letter(raw_value=encoded(event_id="e-1")),
+            dead_letter(raw_value=b"not-avro", error_code="invalid_marker", kafka_offset=43),
+            dead_letter(raw_value=b"junk", error_code="corrupt_payload", kafka_offset=44),
+            dead_letter(raw_value=b"more-junk", error_code="invalid_marker", kafka_offset=45),
+        ],
+    )
+    producer = FakeProducer()
+
+    manifest, _ = redrive(tmp_path, producer)
+
+    assert manifest.selected_rows == 4
+    assert manifest.examined_rows == 4
+    assert manifest.published_rows == 1
+    assert manifest.skipped_rows == 3
+    assert manifest.skipped_by_error_code == {"invalid_marker": 2, "corrupt_payload": 1}
+
+
+def test_rate_limit_applies_to_published_rows_not_skipped_ones(tmp_path: Path) -> None:
+    """A skipped row sends nothing, so it must not consume the rate budget.
+
+    With a frozen clock the first publish never waits and each later one does. Three rows
+    where the first is skipped therefore yield exactly one sleep; if skips also advanced
+    the deadline there would be two.
+    """
+    write_dead_letter_archive(
+        tmp_path,
+        [
+            dead_letter(raw_value=b"not-avro", error_code="invalid_marker"),
+            dead_letter(raw_value=encoded(event_id="e-2"), kafka_offset=43),
+            dead_letter(raw_value=encoded(event_id="e-3"), kafka_offset=44),
+        ],
+    )
+
+    _, sleeps = redrive(tmp_path, FakeProducer())
+
+    assert len(sleeps) == 1
+
+
+def test_resume_after_crash_following_a_skipped_row(tmp_path: Path) -> None:
+    write_dead_letter_archive(
+        tmp_path,
+        [
+            dead_letter(raw_value=encoded(event_id="e-1")),
+            dead_letter(raw_value=b"not-avro", error_code="invalid_marker", kafka_offset=43),
+            dead_letter(raw_value=encoded(event_id="e-3"), kafka_offset=44),
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        redrive(tmp_path, FakeProducer(fail_on_send_number=2))
+
+    # The crash landed on row 3's send, so rows 1 and 2 are durably accounted for and the
+    # cursor sits on the *skipped* row -- otherwise the resume would re-examine it.
+    crashed = dead_letter_redrive._read_manifest(
+        tmp_path / "_redrive_manifests" / "op-1.json"
+    )
+    assert crashed.status == "failed"
+    assert (crashed.examined_rows, crashed.published_rows, crashed.skipped_rows) == (2, 1, 1)
+
+    resumed = FakeProducer()
+    manifest, _ = redrive(tmp_path, resumed)
+
+    assert [sent["key"] for sent in resumed.sent] == [b"op-1:e-3"]
+    assert manifest.published_rows == 2
+    assert manifest.examined_rows == 3
+    assert manifest.skipped_by_error_code == {"invalid_marker": 1}
+    assert manifest.status == "completed"
+
+
+def test_completed_operation_rerun_is_a_no_op(tmp_path: Path) -> None:
+    write_dead_letter_archive(tmp_path, [dead_letter()])
+    first, _ = redrive(tmp_path, FakeProducer())
+    assert first.status == "completed"
+
+    def explode(_config):
+        raise AssertionError("a completed operation must not open a producer")
+
+    second = run_redrive(config(tmp_path), producer_factory=explode)
+
+    assert second.published_rows == first.published_rows
+    assert second.status == "completed"
+
+
+def test_max_rows_raises_before_a_producer_exists(tmp_path: Path) -> None:
+    write_dead_letter_archive(tmp_path, [dead_letter(), dead_letter(kafka_offset=43)])
+
+    def explode(_config):
+        raise AssertionError("producer must not be constructed")
+
+    with pytest.raises(RedriveLimitError, match="max_rows"):
+        run_redrive(config(tmp_path, max_rows=1), producer_factory=explode)
+
+
+def test_override_limit_allows_exceeding_max_rows(tmp_path: Path) -> None:
+    write_dead_letter_archive(tmp_path, [dead_letter(), dead_letter(kafka_offset=43)])
+    producer = FakeProducer()
+
+    manifest, _ = redrive(tmp_path, producer, max_rows=1, override_limit=True)
+
+    assert manifest.published_rows == 2
+
+
+def test_resume_rejects_a_changed_source_selection(tmp_path: Path) -> None:
+    write_dead_letter_archive(
+        tmp_path,
+        [
+            dead_letter(raw_value=encoded(event_id="e-1")),
+            dead_letter(raw_value=encoded(event_id="e-2"), kafka_offset=43),
+        ],
+    )
+    with pytest.raises(RuntimeError):
+        redrive(tmp_path, FakeProducer(fail_on_send_number=2))
+
+    write_dead_letter_archive(
+        tmp_path,
+        [dead_letter(raw_value=encoded(event_id="e-9"), kafka_offset=99)],
+        batch_id=8,
+    )
+
+    with pytest.raises(RedriveConfigError, match="source selection changed"):
+        redrive(tmp_path, FakeProducer())
+
+
+def test_manifest_is_written_under_the_dead_letter_root(tmp_path: Path) -> None:
+    write_dead_letter_archive(tmp_path, [dead_letter()])
+
+    manifest, _ = redrive(tmp_path, FakeProducer())
+
+    assert manifest.path == tmp_path / "_redrive_manifests" / "op-1.json"
+    assert manifest.path.is_file()
