@@ -153,10 +153,15 @@ def evaluate_row(
     if not isinstance(payload, (bytes, bytearray)):
         return False, error_code, None
     try:
-        return True, error_code, event_avro.decode_event(bytes(payload))
+        decoded = event_avro.decode_event(bytes(payload))
+        # decode_event does not enforce required fields, but the pipeline does. Without
+        # this the command could republish a `required_field` row that dead-letters again
+        # on arrival -- and event_id, which the key contract needs, could be missing.
+        event_avro.validate_required(decoded)
     except (
         event_avro.SchemaFingerprintError,
         event_avro.EventValidationError,
         ValueError,
     ):
         return False, error_code, None
+    return True, error_code, decoded

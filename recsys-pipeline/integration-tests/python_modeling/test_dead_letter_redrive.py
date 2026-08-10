@@ -249,6 +249,73 @@ def test_selection_uses_ingestion_date_not_event_time(tmp_path: Path) -> None:
     assert in_event_time_range == []
 
 
+def test_gate_admits_an_unknown_fingerprint_row_that_now_decodes() -> None:
+    eligible, error_code, decoded = dead_letter_redrive.evaluate_row(
+        {"raw_value": encoded(), "error_code": "unknown_fingerprint"}
+    )
+
+    assert eligible is True
+    assert error_code == "unknown_fingerprint"
+    assert decoded["event_id"] == "e-1"
+
+
+@pytest.mark.parametrize(
+    "raw_value,error_code",
+    [
+        (b"not-avro", "invalid_marker"),
+        (b"\xc3\x01" + (0).to_bytes(8, "little") + b"junk", "unknown_fingerprint"),
+        (b"", "invalid_marker"),
+        (None, "corrupt_payload"),
+    ],
+)
+def test_gate_rejects_undecodable_payloads(raw_value, error_code) -> None:
+    eligible, reported, decoded = dead_letter_redrive.evaluate_row(
+        {"raw_value": raw_value, "error_code": error_code}
+    )
+
+    assert eligible is False
+    assert decoded is None
+    assert reported == error_code
+
+
+def test_gate_rejects_a_truncated_payload_under_the_local_fingerprint() -> None:
+    truncated = encoded()[:12]
+
+    eligible, _, decoded = dead_letter_redrive.evaluate_row(
+        {"raw_value": truncated, "error_code": "corrupt_payload"}
+    )
+
+    assert eligible is False and decoded is None
+
+
+def test_gate_rejects_a_record_missing_a_required_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """decode_event does not enforce required fields; the pipeline does, so the gate must.
+
+    Otherwise a `required_field` row is republished only to dead-letter again on arrival.
+    """
+    incomplete = {key: value for key, value in CANONICAL_EVENT.items() if key != "event_id"}
+    monkeypatch.setattr(event_avro, "decode_event", lambda *_args, **_kwargs: incomplete)
+
+    eligible, _, decoded = dead_letter_redrive.evaluate_row(
+        {"raw_value": b"any-bytes", "error_code": "required_field"}
+    )
+
+    assert eligible is False and decoded is None
+
+
+def test_gate_never_treats_error_code_as_a_filter() -> None:
+    """A row mislabelled corrupt_payload whose bytes are fine is still recoverable."""
+    eligible, error_code, decoded = dead_letter_redrive.evaluate_row(
+        {"raw_value": encoded(), "error_code": "corrupt_payload"}
+    )
+
+    assert eligible is True
+    assert error_code == "corrupt_payload"
+    assert decoded is not None
+
+
 def test_selection_accepts_rows_whose_fingerprint_is_unknown_or_null(
     tmp_path: Path,
 ) -> None:
