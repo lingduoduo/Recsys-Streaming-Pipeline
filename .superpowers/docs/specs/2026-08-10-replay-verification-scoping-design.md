@@ -44,18 +44,32 @@ entire archive — was never load-bearing and was actively harmful to availabili
 ### Batch-level date pruning
 
 Batch directories are named by Spark batch ID and carry no date. But `RawArchiveSink.writeBatch`
-writes with `partitionBy("date")`, so every committed non-empty batch directory contains
-`date=YYYY-MM-DD/` children. Listing those children is a directory listing: no file opens, no reads,
+writes with `partitionBy("date")`, so a batch's `_COMMITTED` inventory lists relative paths of the
+form `date=YYYY-MM-DD/part-*.parquet`. Reading that one small text file is cheap: no Parquet opens,
 no hashing.
 
-The new order inside `_committed_parquet_files` is:
+**Pruning reads the manifest, never the directory listing.** This distinction is the whole safety
+argument, and the first implementation got it wrong. A manifest may declare
+`date=2026-08-01/part-0.parquet` while that directory has been deleted; a listing-based prune sees
+no `date=` children, concludes "empty batch", and skips it — so the replay silently publishes fewer
+rows than the archive committed. Silent under-publishing is strictly worse than the cost problem
+being solved here. The declared inventory still names the missing file, so a manifest-based prune
+keeps the batch eligible and validation fails as it should.
+
+The new order inside `committed_parquet_files` is:
 
 1. Enumerate numeric batch directories, rejecting non-numeric names as today.
-2. For each batch, list its `date=*` children.
-3. If no partition date falls in `[start_date, end_date)`, skip the batch entirely — no manifest
-   parse, no inventory comparison, no hashing.
+2. For each batch, read `_COMMITTED` and collect the `date=` prefixes its inventory declares.
+3. If no declared date falls in `[start_date, end_date)`, skip the batch entirely — no inventory
+   comparison, no Parquet opens, no hashing.
 4. Otherwise run the existing validation over the batch, unchanged and complete.
 5. Select in-range files from the validated batch, as today.
+
+A declaration is only trusted when it is internally coherent. Any of the following keeps a batch
+eligible so full validation runs and raises: a missing or unparseable `_COMMITTED`, a version other
+than 2, an inventory path without a parseable `date=` prefix, a missing or negative `row_count`, or
+an empty inventory that nonetheless claims rows. Only an empty inventory declaring exactly zero rows
+is a trustworthy "nothing here".
 
 Because a batch is one micro-batch of a stream — 10 seconds at the default trigger — a batch that
 intersects the range is almost entirely inside it. Verified bytes therefore track published bytes
@@ -68,7 +82,7 @@ term, which is the one that makes replay unusable at scale.
 
 ### Digest reuse
 
-`_committed_parquet_files` already computes a verified `_ArchiveFileIdentity` (path, size, SHA-256)
+`committed_parquet_files` already computes a verified `_ArchiveFileIdentity` (path, size, SHA-256)
 for each selected file. Thread those identities through to `_source_signature` so each selected file
 is hashed once per invocation.
 
@@ -85,11 +99,17 @@ a hard requirement, not a nicety, and is covered by an explicit test.
 
 ## Accepted Losses
 
-- **A corrupt batch outside the range no longer fails a replay.** This is the point. An operator
-  recovering today's data is no longer blocked by damage to unrelated history.
+- **Data damage outside the range no longer fails a replay.** This is the point. An operator
+  recovering today's data is no longer blocked by bit rot or a partial restore in unrelated history:
+  a batch whose declared digests no longer match its files is skipped when out of range, and still
+  rejected when in range.
+- **But a broken commit *record* still blocks, wherever it is.** Because pruning depends on the
+  manifest, a batch whose `_COMMITTED` is missing, unparseable, or incoherent cannot be placed in
+  time, so it stays eligible and validation raises. This is a narrower blocking condition than the
+  status quo, and the right one: the alternative is deciding an unreadable batch is safe to ignore.
 - **Committed zero-row batches are skipped.** An all-invalid batch commits with an empty inventory
-  and no `date=` children, so pruning skips it. It contains nothing to publish and so nothing to
-  verify.
+  declaring zero rows, so pruning skips it without validating. It contains nothing to publish and so
+  nothing to verify.
 - **Replay stops functioning as an incidental archive audit.** Deleted or tampered files outside the
   selected range go unnoticed. Replay is not `fsck`. If a whole-archive integrity sweep is wanted it
   belongs in a separate audit command with its own cadence, not bolted onto the recovery path.
@@ -98,7 +118,7 @@ a hard requirement, not a nicety, and is covered by an explicit test.
 
 Includes:
 
-- Batch-level date pruning in `_committed_parquet_files`.
+- Batch-level date pruning in `committed_parquet_files`, driven by the commit manifest.
 - Digest reuse between batch validation and `_source_signature`.
 - Parameterizing the batch reader by manifest `kind`, so the dead-letter re-drive can consume the
   same pruned, validated reader. `kind` defaults to `valid`; behaviour for existing callers is
@@ -116,15 +136,20 @@ Excludes:
 
 - A range touching one batch among many: assert files in untouched batches are never hashed, by
   patching `_file_sha256` to fail on unexpected paths.
-- Every existing corruption test is retained and retargeted so the damaged batch is **in range** —
-  each must still raise the same error.
-- A corrupt batch **outside** the range: replay succeeds and publishes the in-range rows.
-- `source_signature` for a fixed archive equals its pre-change value (golden value), proving
-  in-flight operations resume.
+- Every existing corruption test still passes unmodified; each keeps proving the commit protocol
+  is enforced for data that is read.
+- Digest damage **outside** the range: replay succeeds and publishes the in-range rows. The same
+  damage **inside** the range still raises.
+- A batch declaring an in-range partition whose files have been deleted raises, rather than being
+  pruned as empty.
+- An empty inventory claiming a non-zero `row_count` is validated, not pruned.
+- `source_signature` matches an independent reimplementation of its documented format, proving
+  in-flight operations resume. The format is pinned rather than a golden constant, which would be
+  brittle across pyarrow versions.
 - Each selected file is hashed exactly once per invocation.
 - A batch whose partitions straddle the range boundary is fully validated, and only its in-range
   files are selected.
-- A committed zero-row batch inside the range is skipped without error.
+- A coherent zero-row batch is skipped without validation, proven by omitting its `_SUCCESS`.
 - `kind="dead-letter"` selects dead-letter batches and rejects a `valid` manifest, and vice versa.
 
 ## Success Criteria
@@ -132,7 +157,8 @@ Excludes:
 - Replaying one day from an archive of N days hashes only the files in batches intersecting that
   day.
 - Every batch read from is validated by the unchanged, complete commit-protocol check.
-- A malformed batch outside the selected range does not prevent a replay.
+- Digest damage outside the selected range does not prevent a replay; a broken commit record
+  still does, wherever it is.
 - `source_signature` and `selected_rows` are byte-identical to their pre-change values, so
   operations started before the change resume after it.
 - The batch reader accepts a `kind` parameter and the dead-letter re-drive can build on it.

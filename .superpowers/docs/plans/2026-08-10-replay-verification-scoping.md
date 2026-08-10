@@ -10,6 +10,14 @@
 
 **Spec:** `.superpowers/docs/specs/2026-08-10-replay-verification-scoping-design.md`
 
+> **As built (PR #168) — this plan's pruning step was wrong.** Task 1 specifies pruning on the
+> `date=*` directory listing. Implementing that broke a pre-existing test, correctly: a manifest
+> declaring `date=.../part-0.parquet` whose directory had been deleted would be pruned as an empty
+> batch, so a replay would silently under-publish. Pruning reads the **commit manifest**, never the
+> filesystem, and only trusts an internally coherent declaration. The spec records the final design.
+> Task 3's "retarget the corruption tests" step also turned out to be unnecessary — manifest-based
+> pruning preserved all 28 pre-existing tests unmodified.
+
 ## Global Constraints
 
 - Do not weaken validation for any batch a replay reads from. The full check — `_SUCCESS`, `_COMMITTED`, version 2, query/kind/batch identity, exact path+size+SHA-256 inventory, declared row count equals actual row count — stays intact and complete.
