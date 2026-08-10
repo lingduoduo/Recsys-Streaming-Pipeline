@@ -170,6 +170,17 @@ version/query/kind/batch/row-count/inventory `_COMMITTED` manifest are read. Orp
 incomplete batches, and batches owned by another query are excluded; a missing or ambiguous query
 identity is rejected.
 
+Verification is scoped to the batches a replay reads. Each batch declares its partition dates in its
+`_COMMITTED` inventory; a batch declaring no date in the requested range is skipped before anything
+inside it is opened or hashed, so replaying one day costs one day rather than the whole archive.
+Every batch that is read is validated in full, so no byte is published unverified. Two consequences
+follow. A damaged batch outside the requested range no longer blocks an unrelated recovery — replay
+is not a whole-archive integrity audit, and out-of-range damage will not surface here. And pruning
+trusts the manifest, never the directory listing: a batch whose declared partition has been deleted
+still fails validation instead of being mistaken for an empty batch, and a declaration that cannot be
+trusted — missing, unparseable, wrong version, or claiming rows while listing no files — keeps its
+batch eligible so full validation runs.
+
 Set `REPLAY_MANIFEST_DIR` to choose the operation directory; otherwise the deterministic manifest
 is written to `$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. It records the stable
 operation ID, status, immutable selection contract, ordered source signature, acknowledged

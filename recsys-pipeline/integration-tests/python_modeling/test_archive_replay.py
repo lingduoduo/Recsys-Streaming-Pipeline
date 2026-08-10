@@ -110,13 +110,14 @@ def refresh_archive_commit(
     *,
     query_namespace: str = ARCHIVE_QUERY_NAMESPACE,
     batch_id: int = 7,
+    kind: str = "valid",
 ) -> None:
     batch_root = root / "_queries" / query_namespace / "_batches" / str(batch_id)
     committed_rows, inventory = _commit_inventory(batch_root)
     (batch_root / "_COMMITTED").write_text(
         "version=2\n"
         f"query={query_namespace}\n"
-        "kind=valid\n"
+        f"kind={kind}\n"
         f"batch_id={batch_id}\n"
         f"row_count={committed_rows}\n"
         + "".join(f"file={entry}\n" for entry in inventory),
@@ -135,6 +136,7 @@ def write_archive(
     area: str = "_batches",
     committed: bool = True,
     manifest: str | None = None,
+    kind: str = "valid",
 ) -> None:
     rows = []
     for index in range(events):
@@ -160,7 +162,7 @@ def write_archive(
         (batch_root / "_SUCCESS").touch()
         if manifest is None:
             refresh_archive_commit(
-                root, query_namespace=query_namespace, batch_id=batch_id
+                root, query_namespace=query_namespace, batch_id=batch_id, kind=kind
             )
         else:
             (batch_root / "_COMMITTED").write_text(manifest, encoding="utf-8")
@@ -412,6 +414,7 @@ def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
         return archive_replay._CommittedArchive(
             datasets=tuple(reversed(opened.datasets)),
             source_paths=opened.source_paths,
+            file_identities=opened.file_identities,
         )
 
     monkeypatch.setattr(archive_replay, "_open_archive", reverse_scanner_order)
@@ -695,6 +698,229 @@ def test_replay_counts_then_streams_arrow_batches_without_whole_table_materializ
     assert len(dataset.count_filters) == 1
     assert dataset.scan_columns[0] == ["schema_fingerprint"]
     assert producer.sent[0].topic == "recsys_events.backfill"
+
+
+def write_empty_batch(
+    root: Path,
+    *,
+    batch_id: int,
+    query_namespace: str = ARCHIVE_QUERY_NAMESPACE,
+    manifest: str | None = None,
+    success: bool = True,
+) -> None:
+    """Commit an all-invalid batch: zero rows, empty inventory, no date partitions."""
+    batch_root = root / "_queries" / query_namespace / "_batches" / str(batch_id)
+    batch_root.mkdir(parents=True, exist_ok=True)
+    if success:
+        (batch_root / "_SUCCESS").touch()
+    (batch_root / "_COMMITTED").write_text(
+        manifest
+        or (
+            f"version=2\nquery={query_namespace}\nkind=valid\n"
+            f"batch_id={batch_id}\nrow_count=0\n"
+        ),
+        encoding="utf-8",
+    )
+
+
+def record_hashed_paths(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    hashed: list[Path] = []
+    original = archive_replay._file_sha256
+
+    def spy(path: Path) -> str:
+        hashed.append(Path(path))
+        return original(path)
+
+    monkeypatch.setattr(archive_replay, "_file_sha256", spy)
+    return hashed
+
+
+def test_untouched_batches_are_never_hashed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, event_prefix="a")
+    write_archive(tmp_path, partition_date="2024-06-16", batch_id=2, event_prefix="b")
+    write_archive(tmp_path, partition_date="2024-06-17", batch_id=3, event_prefix="c")
+    hashed = record_hashed_paths(monkeypatch)
+
+    files = archive_replay._committed_parquet_files(
+        config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
+    )
+
+    assert len(files) == 1
+    assert hashed, "the selected batch must still be verified"
+    assert all("date=2024-06-16" in path.as_posix() for path in hashed)
+
+
+def tamper_commit_digest(
+    root: Path, *, batch_id: int, query_namespace: str = ARCHIVE_QUERY_NAMESPACE
+) -> None:
+    """Corrupt a batch's declared digests while leaving its declared paths intact.
+
+    This is the realistic damage shape -- bit rot or a partial restore. The declaration
+    stays readable, so pruning can still place the batch, but validation must reject it.
+    """
+    committed = (
+        root / "_queries" / query_namespace / "_batches" / str(batch_id) / "_COMMITTED"
+    )
+    lines = []
+    for line in committed.read_text(encoding="utf-8").splitlines():
+        if line.startswith("file="):
+            path, size, _ = line.removeprefix("file=").split("\t")
+            line = f"file={path}\t{size}\t{'0' * 64}"
+        lines.append(line)
+    committed.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_corrupt_batch_outside_range_does_not_block_replay(tmp_path: Path) -> None:
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, event_prefix="a")
+    write_archive(tmp_path, partition_date="2024-06-16", batch_id=2, event_prefix="b")
+    tamper_commit_digest(tmp_path, batch_id=1)
+
+    files = archive_replay._committed_parquet_files(
+        config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
+    )
+
+    assert len(files) == 1
+
+
+def test_corrupt_batch_inside_range_still_raises(tmp_path: Path) -> None:
+    write_archive(tmp_path, partition_date="2024-06-16", batch_id=2, event_prefix="b")
+    tamper_commit_digest(tmp_path, batch_id=2)
+
+    with pytest.raises(ReplayConfigError, match="commit inventory"):
+        archive_replay._committed_parquet_files(
+            config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
+        )
+
+
+def test_batch_declaring_a_missing_in_range_partition_is_not_pruned(
+    tmp_path: Path,
+) -> None:
+    """A deleted partition must fail, never be mistaken for an empty batch."""
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1)
+    partition = tmp_path / "_queries" / ARCHIVE_QUERY_NAMESPACE / "_batches" / "1" / "date=2024-06-15"
+    for parquet_file in partition.iterdir():
+        parquet_file.unlink()
+    partition.rmdir()
+
+    with pytest.raises(ReplayConfigError, match="commit inventory"):
+        archive_replay._committed_parquet_files(config(tmp_path))
+
+
+def test_coherent_zero_row_batch_is_pruned_without_validation(tmp_path: Path) -> None:
+    """A batch declaring zero rows and no files is skipped, not validated.
+
+    Omitting _SUCCESS proves no validation ran: that alone would otherwise raise
+    "uncommitted or incomplete directory".
+    """
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1)
+    write_empty_batch(tmp_path, batch_id=2, success=False)
+
+    files = archive_replay._committed_parquet_files(config(tmp_path))
+
+    assert len(files) == 1
+
+
+def test_incoherent_empty_manifest_is_validated_not_pruned(tmp_path: Path) -> None:
+    """Declaring rows while listing no files is incoherent, so it must not be trusted."""
+    write_empty_batch(
+        tmp_path,
+        batch_id=2,
+        manifest="version=2\nquery=query-1\nkind=valid\nbatch_id=2\nrow_count=1\n",
+    )
+
+    with pytest.raises(ReplayConfigError, match="commit"):
+        archive_replay._committed_parquet_files(config(tmp_path))
+
+
+def test_batch_straddling_the_boundary_is_fully_validated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, event_prefix="a")
+    write_archive(tmp_path, partition_date="2024-06-16", batch_id=1, event_prefix="b")
+    hashed = record_hashed_paths(monkeypatch)
+
+    files = archive_replay._committed_parquet_files(
+        config(tmp_path, start_date=date(2024, 6, 16), end_date=date(2024, 6, 17))
+    )
+
+    assert [path.parent.name for path in files] == ["date=2024-06-16"]
+    # The whole-batch row-count invariant still requires verifying both partitions.
+    assert {path.parent.name for path in hashed} == {"date=2024-06-15", "date=2024-06-16"}
+
+
+def test_dead_letter_kind_reads_dead_letter_batches(tmp_path: Path) -> None:
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, kind="dead-letter")
+
+    files = archive_replay._committed_parquet_files(config(tmp_path), kind="dead-letter")
+
+    assert len(files) == 1
+
+
+def test_kind_defaults_to_valid_and_rejects_a_dead_letter_batch(tmp_path: Path) -> None:
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1, kind="dead-letter")
+
+    with pytest.raises(ReplayConfigError, match="commit identity mismatch"):
+        archive_replay._committed_parquet_files(config(tmp_path))
+
+
+def test_dead_letter_kind_rejects_a_valid_batch(tmp_path: Path) -> None:
+    write_archive(tmp_path, partition_date="2024-06-15", batch_id=1)
+
+    with pytest.raises(ReplayConfigError, match="commit identity mismatch"):
+        archive_replay._committed_parquet_files(config(tmp_path), kind="dead-letter")
+
+
+def expected_source_signature(
+    replay_config: ReplayConfig, paths: tuple[Path, ...]
+) -> str:
+    """Independently reproduce the documented signature format.
+
+    Pinning the format, rather than a golden constant, keeps this stable across pyarrow
+    versions while still failing if the signature's structure or inputs ever change --
+    which would break resumption for every operation started before that change.
+    """
+    source = {
+        "archive_path": str(replay_config.archive_path.resolve()),
+        "archive_query_namespace": replay_config.archive_query_namespace,
+        "start_date": replay_config.start_date.isoformat(),
+        "end_date": replay_config.end_date.isoformat(),
+        "files": [
+            {
+                "path": path.relative_to(replay_config.archive_path).as_posix(),
+                "size": path.stat().st_size,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in paths
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(source, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def test_source_signature_format_is_unchanged(tmp_path: Path) -> None:
+    write_archive(tmp_path, events=2, partition_date="2024-06-15", batch_id=1)
+    replay_config = config(tmp_path)
+    archive = archive_replay._open_archive(replay_config)
+
+    assert archive_replay._source_signature(replay_config, archive) == (
+        expected_source_signature(replay_config, archive.source_paths)
+    )
+
+
+def test_each_selected_file_is_hashed_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_archive(tmp_path, events=2, partition_date="2024-06-15", batch_id=1)
+    replay_config = config(tmp_path)
+    hashed = record_hashed_paths(monkeypatch)
+
+    archive = archive_replay._open_archive(replay_config)
+    archive_replay._source_signature(replay_config, archive)
+
+    assert sorted(hashed) == sorted(archive.source_paths)
 
 
 def test_requirements_declare_pyarrow_dependency() -> None:
