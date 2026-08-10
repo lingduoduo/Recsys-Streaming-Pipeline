@@ -37,3 +37,6 @@ recsys-pipeline/frontend/__pycache__/
 # Isolated feature worktrees
 /.worktrees/
 .worktrees/
+
+# Understand-anything scratch (knowledge-graph intermediates and temp files)
+.ua/
