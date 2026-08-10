@@ -200,6 +200,47 @@ unless explicitly configured for the backfill stream, for example:
 KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
 ```
 
+### Dead-letter re-drive operations
+
+Of the four dead-letter codes, only some describe permanently bad data. `unknown_fingerprint` does
+not: it means a producer shipped a schema the consuming catalog did not know yet. Once the catalog
+knows it, those same bytes decode cleanly, and this command republishes them.
+
+**Deploy the catalog fix to both the producer and the Spark job before re-driving.** The eligibility
+gate proves a record decodes under the Python catalog; the pipeline decodes under the Scala one.
+Both resolve the same checked-in `.avsc` by fingerprint, but they are two implementations.
+
+```bash
+REDRIVE_ARCHIVE_PATH=/data/recsys-events-dead-letter \
+REDRIVE_ARCHIVE_QUERY_NAMESPACE=<checkpoint-hash> \
+REDRIVE_OPERATION_ID=redrive-2026-08-10 \
+REDRIVE_START_INGEST_DATE=2026-08-09 REDRIVE_END_INGEST_DATE=2026-08-10 \
+REDRIVE_MAX_ROWS=50000 REDRIVE_RECORDS_PER_SECOND=2000 \
+  ./scripts/run-dead-letter-redrive.sh
+```
+
+Bounds are **ingestion** dates, taken from the `kafka_timestamp` partition, because a record that
+never decoded may have no usable event time. This differs from replay, whose bounds are event time;
+the flags are named `--start-ingest-date` / `--end-ingest-date` so the two cannot be confused.
+
+Eligibility is decided by re-decoding each row against the current catalog and applying required-field
+validation, never by its recorded `error_code`. Nothing is published that would dead-letter again on
+arrival, so `corrupt_payload` and `invalid_marker` rows can never be recovered, and a mislabelled row
+whose bytes are fine still can be. Published values are the archived bytes verbatim, preserving the
+original writer fingerprint; they are not re-encoded.
+
+The manifest at `$REDRIVE_ARCHIVE_PATH/_redrive_manifests/<operation-id>.json` records selected,
+examined, published, and skipped counts plus a per-`error_code` breakdown of everything skipped. A
+run that publishes nothing reports why. The cursor is the physical `(file path, row group, row)`
+position and advances over skipped rows too, so an interrupted operation resumes without
+re-examining them; a completed operation rerun is a no-op. Keys and headers match replay
+(`operation_id:event_id`, `replay_operation_id`, `replay_event_id`) so backfill consumers need no
+change, with an extra `redrive_error_code` header carrying the original classification.
+
+Re-drive is at-least-once for the same reason replay is, and the dead-letter archive is append-only:
+a successful re-drive neither deletes nor marks its source rows. The manifest is the record of what
+was recovered.
+
 The migrated Avro engine also scopes business completion to the stable
 `(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
 identity before archival or business effects. A successful sink is not invoked again when a later
