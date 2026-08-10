@@ -12,6 +12,7 @@ that would immediately dead-letter again.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 from collections.abc import Callable, Iterable, Mapping
@@ -347,7 +348,7 @@ def _make_kafka_producer(config: RedriveConfig):
 
 def run_redrive(
     config: RedriveConfig,
-    producer_factory: Callable[[RedriveConfig], Any] = _make_kafka_producer,
+    producer_factory: Callable[[RedriveConfig], Any] | None = None,
     clock: Callable[[], float] | None = None,
     sleeper: Callable[[float], None] | None = None,
 ) -> RedriveManifest:
@@ -362,6 +363,8 @@ def run_redrive(
 
     monotonic_clock = clock or time.monotonic
     sleep = sleeper or time.sleep
+    # Resolved here, not as a default argument, so the module attribute stays patchable.
+    make_producer = producer_factory or _make_kafka_producer
     manifest_path = _manifest_path(config)
     existing = _read_manifest(manifest_path) if manifest_path.exists() else None
     if existing is not None and existing.status == "completed":
@@ -432,7 +435,7 @@ def run_redrive(
         _write_manifest(manifest)
 
         if examined_rows < selected_rows:
-            producer = producer_factory(config)
+            producer = make_producer(config)
             interval = 1.0 / float(config.records_per_second)
             next_deadline = monotonic_clock()
             cursor_found = acknowledged_position is None
@@ -516,3 +519,63 @@ def run_redrive(
             _write_manifest(manifest)
 
     return manifest
+
+
+def _parse_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected YYYY-MM-DD") from exc
+
+
+def parse_args(argv: list[str] | None = None) -> RedriveConfig:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--archive-path", type=Path, required=True)
+    parser.add_argument("--archive-query-namespace", required=True)
+    parser.add_argument("--operation-id", required=True)
+    # Named for the axis they actually select: the dead-letter partition is kafka_timestamp,
+    # so these are ingestion dates, unlike replay's event-time bounds.
+    parser.add_argument("--start-ingest-date", type=_parse_date, required=True)
+    parser.add_argument("--end-ingest-date", type=_parse_date, required=True)
+    parser.add_argument("--max-rows", type=int, required=True)
+    parser.add_argument("--override-limit", action="store_true")
+    parser.add_argument("--records-per-second", type=float, required=True)
+    parser.add_argument("--bootstrap-servers", required=True)
+    parser.add_argument("--manifest-dir", type=Path)
+    args = parser.parse_args(argv)
+    return RedriveConfig(
+        archive_path=args.archive_path,
+        archive_query_namespace=args.archive_query_namespace,
+        operation_id=args.operation_id,
+        start_ingest_date=args.start_ingest_date,
+        end_ingest_date=args.end_ingest_date,
+        max_rows=args.max_rows,
+        override_limit=args.override_limit,
+        records_per_second=args.records_per_second,
+        bootstrap_servers=args.bootstrap_servers,
+        manifest_dir=args.manifest_dir,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    config = parse_args(argv)
+    manifest = run_redrive(config)
+    breakdown = (
+        ", ".join(
+            f"{code}={count}"
+            for code, count in sorted(manifest.skipped_by_error_code.items())
+        )
+        or "none"
+    )
+    print(
+        f"redrive {manifest.status}: selected {manifest.selected_rows}, "
+        f"published {manifest.published_rows}, skipped {manifest.skipped_rows} "
+        f"-> {manifest.target_topic}"
+    )
+    print(f"skipped by error code: {breakdown}")
+    print(f"manifest: {manifest.path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

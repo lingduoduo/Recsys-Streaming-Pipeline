@@ -516,3 +516,115 @@ def test_manifest_is_written_under_the_dead_letter_root(tmp_path: Path) -> None:
 
     assert manifest.path == tmp_path / "_redrive_manifests" / "op-1.json"
     assert manifest.path.is_file()
+
+
+BASE_ARGV = [
+    "--archive-path", "/data/dead-letter",
+    "--archive-query-namespace", "abc123",
+    "--operation-id", "op-1",
+    "--start-ingest-date", "2024-06-15",
+    "--end-ingest-date", "2024-06-16",
+    "--max-rows", "1000",
+    "--records-per-second", "500",
+    "--bootstrap-servers", "kafka:9092",
+]
+
+
+def test_parse_args_builds_a_config_from_the_required_flags() -> None:
+    parsed = dead_letter_redrive.parse_args(BASE_ARGV)
+
+    assert parsed.archive_path == Path("/data/dead-letter")
+    assert parsed.archive_query_namespace == "abc123"
+    assert parsed.operation_id == "op-1"
+    assert parsed.start_ingest_date == date(2024, 6, 15)
+    assert parsed.end_ingest_date == date(2024, 6, 16)
+    assert parsed.max_rows == 1000
+    assert parsed.records_per_second == 500.0
+    assert parsed.override_limit is False
+    assert parsed.manifest_dir is None
+
+
+@pytest.mark.parametrize("flag", [
+    "--archive-path", "--archive-query-namespace", "--operation-id",
+    "--start-ingest-date", "--end-ingest-date", "--max-rows",
+    "--records-per-second", "--bootstrap-servers",
+])
+def test_parse_args_requires_every_bound_and_identity(flag: str) -> None:
+    index = BASE_ARGV.index(flag)
+    argv = BASE_ARGV[:index] + BASE_ARGV[index + 2 :]
+
+    with pytest.raises(SystemExit):
+        dead_letter_redrive.parse_args(argv)
+
+
+def test_parse_args_rejects_a_target_topic_flag() -> None:
+    with pytest.raises(SystemExit):
+        dead_letter_redrive.parse_args(BASE_ARGV + ["--target-topic", "recsys_events"])
+
+
+def test_parse_args_accepts_optional_override_and_manifest_dir() -> None:
+    parsed = dead_letter_redrive.parse_args(
+        BASE_ARGV + ["--override-limit", "--manifest-dir", "/tmp/manifests"]
+    )
+
+    assert parsed.override_limit is True
+    assert parsed.manifest_dir == Path("/tmp/manifests")
+
+
+def test_parse_args_rejects_a_malformed_ingest_date() -> None:
+    index = BASE_ARGV.index("--start-ingest-date")
+    argv = BASE_ARGV[:index + 1] + ["15-06-2024"] + BASE_ARGV[index + 2 :]
+
+    with pytest.raises(SystemExit):
+        dead_letter_redrive.parse_args(argv)
+
+
+def test_main_reports_counts_and_the_manifest_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    write_dead_letter_archive(
+        tmp_path,
+        [
+            dead_letter(raw_value=encoded(event_id="e-1")),
+            dead_letter(raw_value=b"not-avro", error_code="invalid_marker", kafka_offset=43),
+        ],
+    )
+    monkeypatch.setattr(
+        dead_letter_redrive, "_make_kafka_producer", lambda _config: FakeProducer()
+    )
+
+    exit_code = dead_letter_redrive.main([
+        "--archive-path", str(tmp_path),
+        "--archive-query-namespace", ARCHIVE_QUERY_NAMESPACE,
+        "--operation-id", "op-1",
+        "--start-ingest-date", "2024-06-15",
+        "--end-ingest-date", "2024-06-16",
+        "--max-rows", "1000",
+        "--records-per-second", "1000",
+        "--bootstrap-servers", "kafka:9092",
+        "--manifest-dir", str(tmp_path / "_redrive_manifests"),
+    ])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "published 1" in output
+    assert "skipped 1" in output
+    assert "invalid_marker" in output
+    assert "op-1.json" in output
+
+
+def test_wrapper_script_requires_every_bound() -> None:
+    script = (Path(__file__).resolve().parents[2] / "scripts/run-dead-letter-redrive.sh")
+    contents = script.read_text(encoding="utf-8")
+
+    for variable in [
+        "REDRIVE_ARCHIVE_PATH",
+        "REDRIVE_ARCHIVE_QUERY_NAMESPACE",
+        "REDRIVE_OPERATION_ID",
+        "REDRIVE_START_INGEST_DATE",
+        "REDRIVE_END_INGEST_DATE",
+        "REDRIVE_MAX_ROWS",
+        "REDRIVE_RECORDS_PER_SECOND",
+    ]:
+        assert f"require_env {variable}" in contents
+    assert "set -euo pipefail" in contents
