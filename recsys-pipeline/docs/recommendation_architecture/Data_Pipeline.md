@@ -571,7 +571,40 @@ Environment variables:
 | `ONLINE_JOINER_INPUT_TOPIC` | `recsys_events` |
 | `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
+| `ONLINE_JOINER_CATALOG_PATH` | *(empty — enrichment disabled)* |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/online-joiner` |
+
+#### Catalog enrichment and its refresh semantics
+
+Setting `ONLINE_JOINER_CATALOG_PATH` to an object-map JSON file (`{itemId: {genres: [...], tags:
+[...]}}`) attaches `genres` and `tags` to each sample by `item_id`. Unmatched items get empty arrays,
+so the Parquet schema is identical with or without a catalog.
+
+Enrichment applies to the **Parquet sink only**. The Kafka `training_samples` schema has no
+`genres`/`tags` fields, so downstream Kafka consumers never see them. This is deliberate: the tags
+are an offline-training signal.
+
+The catalog DataFrame is built once, before the stream starts, and is never cached — so
+`foreachBatch` re-scans it every micro-batch. What that observes depends on the shape of the path,
+and the two cases behave oppositely:
+
+| Path shape | Change made while the job runs | Observed? |
+|---|---|---|
+| A single file | Rewritten in place | **Yes**, from the next micro-batch |
+| A directory | A file added or removed | **No**, the listing is fixed at startup |
+
+Two consequences for operators:
+
+- **Editing a live catalog file changes enrichment mid-run, and the write is not atomic.** A batch
+  can read a partially written file. `from_json` returns null for unparseable input rather than
+  failing, so the catalog silently empties and that batch's samples are written with empty
+  `genres`/`tags` — indistinguishable in Parquet from legitimately untagged items. To change a
+  catalog safely, write a new file and repoint `ONLINE_JOINER_CATALOG_PATH` with a restart, or
+  write atomically (write-temp-then-rename on the same filesystem).
+- **A directory path is effectively frozen at startup.** Adding a shard has no effect until the job
+  restarts.
+
+`CatalogRefreshSemanticsSpec` pins both behaviours so a Spark upgrade cannot change them silently.
 
 Confirm that the Parquet sink created training-sample files:
 
