@@ -215,3 +215,66 @@ def test_behavior_slate_has_unified_schema():
         assert "timestamp_ms" in event
         assert isinstance(event["timestamp_ms"], int)
         assert event["timestamp_ms"] > 1_000_000_000_000
+
+
+class _NoOpFuture:
+    def add_errback(self, callback):
+        return self
+
+
+class _RecordingProducer:
+    """Stands in for KafkaProducer: records every value passed to send(), no network."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, topic, value=None, key=None):
+        self.sent.append(value)
+        return _NoOpFuture()
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_max_events_drains_pending_feedback_before_returning(monkeypatch):
+    """Regression test for the MAX_EVENTS early return stranding scheduled feedback.
+
+    Runs producer.py's real main() in behavior mode with MAX_EVENTS set to the slate's
+    impression count, so the cap is hit right after the first slate's impressions are sent —
+    while that slate's click and order are still sitting in the schedule, not yet due. Before
+    the fix, main() returned immediately at that point and the click/order were never sent.
+    """
+    monkeypatch.setenv("PRODUCER_MODE", "behavior")
+    monkeypatch.setenv("NUM_USERS", "1")
+    monkeypatch.setenv("NUM_ITEMS", "5")
+    monkeypatch.setenv("SLATE_SIZE", "3")
+    monkeypatch.setenv("MAX_EVENTS", "3")
+    monkeypatch.setenv("EVENTS_PER_SECOND", "1000")
+    monkeypatch.setenv("LOG_EVERY", "1000")
+
+    mod = load_producer_module()
+
+    # Force a click and an order every slate, with the smallest possible encoded delay, so the
+    # drain loop's real time.sleep calls stay well under a second.
+    monkeypatch.setattr(mod.random, "random", lambda: 0.0)
+    monkeypatch.setattr(mod.random, "randint", lambda a, b: a)
+
+    # Compress FeedbackSchedule's real-time delay so the drain finishes fast, without depending
+    # on the FEEDBACK_DELAY_SCALE-derived module constant (already fixed at whatever value
+    # feedback_schedule.py first loaded with, elsewhere in the suite).
+    real_feedback_schedule = mod.FeedbackSchedule
+    monkeypatch.setattr(mod, "FeedbackSchedule", lambda: real_feedback_schedule(scale=0.01))
+
+    recorder = _RecordingProducer()
+    monkeypatch.setattr(mod, "make_producer", lambda: recorder)
+
+    mod.main()
+
+    sent_types = [event["event_type"] for event in recorder.sent]
+    assert sent_types.count("impression") == 3
+    assert "click" in sent_types, "deferred click was left unsent when MAX_EVENTS returned early"
+    assert "order" in sent_types, "deferred order was left unsent when MAX_EVENTS returned early"
+    assert len(recorder.sent) == 5, "nothing scheduled should be left behind"
