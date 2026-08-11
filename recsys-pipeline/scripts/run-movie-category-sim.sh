@@ -72,8 +72,11 @@ drain() {  # $1=label $2=probe $3=target $4=min_wait
   done
 }
 
-# Never `kill 0` — that signals the whole process group. Guard each pid.
-trap 'for p in "${CTX_PID:-}" "${OJ_PID:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done' EXIT
+# Never `kill 0` — that signals the whole process group. Guard each pid. Every *_PID
+# variable the script assigns must be listed here, for as long as any one of them can
+# be running (CTX/OJ concurrently, then POP, then EXP) — an early exit orphans the
+# backgrounded Spark process behind whichever pid this trap forgets to guard.
+trap 'for p in "${CTX_PID:-}" "${OJ_PID:-}" "${POP_PID:-}" "${EXP_PID:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done' EXIT
 
 redis_cli() { docker compose exec -T redis redis-cli "$@"; }
 

@@ -1,5 +1,6 @@
 import contextlib
 import os
+import re
 import shutil
 import socket
 import stat
@@ -496,3 +497,20 @@ def test_sim_drain_waits_out_the_feedback_tail(sim: str) -> None:
 
     assert "FEEDBACK_TAIL_SECONDS" in script
     assert "min_wait" in script
+
+
+@pytest.mark.parametrize("sim", SIMS)
+def test_sim_exit_trap_covers_every_job_pid(sim: str) -> None:
+    """A pid variable missing from the EXIT trap leaves that job's Spark process unreaped
+    on Ctrl-C or an early `set -e` exit while it is running."""
+    script = (SCRIPTS_DIR / sim).read_text(encoding="utf-8")
+
+    pid_vars = set(re.findall(r'^(\w+_PID)="\$LAST_JOB_PID"', script, re.MULTILINE))
+    assert pid_vars, "expected at least one *_PID variable capturing LAST_JOB_PID"
+
+    trap_match = re.search(r"trap '([^']*)' EXIT", script)
+    assert trap_match, "expected a single-quoted EXIT trap guarding job pids"
+    job_trap = trap_match.group(1)
+
+    missing = {v for v in pid_vars if f'"${{{v}:-}}"' not in job_trap}
+    assert not missing, f"EXIT trap does not guard: {sorted(missing)}"
