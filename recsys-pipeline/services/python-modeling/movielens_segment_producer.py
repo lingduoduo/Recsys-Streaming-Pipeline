@@ -26,6 +26,7 @@ import uuid
 
 from producer import make_producer
 from feature_derivations import derive_age_band, derive_geo
+from feedback_schedule import FeedbackSchedule, split_slate
 
 RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")
@@ -182,6 +183,7 @@ def main() -> None:
                 sent += 1
         # Behavior is grouped into sessions: one user + a fresh session_id spanning K slates,
         # so the session report sees slates/session > 1.
+        schedule = FeedbackSchedule()
         slates = 0
         while slates < NUM_SLATES:
             user = rng.choice(users)
@@ -189,12 +191,25 @@ def main() -> None:
             for _ in range(rng.randint(1, SESSION_MAX_SLATES)):
                 if slates >= NUM_SLATES:
                     break
-                for event in make_slate(user, demo[user], items, rng, session_id):
+                immediate, deferred = split_slate(make_slate(user, demo[user], items, rng, session_id))
+                for event in immediate:
+                    producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
+                    sent += 1
+                for delay, event in deferred:
+                    schedule.schedule(delay, event)
+                for event in schedule.due():
                     producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
                     sent += 1
                 slates += 1
                 if slates % 2000 == 0:
                     print(f"  {slates}/{NUM_SLATES} slates, {sent} events", flush=True)
+        while schedule.pending():
+            wait = schedule.next_due_in()
+            if wait:
+                time.sleep(min(wait, 1.0))
+            for event in schedule.due():
+                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
+                sent += 1
     finally:
         producer.flush()
         producer.close()

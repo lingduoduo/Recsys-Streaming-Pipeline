@@ -87,3 +87,34 @@ def test_scale_compresses_delays():
 def test_non_positive_scale_is_rejected():
     with pytest.raises(ValueError, match="FEEDBACK_DELAY_SCALE"):
         FeedbackSchedule(scale=0.0)
+
+
+def test_producer_emission_pattern_sends_impressions_before_feedback():
+    """The pattern each producer main loop follows: immediate now, deferred when due."""
+    clock = FakeClock()
+    schedule = FeedbackSchedule(clock=clock)
+    sent: list[str] = []
+
+    slate = [
+        event("impression", 1_000_000),
+        event("click", 1_005_000),
+        event("order", 1_030_000),
+    ]
+    immediate, deferred = split_slate(slate)
+    for pending in immediate:
+        sent.append(pending["event_type"])
+    for delay, pending in deferred:
+        schedule.schedule(delay, pending)
+    for pending in schedule.due():
+        sent.append(pending["event_type"])
+
+    assert sent == ["impression"]
+
+    clock.now = 5.0
+    sent.extend(e["event_type"] for e in schedule.due())
+    assert sent == ["impression", "click"]
+
+    clock.now = 30.0
+    sent.extend(e["event_type"] for e in schedule.due())
+    assert sent == ["impression", "click", "order"]
+    assert schedule.pending() == 0

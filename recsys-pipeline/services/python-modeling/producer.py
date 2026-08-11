@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Mapping
 
 from event_avro import encode_event
+from feedback_schedule import FeedbackSchedule, split_slate
 
 try:
     from kafka import KafkaProducer
@@ -140,6 +141,7 @@ def main():
     items = [f"movie_{i}" for i in range(1, NUM_ITEMS + 1)]
     interval = 1.0 / EVENTS_PER_SECOND
     sent = 0
+    schedule = FeedbackSchedule()
 
     try:
         while True:
@@ -150,7 +152,10 @@ def main():
             else:
                 events = [make_click_event(users, items)]
 
-            for event in events:
+            immediate, deferred = split_slate(events)
+            for delay, pending in deferred:
+                schedule.schedule(delay, pending)
+            for event in immediate + schedule.due():
                 key = event.get("request_id") or event["user_id"]
                 producer.send(TOPIC, value=event, key=key).add_errback(report_delivery_error)
                 sent += 1
