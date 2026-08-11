@@ -463,3 +463,12 @@ def test_archive_replay_script_passes_exact_operator_bounds(tmp_path: Path) -> N
         "--bootstrap-servers", "broker:9092",
         "--manifest-dir", "/data/manifests",
     ]
+
+
+def test_engagement_sim_bounds_its_report_to_the_backfill_window() -> None:
+    """The report defaults to 30 days, so a longer backfill would be silently truncated."""
+    script = (SCRIPTS_DIR / "run-engagement-sim.sh").read_text(encoding="utf-8")
+
+    assert "ENGAGEMENT_REPORT_LOOKBACK_DAYS=$BACKFILL_DAYS" in script
+    # Hoisted out of the producer invocation, or it would be unset by the time it is printed.
+    assert 'BACKFILL_DAYS="${BACKFILL_DAYS:-21}"\n' in script
