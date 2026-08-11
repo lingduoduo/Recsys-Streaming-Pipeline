@@ -32,9 +32,11 @@ object QueryAnalysisReportJob {
       .getOrElse(s"$input/../report-queries")
     val top = math.max(1, Env.int("QUERY_ANALYSIS_TOP", 20))
 
+    val lookbackDays = Env.int("QUERY_ANALYSIS_LOOKBACK_DAYS", 30)
+
     val spark = SparkSessions.create("QueryAnalysisReportJob")
     try {
-      val df = withQuery(ensureGenres(spark.read.parquet(input))).cache()
+      val df = withQuery(ensureGenres(ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays))).cache()
 
       def emit(name: String, frame: DataFrame, n: Int): Unit = {
         println(s"=== $name ===")

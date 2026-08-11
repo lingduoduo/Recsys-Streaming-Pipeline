@@ -42,9 +42,11 @@ object KeywordAnalysisReportJob {
       .getOrElse(s"$input/../report-keywords")
     val top = math.max(1, Env.int("KEYWORD_ANALYSIS_TOP", 10))
 
+    val lookbackDays = Env.int("KEYWORD_ANALYSIS_LOOKBACK_DAYS", 30)
+
     val spark = SparkSessions.create("KeywordAnalysisReportJob")
     try {
-      val df = withKeywordsAndCategories(ensureMeta(spark.read.parquet(input))).cache()
+      val df = withKeywordsAndCategories(ensureMeta(ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays))).cache()
 
       def emit(name: String, frame: DataFrame): Unit = {
         println(s"=== $name ===")

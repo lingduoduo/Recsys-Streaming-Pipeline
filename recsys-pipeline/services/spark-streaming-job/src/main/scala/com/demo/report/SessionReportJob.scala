@@ -43,9 +43,11 @@ object SessionReportJob {
     val outdir = Env.argOrEnv(args, 1, "SESSION_REPORT_OUTPUT_PATH")
       .getOrElse(s"$input/../report-sessions")
 
+    val lookbackDays = Env.int("SESSION_REPORT_LOOKBACK_DAYS", 30)
+
     val spark = SparkSessions.create("SessionReportJob")
     try {
-      val df = spark.read.parquet(input).cache()
+      val df = ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays).cache()
       val sessions = perSession(df).cache()
 
       println("=== session-level engagement summary ===")

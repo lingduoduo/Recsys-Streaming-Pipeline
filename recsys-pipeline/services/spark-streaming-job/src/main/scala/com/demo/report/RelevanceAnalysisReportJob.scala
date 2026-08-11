@@ -32,9 +32,11 @@ object RelevanceAnalysisReportJob {
       .getOrElse(s"$input/../report-relevance")
     val top = math.max(1, Env.int("RELEVANCE_ANALYSIS_TOP", 20))
 
+    val lookbackDays = Env.int("RELEVANCE_ANALYSIS_LOOKBACK_DAYS", 30)
+
     val spark = SparkSessions.create("RelevanceAnalysisReportJob")
     try {
-      val df = withRelevance(ensureGenres(spark.read.parquet(input))).cache()
+      val df = withRelevance(ensureGenres(ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays))).cache()
 
       def emit(name: String, frame: DataFrame, n: Int): Unit = {
         println(s"=== $name ===")
