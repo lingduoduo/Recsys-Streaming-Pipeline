@@ -563,6 +563,24 @@ For each micro-batch, it:
 5. Writes samples to Kafka for online model updates.
 6. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
 
+#### Feedback that arrives in a later micro-batch is dropped
+
+Step 2 drops groups with no impression in the current batch. A click or order whose impression fell
+in an earlier batch therefore has nowhere to join, and is discarded — the earlier batch already
+published that impression with `clicked = 0`, `label = 0.0`, and nothing restates it. There is no
+compensating path: no stream-stream join and no reprocessing. `EVENT_WATERMARK_DELAY` governs
+deduplication only, not join buffering.
+
+Labels are therefore correct only for feedback landing in the same micro-batch as its impression.
+With the default 10-second trigger and the producers' own model of user behaviour — clicks 1–20s
+after impression, orders 21–120s — production traffic would cross that boundary regularly.
+`OnlineJoinerStreamingJobSpec` pins this behaviour so it stays a deliberate choice.
+
+Fixing it means buffering impressions across batches until a feedback deadline. Spark's stateful
+operators are unavailable where this join runs — the Avro `ExecutionEngine.run` overload applies its
+stages inside `foreachBatch`, on a static per-batch DataFrame — so a fix would need a durable
+pending-impression store in the style of `RawArchiveSink.deduplicateValid`.
+
 Environment variables:
 
 | Env var | Default |
