@@ -69,7 +69,9 @@ if [[ ! -f services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar ]
 fi
 
 echo "==> backfilling synthetic engagement events"
-BACKFILL_DAYS="${BACKFILL_DAYS:-21}" SLATES_PER_HOUR="${SLATES_PER_HOUR:-12}" \
+# Hoisted so the report command printed at the end can bound itself to the same window.
+BACKFILL_DAYS="${BACKFILL_DAYS:-21}"
+BACKFILL_DAYS="$BACKFILL_DAYS" SLATES_PER_HOUR="${SLATES_PER_HOUR:-12}" \
   python services/python-modeling/backfill_producer.py
 
 # Phase A — Kafka → Parquet (the time-series store)
@@ -94,5 +96,7 @@ redis_cli ZREVRANGE global:item_popularity 0 9 WITHSCORES | paste - - | sed 's/^
 parts="$(find "$OUT_DIR" -maxdepth 1 -type d -name 'date=*' 2>/dev/null | wc -l | tr -d ' ' || true)"
 echo
 echo "==> done. $parts date partitions under $OUT_DIR; Redis populated with $zcard items."
-echo "    report:  SPARK_MAIN_CLASS=com.demo.report.EngagementReportJob ENGAGEMENT_REPORT_INPUT_PATH=$OUT_DIR ./scripts/run-streaming-job.sh"
+# EngagementReportJob defaults to a 30-day window, so a backfill longer than that would be
+# silently truncated in the report. Bound the report to whatever this run actually produced.
+echo "    report:  SPARK_MAIN_CLASS=com.demo.report.EngagementReportJob ENGAGEMENT_REPORT_INPUT_PATH=$OUT_DIR ENGAGEMENT_REPORT_LOOKBACK_DAYS=$BACKFILL_DAYS ./scripts/run-streaming-job.sh"
 echo "    stop:    docker compose down"
