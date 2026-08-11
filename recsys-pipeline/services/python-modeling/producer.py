@@ -163,6 +163,16 @@ def main():
                     print(f"sent {sent} events, last: {event}", flush=True)
                 if MAX_EVENTS and sent >= MAX_EVENTS:
                     print(f"reached MAX_EVENTS={MAX_EVENTS}; stopping", flush=True)
+                    while schedule.pending():
+                        wait = schedule.next_due_in()
+                        if wait:
+                            time.sleep(min(wait, 1.0))
+                        for pending_event in schedule.due():
+                            key = pending_event.get("request_id") or pending_event["user_id"]
+                            producer.send(TOPIC, value=pending_event, key=key).add_errback(
+                                report_delivery_error
+                            )
+                            sent += 1
                     return
 
             elapsed = time.monotonic() - tick
