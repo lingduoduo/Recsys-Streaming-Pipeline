@@ -472,3 +472,27 @@ def test_engagement_sim_bounds_its_report_to_the_backfill_window() -> None:
     assert "ENGAGEMENT_REPORT_LOOKBACK_DAYS=$BACKFILL_DAYS" in script
     # Hoisted out of the producer invocation, or it would be unset by the time it is printed.
     assert 'BACKFILL_DAYS="${BACKFILL_DAYS:-21}"\n' in script
+
+
+SIMS = ["run-movielens-segment-sim.sh", "run-movie-category-sim.sh"]
+
+
+@pytest.mark.parametrize("sim", SIMS)
+def test_sim_starts_jobs_before_producing(sim: str) -> None:
+    """A job started after the producer reads the whole backlog in one micro-batch."""
+    script = (SCRIPTS_DIR / sim).read_text(encoding="utf-8")
+
+    assert "start_job " in script
+    assert "stop_job " in script
+    first_start = script.index("start_job ")
+    first_produce = script.index("python services/python-modeling/")
+    assert first_start < first_produce, "jobs must be running before events are produced"
+
+
+@pytest.mark.parametrize("sim", SIMS)
+def test_sim_drain_waits_out_the_feedback_tail(sim: str) -> None:
+    """Stability alone declares completion in ~18s, well before a 120s order arrives."""
+    script = (SCRIPTS_DIR / sim).read_text(encoding="utf-8")
+
+    assert "FEEDBACK_TAIL_SECONDS" in script
+    assert "min_wait" in script

@@ -18,17 +18,40 @@ CONTEXT_TOPIC="movielens_context_${RUN_ID}"
 NUM_USERS="${NUM_USERS:-800}"
 NUM_SLATES="${NUM_SLATES:-20000}"
 
-# Drain by waiting until a probe reaches `target` (>0), or — when target=0 — until it is >0 and
-# unchanged for 3 reads. The target form is needed for the collector: it writes ~NUM_USERS keys
-# in one batch, but startup + per-user Redis round-trips create gaps that a "stable" check would
-# mistake for completion (killing it after only a handful of keys).
-drain() {  # $1=label  $2=probe(echoes an int)  $3=target(0=stable)
-  local label="$1" probe="$2" target="$3" prev=-1 stable=0 waited=0 count
+FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-150}"
+
+# macOS ships bash 3.2, which has no associative arrays: `declare -A` fails and every
+# key silently collapses to index 0, so a pid map would return the wrong process.
+# Each caller keeps its own pid variable instead.
+start_job() {  # $1=class $2=ckpt $3=label ; remaining: K=V env ; sets LAST_JOB_PID
+  local cls="$1" ckpt="$2" label="$3"; shift 3
+  echo "==> starting $cls"
+  env "$@" SPARK_MAIN_CLASS="$cls" SPARK_CHECKPOINT_LOCATION="$SIM_ROOT/$ckpt" \
+    KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
+    MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
+    TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
+    ./scripts/run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
+  LAST_JOB_PID=$!
+}
+
+stop_job() {  # $1=pid
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || return 0
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+# $4=min_wait: a floor before stability may end the drain. Feedback arrives up to
+# FEEDBACK_TAIL_SECONDS after its impression, and stability alone would end the drain
+# after three unchanged six-second reads — long before the last order lands.
+drain() {  # $1=label $2=probe $3=target $4=min_wait
+  local label="$1" probe="$2" target="$3" min_wait="${4:-0}" prev=-1 stable=0 waited=0 count
   while (( waited < DRAIN_TIMEOUT )); do
     sleep 6; waited=$((waited + 6))
     count="$(eval "$probe" 2>/dev/null | tr -d ' \r' || true)"; count="${count:-0}"
     [[ "$count" =~ ^[0-9]+$ ]] || count=0
     echo "   [$label] t=${waited}s count=$count${target:+/$target}"
+    if (( waited < min_wait )); then prev="$count"; continue; fi
     if (( target > 0 )); then
       (( count >= target )) && break
     elif (( count > 0 && count == prev )); then
@@ -40,19 +63,8 @@ drain() {  # $1=label  $2=probe(echoes an int)  $3=target(0=stable)
   done
 }
 
-run_and_drain() {  # $1=class $2=ckpt $3=label $4=probe $5=target ; remaining: K=V env
-  local cls="$1" ckpt="$2" label="$3" probe="$4" target="$5"; shift 5
-  echo "==> running $cls"
-  env "$@" SPARK_MAIN_CLASS="$cls" SPARK_CHECKPOINT_LOCATION="$SIM_ROOT/$ckpt" \
-    KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
-    MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
-    TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
-    ./scripts/run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
-  local pid=$!
-  trap 'kill "$pid" 2>/dev/null || true' EXIT
-  drain "$label" "$probe" "$target"
-  kill "$pid" 2>/dev/null || true; trap - EXIT; wait "$pid" 2>/dev/null || true
-}
+# Never `kill 0` — that signals the whole process group. Guard each pid.
+trap 'for p in "${CTX_PID:-}" "${OJ_PID:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done' EXIT
 
 redis_cli() { docker compose exec -T redis redis-cli "$@"; }
 
@@ -73,19 +85,22 @@ docker compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 echo "==> building Spark job jar (picks up the collector offset change)"
 (cd services/spark-streaming-job && sbt -error assembly)
 
+start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
+  "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
+CTX_PID="$LAST_JOB_PID"
+start_job com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
+  "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC"
+OJ_PID="$LAST_JOB_PID"
+
 echo "==> producing demographics ($CONTEXT_TOPIC) + behavior ($RECSYS_TOPIC)"
 NUM_USERS="$NUM_USERS" NUM_SLATES="$NUM_SLATES" \
 RECSYS_TOPIC="$RECSYS_TOPIC" MOVIELENS_CONTEXT_TOPIC="$CONTEXT_TOPIC" \
   python services/python-modeling/movielens_segment_producer.py
 
-# Demographics → Redis user:{id}:features  (wait until all NUM_USERS keys are written)
-run_and_drain com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
-  "redis_cli --scan --pattern 'user:*:features' | wc -l" "$NUM_USERS" \
-  "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
-# Engagement → Parquet (stable file count)
-run_and_drain com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
-  "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 \
-  "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC"
+drain redis "redis_cli --scan --pattern 'user:*:features' | wc -l" "$NUM_USERS" 0
+stop_job "$CTX_PID"; CTX_PID=""
+drain parquet "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 "$FEEDBACK_TAIL_SECONDS"
+stop_job "$OJ_PID"; OJ_PID=""
 
 echo
 echo "==> SEGMENT REPORT (Parquet engagement ⨝ Redis demographics)"

@@ -29,15 +29,40 @@ ITEM_EMB_FILE="$SIM_ROOT/item-embedding.txt"
 USER_EMB_OUT="$SIM_ROOT/user-embedding"
 QUERY_ITEM="${ITEM2VEC_QUERY_ITEM:-movie_1}"
 
-# Drain until a probe reaches `target` (>0), or — when target=0 — until it is >0 and unchanged for
-# 3 reads. Target form is needed for the collector (writes ~NUM_ITEMS keys in one batch with gaps).
-drain() {  # $1=label $2=probe $3=target(0=stable)
-  local label="$1" probe="$2" target="$3" prev=-1 stable=0 waited=0 count
+FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-150}"
+
+# macOS ships bash 3.2, which has no associative arrays: `declare -A` fails and every
+# key silently collapses to index 0, so a pid map would return the wrong process.
+# Each caller keeps its own pid variable instead.
+start_job() {  # $1=class $2=ckpt $3=label ; remaining: K=V env ; sets LAST_JOB_PID
+  local cls="$1" ckpt="$2" label="$3"; shift 3
+  echo "==> starting $cls"
+  env "$@" SPARK_MAIN_CLASS="$cls" SPARK_CHECKPOINT_LOCATION="$SIM_ROOT/$ckpt" \
+    KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
+    MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
+    TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
+    ./scripts/run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
+  LAST_JOB_PID=$!
+}
+
+stop_job() {  # $1=pid
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || return 0
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+# $4=min_wait: a floor before stability may end the drain. Feedback arrives up to
+# FEEDBACK_TAIL_SECONDS after its impression, and stability alone would end the drain
+# after three unchanged six-second reads — long before the last order lands.
+drain() {  # $1=label $2=probe $3=target $4=min_wait
+  local label="$1" probe="$2" target="$3" min_wait="${4:-0}" prev=-1 stable=0 waited=0 count
   while (( waited < DRAIN_TIMEOUT )); do
     sleep 6; waited=$((waited + 6))
     count="$(eval "$probe" 2>/dev/null | tr -d ' \r' || true)"; count="${count:-0}"
     [[ "$count" =~ ^[0-9]+$ ]] || count=0
     echo "   [$label] t=${waited}s count=$count${target:+/$target}"
+    if (( waited < min_wait )); then prev="$count"; continue; fi
     if (( target > 0 )); then
       (( count >= target )) && break
     elif (( count > 0 && count == prev )); then
@@ -47,19 +72,8 @@ drain() {  # $1=label $2=probe $3=target(0=stable)
   done
 }
 
-run_and_drain() {  # $1=class $2=ckpt $3=label $4=probe $5=target ; remaining: K=V env
-  local cls="$1" ckpt="$2" label="$3" probe="$4" target="$5"; shift 5
-  echo "==> running $cls"
-  env "$@" SPARK_MAIN_CLASS="$cls" SPARK_CHECKPOINT_LOCATION="$SIM_ROOT/$ckpt" \
-    KAFKA_STARTING_OFFSETS=earliest EVENT_WATERMARK_DELAY="3650 days" \
-    MAX_OFFSETS_PER_TRIGGER="${MAX_OFFSETS_PER_TRIGGER:-1000000}" \
-    TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-2 seconds}" \
-    ./scripts/run-streaming-job.sh >"$SIM_ROOT/${label}.log" 2>&1 &
-  local pid=$!
-  trap 'kill "$pid" 2>/dev/null || true' EXIT
-  drain "$label" "$probe" "$target"
-  kill "$pid" 2>/dev/null || true; trap - EXIT; wait "$pid" 2>/dev/null || true
-}
+# Never `kill 0` — that signals the whole process group. Guard each pid.
+trap 'for p in "${CTX_PID:-}" "${OJ_PID:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done' EXIT
 
 redis_cli() { docker compose exec -T redis redis-cli "$@"; }
 
@@ -79,6 +93,14 @@ docker compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 echo "==> building Spark job jar"
 (cd services/spark-streaming-job && sbt -error assembly)
 
+start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
+  "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
+CTX_PID="$LAST_JOB_PID"
+start_job com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
+  "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC" \
+  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC"
+OJ_PID="$LAST_JOB_PID"
+
 echo "==> producing movie metadata ($CONTEXT_TOPIC) + behavior ($RECSYS_TOPIC)"
 NUM_ITEMS="$NUM_ITEMS" NUM_SLATES="$NUM_SLATES" \
 RECSYS_TOPIC="$RECSYS_TOPIC" MOVIELENS_CONTEXT_TOPIC="$CONTEXT_TOPIC" \
@@ -86,26 +108,28 @@ RATINGS_OUTPUT_PATH="$RATINGS_CSV" \
   python services/python-modeling/movie_segment_producer.py
 
 # Movie metadata → Redis movie:{id}:features  (wait until all NUM_ITEMS keys are written)
-run_and_drain com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
-  "redis_cli --scan --pattern 'movie:*:features' | wc -l" "$NUM_ITEMS" \
-  "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
-# Engagement → Parquet (stable file count)
-run_and_drain com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
-  "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 \
-  "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC" \
-  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC"
+drain redis "redis_cli --scan --pattern 'movie:*:features' | wc -l" "$NUM_ITEMS" 0
+stop_job "$CTX_PID"; CTX_PID=""
+# Engagement → Parquet (stable file count, held open until the feedback tail lands)
+drain parquet "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 "$FEEDBACK_TAIL_SECONDS"
+stop_job "$OJ_PID"; OJ_PID=""
+
 # Clicks → Redis global:item_popularity  (ranking popularity signal; stable member count)
-run_and_drain com.demo.task.UserEventStreamingJob pop-ckpt popularity \
-  "redis_cli ZCARD global:item_popularity" 0 \
+start_job com.demo.task.UserEventStreamingJob pop-ckpt popularity \
   "KAFKA_TOPIC=$RECSYS_TOPIC"
+POP_PID="$LAST_JOB_PID"
+drain popularity "redis_cli ZCARD global:item_popularity" 0 0
+stop_job "$POP_PID"; POP_PID=""
 
 echo
 echo "==> SLATE EXPERIENCES (training_samples → slate Parquet for relevance/diversity)"
-run_and_drain com.demo.process.ExperienceCollectorStreamingJob exp-ckpt slates \
-  "find \"$SLATE_DIR\" -name '*.parquet' | wc -l" 0 \
+start_job com.demo.process.ExperienceCollectorStreamingJob exp-ckpt slates \
   "EXPERIENCE_COLLECTOR_OUTPUT_PATH=$SLATE_DIR" \
   "EXPERIENCE_COLLECTOR_INPUT_TOPIC=$SAMPLES_TOPIC" \
   "EXPERIENCE_COLLECTOR_OUTPUT_TOPIC=$SLATES_TOPIC"
+EXP_PID="$LAST_JOB_PID"
+drain slates "find \"$SLATE_DIR\" -name '*.parquet' | wc -l" 0 0
+stop_job "$EXP_PID"; EXP_PID=""
 
 echo
 echo "==> CATEGORY REPORT (Parquet engagement ⨝ Redis movie categories)"
