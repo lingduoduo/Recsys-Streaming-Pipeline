@@ -18,7 +18,13 @@ CONTEXT_TOPIC="movielens_context_${RUN_ID}"
 NUM_USERS="${NUM_USERS:-800}"
 NUM_SLATES="${NUM_SLATES:-20000}"
 
-FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-150}"
+# The floor moves with FEEDBACK_DELAY_SCALE (default 150s * scale, minimum 10s) so compressing
+# the producer's feedback tail via FEEDBACK_DELAY_SCALE also compresses how long the drain
+# blocks for it — bash has no floating-point arithmetic, hence awk. An explicit
+# FEEDBACK_TAIL_SECONDS still overrides this default.
+FEEDBACK_DELAY_SCALE="${FEEDBACK_DELAY_SCALE:-1.0}"
+FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
+  'BEGIN { v = 150 * scale; if (v < 10) v = 10; printf "%d", v }')}"
 
 # macOS ships bash 3.2, which has no associative arrays: `declare -A` fails and every
 # key silently collapses to index 0, so a pid map would return the wrong process.
@@ -85,6 +91,12 @@ docker compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 echo "==> building Spark job jar (picks up the collector offset change)"
 (cd services/spark-streaming-job && sbt -error assembly)
 
+# Hazard: these jobs now start before the producer sends anything, using per-run topics
+# ($RECSYS_TOPIC / $CONTEXT_TOPIC) not in the checked-in catalog. run-streaming-job.sh's
+# topic-provisioning guard only runs for UserEventStreamingJob, and Spark's Kafka AdminClient
+# does not trigger broker-side topic auto-creation on its own. If a job fails immediately on
+# startup here, check whether the topic actually exists on the broker before assuming an
+# application bug.
 start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
   "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
 CTX_PID="$LAST_JOB_PID"

@@ -497,6 +497,11 @@ def test_sim_drain_waits_out_the_feedback_tail(sim: str) -> None:
 
     assert "FEEDBACK_TAIL_SECONDS" in script
     assert "min_wait" in script
+    # A plain substring check would pass even if no drain call site actually forwarded the
+    # floor — assert the joiner's parquet drain receives $FEEDBACK_TAIL_SECONDS as its min_wait.
+    assert re.search(
+        r'drain parquet .*"\$FEEDBACK_TAIL_SECONDS"', script
+    ), "the joiner's drain call must receive $FEEDBACK_TAIL_SECONDS as its min_wait"
 
 
 @pytest.mark.parametrize("sim", SIMS)
