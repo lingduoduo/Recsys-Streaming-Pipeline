@@ -27,9 +27,11 @@ object EngagementReportJob {
     val outdir = Env.argOrEnv(args, 1, "ENGAGEMENT_REPORT_OUTPUT_PATH")
       .getOrElse(s"$input/../report-engagement")
 
+    val lookbackDays = Env.int("ENGAGEMENT_REPORT_LOOKBACK_DAYS", 30)
+
     val spark = SparkSessions.create("EngagementReportJob")
     try {
-      val df = spark.read.parquet(input).cache()
+      val df = ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays).cache()
       val d = daily(df); val h = byHour(df); val w = byDow(df)
       writeCsv(d, s"$outdir/ctr_daily")
       writeCsv(h, s"$outdir/ctr_by_hour")

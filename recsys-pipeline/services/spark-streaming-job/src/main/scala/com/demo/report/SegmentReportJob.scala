@@ -50,9 +50,11 @@ object SegmentReportJob {
     val redisPort = Env.int("REDIS_PORT", 6379)
     val redisPoolMaxTotal = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
 
+    val lookbackDays = Env.int("SEGMENT_REPORT_LOOKBACK_DAYS", 30)
+
     val spark = SparkSessions.create("SegmentReportJob")
     try {
-      val df = spark.read.parquet(input).cache()
+      val df = ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays).cache()
       val overallCtr = round4(df.agg(avg("clicked")).first().getDouble(0))
       println(s"overall CTR = $overallCtr  (impressions=${df.count()})\n")
 

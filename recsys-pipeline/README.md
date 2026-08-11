@@ -735,7 +735,7 @@ that need whole ranked slates.
 | `EXPERIENCE_COLLECTOR_OUTPUT_PATH` | unset (Parquet write disabled) | `ExperienceCollectorStreamingJob` | Directory to also write ranked slates as Parquet — the `--experiences` input; unset means slates publish only to the `training_experiences` Kafka topic |
 | `MEASUREMENT_BURST_REQUESTS` | `50` | `run-movie-category-sim.sh` | Number of `/recommend` calls the sim's service burst makes to populate live latency/freshness/safety/feedback-coverage metrics |
 | `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port the sim starts the retrieval service on for its traffic burst |
-| `MOVIE_CATEGORY_LOOKBACK_DAYS` | `30` | `MovieCategoryReportJob` | Most recent N partition dates of `training_samples` to report on, anchored to the newest date present rather than the wall clock. `0` (or negative) reads all history — the previous behaviour, whose cost grows with total archive size rather than with the reported window |
+| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock so re-running a historical report gives the same answer. `0` (or negative) reads all history — the previous behaviour, whose cost grew with total archive size rather than with the reported window |
 
 `RECSYS_FAIRNESS_MIN_SUPPORT`, `RECSYS_FRESHNESS_WINDOW_DAYS`, and `RECSYS_LONG_TAIL_PERCENTILE`
 describe offline calculations, so the retrieval service binds and validates them for a single

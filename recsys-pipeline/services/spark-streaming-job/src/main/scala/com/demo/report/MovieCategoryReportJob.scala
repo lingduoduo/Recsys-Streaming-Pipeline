@@ -44,7 +44,7 @@ object MovieCategoryReportJob {
 
     val spark = SparkSessions.create("MovieCategoryReportJob")
     try {
-      val df = withinLookback(spark.read.parquet(input), lookbackDays).cache()
+      val df = ReportWindow.withinLookback(spark.read.parquet(input), lookbackDays).cache()
       val overallCtr = round4(df.agg(avg("clicked")).first().getDouble(0))
       println(s"overall CTR = $overallCtr  (impressions=${df.count()})\n")
 
@@ -67,21 +67,6 @@ object MovieCategoryReportJob {
       spark.stop()
     }
   }
-
-  /** Restrict to the most recent `lookbackDays` partition dates; unbounded when not positive.
-    *
-    * `training_samples` is partitioned by `date`, and this report read all of it, so its cost grew
-    * with total history rather than with the window being reported on. The window is anchored to
-    * the newest date present rather than the wall clock, so a report over historical data stays
-    * deterministic and re-runnable.
-    */
-  def withinLookback(df: DataFrame, lookbackDays: Int): DataFrame =
-    if (lookbackDays <= 0 || !df.columns.contains("date")) df
-    else {
-      val newest = df.agg(max(to_date(col("date")))).first()
-      if (newest.isNullAt(0)) df
-      else df.filter(to_date(col("date")) > date_sub(lit(newest.getDate(0)), lookbackDays))
-    }
 
   def perItemEngagement(df: DataFrame): DataFrame =
     df.groupBy("item_id").agg(
