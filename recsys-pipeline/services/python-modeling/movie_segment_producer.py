@@ -24,6 +24,7 @@ import uuid
 
 from producer import make_producer
 from feature_derivations import GENRES, l1, decade
+from feedback_schedule import FeedbackSchedule, split_slate
 
 RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")
@@ -212,16 +213,30 @@ def main() -> None:
         for item in items:
             producer.send(CONTEXT_TOPIC, value=movie_event(item, movies[item]), key=item)
             sent += 1
+        schedule = FeedbackSchedule()
         for s in range(NUM_SLATES):
             user = rng.choice(users)
             events = make_slate(user, user_meta[user], items, movies, rng)
             if ratings_writer:
                 ratings_writer.writerows(ratings_from_events(events))
-            for event in events:
+            immediate, deferred = split_slate(events)
+            for event in immediate:
+                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
+                sent += 1
+            for delay, event in deferred:
+                schedule.schedule(delay, event)
+            for event in schedule.due():
                 producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
                 sent += 1
             if (s + 1) % 2000 == 0:
                 print(f"  {s + 1}/{NUM_SLATES} slates, {sent} events", flush=True)
+        while schedule.pending():
+            wait = schedule.next_due_in()
+            if wait:
+                time.sleep(min(wait, 1.0))
+            for event in schedule.due():
+                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
+                sent += 1
     finally:
         if ratings_file:
             ratings_file.close()

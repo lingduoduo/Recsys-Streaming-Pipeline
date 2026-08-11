@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Mapping
 
 from event_avro import encode_event
+from feedback_schedule import FeedbackSchedule, split_slate
 
 try:
     from kafka import KafkaProducer
@@ -140,6 +141,7 @@ def main():
     items = [f"movie_{i}" for i in range(1, NUM_ITEMS + 1)]
     interval = 1.0 / EVENTS_PER_SECOND
     sent = 0
+    schedule = FeedbackSchedule()
 
     try:
         while True:
@@ -150,7 +152,12 @@ def main():
             else:
                 events = [make_click_event(users, items)]
 
-            for event in events:
+            immediate, deferred = split_slate(events)
+            for delay, pending in deferred:
+                schedule.schedule(delay, pending)
+            pending_now = schedule.due()
+            tick_events = immediate + pending_now
+            for index, event in enumerate(tick_events):
                 key = event.get("request_id") or event["user_id"]
                 producer.send(TOPIC, value=event, key=key).add_errback(report_delivery_error)
                 sent += 1
@@ -158,6 +165,25 @@ def main():
                     print(f"sent {sent} events, last: {event}", flush=True)
                 if MAX_EVENTS and sent >= MAX_EVENTS:
                     print(f"reached MAX_EVENTS={MAX_EVENTS}; stopping", flush=True)
+                    # Events after this point in tick_events were already popped off the
+                    # schedule by the schedule.due() call above, so they must be sent here —
+                    # the drain below only sees what is still in the schedule.
+                    for remaining_event in tick_events[index + 1 :]:
+                        remaining_key = remaining_event.get("request_id") or remaining_event["user_id"]
+                        producer.send(TOPIC, value=remaining_event, key=remaining_key).add_errback(
+                            report_delivery_error
+                        )
+                        sent += 1
+                    while schedule.pending():
+                        wait = schedule.next_due_in()
+                        if wait:
+                            time.sleep(min(wait, 1.0))
+                        for pending_event in schedule.due():
+                            key = pending_event.get("request_id") or pending_event["user_id"]
+                            producer.send(TOPIC, value=pending_event, key=key).add_errback(
+                                report_delivery_error
+                            )
+                            sent += 1
                     return
 
             elapsed = time.monotonic() - tick

@@ -215,3 +215,98 @@ def test_behavior_slate_has_unified_schema():
         assert "timestamp_ms" in event
         assert isinstance(event["timestamp_ms"], int)
         assert event["timestamp_ms"] > 1_000_000_000_000
+
+
+class _NoOpFuture:
+    def add_errback(self, callback):
+        return self
+
+
+class _RecordingProducer:
+    """Stands in for KafkaProducer: records every value passed to send(), no network."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, topic, value=None, key=None):
+        self.sent.append(value)
+        return _NoOpFuture()
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class _FakeFeedbackSchedule:
+    """Deterministic stand-in for FeedbackSchedule: due() releases events according to a
+    prescribed release plan (how many of the oldest still-scheduled events to release on each
+    call), independent of real elapsed time.
+
+    This reproduces the exact bug without any wall-clock race: schedule.due() pops events off
+    its heap before main()'s MAX_EVENTS check runs, so an already-popped event stranded past the
+    point where a tick's event list gets cut off is gone from the schedule too — the drain loop
+    that follows never sees it.
+    """
+
+    def __init__(self, release_counts):
+        self._release_counts = list(release_counts)
+        self._queue: list[dict] = []
+
+    def schedule(self, delay_seconds, event):
+        self._queue.append(event)
+
+    def due(self):
+        n = self._release_counts.pop(0) if self._release_counts else 0
+        released, self._queue = self._queue[:n], self._queue[n:]
+        return released
+
+    def pending(self):
+        return len(self._queue)
+
+    def next_due_in(self):
+        return 0.0
+
+
+def test_max_events_drains_pending_feedback_before_returning(monkeypatch):
+    """Regression test for the MAX_EVENTS early return stranding scheduled feedback.
+
+    Runs producer.py's real main() in behavior mode with a deterministic fake FeedbackSchedule
+    (no reliance on wall-clock timing): tick 1's due() call sees nothing due yet; tick 2's due()
+    call releases tick 1's click and order, which are already popped off the "heap" by the time
+    the tick's event list is built. MAX_EVENTS trips on tick 2's click, mid-list, with tick 1's
+    order still unconsumed in that same list and no longer in the schedule. Before the fix,
+    main() returned immediately at that point and the order was never sent — nor was the
+    following tick's click/order, since draining resumed from an already-mutated queue.
+    """
+    monkeypatch.setenv("PRODUCER_MODE", "behavior")
+    monkeypatch.setenv("NUM_USERS", "1")
+    monkeypatch.setenv("NUM_ITEMS", "5")
+    monkeypatch.setenv("SLATE_SIZE", "3")
+    monkeypatch.setenv("MAX_EVENTS", "7")
+    monkeypatch.setenv("EVENTS_PER_SECOND", "1000")
+    monkeypatch.setenv("LOG_EVERY", "1000")
+
+    mod = load_producer_module()
+
+    # Force a click and an order every slate.
+    monkeypatch.setattr(mod.random, "random", lambda: 0.0)
+    monkeypatch.setattr(mod.random, "randint", lambda a, b: a)
+
+    # release_counts: tick 1's due() releases nothing (0); tick 2's due() releases tick 1's
+    # click+order (2, already queued ahead of tick 2's own click+order); the drain call after
+    # MAX_EVENTS trips releases tick 2's click+order (2).
+    fake_schedule = _FakeFeedbackSchedule(release_counts=[0, 2, 2])
+    monkeypatch.setattr(mod, "FeedbackSchedule", lambda: fake_schedule)
+
+    recorder = _RecordingProducer()
+    monkeypatch.setattr(mod, "make_producer", lambda: recorder)
+
+    mod.main()
+
+    sent_types = [event["event_type"] for event in recorder.sent]
+    assert sent_types.count("impression") == 6
+    assert sent_types.count("click") == 2, f"expected both clicks sent, got {sent_types}"
+    assert sent_types.count("order") == 2, f"expected both orders sent, got {sent_types}"
+    assert len(recorder.sent) == 10, "nothing popped from the schedule may be lost"

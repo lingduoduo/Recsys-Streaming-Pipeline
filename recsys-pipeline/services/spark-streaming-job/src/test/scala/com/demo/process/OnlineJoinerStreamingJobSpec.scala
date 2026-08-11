@@ -69,6 +69,57 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     row.getAs[Double]("label") shouldBe 0.0
   }
 
+  it should "drop feedback whose impression fell in an earlier batch" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val columns = Seq("session_id", "request_id", "user_id", "item_id", "event_type",
+      "timestamp", "position", "user_features", "item_features", "context_features")
+    val empty = Map.empty[String, String]
+
+    // Batch 1: the impression alone.
+    val firstBatch = Seq(
+      ("sess_1", "req_1", "user_1", "item_1", "impression", 100L, 0,
+        Map("tier" -> "gold"), Map("genre" -> "drama"), Map("device" -> "ios"))
+    ).toDF(columns: _*)
+
+    // Batch 2: the click alone, arriving after batch 1 already published.
+    val secondBatch = Seq(
+      ("sess_1", "req_1", "user_1", "item_1", "click", 105L, 0, empty, empty, empty)
+    ).toDF(columns: _*)
+
+    val first = OnlineJoinerStreamingJob.buildTrainingSamples(firstBatch)
+      .select("item_id", "clicked", "ordered", "label").collect()
+    val second = OnlineJoinerStreamingJob.buildTrainingSamples(secondBatch).collect()
+
+    // The impression publishes immediately, labelled "not clicked".
+    first.length shouldBe 1
+    (first.head.getInt(1), first.head.getInt(2), first.head.getDouble(3)) shouldBe (0, 0, 0.0)
+    // The click is discarded, and nothing restates the sample published above.
+    second shouldBe Array.empty[org.apache.spark.sql.Row]
+  }
+
+  it should "still label a click that arrives in the same batch" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val columns = Seq("session_id", "request_id", "user_id", "item_id", "event_type",
+      "timestamp", "position", "user_features", "item_features", "context_features")
+    val empty = Map.empty[String, String]
+
+    val batch = Seq(
+      ("sess_1", "req_1", "user_1", "item_1", "impression", 100L, 0,
+        Map("tier" -> "gold"), Map("genre" -> "drama"), Map("device" -> "ios")),
+      ("sess_1", "req_1", "user_1", "item_1", "click", 105L, 0, empty, empty, empty)
+    ).toDF(columns: _*)
+
+    val rows = OnlineJoinerStreamingJob.buildTrainingSamples(batch)
+      .select("clicked", "label").collect()
+
+    rows.length shouldBe 1
+    (rows.head.getInt(0), rows.head.getDouble(1)) shouldBe (1, 1.0)
+  }
+
   it should "normalize decoded canonical events and ignore Kafka lineage" in {
     val sparkSession = spark
     import sparkSession.implicits._

@@ -441,7 +441,7 @@ consumers, and their environment variables—for example, `KAFKA_TOPIC` and
 
 ### `services/python-modeling/producer.py`
 
-Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes full impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
+Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join — impressions are sent immediately, but each click/order is deferred and released at the offset its own payload already encodes (clicks 1–20s, orders 21–120s after the impression), via `feedback_schedule.py`, instead of being sent as one instant with the impressions. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
 
 Environment variables:
 
@@ -455,7 +455,8 @@ Environment variables:
 | `NUM_ITEMS` | `10` | Synthetic item pool size |
 | `SLATE_SIZE` | `5` | Items per slate in `behavior` mode |
 | `LOG_EVERY` | `100` | Log a summary line every N events |
-| `MAX_EVENTS` | `0` | Stop after N events; `0` runs indefinitely |
+| `MAX_EVENTS` | `0` | Stop taking on new events once N have been sent; `0` runs indefinitely. On reaching the cap, the producer still drains every feedback event already scheduled (deliberately not re-checking the cap while draining), so the actual total sent can exceed N |
+| `FEEDBACK_DELAY_SCALE` | `1.0` | Multiplies the click/order delay each slate already encodes, compressing (or stretching) how long deferred feedback takes to be released |
 
 `clickstream` mode event schema:
 
@@ -562,6 +563,37 @@ For each micro-batch, it:
 4. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes to both sinks inside a `try/finally` that always unpersists.
 5. Writes samples to Kafka for online model updates.
 6. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
+
+#### Feedback that arrives in a later micro-batch is dropped
+
+Step 2 drops groups with no impression in the current batch. A click or order whose impression fell
+in an earlier batch therefore has nowhere to join, and is discarded — the earlier batch already
+published that impression with `clicked = 0`, `label = 0.0`, and nothing restates it. There is no
+compensating path: no stream-stream join and no reprocessing. `EVENT_WATERMARK_DELAY` governs
+deduplication only, not join buffering.
+
+Labels are therefore correct only for feedback landing in the same micro-batch as its impression.
+With the default 10-second trigger and the producers' own model of user behaviour — clicks 1–20s
+after impression, orders 21–120s — production traffic would cross that boundary regularly.
+`OnlineJoinerStreamingJobSpec` pins this behaviour so it stays a deliberate choice.
+
+Fixing it means buffering impressions across batches until a feedback deadline. Spark's stateful
+operators are unavailable where this join runs — the Avro `ExecutionEngine.run` overload applies its
+stages inside `foreachBatch`, on a static per-batch DataFrame — so a fix would need a durable
+pending-impression store in the style of `RawArchiveSink.deduplicateValid`.
+
+**This drop is now visible in `run-movielens-segment-sim.sh` and `run-movie-category-sim.sh`.**
+Both sims start their Spark jobs before the producer sends anything, so the join genuinely
+exercises the behaviour above instead of masking it (an older layout ran the producer first,
+letting the joiner's first micro-batch catch everything at once). Orders — encoded 21–120s after
+their impression — mostly land in a later micro-batch than the click that preceded them and get
+discarded; only the fraction due before Spark's first trigger survives, and that cut-off is JVM
+startup time, so the surviving fraction varies run to run. Expect the category/segment CSVs,
+`analysis_dashboard_report.py` output, and the checked-in `frontend/data/dashboard.json` (which
+the category sim regenerates and validates) to show `ordered`/`cvr` figures collapsed toward zero,
+and to vary between runs of the same sim. Schema validation still passes — this is a data-shape
+change, not a break. Do not treat a low or shifting conversion number from a sim run as a
+regression; it is this behaviour operating as designed.
 
 Environment variables:
 
