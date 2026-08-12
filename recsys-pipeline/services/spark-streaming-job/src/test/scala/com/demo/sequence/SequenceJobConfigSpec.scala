@@ -1,6 +1,7 @@
 package com.demo.sequence
 
 import com.demo.SparkTestSupport
+import com.demo.engine.SinkWriteContext
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -12,6 +13,8 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
     cfg.maxRowsPerBucket shouldBe 500
     cfg.parquetPath shouldBe None
     cfg.ledgerRetentionBatches shouldBe 2
+    // The kill switch is off by default: an existing deployment keeps dual-writing.
+    cfg.writeEnabled shouldBe true
   }
 
   it should "use overrides when all keys are set to valid values" in {
@@ -43,6 +46,16 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
 
   it should "treat an empty SEQ_PARQUET_PATH as None" in {
     SequenceJobConfig.from(Map("SEQ_PARQUET_PATH" -> "")).parquetPath shouldBe None
+  }
+
+  it should "disable the Redis write only for an explicit false" in {
+    SequenceJobConfig.from(Map("SEQ_WRITE_ENABLED" -> "false")).writeEnabled shouldBe false
+    SequenceJobConfig.from(Map("SEQ_WRITE_ENABLED" -> "FALSE")).writeEnabled shouldBe false
+    SequenceJobConfig.from(Map("SEQ_WRITE_ENABLED" -> "true")).writeEnabled shouldBe true
+    // An unrecognised value must not silently disable the write — a typo in an operator's
+    // deploy would otherwise stop the sequence store without anyone asking it to.
+    SequenceJobConfig.from(Map("SEQ_WRITE_ENABLED" -> "maybe")).writeEnabled shouldBe true
+    SequenceJobConfig.from(Map("SEQ_WRITE_ENABLED" -> "")).writeEnabled shouldBe true
   }
 
   "ttlSeconds" should "convert the lookback window into seconds" in {
@@ -81,5 +94,45 @@ class SequenceJobConfigSpec extends AnyFlatSpec with Matchers with SparkTestSupp
       redisHost = "unused", redisPort = 0, poolMax = 1, pipelineSize = 10,
       mode = SequenceWriteMode.Append, batchId = 0L, writeRedis = false
     )
+  }
+
+  it should "skip an asked-for Redis write when the kill switch is off" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val chunks = Seq(("u1", "rating", "20260723", "m1", "1000", "rate", "4.0", "", "1995", 1L))
+      .toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+    val path = java.nio.file.Files.createTempDirectory("seq-killswitch").toString + "/out"
+
+    // writeRedis = true asks for the Redis write; the unroutable host means any attempt to
+    // make it would fail the batch. The Parquet mirror must still land.
+    noException should be thrownBy SequenceSinks.write(
+      chunks, SequenceJobConfig(90, 500, Some(path), writeEnabled = false),
+      redisHost = "sequence-killswitch.invalid", redisPort = 1, poolMax = 1, pipelineSize = 10,
+      mode = SequenceWriteMode.Overwrite, batchId = 0L, writeRedis = true
+    )
+
+    spark.read.parquet(path).count() shouldBe 1L
+  }
+
+  "SequenceBusinessSink.writeDurably" should "skip Redis when the kill switch is off" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val batch = Seq(("u1", "rating", "20260723", "m1", "1000", "rate", "4.0", "", "1995", 1L))
+      .toDF("user_id", "kind", "bucket", "item_id", "ts", "action", "rating", "genres", "release_year", "n")
+    val path = java.nio.file.Files.createTempDirectory("seq-killswitch-durable").toString + "/out"
+    val cfg = SequenceJobConfig(90, 500, Some(path), writeEnabled = false)
+    val sink = new SequenceBusinessSink(
+      cfg, redisHost = "sequence-killswitch.invalid", redisPort = 1, poolMax = 1, pipelineSize = 10,
+      mode = SequenceWriteMode.Append, toChunks = identity, sinkIdentity = "seq-kill-switch-test")
+    val context = SinkWriteContext("q", "qns", "seq-kill-switch-test", "sns", 0L)
+
+    // The durable path calls SequenceRedisSink directly rather than going through
+    // SequenceSinks.write, so it needs its own gate — this fails if only the other one exists.
+    noException should be thrownBy sink.writeDurably(batch, context)
+
+    val committed = new SequenceParquetSink(path, SequenceWriteMode.Append).committedBatchPath(context)
+    spark.read.parquet(committed).count() shouldBe 1L
   }
 }
