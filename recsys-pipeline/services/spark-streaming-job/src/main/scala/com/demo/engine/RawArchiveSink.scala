@@ -11,7 +11,6 @@ import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.{col, current_timestamp, lit, max, udf}
 import org.apache.spark.sql.types.{LongType, StringType}
-import org.apache.spark.storage.StorageLevel
 
 import scala.util.control.NonFatal
 
@@ -26,8 +25,6 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
   require(Option(queryIdentity).exists(_.trim.nonEmpty), "queryIdentity must not be blank")
 
   private val queryNamespace = RawArchiveSink.queryNamespace(queryIdentity)
-
-  private final case class ArchiveFileIdentity(path: String, size: Long, sha256: String)
 
   def stableQueryNamespace: String = queryNamespace
 
@@ -126,7 +123,7 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
     val fileSystem = path.getFileSystem(df.sparkSession.sparkContext.hadoopConfiguration)
     if (!fileSystem.exists(path)) false
     else {
-      validateCommitted(fileSystem, path, businessSinkManifest(context))
+      CommitProtocol.validateCommitted(fileSystem, path, businessSinkManifest(context))
       true
     }
   }
@@ -139,7 +136,7 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
     val fileSystem = finalPath.getFileSystem(configuration)
     val expectedManifest = businessSinkManifest(context)
     if (fileSystem.exists(finalPath)) {
-      validateCommitted(fileSystem, finalPath, expectedManifest)
+      CommitProtocol.validateCommitted(fileSystem, finalPath, expectedManifest)
       return
     }
 
@@ -149,7 +146,7 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
       fileSystem.mkdirs(attemptPath)
       val success = fileSystem.create(new Path(attemptPath, "_SUCCESS"), false)
       success.close()
-      writeManifest(fileSystem, attemptPath, expectedManifest)
+      CommitProtocol.writeManifest(fileSystem, attemptPath, expectedManifest)
       fileSystem.mkdirs(finalPath.getParent)
       val contextFs = FileContext.getFileContext(fileSystem.getUri, configuration)
       try {
@@ -162,7 +159,7 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
       }
       if (!fileSystem.exists(finalPath))
         throw new IllegalStateException(s"failed to commit business sink ${context.sinkIdentity}")
-      validateCommitted(fileSystem, finalPath, expectedManifest)
+      CommitProtocol.validateCommitted(fileSystem, finalPath, expectedManifest)
     } catch {
       case NonFatal(error) =>
         if (fileSystem.exists(attemptPath)) fileSystem.delete(attemptPath, true)
@@ -195,8 +192,8 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
     val fileSystem = path.getFileSystem(df.sparkSession.sparkContext.hadoopConfiguration)
     if (!fileSystem.exists(path)) empty
     else {
-      validateDataCommitted(fileSystem, path, manifest("dedupe", batchId - 1L), None)
-      if (!RawArchiveSink.hasParquetData(fileSystem, path)) empty
+      CommitProtocol.validateDataCommitted(fileSystem, path, manifest("dedupe", batchId - 1L), None)
+      if (!CommitProtocol.hasParquetData(fileSystem, path)) empty
       else df.sparkSession.read.parquet(path.toString)
         .filter(col("event_id").isNotNull)
         .select("event_id", "timestamp_ms")
@@ -208,7 +205,7 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
       lit(null).cast(StringType).as("event_id"),
       lit(null).cast(LongType).as("timestamp_ms")
     )
-    writeDirectory(
+    CommitProtocol.writeDirectory(
       state.unionByName(marker),
       new Path(dedupeRoot, s"_attempts/$batchId"),
       new Path(dedupeRoot, batchId.toString),
@@ -220,7 +217,7 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
 
   private def writeBatch(df: DataFrame, root: String, batchId: Long, kind: String): Unit = {
     val rootPath = queryRoot(root)
-    writeDirectory(
+    CommitProtocol.writeDirectory(
       df,
       new Path(rootPath, s"_attempts/$batchId"),
       new Path(rootPath, s"_batches/$batchId"),
@@ -230,192 +227,11 @@ class RawArchiveSink(validRoot: String, deadLetterRoot: String, val queryIdentit
     )
   }
 
-  private def writeDirectory(
-      df: DataFrame,
-      attemptsRoot: Path,
-      finalPath: Path,
-      partitionByDate: Boolean,
-      description: String,
-      expectedManifest: String
-  ): Unit = {
-    val configuration = df.sparkSession.sparkContext.hadoopConfiguration
-    val fileSystem = finalPath.getFileSystem(configuration)
-    val wasPersisted = df.storageLevel != StorageLevel.NONE
-    val stable = df.persist(StorageLevel.MEMORY_AND_DISK_SER)
-    try {
-      val rowCount = stable.count()
-      if (fileSystem.exists(finalPath)) {
-        validateDataCommitted(fileSystem, finalPath, expectedManifest, Some(rowCount))
-        return
-      }
-
-      val attemptPath = new Path(attemptsRoot, UUID.randomUUID().toString)
-      try {
-        if (rowCount == 0L) {
-          fileSystem.mkdirs(attemptPath)
-          fileSystem.create(new Path(attemptPath, "_SUCCESS"), false).close()
-        } else {
-          val writer = stable.write.mode("errorifexists")
-          if (partitionByDate) writer.partitionBy("date").parquet(attemptPath.toString)
-          else writer.parquet(attemptPath.toString)
-        }
-        writeManifest(fileSystem, attemptPath,
-          dataManifest(expectedManifest, rowCount, parquetInventory(fileSystem, attemptPath)))
-
-        fileSystem.mkdirs(finalPath.getParent)
-        val context = FileContext.getFileContext(fileSystem.getUri, configuration)
-        try {
-          context.rename(
-            fileSystem.makeQualified(attemptPath),
-            fileSystem.makeQualified(finalPath),
-            Options.Rename.NONE
-          )
-        } catch {
-          case _: FileAlreadyExistsException =>
-            // Only this UUID attempt belongs to us; leave all sibling attempts untouched.
-            fileSystem.delete(attemptPath, true)
-        }
-
-        if (!fileSystem.exists(finalPath))
-          throw new IllegalStateException(s"failed to commit $description")
-        validateDataCommitted(fileSystem, finalPath, expectedManifest, Some(rowCount))
-      } catch {
-        case NonFatal(error) =>
-          // Cleanup is restricted to the UUID generated by this invocation.
-          if (fileSystem.exists(attemptPath)) fileSystem.delete(attemptPath, true)
-          throw error
-      }
-    } finally if (!wasPersisted) stable.unpersist()
-  }
-
   private def manifest(kind: String, batchId: Long): String =
     s"version=2\nquery=$queryNamespace\nkind=$kind\nbatch_id=$batchId\n"
-
-  private def dataManifest(
-      base: String,
-      rowCount: Long,
-      files: Seq[ArchiveFileIdentity]
-  ): String =
-    base + s"row_count=$rowCount\n" + files.map { file =>
-      s"file=${file.path}\t${file.size}\t${file.sha256}\n"
-    }.mkString
-
-  private def parquetInventory(
-      fileSystem: org.apache.hadoop.fs.FileSystem,
-      directory: Path
-  ): Seq[ArchiveFileIdentity] = {
-    val qualifiedRoot = fileSystem.makeQualified(directory).toString.stripSuffix("/") + "/"
-    val files = fileSystem.listFiles(directory, true)
-    val found = scala.collection.mutable.ArrayBuffer.empty[ArchiveFileIdentity]
-    while (files.hasNext) {
-      val status = files.next()
-      val path = fileSystem.makeQualified(status.getPath)
-      if (path.getName.endsWith(".parquet"))
-        found += ArchiveFileIdentity(
-          path.toString.stripPrefix(qualifiedRoot), status.getLen, fileSha256(fileSystem, path))
-    }
-    found.sortBy(_.path)
-  }
-
-  private def fileSha256(
-      fileSystem: org.apache.hadoop.fs.FileSystem,
-      path: Path
-  ): String = {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val input = fileSystem.open(path)
-    val buffer = new Array[Byte](1024 * 1024)
-    try {
-      var read = input.read(buffer)
-      while (read >= 0) {
-        if (read > 0) digest.update(buffer, 0, read)
-        read = input.read(buffer)
-      }
-    } finally input.close()
-    digest.digest().map(byte => f"${byte & 0xff}%02x").mkString
-  }
-
-  private def parseInventoryEntry(value: String): Option[ArchiveFileIdentity] =
-    value.split("\\t", -1).toSeq match {
-      case Seq(path, size, sha256)
-          if path.nonEmpty && sha256.matches("[0-9a-f]{64}") =>
-        try {
-          val parsedSize = size.toLong
-          if (parsedSize >= 0L) Some(ArchiveFileIdentity(path, parsedSize, sha256)) else None
-        } catch { case _: NumberFormatException => None }
-      case _ => None
-    }
-
-  private def writeManifest(
-      fileSystem: org.apache.hadoop.fs.FileSystem,
-      directory: Path,
-      contents: String
-  ): Unit = {
-    val output = fileSystem.create(new Path(directory, RawArchiveSink.CommitMarker), false)
-    try output.write(contents.getBytes(StandardCharsets.UTF_8))
-    finally output.close()
-  }
-
-  private def validateCommitted(
-      fileSystem: org.apache.hadoop.fs.FileSystem,
-      directory: Path,
-      expectedManifest: String
-  ): Unit = {
-    val marker = new Path(directory, RawArchiveSink.CommitMarker)
-    val success = new Path(directory, "_SUCCESS")
-    if (!fileSystem.exists(marker) || !fileSystem.exists(success))
-      throw new IllegalStateException(s"uncommitted or incomplete directory $directory")
-
-    val input = fileSystem.open(marker)
-    val actual = try {
-      val source = scala.io.Source.fromInputStream(input, StandardCharsets.UTF_8.name())
-      try source.mkString
-      finally source.close()
-    } finally {
-      // Source.close closes the stream; Hadoop close is idempotent and keeps this safe if Source
-      // construction or reading failed.
-      input.close()
-    }
-    if (actual != expectedManifest)
-      throw new IllegalStateException(s"commit identity mismatch for $directory")
-  }
-
-  private def validateDataCommitted(
-      fileSystem: org.apache.hadoop.fs.FileSystem,
-      directory: Path,
-      expectedBase: String,
-      expectedRowCount: Option[Long]
-  ): Unit = {
-    val marker = new Path(directory, RawArchiveSink.CommitMarker)
-    val success = new Path(directory, "_SUCCESS")
-    if (!fileSystem.exists(marker) || !fileSystem.exists(success))
-      throw new IllegalStateException(s"uncommitted or incomplete directory $directory")
-    val input = fileSystem.open(marker)
-    val source = scala.io.Source.fromInputStream(input, StandardCharsets.UTF_8.name())
-    val actual = try source.mkString finally source.close()
-    val lines = actual.linesIterator.toSeq
-    if (lines.headOption.contains("version=1"))
-      throw new IllegalStateException(
-        "archive commit protocol pre-release v1 is unsupported; " +
-          "pre-release v1 data must be regenerated as version 2")
-    val rowCountLines = lines.filter(_.startsWith("row_count="))
-    val rowCount = if (rowCountLines.size == 1)
-      try rowCountLines.head.stripPrefix("row_count=").toLong
-      catch { case _: NumberFormatException => -1L }
-    else -1L
-    val inventoryLines = lines.filter(_.startsWith("file=")).map(_.stripPrefix("file="))
-    val inventory = inventoryLines.flatMap(parseInventoryEntry)
-    val physicalInventory = parquetInventory(fileSystem, directory)
-    val canonical = dataManifest(expectedBase, rowCount, physicalInventory)
-    if (rowCount < 0L || inventory.size != inventoryLines.size ||
-        inventory != physicalInventory || actual != canonical ||
-        expectedRowCount.exists(_ != rowCount))
-      throw new IllegalStateException(s"commit inventory mismatch for $directory")
-  }
 }
 
 private object RawArchiveSink {
-  val CommitMarker = "_COMMITTED"
-
   def queryNamespace(queryIdentity: String): String =
     MessageDigest.getInstance("SHA-256")
       .digest(queryIdentity.getBytes(StandardCharsets.UTF_8))
@@ -435,14 +251,5 @@ private object RawArchiveSink {
       .minusNanos(Math.multiplyExact(interval.microseconds, 1000L))
       .toInstant
       .toEpochMilli
-  }
-
-  def hasParquetData(fileSystem: org.apache.hadoop.fs.FileSystem, path: Path): Boolean = {
-    val files = fileSystem.listFiles(path, true)
-    var found = false
-    while (!found && files.hasNext) {
-      found = files.next().getPath.getName.endsWith(".parquet")
-    }
-    found
   }
 }
