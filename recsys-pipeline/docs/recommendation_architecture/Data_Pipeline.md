@@ -821,6 +821,17 @@ without a compaction job. When `SEQ_PARQUET_PATH` is set, the same chunks are al
 written to a Parquet mirror — exploded back to one row per event and
 `partitionBy("bucket", "kind")` — for offline analysis.
 
+**Producer-side kill switch.** `SEQ_WRITE_ENABLED=false` stops the Redis sequence write in both
+streaming producers and in the backfill job, mirroring `recsys.sequence.mode` on the serving side.
+Because Redis infrastructure errors fail the batch, a sequence-store Redis problem otherwise stalls
+both jobs with no mitigation short of a redeploy; the flag takes the store off their critical path
+at restart instead. It gates the Redis write only — the Parquet mirror keeps running, since a Redis
+outage is no reason to stop it.
+
+Turning the write back on does **not** backfill the gap: buckets that would have been written while
+it was off are simply missing. Re-seed them with `SequenceBackfillJob`, whose overwrite mode makes
+re-runs idempotent.
+
 Environment variables (Spark writers):
 
 | Env var | Default |
@@ -828,6 +839,7 @@ Environment variables (Spark writers):
 | `SEQ_LOOKBACK_DAYS` | `90` (also the Redis TTL, in days) |
 | `SEQ_MAX_ROWS_PER_BUCKET` | `500` |
 | `SEQ_PARQUET_PATH` | unset (Parquet mirror disabled) |
+| `SEQ_WRITE_ENABLED` | `true` — set `false` to stop the Redis sequence write |
 | `RATINGS_INPUT_PATH` | backfill only; may be passed as the first positional arg |
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` |
 | `REDIS_PIPELINE_SIZE` / `REDIS_POOL_MAX_TOTAL` | `500` / `8` |

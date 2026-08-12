@@ -298,11 +298,15 @@ the default path, and documented here rather than fixed.
    commits). Fix options if it ever matters: make popularity idempotent, or
    reorder so the sequence write precedes the `zincrby`.
 
-2. **No producer-side dual-write kill switch.** `SequenceSinks.write` is called
-   unconditionally in both producers; combined with fail-batch-on-`JedisException`
-   (#1), a sequence-store Redis problem stalls both streaming jobs' batches with
-   no runtime mitigation short of revert/redeploy. A `SEQ_WRITE_ENABLED` flag
-   mirroring the serving-side `recsys.sequence.mode` is the intended fast-follow.
+2. ~~**No producer-side dual-write kill switch.**~~ **Closed 2026-08-12.**
+   `SEQ_WRITE_ENABLED` (default `true`) now gates the Redis sequence write, mirroring the
+   serving-side `recsys.sequence.mode`. It is enforced in both places that reach the Redis sink:
+   `SequenceSinks.write`, used by the collector and the backfill job, and
+   `SequenceBusinessSink.writeDurably`, the durable path the Avro user-event job takes — gating
+   only the former would have left the main producer writing. The Parquet mirror is deliberately
+   left running, since a Redis outage is no reason to stop it, and only an explicit `false`
+   disables the write so a typo cannot silently stop the store. Re-enabling does not backfill the
+   gap; `SequenceBackfillJob` re-seeds it idempotently.
 
 The serving-side sequence read path is gated by `recsys.sequence.mode` (default
 `off`), so none of the above affects production until the store is deliberately
