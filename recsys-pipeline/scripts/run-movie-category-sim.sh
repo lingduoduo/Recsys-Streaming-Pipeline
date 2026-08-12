@@ -37,6 +37,14 @@ FEEDBACK_DELAY_SCALE="${FEEDBACK_DELAY_SCALE:-1.0}"
 FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
   'BEGIN { v = 150 * scale; if (v < 10) v = 10; printf "%d", v }')}"
 
+# The joiner holds each slate FEEDBACK_JOIN_WAIT past its impression before publishing its
+# sample, so it scales with FEEDBACK_DELAY_SCALE exactly like the producer's tail does.
+FEEDBACK_JOIN_WAIT_SECONDS="${FEEDBACK_JOIN_WAIT_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
+  'BEGIN { v = 180 * scale; if (v < 10) v = 10; printf "%d", v }')}"
+# The parquet drain must outlast the last order's arrival *and* the window the joiner then holds
+# it for, plus one trigger interval for the publishing batch itself.
+SAMPLE_DRAIN_SECONDS="${SAMPLE_DRAIN_SECONDS:-$((FEEDBACK_TAIL_SECONDS + FEEDBACK_JOIN_WAIT_SECONDS + 10))}"
+
 # macOS ships bash 3.2, which has no associative arrays: `declare -A` fails and every
 # key silently collapses to index 0, so a pid map would return the wrong process.
 # Each caller keeps its own pid variable instead.
@@ -113,7 +121,8 @@ start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis 
 CTX_PID="$LAST_JOB_PID"
 start_job com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
   "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC" \
-  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC"
+  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC" \
+  "FEEDBACK_JOIN_WAIT=$FEEDBACK_JOIN_WAIT_SECONDS seconds"
 OJ_PID="$LAST_JOB_PID"
 
 echo "==> producing movie metadata ($CONTEXT_TOPIC) + behavior ($RECSYS_TOPIC)"
@@ -126,7 +135,7 @@ RATINGS_OUTPUT_PATH="$RATINGS_CSV" \
 drain redis "redis_cli --scan --pattern 'movie:*:features' | wc -l" "$NUM_ITEMS" 0
 stop_job "$CTX_PID"; CTX_PID=""
 # Engagement → Parquet (stable file count, held open until the feedback tail lands)
-drain parquet "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 "$FEEDBACK_TAIL_SECONDS"
+drain parquet "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 "$SAMPLE_DRAIN_SECONDS"
 stop_job "$OJ_PID"; OJ_PID=""
 
 # Clicks → Redis global:item_popularity  (ranking popularity signal; stable member count)

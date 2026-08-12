@@ -492,16 +492,41 @@ def test_sim_starts_jobs_before_producing(sim: str) -> None:
 
 @pytest.mark.parametrize("sim", SIMS)
 def test_sim_drain_waits_out_the_feedback_tail(sim: str) -> None:
-    """Stability alone declares completion in ~18s, well before a 120s order arrives."""
+    """Stability alone declares completion in ~18s, well before a 120s order arrives — and the
+    joiner then holds the slate a further FEEDBACK_JOIN_WAIT before publishing it."""
     script = (SCRIPTS_DIR / sim).read_text(encoding="utf-8")
 
     assert "FEEDBACK_TAIL_SECONDS" in script
     assert "min_wait" in script
     # A plain substring check would pass even if no drain call site actually forwarded the
-    # floor — assert the joiner's parquet drain receives $FEEDBACK_TAIL_SECONDS as its min_wait.
+    # floor — assert the joiner's parquet drain receives $SAMPLE_DRAIN_SECONDS as its min_wait.
     assert re.search(
-        r'drain parquet .*"\$FEEDBACK_TAIL_SECONDS"', script
-    ), "the joiner's drain call must receive $FEEDBACK_TAIL_SECONDS as its min_wait"
+        r'drain parquet .*"\$SAMPLE_DRAIN_SECONDS"', script
+    ), "the joiner's drain call must receive $SAMPLE_DRAIN_SECONDS as its min_wait"
+    # ...and that the floor is built from both waits, not just the producer's tail.
+    assert re.search(
+        r'SAMPLE_DRAIN_SECONDS=.*FEEDBACK_TAIL_SECONDS', script, re.DOTALL
+    ), "the drain floor must include the producer's feedback tail"
+    assert re.search(
+        r'SAMPLE_DRAIN_SECONDS=.*FEEDBACK_JOIN_WAIT_SECONDS', script, re.DOTALL
+    ), "the drain floor must include the joiner's feedback window"
+
+
+@pytest.mark.parametrize("sim", SIMS)
+def test_sim_passes_the_join_wait_to_the_joiner(sim: str) -> None:
+    """A sim that scales the producer's feedback tail must scale the joiner's window with it,
+    or a compressed run waits three real minutes for every sample."""
+    script = (SCRIPTS_DIR / sim).read_text(encoding="utf-8")
+
+    assert re.search(
+        r'FEEDBACK_JOIN_WAIT_SECONDS="\$\{FEEDBACK_JOIN_WAIT_SECONDS:-\$\(awk', script
+    ), "the join wait must scale with FEEDBACK_DELAY_SCALE like the tail does"
+    joiner_call = re.search(
+        r'start_job com\.demo\.process\.OnlineJoinerStreamingJob.*?\n\n', script, re.DOTALL
+    )
+    assert joiner_call, "expected the joiner start_job call"
+    assert "FEEDBACK_JOIN_WAIT=" in joiner_call.group(0), \
+        "the joiner must receive FEEDBACK_JOIN_WAIT"
 
 
 @pytest.mark.parametrize("sim", SIMS)
