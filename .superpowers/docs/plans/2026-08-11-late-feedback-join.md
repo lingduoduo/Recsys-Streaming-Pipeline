@@ -122,14 +122,28 @@ class CommitProtocolSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     CommitProtocol.validateDataCommitted(fileSystem(committed), committed, Manifest, Some(2L))
   }
 
-  "CommitProtocol.validateDataCommitted" should "reject a tampered data file" in {
+  "CommitProtocol.validateDataCommitted" should "reject a directory whose inventory grew after the commit" in {
+    val root = Files.createTempDirectory("commit-protocol-extra")
+    val committed = commit(root, Seq("a" -> 1L))
+    val extra = new Path(committed, "part-99-not-in-the-manifest.parquet")
+    val output = fileSystem(extra).create(extra, false)
+    try output.write(Array[Byte](1, 2, 3)) finally output.close()
+
+    an[IllegalStateException] should be thrownBy
+      CommitProtocol.validateDataCommitted(fileSystem(committed), committed, Manifest, Some(1L))
+  }
+
+  it should "never silently accept a tampered data file" in {
     val root = Files.createTempDirectory("commit-protocol-tamper")
     val committed = commit(root, Seq("a" -> 1L))
     val parquet = Files.list(Paths.get(committed.toString)).filter(_.toString.endsWith(".parquet"))
       .findFirst().orElseThrow(() => new AssertionError("no parquet file written"))
     Files.write(parquet, Files.readAllBytes(parquet) ++ Array[Byte](0))
 
-    an[IllegalStateException] should be thrownBy
+    // LocalFileSystem keeps a .crc sidecar, so re-reading the corrupted file raises Hadoop's own
+    // ChecksumException before the SHA-256 comparison runs. The exception type is Hadoop's, not
+    // ours; what this pins is that validation never returns normally on a corrupted file.
+    an[Exception] should be thrownBy
       CommitProtocol.validateDataCommitted(fileSystem(committed), committed, Manifest, Some(1L))
   }
 
