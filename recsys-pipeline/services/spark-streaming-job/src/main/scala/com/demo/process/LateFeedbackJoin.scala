@@ -29,6 +29,14 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
 
   private val slateKeys: Seq[String] = Seq("request_id", "user_id", "item_id")
 
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
+
+  @volatile private var lastOrphanSlates: Long = 0L
+  @volatile private var lastOrphanEvents: Long = 0L
+
+  /** The most recent batch's (slates, events) orphan counts. Exposed for tests and diagnostics. */
+  def orphanCounts: (Long, Long) = (lastOrphanSlates, lastOrphanEvents)
+
   /** Publish the slates whose window has closed; hold the rest for a later batch.
     *
     * `nowMs` is the caller's wall clock, passed in so the close rule stays testable.
@@ -46,9 +54,27 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
       val due = all.join(open.select(slateKeys.map(col): _*).distinct(), slateKeys, "left_anti")
         .drop("first_seen_ms")
         .localCheckpoint(eager = true)
+      countOrphans(due, batchId)
       compactOlderSnapshots(all, batchId)
       OnlineJoinerStreamingJob.buildTrainingSamples(due)
     } finally all.unpersist()
+  }
+
+  private def countOrphans(due: DataFrame, batchId: Long): Unit = {
+    val orphanKeys = due.groupBy(slateKeys.map(col): _*)
+      .agg(max(when(LateFeedbackJoin.isImpression, lit(1)).otherwise(lit(0))).as("has_impression"))
+      .filter(col("has_impression") === 0)
+      .select(slateKeys.map(col): _*)
+      .persist(StorageLevel.MEMORY_AND_DISK_SER)
+    try {
+      lastOrphanSlates = orphanKeys.count()
+      // Only pay for the second count when there is something to report.
+      lastOrphanEvents =
+        if (lastOrphanSlates == 0L) 0L
+        else due.join(orphanKeys, slateKeys, "left_semi").count()
+      if (lastOrphanSlates > 0L)
+        log.info(LateFeedbackJoin.formatOrphans(batchId, lastOrphanSlates, lastOrphanEvents))
+    } finally orphanKeys.unpersist()
   }
 
   /** Project to the stable snapshot schema and stamp arrival time on rows entering the store. */
@@ -140,6 +166,9 @@ object LateFeedbackJoin {
 
   def isImpression: org.apache.spark.sql.Column =
     lower(trim(col("event_type"))).isin("impression", "exposure")
+
+  def formatOrphans(batchId: Long, slates: Long, events: Long): String =
+    s"[late-feedback] batch=$batchId orphan_slates=$slates orphan_events=$events"
 
   /** Parse the wait using the same interval syntax as EVENT_WATERMARK_DELAY. */
   def waitSeconds(interval: String): Long = {

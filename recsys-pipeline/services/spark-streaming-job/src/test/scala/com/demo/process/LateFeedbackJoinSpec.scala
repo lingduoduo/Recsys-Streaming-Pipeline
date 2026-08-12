@@ -125,4 +125,31 @@ class LateFeedbackJoinSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     an[IllegalArgumentException] should be thrownBy LateFeedbackJoin.waitSeconds("-5 seconds")
     an[IllegalArgumentException] should be thrownBy LateFeedbackJoin.waitSeconds("1 month")
   }
+
+  "LateFeedbackJoin.formatOrphans" should "name the batch and both counts" in {
+    LateFeedbackJoin.formatOrphans(7L, 2L, 3L) shouldBe
+      "[late-feedback] batch=7 orphan_slates=2 orphan_events=3"
+  }
+
+  "LateFeedbackJoin" should "count a due slate that never received an impression" in {
+    val subject = join("60 seconds")
+    val startMs = 1000000L
+
+    subject.process(
+      batch(Seq(event("item_1", "click", 105L), event("item_1", "order", 110L))), 0L, startMs)
+      .count() shouldBe 0L
+    subject.orphanCounts shouldBe (0L, 0L)
+
+    subject.process(batch(Seq.empty), 1L, startMs + 61000L).count() shouldBe 0L
+    subject.orphanCounts shouldBe (1L, 2L)
+  }
+
+  it should "count no orphans when every due slate has its impression" in {
+    val subject = join("0 seconds")
+
+    subject.process(
+      batch(Seq(event("item_1", "impression", 100L), event("item_1", "click", 105L))), 0L, 1000000L)
+      .count() shouldBe 1L
+    subject.orphanCounts shouldBe (0L, 0L)
+  }
 }
