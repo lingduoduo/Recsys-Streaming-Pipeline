@@ -564,36 +564,37 @@ For each micro-batch, it:
 5. Writes samples to Kafka for online model updates.
 6. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
 
-#### Feedback that arrives in a later micro-batch is dropped
+#### Feedback that arrives in a later micro-batch still joins
 
-Step 2 drops groups with no impression in the current batch. A click or order whose impression fell
-in an earlier batch therefore has nowhere to join, and is discarded — the earlier batch already
-published that impression with `clicked = 0`, `label = 0.0`, and nothing restates it. There is no
-compensating path: no stream-stream join and no reprocessing. `EVENT_WATERMARK_DELAY` governs
-deduplication only, not join buffering.
+`buildTrainingSamples` is batch-local: step 2 drops groups with no impression in the current batch.
+`LateFeedbackJoin` wraps it and spans batches. A slate's raw events are held in a durable pending
+snapshot under `<archive>/_queries/<namespace>/_pending/<batchId>` until its feedback window closes,
+and only then handed to `buildTrainingSamples`. A click or order arriving within
+`FEEDBACK_JOIN_WAIT` of its impression therefore lands on the same training sample.
 
-Labels are therefore correct only for feedback landing in the same micro-batch as its impression.
-With the default 10-second trigger and the producers' own model of user behaviour — clicks 1–20s
-after impression, orders 21–120s — production traffic would cross that boundary regularly.
-`OnlineJoinerStreamingJobSpec` pins this behaviour so it stays a deliberate choice.
+Each sample is published exactly once, when its window closes, so every `sample_id` remains unique
+and no consumer of `training_samples` has to dedupe. The cost is latency: a sample reaches the topic
+and the Parquet sink one `FEEDBACK_JOIN_WAIT` after its impression rather than in the impression's
+own batch. Its `date` partition is still `to_date(impression_time)`, so it lands in its impression's
+date regardless of when it publishes.
 
-Fixing it means buffering impressions across batches until a feedback deadline. Spark's stateful
-operators are unavailable where this join runs — the Avro `ExecutionEngine.run` overload applies its
-stages inside `foreachBatch`, on a static per-batch DataFrame — so a fix would need a durable
-pending-impression store in the style of `RawArchiveSink.deduplicateValid`.
+A slate's window closes when either arm fires: observed event time advances past the slate's
+deadline — `impression_ts + FEEDBACK_JOIN_WAIT`, or, for a slate that has not seen an impression,
+its earliest observed event time plus the same window — or the slate has been held that long in
+wall-clock time. The event-time arm keeps an archive backfill fast; the wall-clock arm bounds how
+long a slate waits whenever batches are still running, but it cannot drain a stream that has gone
+completely idle — the joiner's plan is a stateless `foreachBatch`, so a quiet topic produces no
+no-data micro-batches and the wall clock never gets re-evaluated. A stopped stream leaves its
+remaining slates in the pending snapshot until traffic resumes, at which point they publish on the
+first batch.
 
-**This drop is now visible in `run-movielens-segment-sim.sh` and `run-movie-category-sim.sh`.**
-Both sims start their Spark jobs before the producer sends anything, so the join genuinely
-exercises the behaviour above instead of masking it (an older layout ran the producer first,
-letting the joiner's first micro-batch catch everything at once). Orders — encoded 21–120s after
-their impression — mostly land in a later micro-batch than the click that preceded them and get
-discarded; only the fraction due before Spark's first trigger survives, and that cut-off is JVM
-startup time, so the surviving fraction varies run to run. Expect the category/segment CSVs,
-`analysis_dashboard_report.py` output, and the checked-in `frontend/data/dashboard.json` (which
-the category sim regenerates and validates) to show `ordered`/`cvr` figures collapsed toward zero,
-and to vary between runs of the same sim. Schema validation still passes — this is a data-shape
-change, not a break. Do not treat a low or shifting conversion number from a sim run as a
-regression; it is this behaviour operating as designed.
+Feedback arriving *more* than `FEEDBACK_JOIN_WAIT` after its impression is still dropped — the
+sample it belongs to has already published, and the one-row contract rules out restating it. That
+residual is counted rather than silent; each batch that sees any logs
+
+    [late-feedback] batch=<id> orphan_slates=<n> orphan_events=<n>
+
+`EVENT_WATERMARK_DELAY` remains unrelated to this: it governs deduplication only, not join buffering.
 
 Environment variables:
 

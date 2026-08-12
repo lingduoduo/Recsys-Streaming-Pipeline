@@ -13,7 +13,6 @@ SLATE_DIR="$SIM_ROOT/slates"
 LIVE_METRICS="$SIM_ROOT/live-metrics.json"
 SERVICE_PORT="${RETRIEVAL_SERVICE_PORT:-8080}"
 BURST_REQUESTS="${MEASUREMENT_BURST_REQUESTS:-50}"
-DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-600}"
 RUN_ID="${RUN_ID:-r$(date +%s)}"
 RECSYS_TOPIC="recsys_events_${RUN_ID}"
 CONTEXT_TOPIC="movielens_context_${RUN_ID}"
@@ -36,6 +35,20 @@ QUERY_ITEM="${ITEM2VEC_QUERY_ITEM:-movie_1}"
 FEEDBACK_DELAY_SCALE="${FEEDBACK_DELAY_SCALE:-1.0}"
 FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
   'BEGIN { v = 150 * scale; if (v < 10) v = 10; printf "%d", v }')}"
+
+# An idle stream produces no micro-batches, so only the arriving feedback itself can close a
+# window — the wall-clock arm cannot drain a stopped producer. The wait is therefore tied to the
+# producer's maximum order delay (120s * scale): by the time the last impression's deadline is
+# reached, feedback is still arriving to close it, and nothing is stranded.
+FEEDBACK_JOIN_WAIT_SECONDS="${FEEDBACK_JOIN_WAIT_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
+  'BEGIN { v = 120 * scale; if (v < 10) v = 10; printf "%d", v }')}"
+# The parquet drain must outlast the last order's arrival *and* the window the joiner then holds
+# it for, plus one trigger interval for the publishing batch itself.
+SAMPLE_DRAIN_SECONDS="${SAMPLE_DRAIN_SECONDS:-$((FEEDBACK_TAIL_SECONDS + FEEDBACK_JOIN_WAIT_SECONDS + 10))}"
+
+# The drain must be able to outlast its own floor: below min_wait every iteration continues,
+# so a timeout shorter than the floor kills the job before the floor has elapsed.
+DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-$(( SAMPLE_DRAIN_SECONDS + 300 > 600 ? SAMPLE_DRAIN_SECONDS + 300 : 600 ))}"
 
 # macOS ships bash 3.2, which has no associative arrays: `declare -A` fails and every
 # key silently collapses to index 0, so a pid map would return the wrong process.
@@ -113,7 +126,8 @@ start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis 
 CTX_PID="$LAST_JOB_PID"
 start_job com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
   "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC" \
-  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC"
+  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC" \
+  "FEEDBACK_JOIN_WAIT=$FEEDBACK_JOIN_WAIT_SECONDS seconds"
 OJ_PID="$LAST_JOB_PID"
 
 echo "==> producing movie metadata ($CONTEXT_TOPIC) + behavior ($RECSYS_TOPIC)"
@@ -126,7 +140,7 @@ RATINGS_OUTPUT_PATH="$RATINGS_CSV" \
 drain redis "redis_cli --scan --pattern 'movie:*:features' | wc -l" "$NUM_ITEMS" 0
 stop_job "$CTX_PID"; CTX_PID=""
 # Engagement → Parquet (stable file count, held open until the feedback tail lands)
-drain parquet "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 "$FEEDBACK_TAIL_SECONDS"
+drain parquet "find \"$OUT_DIR\" -name '*.parquet' | wc -l" 0 "$SAMPLE_DRAIN_SECONDS"
 stop_job "$OJ_PID"; OJ_PID=""
 
 # Clicks → Redis global:item_popularity  (ranking popularity signal; stable member count)
