@@ -504,15 +504,16 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
     try {
       val open = commitOpenSlates(all, batchId, nowMs)
+      // localCheckpoint materializes the due rows and cuts their lineage, so the samples this
+      // returns carry no dependency on a snapshot directory that compaction may later delete.
+      // Its blocks are released when the RDD is garbage collected; losing them costs a batch
+      // retry, which recomputes from the committed snapshot anyway.
       val due = all.join(open.select(slateKeys.map(col): _*).distinct(), slateKeys, "left_anti")
+        .drop("first_seen_ms")
+        .localCheckpoint(eager = true)
       compactOlderSnapshots(all, batchId)
-      OnlineJoinerStreamingJob.buildTrainingSamples(due.drop("first_seen_ms"))
-    } finally {
-      // The returned plan is recomputed once when the sinks consume it. That re-reads the
-      // engine's already-persisted valid rows and this batch's committed snapshot — both cheap,
-      // and neither can produce a different split, because the snapshot decides it.
-      all.unpersist()
-    }
+      OnlineJoinerStreamingJob.buildTrainingSamples(due)
+    } finally all.unpersist()
   }
 
   /** Project to the stable snapshot schema and stamp arrival time on rows entering the store. */
@@ -729,6 +730,8 @@ Call it in `process`, between the split and the publish:
 
 ```scala
       val due = all.join(open.select(slateKeys.map(col): _*).distinct(), slateKeys, "left_anti")
+        .drop("first_seen_ms")
+        .localCheckpoint(eager = true)
       countOrphans(due, batchId)
       compactOlderSnapshots(all, batchId)
 ```
