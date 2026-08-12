@@ -279,24 +279,32 @@ connection). Every non-trivial decision here lives in a pure function.
 | `SEQ_LOOKBACK_DAYS` | `90` | both |
 | `SEQ_MAX_ROWS_PER_BUCKET` | `500` | Spark jobs |
 | `SEQ_BUCKET_FETCH_CHUNK` | `7` | serving |
+| `SEQ_WRITE_ENABLED` | `true` | Spark jobs (added 2026-08-12) |
 | `recsys.sequence.mode` | `off` | serving |
 
-## Known limitations (accepted at merge, 2026-07-24)
+## Known limitations (accepted at merge, 2026-07-24 — both since closed)
 
-Surfaced by the whole-branch review; accepted as-is because both are off
-the default path, and documented here rather than fixed.
+Surfaced by the whole-branch review; accepted at merge because both were off the default path, and
+documented here rather than fixed. **Both are now closed** — see each entry for how and when. A
+third limitation, the `SEQ_BUCKET_WIDTH=hour` serving trap, was closed on 2026-07-24 by dropping
+hour width entirely (commit `b624007`).
 
-1. **Popularity double-count on micro-batch retry (click producer).** In
-   `UserEventStreamingJob`, the non-idempotent `zincrby global:item_popularity`
-   commits *before* the sequence write in the same `foreachBatch`. Because
-   `SequenceRedisSink` deliberately fails the batch on Redis infrastructure
-   errors (rethrows `JedisException` so Spark retries from the checkpoint), a
-   transient sequence-store error *after* the `zincrby` commits re-runs the
-   `zincrby` on retry, inflating popularity. This is an amplification of the
-   pre-existing at-least-once behavior of that counter, not a new bug class.
-   Window is narrow (a hard Redis outage fails the `zincrby` too, so nothing
-   commits). Fix options if it ever matters: make popularity idempotent, or
-   reorder so the sequence write precedes the `zincrby`.
+1. ~~**Popularity double-count on micro-batch retry (click producer).**~~
+   **Closed — verified 2026-08-12.** The description below no longer matches the code, and it was
+   closed incidentally by the durable-sink work rather than as a sequence-store fix.
+   `UserEventStreamingJob` now calls the Avro `ExecutionEngine.run` overload, which requires
+   `DurableSink`s and invokes `writeDurably`; `RedisPopularitySink.writeDurably` routes every
+   increment through `RedisBatchLedger.incrementOnce`, an atomic Lua script keyed per
+   `(batch, item)`, so a retry cannot re-apply it. The raw non-idempotent `zincrby` survives only
+   on the legacy `write(batch, batchId)` path, which this job no longer takes. Each sink is
+   additionally guarded by its own per-`(sinkIdentity, batchId)` completion marker.
+
+   *Original text, kept for the record:* in `UserEventStreamingJob`, the non-idempotent
+   `zincrby global:item_popularity` commits *before* the sequence write in the same
+   `foreachBatch`. Because `SequenceRedisSink` deliberately fails the batch on Redis
+   infrastructure errors (rethrows `JedisException` so Spark retries from the checkpoint), a
+   transient sequence-store error *after* the `zincrby` commits re-runs the `zincrby` on retry,
+   inflating popularity.
 
 2. ~~**No producer-side dual-write kill switch.**~~ **Closed 2026-08-12.**
    `SEQ_WRITE_ENABLED` (default `true`) now gates the Redis sequence write, mirroring the
@@ -309,5 +317,4 @@ the default path, and documented here rather than fixed.
    gap; `SequenceBackfillJob` re-seeds it idempotently.
 
 The serving-side sequence read path is gated by `recsys.sequence.mode` (default
-`off`), so none of the above affects production until the store is deliberately
-enabled.
+`off`), so none of the above affected production even before these were closed.
