@@ -581,9 +581,12 @@ date regardless of when it publishes.
 A slate's window closes when either arm fires: observed event time advances past the slate's
 deadline — `impression_ts + FEEDBACK_JOIN_WAIT`, or, for a slate that has not seen an impression,
 its earliest observed event time plus the same window — or the slate has been held that long in
-wall-clock time. The event-time arm keeps an archive backfill fast; the wall-clock arm drains the
-store when the stream goes idle, which is what stops a finished sim from leaving samples pending
-forever.
+wall-clock time. The event-time arm keeps an archive backfill fast; the wall-clock arm bounds how
+long a slate waits whenever batches are still running, but it cannot drain a stream that has gone
+completely idle — the joiner's plan is a stateless `foreachBatch`, so a quiet topic produces no
+no-data micro-batches and the wall clock never gets re-evaluated. A stopped stream leaves its
+remaining slates in the pending snapshot until traffic resumes, at which point they publish on the
+first batch.
 
 Feedback arriving *more* than `FEEDBACK_JOIN_WAIT` after its impression is still dropped — the
 sample it belongs to has already published, and the one-row contract rules out restating it. That

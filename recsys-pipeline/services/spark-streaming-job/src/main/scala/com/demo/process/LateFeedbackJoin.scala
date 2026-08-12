@@ -17,6 +17,12 @@ import org.apache.spark.storage.StorageLevel
   *
   * `queryNamespace` must be the archive's own namespace so the store shares its query root, and
   * must not be shared by concurrently active queries.
+  *
+  * `request_id`, `user_id` and `item_id` must be non-null on every input row: the `due` computation
+  * excludes open slates via a plain-equality `left_anti` join, under which `NULL = NULL` is unknown,
+  * so a null-keyed slate would be written to the snapshot as open *and* fail to be excluded from
+  * `due` — published now and again when its window closes, a duplicate `sample_id`.
+  * `OnlineJoinerStreamingJob.parseEvents` enforces this before events ever reach this class.
   */
 class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoinWait: String) {
 
@@ -49,8 +55,10 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
       val open = commitOpenSlates(all, batchId, nowMs)
       // localCheckpoint materializes the due rows and cuts their lineage, so the samples this
       // returns carry no dependency on a snapshot directory that compaction may later delete.
-      // Its blocks are released when the RDD is garbage collected; losing them costs a batch
-      // retry, which recomputes from the committed snapshot anyway.
+      // Its blocks are unreplicated, and cutting the lineage means they cannot be recomputed if
+      // lost — ExecutionEngine.withRetry only retries the sink write against the same broken
+      // plan, and an exception out of foreachBatch terminates the query. Recovery is by external
+      // restart, after which the batch recomputes from its committed snapshot.
       val due = all.join(open.select(slateKeys.map(col): _*).distinct(), slateKeys, "left_anti")
         .drop("first_seen_ms")
         .localCheckpoint(eager = true)
@@ -102,7 +110,10 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
         min(col("first_seen_ms")).as("slate_first_seen_ms"))
       val latest = all.agg(max(col("timestamp"))).first()
       val deadline = coalesce(col("impression_ts"), col("first_event_ts")) + lit(waitSeconds)
-      val eventTimeDue = if (latest.isNullAt(0)) lit(false) else lit(latest.getLong(0)) >= deadline
+      // Event time may lag the wall clock (an archive backfill does), but must never run ahead of
+      // it: one skewed future timestamp would otherwise make every pending slate due at once.
+      val observedSeconds = if (latest.isNullAt(0)) None else Some(math.min(latest.getLong(0), nowMs / 1000L))
+      val eventTimeDue = observedSeconds.map(lit(_) >= deadline).getOrElse(lit(false))
       val wallClockDue = lit(nowMs) - col("slate_first_seen_ms") >= lit(waitSeconds * 1000L)
       val openKeys = slates
         .filter(not(coalesce(eventTimeDue || wallClockDue, lit(false))))

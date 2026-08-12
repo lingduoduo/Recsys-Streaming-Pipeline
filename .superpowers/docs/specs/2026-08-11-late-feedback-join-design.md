@@ -93,10 +93,12 @@ A slate is **due** when either arm fires:
 - **Event time:** `max event timestamp observed over pending ∪ batch` ≥
   `coalesce(impression_ts, min event time in the slate) + FEEDBACK_JOIN_WAIT`. An archive backfill
   that lands a week of events in one batch therefore closes everything immediately.
-- **Wall clock:** `batch wall clock − min(first_seen_ms) ≥ FEEDBACK_JOIN_WAIT`. This drains the store
-  when the stream goes idle. Empty micro-batches still fire on the trigger interval, evaluate the
-  rule, and flush — without this arm, a sim whose producer has finished would end with samples
-  stranded in the store forever.
+- **Wall clock:** `batch wall clock − min(first_seen_ms) ≥ FEEDBACK_JOIN_WAIT`. This bounds how long a
+  slate waits whenever batches are still running — for example when traffic continues but a slate's
+  own event time stalls — but it cannot drain a stream that has gone completely idle: the joiner's
+  plan is a stateless `foreachBatch`, which produces no no-data micro-batches, so when the topic goes
+  quiet no batch runs at all and this arm never gets evaluated. A stopped stream leaves its remaining
+  slates in the snapshot until traffic resumes, at which point they publish on the first batch.
 
 The deadline is anchored on `impression_ts`, never on the latest feedback, so feedback cannot extend
 a slate's window. That is what guarantees a slate publishes exactly once.
@@ -210,3 +212,7 @@ guarantees.
   latency for label correctness.
 - The pending store is rewritten in full once per trigger interval. At the volumes this pipeline
   targets that is inexpensive; at much higher throughput it would want incremental state.
+- The wall-clock arm cannot drain a stream that has gone completely idle: the joiner's plan is a
+  stateless `foreachBatch`, so a quiet topic produces no no-data micro-batches and `process` is never
+  called. A stopped stream leaves its remaining slates in the snapshot until traffic resumes, at
+  which point they publish on the first batch.

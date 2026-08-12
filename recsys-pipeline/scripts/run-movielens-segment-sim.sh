@@ -9,7 +9,6 @@ cd "$(dirname "$0")/.."
 
 SIM_ROOT="${SIM_ROOT:-/tmp/spark-recsys/movielens-segment-sim}"
 OUT_DIR="$SIM_ROOT/training-samples"
-DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-600}"
 # Unique per-run topics so each run reads only its own data (avoids the async topic-delete race
 # that otherwise lets a previous run's messages accumulate and starve the drain).
 RUN_ID="${RUN_ID:-r$(date +%s)}"
@@ -26,13 +25,19 @@ FEEDBACK_DELAY_SCALE="${FEEDBACK_DELAY_SCALE:-1.0}"
 FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
   'BEGIN { v = 150 * scale; if (v < 10) v = 10; printf "%d", v }')}"
 
-# The joiner holds each slate FEEDBACK_JOIN_WAIT past its impression before publishing its
-# sample, so it scales with FEEDBACK_DELAY_SCALE exactly like the producer's tail does.
+# An idle stream produces no micro-batches, so only the arriving feedback itself can close a
+# window — the wall-clock arm cannot drain a stopped producer. The wait is therefore tied to the
+# producer's maximum order delay (120s * scale): by the time the last impression's deadline is
+# reached, feedback is still arriving to close it, and nothing is stranded.
 FEEDBACK_JOIN_WAIT_SECONDS="${FEEDBACK_JOIN_WAIT_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
-  'BEGIN { v = 180 * scale; if (v < 10) v = 10; printf "%d", v }')}"
+  'BEGIN { v = 120 * scale; if (v < 10) v = 10; printf "%d", v }')}"
 # The parquet drain must outlast the last order's arrival *and* the window the joiner then holds
 # it for, plus one trigger interval for the publishing batch itself.
 SAMPLE_DRAIN_SECONDS="${SAMPLE_DRAIN_SECONDS:-$((FEEDBACK_TAIL_SECONDS + FEEDBACK_JOIN_WAIT_SECONDS + 10))}"
+
+# The drain must be able to outlast its own floor: below min_wait every iteration continues,
+# so a timeout shorter than the floor kills the job before the floor has elapsed.
+DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-$(( SAMPLE_DRAIN_SECONDS + 300 > 600 ? SAMPLE_DRAIN_SECONDS + 300 : 600 ))}"
 
 # macOS ships bash 3.2, which has no associative arrays: `declare -A` fails and every
 # key silently collapses to index 0, so a pid map would return the wrong process.

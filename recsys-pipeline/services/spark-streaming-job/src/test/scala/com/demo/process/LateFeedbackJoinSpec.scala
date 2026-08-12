@@ -81,6 +81,22 @@ class LateFeedbackJoinSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     labels(published) shouldBe Seq(("item_1", 1, 1, 2.0))
   }
 
+  it should "not flush a pending slate when a later event carries a far-future timestamp" in {
+    val subject = join("60 seconds")
+    // The impression's timestamp sits in the same range as nowMs (both ~1,000,000) so that an
+    // unclamped observed time would clearly clear the deadline, and a clamped one clearly would not.
+    val startMs = 1000000L
+
+    subject.process(batch(Seq(event("item_1", "impression", 1000L))), 0L, startMs).count() shouldBe 0L
+    // req_2's timestamp is a year ahead, but nowMs has barely moved; observed event time must
+    // clamp to nowMs rather than let this skewed row make req_1 due.
+    val published = subject.process(
+      batch(Seq(event("item_9", "impression", 1000L + 365L * 86400L, requestId = "req_2"))),
+      1L, startMs + 1000L)
+
+    published.count() shouldBe 0L
+  }
+
   it should "publish nothing for feedback whose impression never arrives" in {
     val subject = join("60 seconds")
     val startMs = 1000000L
