@@ -49,15 +49,24 @@ object OnlineJoinerStreamingJob {
     val outputFiles = math.max(1, Env.int("ONLINE_JOINER_OUTPUT_FILES", 1))
     val catalogPath = sys.env.getOrElse("ONLINE_JOINER_CATALOG_PATH", "")
     val catalog: Option[DataFrame] = if (catalogPath.nonEmpty) Some(loadCatalog(spark, catalogPath)) else None
+    val archiveRoot =
+      sys.env.getOrElse("RECSYS_EVENT_ARCHIVE_PATH", "/tmp/spark-recsys/recsys-events-archive")
     val archive = new RawArchiveSink(
-      sys.env.getOrElse("RECSYS_EVENT_ARCHIVE_PATH", "/tmp/spark-recsys/recsys-events-archive"),
+      archiveRoot,
       sys.env.getOrElse("RECSYS_EVENT_DEAD_LETTER_PATH", "/tmp/spark-recsys/recsys-events-dead-letter"),
       cfg.checkpointLocation
     )
+    // Feedback arriving within this window joins its impression; a sample publishes once, when
+    // its window closes. "0 seconds" restores the pre-change per-batch behaviour.
+    val lateFeedbackJoin = new LateFeedbackJoin(
+      archiveRoot,
+      archive.stableQueryNamespace,
+      sys.env.getOrElse("FEEDBACK_JOIN_WAIT", "3 minutes"))
 
     val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedEvents(df, cfg.watermarkDelay))
     val batchStages: Seq[BatchStage] =
-      Seq((df: DataFrame, id: Long) => buildTrainingSamples(df).withColumn("batch_id", lit(id)))
+      Seq((df: DataFrame, id: Long) =>
+        lateFeedbackJoin.process(df, id, System.currentTimeMillis()).withColumn("batch_id", lit(id)))
     val sinks: Seq[Sink] = Seq(
       new KafkaSink(cfg.bootstrapServers, outputTopic, "sample_id"),
       new ParquetSink(outputPath, "date", outputFiles,

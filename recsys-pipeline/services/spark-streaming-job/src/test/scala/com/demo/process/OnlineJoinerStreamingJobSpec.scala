@@ -69,6 +69,8 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     row.getAs[Double]("label") shouldBe 0.0
   }
 
+  // buildTrainingSamples is batch-local by design and stays that way. LateFeedbackJoin is the
+  // layer that spans batches: see LateFeedbackJoinSpec for the end-to-end cross-batch guarantee.
   it should "drop feedback whose impression fell in an earlier batch" in {
     val sparkSession = spark
     import sparkSession.implicits._
