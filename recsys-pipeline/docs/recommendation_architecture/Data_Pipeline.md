@@ -578,10 +578,12 @@ and the Parquet sink one `FEEDBACK_JOIN_WAIT` after its impression rather than i
 own batch. Its `date` partition is still `to_date(impression_time)`, so it lands in its impression's
 date regardless of when it publishes.
 
-A slate's window closes when either arm fires: observed event time advances past
-`impression_ts + FEEDBACK_JOIN_WAIT`, or the slate has been held that long in wall-clock time. The
-event-time arm keeps an archive backfill fast; the wall-clock arm drains the store when the stream
-goes idle, which is what stops a finished sim from leaving samples pending forever.
+A slate's window closes when either arm fires: observed event time advances past the slate's
+deadline — `impression_ts + FEEDBACK_JOIN_WAIT`, or, for a slate that has not seen an impression,
+its earliest observed event time plus the same window — or the slate has been held that long in
+wall-clock time. The event-time arm keeps an archive backfill fast; the wall-clock arm drains the
+store when the stream goes idle, which is what stops a finished sim from leaving samples pending
+forever.
 
 Feedback arriving *more* than `FEEDBACK_JOIN_WAIT` after its impression is still dropped — the
 sample it belongs to has already published, and the one-row contract rules out restating it. That
