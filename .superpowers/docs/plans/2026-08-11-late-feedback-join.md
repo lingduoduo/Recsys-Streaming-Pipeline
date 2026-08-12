@@ -10,6 +10,23 @@
 
 **Spec:** `.superpowers/docs/specs/2026-08-11-late-feedback-join-design.md`
 
+> **As built — three corrections the whole-branch review forced.** The spec records the final design.
+>
+> 1. **The wall-clock arm cannot drain an idle stream.** Task 2 and Task 5 were written believing
+>    empty micro-batches still fire on the trigger interval. They do not: the joiner's streaming plan
+>    is a stateless `foreachBatch`, and Spark constructs a no-data micro-batch only for a plan whose
+>    stateful operators ask for one. When the topic goes quiet, no batch runs and `process` is never
+>    called. The arm still bounds a slate's wait whenever batches are running; it cannot flush a
+>    stopped stream. Task 5's sim window is therefore derived from the producer's maximum order delay
+>    (`120 × scale`, not `180 × scale`) so the feedback still arriving is what closes every window.
+> 2. **The drain floor outgrew `DRAIN_TIMEOUT`.** Task 5's floor scales with `FEEDBACK_DELAY_SCALE`
+>    while the timeout did not, so past `scale ≈ 1.8` the drain expired below its own floor and killed
+>    the joiner early. `DRAIN_TIMEOUT` now defaults to the larger of 600 and the floor plus 300.
+> 3. **The event-time arm is clamped to the wall clock.** Task 2's rule compared every slate against a
+>    global maximum event timestamp, so one clock-skewed future event flushed the entire pending store
+>    at once. Observed event time may lag the wall clock, as an archive backfill does, but never runs
+>    ahead of it.
+
 ## Global Constraints
 
 - One row per `sample_id`, ever. Nothing published is ever restated. This is what keeps all eleven `training_samples` consumers unchanged.
