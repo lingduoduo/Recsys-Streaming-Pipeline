@@ -9,7 +9,7 @@ import org.apache.spark.sql.types._
 
 object OnlineJoinerStreamingJob {
 
-  private val MeasurementFields: Seq[(String, DataType)] = Seq(
+  private[process] val MeasurementFields: Seq[(String, DataType)] = Seq(
     "model_version" -> StringType,
     "policy_version" -> StringType,
     "algorithm_version" -> StringType,
