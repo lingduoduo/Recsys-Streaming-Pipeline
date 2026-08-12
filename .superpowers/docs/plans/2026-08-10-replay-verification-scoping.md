@@ -45,7 +45,7 @@
 - Produces: `_batch_partition_dates(batch_directory: Path) -> tuple[date, ...]`
 - Modifies: `_committed_parquet_files(config: ReplayConfig, kind: str = "valid") -> tuple[Path, ...]`
 
-- [ ] **Step 1: Write failing tests for pruning and retained in-range validation**
+- [x] **Step 1: Write failing tests for pruning and retained in-range validation**
 
 Use the existing `write_archive` / `refresh_archive_commit` helpers. Build an archive with several batches across several dates.
 
@@ -92,13 +92,13 @@ def test_batch_straddling_the_boundary_is_fully_validated(tmp_path):
 
 Extend `write_archive` to accept multiple `(batch_id, date)` pairs and an `empty_batches` argument that commits a zero-row batch with an empty inventory.
 
-- [ ] **Step 2: Run the focused tests to verify RED**
+- [x] **Step 2: Run the focused tests to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_archive_replay.py -k "hashed or outside_range or straddling or zero_row"`
 
 Expected: FAIL — every batch is currently hashed, and a corrupt batch outside the range currently raises.
 
-- [ ] **Step 3: Add the pruning pass**
+- [x] **Step 3: Add the pruning pass** — *shipped differently; see the as-built note above. `_batch_partition_dates` reads the commit manifest, never `iterdir()`, so a batch whose declared partition directory was deleted is not pruned away as empty.*
 
 Add a helper that reads partition dates from directory names only — no file opens:
 
@@ -126,13 +126,13 @@ if not any(config.start_date <= value < config.end_date for value in partition_d
 
 Everything downstream of that guard stays exactly as it is.
 
-- [ ] **Step 4: Verify GREEN and confirm no regression**
+- [x] **Step 4: Verify GREEN and confirm no regression**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_archive_replay.py`
 
 Expected: the new tests pass. Some pre-existing corruption tests may now fail because their damaged batch sits outside the range being replayed — that is the intended behaviour change, and Task 3 retargets them. Do not weaken the guard to make them pass.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 Commit message: `perf: prune archive batches by partition date before verifying`
 
@@ -148,7 +148,7 @@ Commit message: `perf: prune archive batches by partition date before verifying`
 - Produces: `_committed_parquet_files(config, kind="valid")` accepting `"dead-letter"`.
 - Consumed by the dead-letter re-drive plan, `2026-08-10-dead-letter-redrive.md`.
 
-- [ ] **Step 1: Write failing kind tests**
+- [x] **Step 1: Write failing kind tests**
 
 ```python
 def test_dead_letter_kind_reads_dead_letter_batches(tmp_path):
@@ -167,21 +167,21 @@ def test_kind_mismatch_is_rejected(tmp_path):
 
 Extend `write_archive` and `refresh_archive_commit` to take a `kind` argument that is written into the `_COMMITTED` manifest.
 
-- [ ] **Step 2: Run to verify RED**
+- [x] **Step 2: Run to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_archive_replay.py -k "kind"`
 
 Expected: FAIL — `kind` is hardcoded to `"valid"` in `expected_identity`.
 
-- [ ] **Step 3: Thread the parameter through**
+- [x] **Step 3: Thread the parameter through**
 
 Add `kind: str = "valid"` to `_committed_parquet_files` and use it in `expected_identity`. Add the same defaulted parameter to `_open_archive`. Leave every existing call site unchanged so replay keeps reading `valid`.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_archive_replay.py -k "kind"`
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 Commit message: `refactor: parameterize the archive batch reader by manifest kind`
 
@@ -197,7 +197,7 @@ Commit message: `refactor: parameterize the archive batch reader by manifest kin
 - Modifies: `_open_archive` to carry verified `_ArchiveFileIdentity` values.
 - Modifies: `_source_signature(config, archive)` to consume them without changing its output value.
 
-- [ ] **Step 1: Write the signature-stability and single-hash tests**
+- [x] **Step 1: Write the signature-stability and single-hash tests**
 
 The golden value protects in-flight operations. Capture it from the current implementation **before** editing `_source_signature`, and hardcode it.
 
@@ -220,31 +220,31 @@ def test_each_selected_file_is_hashed_once(tmp_path, monkeypatch):
     assert len(hashed) == len(set(hashed))
 ```
 
-- [ ] **Step 2: Run to verify RED**
+- [x] **Step 2: Run to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_archive_replay.py -k "signature or hashed_once"`
 
 Expected: `test_each_selected_file_is_hashed_once` FAILS — each selected file is hashed once during validation and again in `_source_signature`. `test_source_signature_is_unchanged` passes now and must keep passing.
 
-- [ ] **Step 3: Thread verified identities through**
+- [x] **Step 3: Thread verified identities through**
 
 Have `_committed_parquet_files` return, alongside its paths, a mapping from absolute path to the verified `_ArchiveFileIdentity`. Carry it on `_CommittedArchive` as a new field. In `_source_signature`, look up `size` and `sha256` from that mapping instead of calling `path.stat()` and `_file_sha256`.
 
 The JSON document `_source_signature` hashes must be unchanged: same keys, same order, same relative-path form, same values. Only the source of the size and digest changes.
 
-- [ ] **Step 4: Retarget the pre-existing corruption tests**
+- [x] **Step 4: Retarget the pre-existing corruption tests** — *not needed; manifest-based pruning left all 28 pre-existing tests passing unmodified.*
 
 Every existing test that damages a batch and asserts a raise must place the damaged batch **inside** the replayed range. Adjust the range or the batch's partition date; do not change the assertion or the expected error. Each of these still proves the commit protocol is enforced for data that is read.
 
 Pair each with its counterpart from Task 1 proving the same damage outside the range is ignored.
 
-- [ ] **Step 5: Run the full replay suite**
+- [x] **Step 5: Run the full replay suite**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_archive_replay.py`
 
 Expected: all tests pass, including the 28 pre-existing ones.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 Commit message: `perf: hash each selected archive file once per replay`
 
@@ -255,11 +255,11 @@ Commit message: `perf: hash each selected archive file once per replay`
 **Files:**
 - Modify: `recsys-pipeline/docs/recommendation_architecture/Data_Pipeline.md`
 
-- [ ] **Step 1: Document the scoped guarantee**
+- [x] **Step 1: Document the scoped guarantee**
 
 In the "Archive and bounded replay operations" section, replace the claim that replay validates all committed batches. State that replay validates every batch it reads from, in full; that batches whose partitions fall outside the requested range are skipped without validation; and that a damaged batch outside the range therefore no longer blocks recovery. Note explicitly that replay is not a whole-archive integrity audit.
 
-- [ ] **Step 2: Run the complete relevant suites**
+- [x] **Step 2: Run the complete relevant suites**
 
 Run:
 
@@ -273,16 +273,16 @@ pytest -q integration-tests/python_modeling/test_archive_replay.py \
 
 Expected: all pass; the round-trip test skips without a broker.
 
-- [ ] **Step 3: Confirm scope**
+- [x] **Step 3: Confirm scope**
 
 Run: `git diff --stat master`
 
 Expected: only `archive_replay.py`, `test_archive_replay.py`, and `Data_Pipeline.md`. No Scala, no schema, no commit-protocol change.
 
-- [ ] **Step 4: Request code review**
+- [x] **Step 4: Request code review**
 
 Use superpowers:requesting-code-review. Ask specifically whether any batch that contributes a published row can now escape full validation — that is the one property this change must not break.
 
-- [ ] **Step 5: Finalize the branch**
+- [x] **Step 5: Finalize the branch**
 
 Open a PR against `master`. Do not merge; wait for the user.

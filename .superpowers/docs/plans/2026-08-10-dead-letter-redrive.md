@@ -12,6 +12,12 @@
 
 **Depends on:** `2026-08-10-replay-verification-scoping.md` Task 2, which provides `_committed_parquet_files(config, kind=...)`. Do not start before it lands.
 
+> **As built (PR #169) — shipped as planned.** Every task landed in the form written here:
+> `dead_letter_redrive.py` with `validate_config`, `select_dead_letters`, `evaluate_row`,
+> `RedriveManifest`, `run_redrive`, `parse_args` and `main`; `target_topic` a `ClassVar` pinned to
+> `recsys_events.backfill`; the `--start-ingest-date` / `--end-ingest-date` / `--max-rows` CLI;
+> `scripts/run-dead-letter-redrive.sh`; 31 tests; and the runbook section in `Data_Pipeline.md`.
+
 ## Global Constraints
 
 - Publish only to `recsys_events.backfill`. The topic is a class variable, never an argument.
@@ -47,7 +53,7 @@
 
 **Dead-letter row columns:** `kafka_topic`, `kafka_partition`, `kafka_offset`, `kafka_timestamp`, optional `kafka_headers`, `raw_value`, `schema_fingerprint`, `error_code`, `error_detail`, `archived_at`, `date`.
 
-- [ ] **Step 1: Write failing config and selection tests**
+- [x] **Step 1: Write failing config and selection tests**
 
 Build a dead-letter archive fixture with `kind="dead-letter"` and `date` partitions derived from `kafka_timestamp`.
 
@@ -75,13 +81,13 @@ def test_target_topic_is_fixed_and_not_configurable():
 `target_topic` must be a `ClassVar`, so it must not appear in `__dataclass_fields__`; an unrecognized
 `--target-topic` flag must make argparse exit.
 
-- [ ] **Step 2: Run to verify RED**
+- [x] **Step 2: Run to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py`
 
 Expected: FAIL during import — `dead_letter_redrive.py` does not exist.
 
-- [ ] **Step 3: Implement config, validation, and selection**
+- [x] **Step 3: Implement config, validation, and selection**
 
 Mirror `archive_replay.validate_config`: path-safe identity checks for `archive_query_namespace` and `operation_id`, ISO dates with `end > start`, positive integer `max_rows`, finite positive `records_per_second`, non-blank `bootstrap_servers`.
 
@@ -95,11 +101,11 @@ Call it with `kind="dead-letter"` and the ingestion-date bounds. Read the dead-l
 
 If importing private helpers across modules reads badly under review, promote them to public names in `archive_replay` in a separate commit rather than copying the commit-protocol logic. Do not duplicate it.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py`
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 Commit message: `feat: select bounded dead-letter archive ranges`
 
@@ -114,7 +120,7 @@ Commit message: `feat: select bounded dead-letter archive ranges`
 **Interfaces:**
 - Produces: `evaluate_row(row: Mapping[str, object]) -> tuple[bool, str | None, dict | None]` returning eligibility, the original `error_code`, and the decoded record when it decodes.
 
-- [ ] **Step 1: Write failing gate tests**
+- [x] **Step 1: Write failing gate tests**
 
 ```python
 def test_unknown_fingerprint_that_now_decodes_is_eligible():
@@ -144,11 +150,11 @@ def test_error_code_is_never_used_as_a_filter():
                          "error_code": "corrupt_payload"})[0] is True
 ```
 
-- [ ] **Step 2: Run to verify RED**
+- [x] **Step 2: Run to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py -k "eligible or decodes or filter"`
 
-- [ ] **Step 3: Implement the gate**
+- [x] **Step 3: Implement the gate**
 
 ```python
 def evaluate_row(row):
@@ -164,11 +170,11 @@ def evaluate_row(row):
 
 Catch only decode-shaped failures. Do not catch `BaseException`; a bug in the codec must surface, not silently mark every row ineligible.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py`
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 Commit message: `feat: gate dead-letter re-drive on current decodability`
 
@@ -184,7 +190,7 @@ Commit message: `feat: gate dead-letter re-drive on current decodability`
 - Produces: `RedriveManifest` with `selected_rows`, `examined_rows`, `published_rows`, `skipped_rows`, `skipped_by_error_code`, `acknowledged_position`, `source_paths`, `source_signature`, `schema_fingerprints`, `status`, `started_at`, `updated_at`, `completed_at`, `error`.
 - Produces: `run_redrive(config, producer_factory=..., clock=None, sleeper=None) -> RedriveManifest`.
 
-- [ ] **Step 1: Write failing publish, count, and resume tests**
+- [x] **Step 1: Write failing publish, count, and resume tests**
 
 Reuse the `FakeProducer` pattern from `test_archive_replay.py`.
 
@@ -261,11 +267,11 @@ def test_completed_operation_rerun_is_a_no_op(tmp_path):
 `FakeProducer` needs a `fail_after` argument so a delivery can succeed before the crash; extend the
 copy in this module rather than editing `test_archive_replay.py`'s.
 
-- [ ] **Step 2: Run to verify RED**
+- [x] **Step 2: Run to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py`
 
-- [ ] **Step 3: Implement the run loop**
+- [x] **Step 3: Implement the run loop**
 
 Follow `run_replay`'s shape: read an existing manifest, validate the immutable source contract on resume (`selected_rows`, `source_paths`, `source_signature`, fingerprints), return early when `status == "completed"`.
 
@@ -282,11 +288,11 @@ Persist after every row, eligible or not, so a crash after a skip does not re-ex
 
 Reuse `DELIVERY_TIMEOUT_SECONDS` and the producer settings from `archive_replay._make_kafka_producer`.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py`
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 Commit message: `feat: publish re-driven dead letters with a durable manifest`
 
@@ -299,27 +305,27 @@ Commit message: `feat: publish re-driven dead letters with a durable manifest`
 - Create: `recsys-pipeline/scripts/run-dead-letter-redrive.sh`
 - Modify: `recsys-pipeline/integration-tests/python_modeling/test_dead_letter_redrive.py`
 
-- [ ] **Step 1: Write failing CLI tests**
+- [x] **Step 1: Write failing CLI tests**
 
 Assert `parse_args` requires `--archive-path`, `--archive-query-namespace`, `--operation-id`, `--start-ingest-date`, `--end-ingest-date`, `--max-rows`, `--records-per-second`, `--bootstrap-servers`; accepts optional `--override-limit` and `--manifest-dir`; and exposes no topic argument.
 
-- [ ] **Step 2: Run to verify RED**
+- [x] **Step 2: Run to verify RED**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py -k "cli or parse_args"`
 
-- [ ] **Step 3: Implement `parse_args` and `main`**
+- [x] **Step 3: Implement `parse_args` and `main`**
 
 Mirror `archive_replay`. `main` prints status, published/skipped counts, and the manifest path.
 
-- [ ] **Step 4: Add the wrapper script**
+- [x] **Step 4: Add the wrapper script**
 
 Follow `run-archive-replay.sh` exactly: `set -euo pipefail`, `require_env` for `REDRIVE_ARCHIVE_PATH`, `REDRIVE_ARCHIVE_QUERY_NAMESPACE`, `REDRIVE_OPERATION_ID`, `REDRIVE_START_INGEST_DATE`, `REDRIVE_END_INGEST_DATE`, `REDRIVE_MAX_ROWS`, `REDRIVE_RECORDS_PER_SECOND`; optional `REDRIVE_MANIFEST_DIR` and `REDRIVE_OVERRIDE_LIMIT=1`; `KAFKA_BOOTSTRAP_SERVERS` defaulting to `localhost:9092`. Mark it executable.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 Run: `cd recsys-pipeline && pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py && bash -n scripts/run-dead-letter-redrive.sh`
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 Commit message: `feat: add the dead-letter re-drive operator command`
 
@@ -330,7 +336,7 @@ Commit message: `feat: add the dead-letter re-drive operator command`
 **Files:**
 - Modify: `recsys-pipeline/docs/recommendation_architecture/Data_Pipeline.md`
 
-- [ ] **Step 1: Document the recovery procedure**
+- [x] **Step 1: Document the recovery procedure**
 
 Extend the dead-letter paragraph with a re-drive runbook covering:
 
@@ -349,7 +355,7 @@ REDRIVE_MAX_ROWS=50000 REDRIVE_RECORDS_PER_SECOND=2000 \
   ./scripts/run-dead-letter-redrive.sh
 ```
 
-- [ ] **Step 2: Run the complete relevant suites**
+- [x] **Step 2: Run the complete relevant suites**
 
 Run:
 
@@ -363,16 +369,16 @@ pytest -q integration-tests/python_modeling/test_dead_letter_redrive.py \
 
 Expected: all pass; the round-trip test skips without a broker.
 
-- [ ] **Step 3: Confirm scope**
+- [x] **Step 3: Confirm scope**
 
 Run: `git diff --stat master`
 
 Expected: the new module, the new script, the new test file, and `Data_Pipeline.md`. `archive_replay.py` appears only if private helpers were promoted to public names in Task 1.
 
-- [ ] **Step 4: Request code review**
+- [x] **Step 4: Request code review**
 
 Use superpowers:requesting-code-review. Ask specifically whether any path can publish a record that would not decode in the pipeline, and whether resumption is correct when a crash follows a skipped row.
 
-- [ ] **Step 5: Finalize the branch**
+- [x] **Step 5: Finalize the branch**
 
 Open a PR against `master`. Do not merge; wait for the user.
