@@ -1,13 +1,15 @@
 package com.demo.process
 
 import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, RawArchiveSink, Sink, Stage}
-import com.demo.event.{DecodedEventBatch, EventParsing}
-import com.demo.util.{Env, SparkSessions, TimePartitions}
+import com.demo.event.{DecodedEventBatch, EventParsing, FieldGate, Gated}
+import com.demo.util.{DropMetrics, Env, Reporter, SparkSessions, TimePartitions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
 object OnlineJoinerStreamingJob {
+
+  private val JobName = "OnlineJoinerStreamingJob"
 
   private[process] val MeasurementFields: Seq[(String, DataType)] = Seq(
     "model_version" -> StringType,
@@ -63,9 +65,12 @@ object OnlineJoinerStreamingJob {
       archive.stableQueryNamespace,
       sys.env.getOrElse("FEEDBACK_JOIN_WAIT", "3 minutes"))
 
-    val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedEvents(df, cfg.watermarkDelay))
-    val batchStages: Seq[BatchStage] =
-      Seq((df: DataFrame, id: Long) =>
+    // Both stages are batch stages so the gate can name its batch. The engine folds streaming
+    // stages before batch stages, so moving dedupe here keeps the original order.
+    val streamingStages: Seq[Stage] = Seq.empty
+    val batchStages: Seq[BatchStage] = Seq(
+      (df: DataFrame, id: Long) => dedupedEvents(df, cfg.watermarkDelay, id),
+      (df: DataFrame, id: Long) =>
         lateFeedbackJoin.process(df, id, System.currentTimeMillis()).withColumn("batch_id", lit(id)))
     val sinks: Seq[Sink] = Seq(
       new KafkaSink(cfg.bootstrapServers, outputTopic, "sample_id"),
@@ -126,22 +131,30 @@ object OnlineJoinerStreamingJob {
   /** `timestamp_seconds` rather than `to_timestamp(from_unixtime(...))`: the round trip through a
     * local wall-clock string collapses the repeated hour of a DST fall-back onto one instant,
     * moving the later event an hour into the past and out of its watermark. */
-  def dedupedEvents(raw: DataFrame, watermarkDelay: String): DataFrame =
-    EventParsing.dedupeWithinWatermark(parseEvents(raw), timestamp_seconds(col("timestamp")), watermarkDelay)
+  def dedupedEvents(
+      raw: DataFrame,
+      watermarkDelay: String,
+      batchId: Long = -1L,
+      reporter: Reporter = DropMetrics
+  ): DataFrame = {
+    val kept = reporter.report(parseEvents(raw), JobName, batchId)
+    EventParsing.dedupeWithinWatermark(kept, timestamp_seconds(col("timestamp")), watermarkDelay)
+  }
 
   /** `timestamp` (seconds) is the published unit behind `impression_ts` and its six consumers;
     * `timestamp_ms` rides alongside so `feedback_delay_ms` can be a real millisecond delta rather
     * than a second-granularity value wearing a millisecond name. */
-  def parseEvents(rawKafka: DataFrame): DataFrame =
-    EventParsing.canonicalEvents(rawKafka)
-      .withColumn("timestamp", (col("timestamp_ms") / 1000L).cast(LongType))
-      .filter(
-        col("request_id").isNotNull &&
-          col("user_id").isNotNull &&
-          col("item_id").isNotNull &&
-          col("event_type").isNotNull &&
-          col("timestamp").isNotNull
-      )
+  def parseEvents(rawKafka: DataFrame): Gated =
+    FieldGate(
+      EventParsing.canonicalEvents(rawKafka)
+        .withColumn("timestamp", (col("timestamp_ms") / 1000L).cast(LongType)),
+      Seq(
+        "null_request_id" -> col("request_id").isNull,
+        "null_user_id" -> col("user_id").isNull,
+        "null_item_id" -> col("item_id").isNull,
+        "null_event_type" -> col("event_type").isNull,
+        "null_timestamp" -> col("timestamp").isNull
+      ))
 
   def buildTrainingSamples(events: DataFrame): DataFrame = {
     val isImpression = col("etype").isin("impression", "exposure")

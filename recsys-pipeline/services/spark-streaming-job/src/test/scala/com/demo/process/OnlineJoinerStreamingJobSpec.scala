@@ -141,7 +141,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       .withColumn("kafka_topic", org.apache.spark.sql.functions.lit("recsys_events"))
       .withColumn("kafka_offset", org.apache.spark.sql.functions.lit(10L))
 
-    val normalised = OnlineJoinerStreamingJob.parseEvents(events)
+    val normalised = OnlineJoinerStreamingJob.parseEvents(events).kept
     normalised.columns should not contain "kafka_topic"
     normalised.columns should not contain "kafka_offset"
 
@@ -167,13 +167,13 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     ).toDF("value")
 
     val samples = OnlineJoinerStreamingJob.buildTrainingSamples(
-      OnlineJoinerStreamingJob.parseEvents(decodedJson(rawEvents)))
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(rawEvents)).kept)
     Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
       samples.schema(field).dataType shouldBe LongType
     }
 
     val kafkaSamples = samples.select(to_json(struct(samples.columns.map(col): _*)).as("value"))
-    val decoded = ExperienceCollectorStreamingJob.parseSamples(kafkaSamples)
+    val decoded = ExperienceCollectorStreamingJob.parseSamples(kafkaSamples).kept
     Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
       decoded.schema(field).dataType shouldBe LongType
     }
@@ -199,7 +199,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     def attribution(input: Seq[String]) =
       OnlineJoinerStreamingJob.buildTrainingSamples(
-        OnlineJoinerStreamingJob.parseEvents(decodedJson(input.toDF("value"))))
+        OnlineJoinerStreamingJob.parseEvents(decodedJson(input.toDF("value"))).kept)
         .select(
           "model_version", "policy_version", "algorithm_version", "last_feedback_ts", "feedback_delay_ms",
           "rating", "negative_feedback_reason", "dwell_millis", "completion_rate"
@@ -241,7 +241,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     def sample(events: Seq[String]) =
       OnlineJoinerStreamingJob.buildTrainingSamples(
-        OnlineJoinerStreamingJob.parseEvents(decodedJson(events.toDF("value")))).first()
+        OnlineJoinerStreamingJob.parseEvents(decodedJson(events.toDF("value"))).kept).first()
 
     val row = sample(Seq(impression, click, ratingOnlyOrder))
 
@@ -275,7 +275,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     ).toDF("value")
 
     val rows = OnlineJoinerStreamingJob.buildTrainingSamples(
-      OnlineJoinerStreamingJob.parseEvents(decodedJson(raw)))
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(raw)).kept)
       .select(
         "request_id", "model_version", "policy_version", "algorithm_version", "rating",
         "negative_feedback_reason", "dwell_millis", "completion_rate", "published_at",

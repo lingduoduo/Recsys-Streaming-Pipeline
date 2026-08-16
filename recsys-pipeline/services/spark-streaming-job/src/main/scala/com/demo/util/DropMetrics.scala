@@ -40,14 +40,29 @@ object DropMetrics extends Reporter {
   }
 
   def report(gated: Gated, job: String, batchId: Long): DataFrame = {
-    val (kept, reasons) = gated.counts
-    log.info(format(job, batchId, kept, reasons))
-    gated.kept
+    // Counting is a driver-side action, which a streaming plan cannot run — the reason every gate
+    // sits inside foreachBatch. Gate a streaming frame and you still get the filtering, but the
+    // counts are unavailable, so say so rather than failing the query or dropping the line
+    // silently.
+    if (gated.tagged.isStreaming) {
+      log.warn(s"[drop-metrics] job=$job batch=$batchId counts unavailable on a streaming plan")
+      gated.kept
+    } else {
+      val (kept, reasons) = gated.counts
+      log.info(format(job, batchId, kept, reasons))
+      gated.kept
+    }
   }
 
-  def reportDecode(deadLetters: DataFrame, validCount: Long, job: String, batchId: Long): Unit = {
+  /** Dead-letter tallies per Avro error code, every declared code present including zeros.
+    * Split out from `reportDecode` for the same reason as `format`: the logic is asserted on
+    * directly rather than through a captured log line. */
+  def decodeCounts(deadLetters: DataFrame): Seq[(String, Long)] = {
     val byCode = deadLetters.groupBy(col("error_code")).count().collect()
       .map(row => row.getString(0) -> row.getLong(1)).toMap
-    log.info(format(job, batchId, validCount, DecodeReasons.map(code => code -> byCode.getOrElse(code, 0L))))
+    DecodeReasons.map(code => code -> byCode.getOrElse(code, 0L))
   }
+
+  def reportDecode(deadLetters: DataFrame, validCount: Long, job: String, batchId: Long): Unit =
+    log.info(format(job, batchId, validCount, decodeCounts(deadLetters)))
 }

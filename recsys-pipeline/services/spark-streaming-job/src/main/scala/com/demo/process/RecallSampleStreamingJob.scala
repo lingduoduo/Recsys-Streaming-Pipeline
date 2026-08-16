@@ -1,7 +1,7 @@
 package com.demo.process
 
-import com.demo.event.EventParsing
-import com.demo.util.{BatchMetricsListener, SparkSessions}
+import com.demo.event.{EventParsing, FieldGate, Gated}
+import com.demo.util.{BatchMetricsListener, DropMetrics, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -16,6 +16,8 @@ import org.apache.spark.sql.streaming.Trigger
   */
 object RecallSampleStreamingJob {
 
+  private val JobName = "RecallSampleStreamingJob"
+
   /** Reshape training samples into per-impression recall rows. */
   def buildRecallSamples(samples: DataFrame): DataFrame =
     samples.select(
@@ -28,9 +30,13 @@ object RecallSampleStreamingJob {
       col("label").as("rating")  // implicit label: click -> 1.0, order -> 2.0, else 0.0
     )
 
-  def parseSamples(rawKafka: DataFrame): DataFrame =
-    EventParsing.fromJson(rawKafka, ExperienceCollectorStreamingJob.TrainingSampleSchema)
-      .filter(col("user_id").isNotNull && col("item_id").isNotNull)
+  def parseSamples(rawKafka: DataFrame): Gated =
+    FieldGate(
+      EventParsing.fromJson(rawKafka, ExperienceCollectorStreamingJob.TrainingSampleSchema),
+      Seq(
+        "null_user_id" -> col("user_id").isNull,
+        "null_item_id" -> col("item_id").isNull
+      ))
 
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -56,8 +62,9 @@ object RecallSampleStreamingJob {
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
 
-    buildRecallSamples(parseSamples(raw)).writeStream
-      .foreachBatch { (batch: DataFrame, _: Long) =>
+    raw.writeStream
+      .foreachBatch { (raw: DataFrame, batchId: Long) =>
+        val batch = buildRecallSamples(DropMetrics.report(parseSamples(raw), JobName, batchId))
         batch
           .select(
             concat_ws(":", col("user_id"), coalesce(col("session_id"), lit("")),

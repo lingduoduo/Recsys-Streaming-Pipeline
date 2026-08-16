@@ -1,13 +1,15 @@
 package com.demo.task
 
-import com.demo.engine.{DurableSink, EngineConfig, ExecutionEngine, KafkaSource, RawArchiveSink, RedisPopularitySink, Sink, Stage}
-import com.demo.event.{DecodedEventBatch, EventParsing}
+import com.demo.engine.{BatchStage, DurableSink, EngineConfig, ExecutionEngine, KafkaSource, RawArchiveSink, RedisPopularitySink, Sink, Stage}
+import com.demo.event.{DecodedEventBatch, EventParsing, FieldGate, Gated}
 import com.demo.sequence.{SequenceBusinessSink, SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceWriteMode}
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{DropMetrics, Env, Reporter, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 object UserEventStreamingJob {
+
+  private val JobName = "UserEventStreamingJob"
 
   // Lazy so tests that import spark.implicits don't pay the full SparkSessions.create cost
   // unless they actually need the production session; in tests SparkTestSupport wins.
@@ -15,11 +17,14 @@ object UserEventStreamingJob {
     SparkSessions.create("UserEventStreamingJob", defaultShufflePartitions = 4)
 
   // Decoding guarantees timestamp_ms; business filtering remains local to this consumer.
-  def normalize(df: DataFrame): DataFrame =
-    df.filter(col("user_id").isNotNull && col("item_id").isNotNull)
+  def normalize(df: DataFrame): Gated =
+    FieldGate(df, Seq(
+      "null_user_id" -> col("user_id").isNull,
+      "null_item_id" -> col("item_id").isNull
+    ))
 
-  /** Select the canonical Avro event view and filter unusable business identifiers. */
-  def parseEvents(raw: DataFrame): DataFrame =
+  /** Select the canonical Avro event view and gate unusable business identifiers. */
+  def parseEvents(raw: DataFrame): Gated =
     normalize(EventParsing.canonicalEvents(raw))
 
   /** Per-item click counts for one micro-batch (columns: item_id, count). */
@@ -43,8 +48,13 @@ object UserEventStreamingJob {
       )
 
   /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
-  def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
-    val valid = parseEvents(raw)
+  def dedupedClicks(
+      raw: DataFrame,
+      watermarkDelay: String,
+      batchId: Long = -1L,
+      reporter: Reporter = DropMetrics
+  ): DataFrame = {
+    val valid = reporter.report(parseEvents(raw), JobName, batchId)
     // timestamp_millis keeps full precision and involves no zone; the old
     // to_timestamp(from_unixtime(...)) round trip collapsed a DST fall-back hour onto one instant.
     EventParsing.dedupeWithinWatermark(valid, timestamp_millis(col("timestamp_ms")), watermarkDelay)
@@ -104,13 +114,16 @@ object UserEventStreamingJob {
       sys.env.getOrElse("RECSYS_EVENT_DEAD_LETTER_PATH", "/tmp/spark-recsys/recsys-events-dead-letter"),
       cfg.checkpointLocation
     )
-    val streamingStages: Seq[Stage] = Seq((df: DataFrame) => dedupedClicks(df, cfg.watermarkDelay))
+    // A batch stage rather than a streaming stage so the gate can name its batch.
+    val streamingStages: Seq[Stage] = Seq.empty
+    val clickStage: Seq[BatchStage] =
+      Seq((df: DataFrame, id: Long) => dedupedClicks(df, cfg.watermarkDelay, id))
     val sinks: Seq[Sink] = businessSinks(
       redisHost, redisPort, redisPoolMaxTotal, sequenceConfig, redisPipelineSize,
       ledgerRetentionBatches)
 
     ExecutionEngine.run(
       spark, cfg, KafkaSource, DecodedEventBatch.decode _, archive,
-      streamingStages, Seq.empty, sinks)
+      streamingStages, clickStage, sinks)
   }
 }

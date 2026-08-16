@@ -1,10 +1,12 @@
 package com.demo.process
 
 import com.demo.engine.RedisPool
-import com.demo.event.EventParsing
-import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
+import com.demo.event.{EventParsing, FieldGate, Gated}
+import com.demo.util.{BatchMetricsListener, DropMetrics, Env, SparkSessions}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+
+import org.apache.spark.storage.StorageLevel
 
 import scala.collection.JavaConverters._
 
@@ -19,6 +21,8 @@ import scala.collection.JavaConverters._
   * document, and the engagement label is the graded relevance score.
   */
 object RelevanceSampleStreamingJob {
+
+  private val JobName = "RelevanceSampleStreamingJob"
 
   /** The relevance query key: one per session, falling back to one per slate.
     *
@@ -53,9 +57,13 @@ object RelevanceSampleStreamingJob {
     )
   }
 
-  def parseSamples(rawKafka: DataFrame): DataFrame =
-    EventParsing.fromJson(rawKafka, ExperienceCollectorStreamingJob.TrainingSampleSchema)
-      .filter(col("user_id").isNotNull && col("item_id").isNotNull)
+  def parseSamples(rawKafka: DataFrame): Gated =
+    FieldGate(
+      EventParsing.fromJson(rawKafka, ExperienceCollectorStreamingJob.TrainingSampleSchema),
+      Seq(
+        "null_user_id" -> col("user_id").isNull,
+        "null_item_id" -> col("item_id").isNull
+      ))
 
   /** Driver-side Redis HGETALL of `movie:{id}:features`; missing keys omitted. */
   def fetchMovieFeatures(ids: Array[String], host: String, port: Int, poolMax: Int): Map[String, Map[String, String]] = {
@@ -96,8 +104,12 @@ object RelevanceSampleStreamingJob {
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
 
-    parseSamples(raw).writeStream
-      .foreachBatch { (batch: DataFrame, _: Long) =>
+    raw.writeStream
+      .foreachBatch { (raw: DataFrame, batchId: Long) =>
+        val gated = parseSamples(raw)
+        val tagged = gated.tagged.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        try {
+        val batch = DropMetrics.report(gated.copy(tagged = tagged), JobName, batchId)
         val items = batch.select("item_id").distinct().collect().flatMap(r => Option(r.getString(0)))
         val feats = fetchMovieFeatures(items, redisHost, redisPort, redisPoolMax)
         val titleMap  = feats.flatMap { case (id, h) => h.get("title").map(id -> _) }
@@ -115,6 +127,7 @@ object RelevanceSampleStreamingJob {
           .option("kafka.bootstrap.servers", kafkaBootstrapServers)
           .option("topic", outputTopic)
           .save()
+        } finally tagged.unpersist()
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(org.apache.spark.sql.streaming.Trigger.ProcessingTime(triggerInterval))

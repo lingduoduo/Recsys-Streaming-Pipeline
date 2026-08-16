@@ -1,17 +1,21 @@
 package com.demo.process
 
 import com.demo.engine.RedisPool
+import com.demo.event.{FieldGate, Gated}
 import com.demo.sequence.{SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceSinks, SequenceWriteMode}
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{DropMetrics, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
+import org.apache.spark.storage.StorageLevel
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 
 object MovieLensContextCollectorStreamingJob {
+
+  private val JobName = "MovieLensContextCollectorStreamingJob"
   private val log = LoggerFactory.getLogger(getClass)
 
   val ContextEventSchema: StructType = StructType(Seq(
@@ -57,8 +61,13 @@ object MovieLensContextCollectorStreamingJob {
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
 
-    parseEvents(raw).writeStream
-      .foreachBatch { (batch: DataFrame, batchId: Long) =>
+    raw.writeStream
+      .foreachBatch { (rawBatch: DataFrame, batchId: Long) =>
+        val tagged = gateEvents(parseEvents(rawBatch)).tagged
+          .persist(StorageLevel.MEMORY_AND_DISK_SER)
+        try {
+        val batch = DropMetrics.report(
+          Gated(tagged, Seq("unclassifiable_shape")), JobName, batchId)
         val userUpdates = buildUserFeatureUpdates(batch, recentRatingsLimit)
         val movieUpdates = buildMovieFeatureUpdates(batch)
         writeUserUpdates(userUpdates, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize, contextTtlSeconds, recentRatingsLimit)
@@ -69,6 +78,7 @@ object MovieLensContextCollectorStreamingJob {
           sequenceConfig, redisHost, redisPort, redisPoolMaxTotal, redisPipelineSize,
           SequenceWriteMode.Append, batchId
         )
+        } finally tagged.unpersist()
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
@@ -94,7 +104,13 @@ object MovieLensContextCollectorStreamingJob {
           col("title").isNotNull ||
             size(coalesce(col("genres"), array().cast(ArrayType(StringType)))) > 0 ||
             col("release_year").isNotNull))
-      .filter(col("is_rating") || col("is_user_update") || col("is_movie_update"))
+
+  /** An event matching none of the three shapes carries nothing any aggregate can use. */
+  def gateEvents(classified: DataFrame): Gated =
+    FieldGate(classified, Seq(
+      "unclassifiable_shape" ->
+        !(col("is_rating") || col("is_user_update") || col("is_movie_update"))
+    ))
 
   def buildUserFeatureUpdates(events: DataFrame, recentRatingsLimit: Int = 50): DataFrame = {
     val userUpdates = events
