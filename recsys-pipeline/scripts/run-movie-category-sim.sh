@@ -256,14 +256,37 @@ wait "$service_pid" 2>/dev/null || true
 trap - EXIT
 
 echo
+echo "==> MDP POLICY EVALUATION (uniform vs greedy over the generated ratings)"
+# Optional: needs Maven. The ratings.csv written above clears the evaluator's default
+# --min-user-ratings 20 / --min-movie-ratings 10 filters; only the tiny bundled
+# sampledata/ratings.csv does not. Failure here must not sink a completed simulation, so the
+# card simply stays "Not measured".
+MDP_CSV="$SIM_ROOT/mdp_eval.csv"
+if command -v mvn >/dev/null 2>&1; then
+  # Status must come from mvn, not from a pipeline tail, or the failure branch never fires.
+  if (cd services/java-retrieval-service && mvn -q compile exec:java \
+        -Dexec.mainClass=com.demo.retrieval.evaluation.MovieLensPolicyEvaluation \
+        -Dexec.args="--ratings $RATINGS_CSV --output $MDP_CSV") >"$SIM_ROOT/mdp-eval.log" 2>&1; then
+    echo "   wrote $MDP_CSV"
+  else
+    echo "   evaluator failed (see $SIM_ROOT/mdp-eval.log) — MDP card stays Not measured"
+    tail -3 "$SIM_ROOT/mdp-eval.log" | sed 's/^/   /'
+  fi
+else
+  echo "   mvn not found — skipping; MDP card stays Not measured"
+fi
+
+echo
 echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
 REDIS_HOST=localhost REDIS_PORT=6379 \
-  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" 2>&1 \
+  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" \
+    --mdp-csv "$MDP_CSV" 2>&1 \
   | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 echo
 echo "==> REACT DASHBOARD SNAPSHOT (seven measurement sections)"
 export_args=(--input "$OUT_DIR" --output "frontend/data/dashboard.json")
+[[ -s "$MDP_CSV" ]] && export_args+=(--mdp-csv "$MDP_CSV")
 [[ -d "$SLATE_DIR" ]] && export_args+=(--experiences "$SLATE_DIR")
 [[ -s "$LIVE_METRICS" ]] && export_args+=(--live-metrics "$LIVE_METRICS")
 REDIS_HOST=localhost REDIS_PORT=6379 \

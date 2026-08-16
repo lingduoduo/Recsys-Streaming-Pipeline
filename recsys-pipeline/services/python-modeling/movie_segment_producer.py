@@ -210,6 +210,7 @@ def main() -> None:
         ratings_writer = csv.DictWriter(
             ratings_file, fieldnames=["userId", "movieId", "rating", "timestamp"])
         ratings_writer.writeheader()
+    ratings_by_pair: dict[tuple[str, str], dict] = {}
     sent = 0
     try:
         for item in items:
@@ -220,7 +221,14 @@ def main() -> None:
             user = rng.choice(users)
             events = make_slate(user, user_meta[user], items, movies, rng)
             if ratings_writer:
-                ratings_writer.writerows(ratings_from_events(events))
+                # Accumulate; do not write per slate. ratings_from_events dedupes within one
+                # slate, but a user meeting the same movie in a later slate would still emit a
+                # second row, and MovieLensDataset rejects the file on a duplicate user/movie
+                # pair. Keep the strongest signal per pair, matching that function's own rule.
+                for row in ratings_from_events(events):
+                    pair = (row["userId"], row["movieId"])
+                    if pair not in ratings_by_pair or row["rating"] > ratings_by_pair[pair]["rating"]:
+                        ratings_by_pair[pair] = row
             immediate, deferred = split_slate(events)
             for event in immediate:
                 producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
@@ -240,6 +248,8 @@ def main() -> None:
                 producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
                 sent += 1
     finally:
+        if ratings_writer:
+            ratings_writer.writerows(ratings_by_pair.values())
         if ratings_file:
             ratings_file.close()
         producer.flush()

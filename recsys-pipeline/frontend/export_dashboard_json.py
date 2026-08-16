@@ -130,7 +130,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", default="/tmp/spark-recsys/training-samples")
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
-    ap.add_argument("--mdp-csv", default=None)
+    ap.add_argument("--mdp-csv", default=None,
+                    help="MovieLensPolicyEvaluation CSV; defaults to <input>/../mdp_eval.csv")
     ap.add_argument("--experiences", default=None,
                     help="slate experiences Parquet directory or JSON file (relevance/diversity)")
     ap.add_argument("--live-metrics", default=None,
@@ -147,7 +148,12 @@ def main(argv=None) -> None:
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
 
-    data = build(args.input, host, port, args.mdp_csv, args.experiences, args.live_metrics, {
+    # Match analysis_dashboard_report.py, which infers the same path. Without this the MDP card
+    # stays null even when the CSV sits exactly where the HTML report finds it, and nothing says
+    # why -- the flag simply has to be passed twice, to two different programs.
+    mdp_csv = args.mdp_csv or os.path.join(args.input, "..", "mdp_eval.csv")
+
+    data = build(args.input, host, port, mdp_csv, args.experiences, args.live_metrics, {
         "fairness_min_support": args.fairness_min_support,
         "freshness_window_days": args.freshness_window_days,
         "long_tail_percentile": args.long_tail_percentile,
