@@ -49,9 +49,20 @@ REDIS_HOST=localhost python frontend/export_dashboard_json.py \
 
 `--mdp-csv` defaults to `<input>/../mdp_eval.csv`, so for the sim path above that is
 `/tmp/spark-recsys/movie-category-sim/mdp_eval.csv`. Writing the file anywhere else leaves the MDP
-card unpopulated even though the evaluator succeeded. The sim never produces it: it needs
-`MovieLensPolicyEvaluation` run against a real MovieLens `ratings.csv`, since the default
-`--min-user-ratings`/`--min-movie-ratings` filters empty out the bundled `sampledata/ratings.csv`.
+card unpopulated even though the evaluator succeeded.
+
+`run-movie-category-sim.sh` produces this file itself when `mvn` is available, from the
+`ratings.csv` it generates — roughly 19k ratings over 200 users and 400 movies, which clears the
+evaluator's `--min-user-ratings 20` / `--min-movie-ratings 10` filters. Only the bundled
+`sampledata/ratings.csv` is too small for it, at nine rows. To run it by hand:
+
+```bash
+cd services/java-retrieval-service
+mvn -q compile exec:java \
+  -Dexec.mainClass=com.demo.retrieval.evaluation.MovieLensPolicyEvaluation \
+  -Dexec.args="--ratings /tmp/spark-recsys/movie-category-sim/ratings.csv \
+               --output /tmp/spark-recsys/movie-category-sim/mdp_eval.csv"
+```
 
 Measurement configuration flags (defaults shown): `--fairness-min-support 100`,
 `--freshness-window-days 30`, `--long-tail-percentile 0.80`,

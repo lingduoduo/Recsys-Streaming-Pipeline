@@ -100,8 +100,8 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1344,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 417.2934,
-        "median_content_age_days": 418.5575,
+        "mean_content_age_days": 417.3049,
+        "median_content_age_days": 418.5689,
         "fresh_ctr": 0.186,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1938,
@@ -2017,5 +2017,27 @@
       "auc": null
     }
   },
-  "mdp": null
+  "mdp": {
+    "headline": "uniform return 1.124 vs greedy -1.088 over 5000 episodes",
+    "rows": [
+      {
+        "policy": "uniform",
+        "episodes": 5000,
+        "mean_return": 1.124114,
+        "mean_steps": 10.0,
+        "standard_error": 0.046756,
+        "ci95_low": 1.026469,
+        "ci95_high": 1.215327
+      },
+      {
+        "policy": "greedy",
+        "episodes": 5000,
+        "mean_return": -1.088317,
+        "mean_steps": 10.0,
+        "standard_error": 0.046158,
+        "ci95_low": -1.176763,
+        "ci95_high": -0.999558
+      }
+    ]
+  }
 }
