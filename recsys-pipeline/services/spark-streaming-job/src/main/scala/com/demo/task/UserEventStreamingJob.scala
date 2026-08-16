@@ -45,7 +45,9 @@ object UserEventStreamingJob {
   /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
   def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
     val valid = parseEvents(raw)
-    EventParsing.dedupeWithinWatermark(valid, to_timestamp(from_unixtime(col("timestamp_ms") / 1000)), watermarkDelay)
+    // timestamp_millis keeps full precision and involves no zone; the old
+    // to_timestamp(from_unixtime(...)) round trip collapsed a DST fall-back hour onto one instant.
+    EventParsing.dedupeWithinWatermark(valid, timestamp_millis(col("timestamp_ms")), watermarkDelay)
       .filter(col("event_type") === "click")
   }
 

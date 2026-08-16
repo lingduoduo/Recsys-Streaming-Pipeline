@@ -3,7 +3,7 @@ package com.demo.process
 import com.demo.event.{EventParsing, EventSchemas}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.execution.streaming.MemoryStream
-import org.apache.spark.sql.functions.{coalesce, col, struct, to_json}
+import org.apache.spark.sql.functions.{coalesce, col, struct, to_json, unix_timestamp}
 import org.apache.spark.sql.types.LongType
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
@@ -420,6 +420,38 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     OnlineJoinerStreamingJob.buildTrainingSamples(events)
       .select("feedback_delay_ms").collect().head.getAs[Long]("feedback_delay_ms") shouldBe 10000L
+  }
+
+  "impression_time" should "survive a DST fall-back hour in any session time zone" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    // US Eastern falls back 2026-11-01 06:00Z. Both instants format to the same local wall clock
+    // "2026-11-01 01:30:00", so a to_timestamp(from_unixtime(...)) round trip collapses them and
+    // moves the later one an hour into the past.
+    val beforeFallBack = 1793511000L // 05:30Z = 01:30 EDT
+    val afterFallBack = 1793514600L // 06:30Z = 01:30 EST
+    val noFeatures = Map.empty[String, String]
+
+    val events = Seq(
+      ("s", "req_edt", "u", "i1", "impression", beforeFallBack, 0, noFeatures, noFeatures, noFeatures),
+      ("s", "req_est", "u", "i2", "impression", afterFallBack, 0, noFeatures, noFeatures, noFeatures)
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position",
+      "user_features", "item_features", "context_features")
+
+    def instantsIn(zone: String): Map[String, Long] = {
+      val previous = sparkSession.conf.get("spark.sql.session.timeZone")
+      sparkSession.conf.set("spark.sql.session.timeZone", zone)
+      try
+        OnlineJoinerStreamingJob.buildTrainingSamples(events)
+          .select(col("request_id"), unix_timestamp(col("impression_time")).as("instant"))
+          .collect().map(r => r.getString(0) -> r.getAs[Long]("instant")).toMap
+      finally sparkSession.conf.set("spark.sql.session.timeZone", previous)
+    }
+
+    val expected = Map("req_edt" -> beforeFallBack, "req_est" -> afterFallBack)
+    instantsIn("UTC") shouldBe expected
+    instantsIn("America/New_York") shouldBe expected
   }
 
   "withDatePartition" should "produce the same date in every session time zone" in {

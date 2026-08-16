@@ -123,8 +123,11 @@ object OnlineJoinerStreamingJob {
       .withColumn("genres", coalesce(col("genres"), typedLit(Seq.empty[String])))
       .withColumn("tags", coalesce(col("tags"), typedLit(Seq.empty[String])))
 
+  /** `timestamp_seconds` rather than `to_timestamp(from_unixtime(...))`: the round trip through a
+    * local wall-clock string collapses the repeated hour of a DST fall-back onto one instant,
+    * moving the later event an hour into the past and out of its watermark. */
   def dedupedEvents(raw: DataFrame, watermarkDelay: String): DataFrame =
-    EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
+    EventParsing.dedupeWithinWatermark(parseEvents(raw), timestamp_seconds(col("timestamp")), watermarkDelay)
 
   /** `timestamp` (seconds) is the published unit behind `impression_ts` and its six consumers;
     * `timestamp_ms` rides alongside so `feedback_delay_ms` can be a real millisecond delta rather
@@ -169,7 +172,7 @@ object OnlineJoinerStreamingJob {
         max(when(isImpression, col("position"))).as("position"),
         max(when(isImpression, col("timestamp"))).as("impression_ts"),
         max(when(isImpression, col("timestamp_ms"))).as("impression_ts_ms"),
-        max(when(isImpression, to_timestamp(from_unixtime(col("timestamp"))))).as("impression_time"),
+        max(when(isImpression, timestamp_seconds(col("timestamp")))).as("impression_time"),
         first(when(isImpression, col("user_features")),    ignoreNulls = true).as("user_features"),
         first(when(isImpression, col("item_features")),    ignoreNulls = true).as("item_features"),
         first(when(isImpression, col("context_features")), ignoreNulls = true).as("context_features"),

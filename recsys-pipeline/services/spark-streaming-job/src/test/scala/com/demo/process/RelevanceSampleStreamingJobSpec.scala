@@ -24,9 +24,10 @@ class RelevanceSampleStreamingJobSpec extends AnyFlatSpec with Matchers with Bef
     val s = spark; import s.implicits._
 
     val samples = Seq(
-      ("u1", "sess_1", "item_1", 1, 0, 1.0, 100L),
-      ("u1", "sess_1", "item_2", 0, 0, 0.0, 100L)  // unknown movie -> null title, empty genres
-    ).toDF("user_id", "session_id", "item_id", "clicked", "ordered", "label", "impression_ts")
+      ("u1", "sess_1", "req_1", "item_1", 1, 0, 1.0, 100L),
+      ("u1", "sess_1", "req_1", "item_2", 0, 0, 0.0, 100L)  // unknown movie -> null title, empty genres
+    ).toDF("user_id", "session_id", "request_id", "item_id", "clicked", "ordered", "label",
+      "impression_ts")
 
     val titleMap  = Map("item_1" -> "The Matrix")
     val genresMap = Map("item_1" -> "Sci-Fi,Action")
@@ -50,6 +51,24 @@ class RelevanceSampleStreamingJobSpec extends AnyFlatSpec with Matchers with Bef
     r2.getAs[Seq[String]]("genres") shouldBe Seq.empty[String]
     r2.isNullAt(r2.fieldIndex("release_year")) shouldBe true
     r2.getAs[Double]("score") shouldBe 0.0
+  }
+
+  it should "give sessionless impressions from different requests distinct query keys" in {
+    val s = spark; import s.implicits._
+
+    // The joiner emits coalesce(session_id, ""), so a sessionless sample carries an empty string.
+    // Under the old key both of these collapsed into the single query "u1:".
+    val samples = Seq(
+      ("u1", "", "req_1", "item_1", 1, 0, 1.0, 100L),
+      ("u1", "", "req_2", "item_2", 0, 0, 0.0, 200L)
+    ).toDF("user_id", "session_id", "request_id", "item_id", "clicked", "ordered", "label",
+      "impression_ts")
+
+    val queries = RelevanceSampleStreamingJob
+      .buildRelevanceSamples(samples, Map.empty, Map.empty, Map.empty)
+      .select("query").as[String].collect().toSet
+
+    queries shouldBe Set("u1:req_1", "u1:req_2")
   }
 
   "fetchMovieFeatures" should "return empty map for no ids (no Redis call)" in {

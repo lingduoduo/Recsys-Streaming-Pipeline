@@ -3,7 +3,7 @@ package com.demo.process
 import com.demo.engine.RedisPool
 import com.demo.event.EventParsing
 import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 import scala.collection.JavaConverters._
@@ -11,13 +11,25 @@ import scala.collection.JavaConverters._
 /** Derives per-impression **relevance records** (query → document, with a score) from
   * `training_samples`, joined with movie text metadata from Redis, and emits them to the
   * `relevance_samples` Kafka topic:
-  *   query (user_id:session_id), event_ts (time), recommended_movie_id,
+  *   query (user_id:session_id, or user_id:request_id when sessionless), event_ts (time),
+  *   recommended_movie_id,
   *   title, genres, release_year (from Redis movie:{id}:features), score (the click/order label).
   *
   * Personalized-retrieval framing: the (user, session) is the query, the recommended movie is the
   * document, and the engagement label is the graded relevance score.
   */
 object RelevanceSampleStreamingJob {
+
+  /** The relevance query key: one per session, falling back to one per slate.
+    *
+    * The joiner emits `coalesce(session_id, "")`, so a sessionless sample carries an empty string
+    * rather than a null and every such impression for a user would collapse into a single query —
+    * inflating that query's candidate set and distorting nDCG. `request_id` is one-per-slate and
+    * non-null in `TrainingSampleSchema`, which is the right unit when no session groups them. */
+  private[process] def relevanceQuery: Column =
+    when(length(coalesce(col("session_id"), lit(""))) > 0,
+      concat_ws(":", col("user_id"), col("session_id")))
+      .otherwise(concat_ws(":", col("user_id"), col("request_id")))
 
   /** Reshape training samples into relevance rows, attaching movie metadata from the lookups. */
   def buildRelevanceSamples(
@@ -31,7 +43,7 @@ object RelevanceSampleStreamingJob {
       genresMap.get(i).map(_.split(",").filter(_.nonEmpty).toSeq).getOrElse(Seq.empty[String]))
     val yearUdf   = udf((i: String) => yearMap.get(i).flatMap(s => scala.util.Try(s.toInt).toOption))
     samples.select(
-      concat_ws(":", col("user_id"), coalesce(col("session_id"), lit(""))).as("query"),
+      relevanceQuery.as("query"),
       col("impression_ts").as("event_ts"),
       col("item_id").as("recommended_movie_id"),
       titleUdf(col("item_id")).as("title"),
