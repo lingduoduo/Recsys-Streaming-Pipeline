@@ -357,6 +357,27 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     rows("item2") shouldBe Seq("drama")
   }
 
+  "a null position" should "survive as null rather than becoming slot 0" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val noFeatures = Map.empty[String, String]
+    val events = Seq(
+      ("s", "req_np", "u", "item_unknown", "impression", 100L, None: Option[Int],
+        noFeatures, noFeatures, noFeatures),
+      ("s", "req_np", "u", "item_first", "impression", 100L, Some(0),
+        noFeatures, noFeatures, noFeatures)
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position",
+      "user_features", "item_features", "context_features")
+
+    val byItem = OnlineJoinerStreamingJob.buildTrainingSamples(events)
+      .select("item_id", "position").collect()
+      .map(r => r.getString(0) -> (if (r.isNullAt(1)) None else Some(r.getInt(1)))).toMap
+
+    byItem("item_unknown") shouldBe None
+    byItem("item_first") shouldBe Some(0)
+  }
+
   "feedback_delay_ms" should "report sub-second and non-round delays exactly" in {
     val sparkSession = spark
     import sparkSession.implicits._

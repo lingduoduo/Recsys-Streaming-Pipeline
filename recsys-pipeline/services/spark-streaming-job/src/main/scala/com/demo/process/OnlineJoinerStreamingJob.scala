@@ -200,7 +200,9 @@ object OnlineJoinerStreamingJob {
         col("request_id"),
         col("user_id"),
         col("item_id"),
-        coalesce(col("position"), lit(0)).as("position"),
+        // No coalesce: 0 is a real slot, so collapsing "unknown" onto it makes a positionless
+        // impression indistinguishable from the top of the slate.
+        col("position"),
         col("impression_ts"),
         col("impression_time"),
         coalesce(col("clicked"), lit(0)).as("clicked"),
