@@ -22,7 +22,7 @@ import random
 import time
 import uuid
 
-from producer import make_producer
+from producer import make_json_producer, make_producer
 from feature_derivations import GENRES, l1, decade
 from feedback_schedule import FeedbackSchedule, split_slate
 
@@ -199,6 +199,8 @@ def main() -> None:
     print(f"movie metadata → {CONTEXT_TOPIC} ({NUM_ITEMS} movies); "
           f"behavior → {RECSYS_TOPIC} ({NUM_SLATES} slates)", flush=True)
     producer = make_producer()
+    # movielens_context carries MovieUpdated records, which are JSON, not canonical Avro events.
+    context_producer = make_json_producer()
     ratings_file = None
     ratings_writer = None
     ratings_path = os.getenv("RATINGS_OUTPUT_PATH")
@@ -211,7 +213,7 @@ def main() -> None:
     sent = 0
     try:
         for item in items:
-            producer.send(CONTEXT_TOPIC, value=movie_event(item, movies[item]), key=item)
+            context_producer.send(CONTEXT_TOPIC, value=movie_event(item, movies[item]), key=item)
             sent += 1
         schedule = FeedbackSchedule()
         for s in range(NUM_SLATES):
@@ -242,6 +244,8 @@ def main() -> None:
             ratings_file.close()
         producer.flush()
         producer.close()
+        context_producer.flush()
+        context_producer.close()
     print(f"done: {sent} messages ({NUM_ITEMS} movies + behavior)", flush=True)
 
 
