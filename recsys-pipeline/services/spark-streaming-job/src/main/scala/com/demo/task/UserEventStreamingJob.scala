@@ -44,7 +44,7 @@ object UserEventStreamingJob {
 
   /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
   def dedupedClicks(raw: DataFrame, watermarkDelay: String): DataFrame = {
-    val valid = EventParsing.observeIngest(parseEvents(raw))
+    val valid = parseEvents(raw)
     EventParsing.dedupeWithinWatermark(valid, to_timestamp(from_unixtime(col("timestamp_ms") / 1000)), watermarkDelay)
       .filter(col("event_type") === "click")
   }
