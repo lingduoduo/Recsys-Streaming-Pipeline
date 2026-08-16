@@ -64,6 +64,14 @@ for _ in $(seq 1 60); do
 done
 [[ "$(docker compose ps kafka --format '{{.Health}}')" == "healthy" ]] || { echo "Kafka not healthy"; exit 1; }
 
+# This sim produces to recsys_events, a catalog topic, and provisions nothing of its own. Broker
+# auto-creation is disabled, so on fresh volumes -- or after another sim's `docker compose down -v`
+# -- the topic is absent and backfill_producer dies on "Failed to update metadata". Provisioning
+# the catalog is idempotent, so this is safe to repeat.
+echo "==> provisioning the Kafka catalog (recsys_events)"
+python3 scripts/provision-kafka-topics.py --bootstrap-server localhost:9092 \
+  --command-mode docker-compose >/dev/null
+
 if [[ ! -f services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar ]]; then
   echo "==> building Spark job jar"; (cd services/spark-streaming-job && sbt assembly)
 fi
