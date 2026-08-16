@@ -603,7 +603,8 @@ that need whole ranked slates.
   conclusion from either. *Known follow-up: wire the sim's generated catalog into the service so
   the live safety row exercises the real rules.*
 - **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
-  Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback) and
+  Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback, millisecond-precise
+  — it is computed from the millisecond event times, not from a second-truncated difference) and
   `kafka_ingest_lag_ms` (event time → Kafka record time) are emitted as Spark metric events.
 - No user ID, item ID, request ID, or free-form reason is ever used as a metric label; filter
   reasons, countries, and subscription levels are bucketed to fixed allowlists.
@@ -623,7 +624,8 @@ that need whole ranked slates.
 | `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. For *orders* (21–120s base delay) against the streaming job's *default* 10-second trigger, any scale above ~0.5 still crosses it (21s × 0.5 = 10.5s). This does not hold for *clicks* (1–20s base delay): some clicks land under a 10-second trigger even at scale 1.0. The sims themselves run with `TRIGGER_INTERVAL="2 seconds"`, not the 10-second default, so cross-batch behavior in a sim run is governed by that 2-second figure, not this one |
 | `FEEDBACK_TAIL_SECONDS` | `150` | segment and category sims | Floor before a drain may end, so the sim cannot declare completion before the last deferred order has arrived |
 | `FEEDBACK_JOIN_WAIT` | `3 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behaviour. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
-| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock so re-running a historical report gives the same answer. `0` (or negative) reads all history — the previous behaviour, whose cost grew with total archive size rather than with the reported window |
+| `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | every Spark job | Session time zone. Parquet `date` partitions do **not** depend on it — they are derived from the epoch, so the same event lands in the same partition on any host — but timestamp formatting does. Change it only if you want local-time formatting in job output |
+| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N UTC partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock so re-running a historical report gives the same answer. `0` (or negative) reads all history — the previous behaviour, whose cost grew with total archive size rather than with the reported window |
 
 `RECSYS_FAIRNESS_MIN_SUPPORT`, `RECSYS_FRESHNESS_WINDOW_DAYS`, and `RECSYS_LONG_TAIL_PERCENTILE`
 describe offline calculations, so the retrieval service binds and validates them for a single
@@ -1007,6 +1009,7 @@ the remaining diagnostics use the paths shown.
 | Keyword Gap is `unknown`; L1/L2/L3 empty | `docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features' \| wc -l` | snapshot exported without movie metadata | keep Redis running and export from the movie-category path |
 | Dashboard still shows old row count | inspect `input` and `rows` in `frontend/data/dashboard.json` | stale static snapshot/browser | rerun exporter, hard-refresh, or restart `npm run dev` |
 | ONNX Gather index error | `GET /predict/metadata` | raw numeric ID exceeds lookup size | use string IDs or indices within metadata bounds |
+| Fewer training samples than events produced | `grep '\[drop-metrics\]' <job log>` | a field gate rejected the rows; the line names the reason and count, e.g. `null_request_id=3` | fix the producer field named in the reason, or confirm the drop is expected |
 | A drain step (e.g. `[redis]`/`[parquet]`) polls for minutes and never reaches its target | `grep -i wrapRefArray /tmp/spark-recsys/movie-category-sim/*.log` | `SPARK_HOME` is a Scala 2.13 build (mismatched vs. `build.sbt`'s Scala 2.12); the job crashed on startup and the drain loop is polling a job that already died | point `SPARK_HOME` at a Spark 3.5.1 / Scala 2.12 install and rerun |
 
 ---
