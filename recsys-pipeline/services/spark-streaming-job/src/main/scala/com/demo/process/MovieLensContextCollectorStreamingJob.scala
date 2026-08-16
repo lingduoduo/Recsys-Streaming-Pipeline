@@ -81,21 +81,24 @@ object MovieLensContextCollectorStreamingJob {
       .select(from_json(col("json"), ContextEventSchema).as("data"))
       .select("data.*")
       .withColumn("event_type", lower(trim(coalesce(col("event_type"), lit("")))))
-      .withColumn(
-        "event_kind",
-        when(col("event_type") === "rating" && col("user_id").isNotNull && col("item_id").isNotNull, lit("rating"))
-          .when(col("user_id").isNotNull && (
-            col("age").isNotNull || col("gender").isNotNull || col("occupation").isNotNull || col("zip_code").isNotNull
-          ), lit("user_update"))
-          .when(col("item_id").isNotNull && (
-            col("title").isNotNull || size(coalesce(col("genres"), array().cast(ArrayType(StringType)))) > 0 || col("release_year").isNotNull
-          ), lit("movie_update"))
-      )
-      .filter(col("event_kind").isNotNull)
+      // Independent flags rather than a first-match chain: an event carrying a rating AND
+      // demographics must feed both aggregates, not whichever rule happens to be listed first.
+      .withColumn("is_rating",
+        col("event_type") === "rating" && col("user_id").isNotNull && col("item_id").isNotNull)
+      .withColumn("is_user_update",
+        col("user_id").isNotNull && (
+          col("age").isNotNull || col("gender").isNotNull ||
+            col("occupation").isNotNull || col("zip_code").isNotNull))
+      .withColumn("is_movie_update",
+        col("item_id").isNotNull && (
+          col("title").isNotNull ||
+            size(coalesce(col("genres"), array().cast(ArrayType(StringType)))) > 0 ||
+            col("release_year").isNotNull))
+      .filter(col("is_rating") || col("is_user_update") || col("is_movie_update"))
 
   def buildUserFeatureUpdates(events: DataFrame, recentRatingsLimit: Int = 50): DataFrame = {
     val userUpdates = events
-      .filter(col("event_kind") === "user_update")
+      .filter(col("is_user_update"))
       .groupBy("user_id")
       .agg(
         max(col("age")).as("age"),
@@ -106,7 +109,7 @@ object MovieLensContextCollectorStreamingJob {
       )
 
     val ratingUpdates = events
-      .filter(col("event_kind") === "rating")
+      .filter(col("is_rating"))
       .groupBy("user_id")
       .agg(
         count(lit(1)).cast("long").as("ratingCountDelta"),
@@ -141,7 +144,7 @@ object MovieLensContextCollectorStreamingJob {
 
   def buildMovieFeatureUpdates(events: DataFrame): DataFrame =
     events
-      .filter(col("event_kind") === "movie_update")
+      .filter(col("is_movie_update"))
       .groupBy("item_id")
       .agg(
         first(col("title"), ignoreNulls = true).as("title"),
@@ -155,8 +158,11 @@ object MovieLensContextCollectorStreamingJob {
     * millisecond-based, so it is scaled here at the producer boundary. */
   def buildSequenceEvents(events: DataFrame): DataFrame =
     events
+      // The identifier checks stay explicit rather than leaning on is_rating to imply them: this
+      // is the last gate before the sequence store, and it should not depend on how a caller
+      // computed the flag.
       .filter(
-        col("event_kind") === "rating" &&
+        col("is_rating") &&
           col("user_id").isNotNull &&
           col("item_id").isNotNull &&
           col("timestamp").isNotNull

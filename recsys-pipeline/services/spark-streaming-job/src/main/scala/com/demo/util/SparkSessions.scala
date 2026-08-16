@@ -10,6 +10,13 @@ object SparkSessions {
     "spark.sql.adaptive.coalescePartitions.enabled" -> "true"
   )
 
+  /** Session time zone applied to every session; override with `SPARK_SQL_SESSION_TIMEZONE`.
+    *
+    * Defence in depth only, so timestamp formatting does not vary by deploy host. The date
+    * projections in [[TimePartitions]] deliberately do not rely on it — a `spark-submit` override
+    * or a bare `SparkSession.builder` in a test would silently undo it. */
+  val defaultTimeZone: String = "UTC"
+
   def create(defaultAppName: String, defaultShufflePartitions: Int = 8): SparkSession = {
     val builder = SparkSession.builder()
       .appName(sys.env.getOrElse("SPARK_APP_NAME", defaultAppName))
@@ -17,6 +24,10 @@ object SparkSessions {
       .config(
         "spark.sql.shuffle.partitions",
         sys.env.getOrElse("SPARK_SQL_SHUFFLE_PARTITIONS", defaultShufflePartitions.toString)
+      )
+      .config(
+        "spark.sql.session.timeZone",
+        sys.env.getOrElse("SPARK_SQL_SESSION_TIMEZONE", defaultTimeZone)
       )
     adaptiveConfigs.foreach { case (k, v) => builder.config(k, sys.env.getOrElse(envKeyFor(k), v)) }
     builder.getOrCreate()

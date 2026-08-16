@@ -7,11 +7,16 @@ import org.apache.spark.sql.types._
   * legacy compatibility. */
 object EventSchemas {
 
-  /** Fields present on every recsys_events record. */
+  /** Fields present on every recsys_events record.
+    *
+    * All nullable: `from_json` emits null for a missing or malformed field regardless of what the
+    * schema declares, which is exactly why every consumer gates on these explicitly. Declaring
+    * them non-null would describe a guarantee nothing enforces, and invite someone to delete
+    * those gates. */
   val baseFields: Seq[StructField] = Seq(
-    StructField("user_id", StringType, nullable = false),
-    StructField("item_id", StringType, nullable = false),
-    StructField("event_type", StringType, nullable = false),
+    StructField("user_id", StringType, nullable = true),
+    StructField("item_id", StringType, nullable = true),
+    StructField("event_type", StringType, nullable = true),
     StructField("timestamp_ms", LongType, nullable = true),
     StructField("timestamp", LongType, nullable = true)
   )
@@ -24,7 +29,8 @@ object EventSchemas {
   val joiner: StructType = StructType(
     (StructField("event_id", StringType, nullable = true) +:
       StructField("session_id", StringType, nullable = true) +:
-      StructField("request_id", StringType, nullable = false) +: baseFields) ++ Seq(
+      // Nullable in the Avro contract too (`["null", "string"]`), and the joiner gates on it.
+      StructField("request_id", StringType, nullable = true) +: baseFields) ++ Seq(
       StructField("position", IntegerType, nullable = true),
       StructField("user_features", MapType(StringType, StringType), nullable = true),
       StructField("item_features", MapType(StringType, StringType), nullable = true),

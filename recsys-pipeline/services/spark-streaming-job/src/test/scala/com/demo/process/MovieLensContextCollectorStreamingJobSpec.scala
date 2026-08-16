@@ -1,10 +1,21 @@
 package com.demo.process
 
 import com.demo.SparkTestSupport
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.col
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
+
+  /** These fixtures label each row with one `kind`; `parseEvents` emits three independent flags,
+    * so a row can now carry more than one. Expand the single label into the flag columns the
+    * aggregations read. */
+  private def withKindFlags(df: DataFrame): DataFrame =
+    df.withColumn("is_rating", col("kind") === "rating")
+      .withColumn("is_user_update", col("kind") === "user_update")
+      .withColumn("is_movie_update", col("kind") === "movie_update")
+      .drop("kind")
 
   "parseEvents" should "classify user movie and rating context events" in {
     val sparkSession = spark
@@ -17,13 +28,37 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
       """{"user_id":"u2","item_id":"m2","event_type":"click","timestamp":103}"""
     ).toDF("value")
 
-    val kinds = MovieLensContextCollectorStreamingJob.parseEvents(raw)
-      .select("event_kind")
-      .as[String]
+    val classified = MovieLensContextCollectorStreamingJob.parseEvents(raw)
+      .select("is_rating", "is_user_update", "is_movie_update")
       .collect()
-      .toSet
+      .map(r => (r.getBoolean(0), r.getBoolean(1), r.getBoolean(2)))
 
-    kinds shouldBe Set("user_update", "movie_update", "rating")
+    // The click event matches no rule and is dropped; the other three each match exactly one.
+    classified.length shouldBe 3
+    classified.count(_._1) shouldBe 1
+    classified.count(_._2) shouldBe 1
+    classified.count(_._3) shouldBe 1
+  }
+
+  it should "feed both aggregates when one event carries a rating and demographics" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val raw = Seq(
+      """{"user_id":"u1","item_id":"m1","event_type":"rating","rating":4.0,"timestamp":100,""" +
+        """"age":31,"gender":"F","occupation":"engineer","zip_code":"94107"}"""
+    ).toDF("value")
+
+    val events = MovieLensContextCollectorStreamingJob.parseEvents(raw)
+    val row = MovieLensContextCollectorStreamingJob.buildUserFeatureUpdates(events).first()
+
+    // Under the old first-match chain this row classified as "rating" and its demographics
+    // were discarded outright.
+    row.getAs[Int]("age") shouldBe 31
+    row.getAs[String]("gender") shouldBe "F"
+    row.getAs[String]("occupation") shouldBe "engineer"
+    row.getAs[String]("zipCode") shouldBe "94107"
+    row.getAs[Long]("ratingCountDelta") shouldBe 1L
   }
 
   "buildUserFeatureUpdates" should "aggregate demographics and rating deltas per user" in {
@@ -34,9 +69,9 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
       ("user_update", "u1", null, null.asInstanceOf[java.lang.Double], 100L, 31: java.lang.Integer, "F", "engineer", "10001", null, Seq.empty[String], null.asInstanceOf[java.lang.Integer]),
       ("rating", "u1", "m1", 4.0: java.lang.Double, 105L, null, null, null, null, null, Seq.empty[String], null),
       ("rating", "u1", "m2", 5.0: java.lang.Double, 110L, null, null, null, null, null, Seq.empty[String], null)
-    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+    ).toDF("kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
 
-    val row = MovieLensContextCollectorStreamingJob.buildUserFeatureUpdates(events, recentRatingsLimit = 10).first()
+    val row = MovieLensContextCollectorStreamingJob.buildUserFeatureUpdates(withKindFlags(events), recentRatingsLimit = 10).first()
 
     row.getAs[String]("user_id") shouldBe "u1"
     row.getAs[Int]("age") shouldBe 31
@@ -54,9 +89,9 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
 
     val events = Seq(
       ("movie_update", null, "m1", null.asInstanceOf[java.lang.Double], 101L, null.asInstanceOf[java.lang.Integer], null, null, null, "Arrival", Seq("Drama", "Sci-Fi"), 2016: java.lang.Integer)
-    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+    ).toDF("kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
 
-    val row = MovieLensContextCollectorStreamingJob.buildMovieFeatureUpdates(events).first()
+    val row = MovieLensContextCollectorStreamingJob.buildMovieFeatureUpdates(withKindFlags(events)).first()
 
     row.getAs[String]("item_id") shouldBe "m1"
     row.getAs[String]("title") shouldBe "Arrival"
@@ -71,9 +106,9 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
     val events = Seq(
       ("rating", "u1", "m1", 4.0: java.lang.Double, 105L, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq("Drama"), 1995: java.lang.Integer),
       ("user_update", "u1", null, null.asInstanceOf[java.lang.Double], 100L, 31: java.lang.Integer, "F", "engineer", "10001", null, Seq.empty[String], null)
-    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+    ).toDF("kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
 
-    val rows = MovieLensContextCollectorStreamingJob.buildSequenceEvents(events).collect()
+    val rows = MovieLensContextCollectorStreamingJob.buildSequenceEvents(withKindFlags(events)).collect()
 
     rows.length shouldBe 1
     rows.head.getAs[String]("user_id") shouldBe "u1"
@@ -94,9 +129,9 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
       ("rating", null, "m1", 4.0: java.lang.Double, 105L: java.lang.Long, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq.empty[String], null.asInstanceOf[java.lang.Integer]),
       ("rating", "u1", null, 4.0: java.lang.Double, 105L: java.lang.Long, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq.empty[String], null),
       ("rating", "u1", "m1", 4.0: java.lang.Double, null.asInstanceOf[java.lang.Long], null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq.empty[String], null)
-    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+    ).toDF("kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
 
-    MovieLensContextCollectorStreamingJob.buildSequenceEvents(events).count() shouldBe 0L
+    MovieLensContextCollectorStreamingJob.buildSequenceEvents(withKindFlags(events)).count() shouldBe 0L
   }
 
   it should "feed SequenceEncoder to produce one chunk per user and day" in {
@@ -106,10 +141,10 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
     val events = Seq(
       ("rating", "u1", "m1", 4.0: java.lang.Double, 1784764801L, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq("Drama"), 1995: java.lang.Integer),
       ("rating", "u1", "m2", 5.0: java.lang.Double, 1784764802L, null.asInstanceOf[java.lang.Integer], null, null, null, null, Seq("Action"), 1999: java.lang.Integer)
-    ).toDF("event_kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
+    ).toDF("kind", "user_id", "item_id", "rating", "timestamp", "age", "gender", "occupation", "zip_code", "title", "genres", "release_year")
 
     val chunk = com.demo.sequence.SequenceEncoder
-      .toColumnChunks(MovieLensContextCollectorStreamingJob.buildSequenceEvents(events))
+      .toColumnChunks(MovieLensContextCollectorStreamingJob.buildSequenceEvents(withKindFlags(events)))
       .collect()
 
     chunk.length shouldBe 1

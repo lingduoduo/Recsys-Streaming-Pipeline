@@ -2,7 +2,7 @@ package com.demo.process
 
 import com.demo.engine.ParquetSink
 import com.demo.event.EventParsing
-import com.demo.util.{BatchMetricsListener, SparkSessions}
+import com.demo.util.{BatchMetricsListener, SparkSessions, TimePartitions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -116,8 +116,15 @@ object ExperienceCollectorStreamingJob {
     * sink. Returns None when no path is configured, leaving the Kafka path untouched. */
   def parquetSink(outputPath: String, outputFiles: Int): Option[ParquetSink] =
     if (outputPath.isEmpty) None
-    else Some(new ParquetSink(outputPath, "date", math.max(1, outputFiles),
-      (df: DataFrame) => df.withColumn("date", to_date(from_unixtime(col("request_ts"))))))
+    else Some(new ParquetSink(outputPath, "date", math.max(1, outputFiles), withDatePartition))
+
+  /** Stamp the Parquet partition key from `request_ts` (epoch seconds).
+    *
+    * Epoch-derived rather than `to_date(from_unixtime(...))`, so the partition does not move with
+    * the session time zone. Mirrors the joiner's training-sample sink, which this dataset is
+    * cross-referenced against by date. */
+  def withDatePartition(slates: DataFrame): DataFrame =
+    slates.withColumn("date", TimePartitions.utcDate(col("request_ts")))
 
   def parseSamples(rawKafka: DataFrame): DataFrame =
     EventParsing.fromJson(rawKafka, TrainingSampleSchema)

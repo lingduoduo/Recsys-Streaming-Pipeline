@@ -2,7 +2,7 @@ package com.demo.process
 
 import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, RawArchiveSink, Sink, Stage}
 import com.demo.event.{DecodedEventBatch, EventParsing}
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions, TimePartitions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -70,7 +70,7 @@ object OnlineJoinerStreamingJob {
     val sinks: Seq[Sink] = Seq(
       new KafkaSink(cfg.bootstrapServers, outputTopic, "sample_id"),
       new ParquetSink(outputPath, "date", outputFiles,
-        (df: DataFrame) => withCatalog(df, catalog).withColumn("date", to_date(col("impression_time"))))
+        (df: DataFrame) => withDatePartition(df, catalog))
     )
 
     ExecutionEngine.run(
@@ -96,6 +96,15 @@ object OnlineJoinerStreamingJob {
       )
   }
 
+  /** Enrich, then stamp the Parquet partition key.
+    *
+    * The partition is derived from `impression_ts` (epoch seconds) rather than from `to_date` of
+    * the local `impression_time`, so it does not move with the deploy machine's time zone.
+    * `CtrRankingModelTrainingJob.splitByDate` uses this value as its train/holdout key, and the
+    * raw archive already partitions by UTC — the two must agree. */
+  def withDatePartition(samples: DataFrame, catalog: Option[DataFrame]): DataFrame =
+    withCatalog(samples, catalog).withColumn("date", TimePartitions.utcDate(col("impression_ts")))
+
   /** Attach genres/tags to the samples. When no catalog is configured, add empty arrays so the
     * Parquet schema is identical with or without a catalog. */
   def withCatalog(samples: DataFrame, catalog: Option[DataFrame]): DataFrame =
@@ -117,10 +126,12 @@ object OnlineJoinerStreamingJob {
   def dedupedEvents(raw: DataFrame, watermarkDelay: String): DataFrame =
     EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
 
+  /** `timestamp` (seconds) is the published unit behind `impression_ts` and its six consumers;
+    * `timestamp_ms` rides alongside so `feedback_delay_ms` can be a real millisecond delta rather
+    * than a second-granularity value wearing a millisecond name. */
   def parseEvents(rawKafka: DataFrame): DataFrame =
     EventParsing.observeIngest(EventParsing.canonicalEvents(rawKafka))
       .withColumn("timestamp", (col("timestamp_ms") / 1000L).cast(LongType))
-      .drop("timestamp_ms")
       .filter(
         col("request_id").isNotNull &&
           col("user_id").isNotNull &&
@@ -140,7 +151,15 @@ object OnlineJoinerStreamingJob {
       if (withMeasurementFields.columns.contains("event_id")) withMeasurementFields
       else withMeasurementFields.withColumn("event_id", lit(null).cast(StringType))
 
-    withEventId
+    // Both an absent column (callers that only carry seconds) and a null value (a snapshot written
+    // before timestamp_ms joined SnapshotColumns) fall back to the second-precision timestamp.
+    val secondsAsMillis = (col("timestamp") * 1000L).cast(LongType)
+    val withTimestampMs =
+      if (withEventId.columns.contains("timestamp_ms"))
+        withEventId.withColumn("timestamp_ms", coalesce(col("timestamp_ms"), secondsAsMillis))
+      else withEventId.withColumn("timestamp_ms", secondsAsMillis)
+
+    withTimestampMs
       .withColumn("etype", lower(trim(col("event_type"))))
       // Single-pass conditional groupBy: one shuffle replaces (groupBy feedback) + (left join).
       // Because the producer keys behavior events by request_id, all events in a slate
@@ -149,6 +168,7 @@ object OnlineJoinerStreamingJob {
       .agg(
         max(when(isImpression, col("position"))).as("position"),
         max(when(isImpression, col("timestamp"))).as("impression_ts"),
+        max(when(isImpression, col("timestamp_ms"))).as("impression_ts_ms"),
         max(when(isImpression, to_timestamp(from_unixtime(col("timestamp"))))).as("impression_time"),
         first(when(isImpression, col("user_features")),    ignoreNulls = true).as("user_features"),
         first(when(isImpression, col("item_features")),    ignoreNulls = true).as("item_features"),
@@ -164,7 +184,8 @@ object OnlineJoinerStreamingJob {
         ).as("impression_measurement"),
         max_by(
           when(isFeedback, struct(
-            col("timestamp").as("last_feedback_ts"), col("rating"), col("negative_feedback_reason"),
+            col("timestamp").as("last_feedback_ts"), col("timestamp_ms").as("last_feedback_ts_ms"),
+            col("rating"), col("negative_feedback_reason"),
             col("dwell_millis"), col("completion_rate")
           )),
           when(isFeedback, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
@@ -179,7 +200,9 @@ object OnlineJoinerStreamingJob {
         col("request_id"),
         col("user_id"),
         col("item_id"),
-        coalesce(col("position"), lit(0)).as("position"),
+        // No coalesce: 0 is a real slot, so collapsing "unknown" onto it makes a positionless
+        // impression indistinguishable from the top of the slate.
+        col("position"),
         col("impression_ts"),
         col("impression_time"),
         coalesce(col("clicked"), lit(0)).as("clicked"),
@@ -188,8 +211,10 @@ object OnlineJoinerStreamingJob {
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
         col("feedback_measurement.last_feedback_ts").as("last_feedback_ts"),
-        when(col("feedback_measurement.last_feedback_ts").isNotNull,
-          ((col("feedback_measurement.last_feedback_ts") - col("impression_ts")) * 1000L).cast(LongType)
+        // From the millisecond pair, not (seconds delta) * 1000: the producers happen to emit
+        // whole-second feedback offsets, which hides a truncation error real traffic would show.
+        when(col("feedback_measurement.last_feedback_ts_ms").isNotNull,
+          (col("feedback_measurement.last_feedback_ts_ms") - col("impression_ts_ms")).cast(LongType)
         ).as("feedback_delay_ms"),
         col("impression_measurement.model_version").as("model_version"),
         col("impression_measurement.policy_version").as("policy_version"),
