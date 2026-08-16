@@ -157,10 +157,11 @@ without a null check, which is safe because `buildTrainingSamples` filters
 
 **Documented, deferred.** Recorded here so they are not rediscovered as new:
 
-- **Ingest drop accounting.** No gate counts what it rejects, and the `corrupt` metric has reported
-  a constant zero since the Avro engine migration. Fully designed in
-  `2026-08-16-ingest-drop-accounting-design.md`; deliberately not merged into this work, which is
-  about the gates being *right* rather than being *counted*.
+- **No gate counts what it rejects**, and `BatchMetricsListener`'s `corrupt` metric has reported a
+  constant zero since the Avro engine migration moved every stage inside `foreachBatch` — the
+  listener reads `observedMetrics` off `StreamingQueryProgress`, which carries only `CollectMetrics`
+  nodes from the streaming plan, and that plan now has none. Out of scope here: this work is about
+  the gates being *right*, not about counting them.
 - **`SequenceEncoder.sanitized` strips `,` and `|` from every packed value**, so an id `a,b`
   becomes `ab` and can collide with a genuine `ab`. Silent value mutation, but unreachable with
   MovieLens-shaped ids and genres.
