@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import time
@@ -103,10 +104,21 @@ def serialize_event(event: Mapping[str, object]) -> bytes:
     return encode_event(event)
 
 
-def make_producer():
+def serialize_json(event: Mapping[str, object]) -> bytes:
+    """Plain JSON, for topics that are not the canonical Avro event stream.
+
+    `movielens_context` carries MovieUpdated/UserUpdated/rating records, which have none of the
+    canonical event's required fields, and its consumer reads them with
+    `CAST(value AS STRING)` + `from_json`. Encoding those with `serialize_event` fails validation
+    on `event_id` before a byte is sent.
+    """
+    return json.dumps(event, separators=(",", ":")).encode("utf-8")
+
+
+def _producer(value_serializer):
     return KafkaProducer(
         bootstrap_servers=BOOTSTRAP_SERVERS,
-        value_serializer=serialize_event,
+        value_serializer=value_serializer,
         key_serializer=lambda k: k.encode("utf-8") if k else None,
         acks="all",
         retries=5,
@@ -117,6 +129,16 @@ def make_producer():
         request_timeout_ms=10_000,
         max_block_ms=10_000,
     )
+
+
+def make_producer():
+    """Canonical Avro events (`recsys_events`)."""
+    return _producer(serialize_event)
+
+
+def make_json_producer():
+    """JSON topics such as `movielens_context`."""
+    return _producer(serialize_json)
 
 
 def report_delivery_error(error):

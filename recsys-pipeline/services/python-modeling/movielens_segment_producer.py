@@ -24,7 +24,7 @@ import random
 import time
 import uuid
 
-from producer import make_producer
+from producer import make_json_producer, make_producer
 from feature_derivations import derive_age_band, derive_geo
 from feedback_schedule import FeedbackSchedule, split_slate
 
@@ -172,14 +172,16 @@ def main() -> None:
     print(f"demographics + {RATINGS_PER_USER} ratings/user → {CONTEXT_TOPIC} ({NUM_USERS} users); "
           f"behavior → {RECSYS_TOPIC} ({NUM_SLATES} slates)", flush=True)
     producer = make_producer()
+    # movielens_context carries UserUpdated/rating records, which are JSON, not Avro events.
+    context_producer = make_json_producer()
     sent = 0
     try:
         for user in users:                                  # demographics + ratings per user
-            producer.send(CONTEXT_TOPIC, value=demographics_event(user, demo[user]), key=user)
+            context_producer.send(CONTEXT_TOPIC, value=demographics_event(user, demo[user]), key=user)
             sent += 1
             for _ in range(RATINGS_PER_USER):
                 item = rng.choice(items)
-                producer.send(CONTEXT_TOPIC, value=rating_event(user, item, demo[user], rng), key=user)
+                context_producer.send(CONTEXT_TOPIC, value=rating_event(user, item, demo[user], rng), key=user)
                 sent += 1
         # Behavior is grouped into sessions: one user + a fresh session_id spanning K slates,
         # so the session report sees slates/session > 1.
@@ -213,6 +215,8 @@ def main() -> None:
     finally:
         producer.flush()
         producer.close()
+        context_producer.flush()
+        context_producer.close()
     print(f"done: {sent} messages ({NUM_USERS} demographics + behavior)", flush=True)
 
 

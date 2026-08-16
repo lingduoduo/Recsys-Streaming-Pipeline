@@ -112,6 +112,16 @@ done
 echo "==> clean slate: flush Redis; per-run topics $RECSYS_TOPIC / $CONTEXT_TOPIC"
 docker compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 
+# Create them for real. The broker runs with KAFKA_AUTO_CREATE_TOPICS_ENABLE=false and the
+# checked-in catalog covers only recsys_events{,.backfill}, so nothing else brings these into
+# existence. Without this every producer and job blocks on metadata that never arrives and dies
+# with "KafkaTimeoutError: Failed to update metadata" -- the hazard noted below, but hit by the
+# producer rather than the jobs.
+for topic in "$RECSYS_TOPIC" "$CONTEXT_TOPIC" "$SAMPLES_TOPIC" "$SLATES_TOPIC"; do
+  docker compose exec -T kafka kafka-topics --bootstrap-server localhost:29092 \
+    --create --if-not-exists --topic "$topic" --partitions 3 --replication-factor 1 >/dev/null
+done
+
 echo "==> building Spark job jar"
 (cd services/spark-streaming-job && sbt -error assembly)
 
