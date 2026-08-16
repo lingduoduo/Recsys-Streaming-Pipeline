@@ -219,7 +219,7 @@ def test_render_html_uses_modern_product_analytics_structure():
     for marker in ('<meta name="viewport"', 'class="page-shell"',
                    'class="hero"', 'class="report-card"',
                    'class="insight"', 'class="table-shell"',
-                   'class="report-card status-card"'):
+                   'class="report-card absent-card"'):
         assert marker in page
 
 
@@ -344,11 +344,11 @@ def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
 
     page = (out / "index.html").read_text()
     assert "Engagement funnel" in page and "Keyword gap" in page and "Query intent" in page
-    assert "N/A — no movie:*:features in Redis" in page
+    assert "Not measured — no movie:*:features in Redis" in page
     assert "<h2>Ranking</h2>" in page
     assert "<td>position</td>" in page
     # New offline-evaluation cards: OPE has no Redis buffer (N/A); MDP renders from the CSV.
-    assert "N/A — no replay-buffer events with reward in Redis" in page
+    assert "Not measured — no replay-buffer events with reward in Redis" in page
     assert "<h2>MDP policy evaluation</h2>" in page and "<td>uniform</td>" in page
 
 

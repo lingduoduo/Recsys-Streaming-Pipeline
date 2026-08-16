@@ -29,12 +29,16 @@ export function Section({ title, headline, description, actions, id, children })
   );
 }
 
+// "Not measured" is a neutral, expected state: an input was never supplied. It deliberately does
+// NOT use `.na`, which is amber and reserved for warnings on a section that did compute — the same
+// amber `.bar-fill.negative` uses for negative values. Painting an absent input in warning colour
+// makes a healthy dashboard read as broken.
 export function NaCard({ title, reason, id }) {
   return (
-    <section className="report-card status-card" id={id}>
+    <section className="report-card absent-card" id={id}>
       <div className="section-heading">
         <h2>{title}</h2>
-        <p className="na">N/A — {reason}</p>
+        <p className="absent">Not measured — {reason}</p>
       </div>
     </section>
   );

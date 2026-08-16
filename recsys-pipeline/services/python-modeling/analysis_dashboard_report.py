@@ -566,8 +566,14 @@ def section(title, headline, body_html) -> str:
 
 
 def na_card(title, reason) -> str:
-    return (f'<section class="report-card status-card"><div class="section-heading">'
-            f'<h2>{_esc(title)}</h2><p class="na">N/A — {_esc(reason)}</p>'
+    """An input that was never supplied — a neutral, expected state.
+
+    Deliberately not `.na`, which is amber and reserved for warnings on a section that did
+    compute; the same amber marks negative bars. Painting an absent input in warning colour makes
+    a healthy report read as broken. Mirrors NaCard in the Next.js dashboard.
+    """
+    return (f'<section class="report-card absent-card"><div class="section-heading">'
+            f'<h2>{_esc(title)}</h2><p class="absent">Not measured — {_esc(reason)}</p>'
             f'</div></section>')
 
 
@@ -607,8 +613,10 @@ def render_html(title, sections) -> str:
         'table.rpt td{padding:10px 13px;border-top:1px solid var(--line);white-space:nowrap}'
         'table.rpt tbody tr:nth-child(even){background:#fafbff}'
         'table.rpt tbody tr:hover{background:var(--indigo-soft)}'
-        '.status-card{border-color:#fde68a;background:var(--amber-soft)}'
-        '.status-card .section-heading{border:0}.na{margin:0;color:var(--amber);font-weight:700}'
+        '.absent-card{border-color:var(--line);background:var(--surface)}'
+        '.absent-card .section-heading{border:0}'
+        '.absent{margin:0;color:var(--muted);font-weight:600}'
+        '.na{margin:0;color:var(--amber);font-weight:700}'
         '@media (max-width:700px){.page-shell{width:min(100% - 24px,1180px);padding-top:20px}'
         '.hero{padding:28px 24px;border-radius:18px;flex-direction:column}'
         '.section-heading,.section-body{padding-left:20px;padding-right:20px}'

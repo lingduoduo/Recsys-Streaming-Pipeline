@@ -167,15 +167,23 @@ table.rpt tbody tr:hover {
   background: var(--indigo-soft);
 }
 
-.status-card {
-  border-color: #fde68a;
-  background: var(--amber-soft);
+/* An input that was never supplied. Neutral on purpose — see NaCard in components/ui.jsx. */
+.absent-card {
+  border-color: var(--line);
+  background: var(--surface);
 }
 
-.status-card .section-heading {
+.absent-card .section-heading {
   border: 0;
 }
 
+.absent {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* A warning on a section that did compute. Amber is reserved for this. */
 .na {
   margin: 0;
   color: var(--amber);
