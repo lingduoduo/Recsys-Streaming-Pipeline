@@ -94,7 +94,12 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
       case (df, (name, dataType)) =>
         if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
     }
-    complete
+    // Callers that only carry second-precision timestamps (and snapshots written before
+    // timestamp_ms joined SnapshotColumns) get it derived, so the snapshot schema stays fixed.
+    val withTimestampMs =
+      if (complete.columns.contains("timestamp_ms")) complete
+      else complete.withColumn("timestamp_ms", (col("timestamp") * 1000L).cast(LongType))
+    withTimestampMs
       .select(LateFeedbackJoin.SnapshotColumns.map(col): _*)
       .withColumn("first_seen_ms", lit(nowMs).cast(LongType))
   }
@@ -144,8 +149,17 @@ class LateFeedbackJoin(archiveRoot: String, queryNamespace: String, feedbackJoin
     val fileSystem = path.getFileSystem(template.sparkSession.sparkContext.hadoopConfiguration)
     CommitProtocol.validateDataCommitted(fileSystem, path, manifest(batchId), None)
     if (!CommitProtocol.hasParquetData(fileSystem, path)) template.limit(0)
-    else template.sparkSession.read.parquet(path.toString)
-      .select(template.columns.map(col): _*)
+    else {
+      val stored = template.sparkSession.read.parquet(path.toString)
+      val available = stored.columns.toSet
+      // A snapshot written before a column joined SnapshotColumns does not carry it. Read it as a
+      // typed null rather than failing the batch: an upgrade must not strand the pending slates
+      // this store exists to protect.
+      stored.select(template.schema.fields.toSeq.map { field =>
+        if (available.contains(field.name)) col(field.name)
+        else lit(null).cast(field.dataType).as(field.name)
+      }: _*)
+    }
   }
 
   /** Batch N needs only N-1 and N: a restart replays N and rereads N-1. */
@@ -171,8 +185,8 @@ object LateFeedbackJoin {
   /** The columns a snapshot carries: everything `buildTrainingSamples` reads, in a fixed order so
     * a snapshot written by one batch unions cleanly with the next. */
   val SnapshotColumns: Seq[String] =
-    Seq("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position",
-      "event_id", "user_features", "item_features", "context_features") ++
+    Seq("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "timestamp_ms",
+      "position", "event_id", "user_features", "item_features", "context_features") ++
       OnlineJoinerStreamingJob.MeasurementFields.map(_._1)
 
   def isImpression: org.apache.spark.sql.Column =

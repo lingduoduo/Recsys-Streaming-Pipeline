@@ -126,10 +126,12 @@ object OnlineJoinerStreamingJob {
   def dedupedEvents(raw: DataFrame, watermarkDelay: String): DataFrame =
     EventParsing.dedupeWithinWatermark(parseEvents(raw), to_timestamp(from_unixtime(col("timestamp"))), watermarkDelay)
 
+  /** `timestamp` (seconds) is the published unit behind `impression_ts` and its six consumers;
+    * `timestamp_ms` rides alongside so `feedback_delay_ms` can be a real millisecond delta rather
+    * than a second-granularity value wearing a millisecond name. */
   def parseEvents(rawKafka: DataFrame): DataFrame =
     EventParsing.observeIngest(EventParsing.canonicalEvents(rawKafka))
       .withColumn("timestamp", (col("timestamp_ms") / 1000L).cast(LongType))
-      .drop("timestamp_ms")
       .filter(
         col("request_id").isNotNull &&
           col("user_id").isNotNull &&
@@ -149,7 +151,15 @@ object OnlineJoinerStreamingJob {
       if (withMeasurementFields.columns.contains("event_id")) withMeasurementFields
       else withMeasurementFields.withColumn("event_id", lit(null).cast(StringType))
 
-    withEventId
+    // Both an absent column (callers that only carry seconds) and a null value (a snapshot written
+    // before timestamp_ms joined SnapshotColumns) fall back to the second-precision timestamp.
+    val secondsAsMillis = (col("timestamp") * 1000L).cast(LongType)
+    val withTimestampMs =
+      if (withEventId.columns.contains("timestamp_ms"))
+        withEventId.withColumn("timestamp_ms", coalesce(col("timestamp_ms"), secondsAsMillis))
+      else withEventId.withColumn("timestamp_ms", secondsAsMillis)
+
+    withTimestampMs
       .withColumn("etype", lower(trim(col("event_type"))))
       // Single-pass conditional groupBy: one shuffle replaces (groupBy feedback) + (left join).
       // Because the producer keys behavior events by request_id, all events in a slate
@@ -158,6 +168,7 @@ object OnlineJoinerStreamingJob {
       .agg(
         max(when(isImpression, col("position"))).as("position"),
         max(when(isImpression, col("timestamp"))).as("impression_ts"),
+        max(when(isImpression, col("timestamp_ms"))).as("impression_ts_ms"),
         max(when(isImpression, to_timestamp(from_unixtime(col("timestamp"))))).as("impression_time"),
         first(when(isImpression, col("user_features")),    ignoreNulls = true).as("user_features"),
         first(when(isImpression, col("item_features")),    ignoreNulls = true).as("item_features"),
@@ -173,7 +184,8 @@ object OnlineJoinerStreamingJob {
         ).as("impression_measurement"),
         max_by(
           when(isFeedback, struct(
-            col("timestamp").as("last_feedback_ts"), col("rating"), col("negative_feedback_reason"),
+            col("timestamp").as("last_feedback_ts"), col("timestamp_ms").as("last_feedback_ts_ms"),
+            col("rating"), col("negative_feedback_reason"),
             col("dwell_millis"), col("completion_rate")
           )),
           when(isFeedback, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
@@ -197,8 +209,10 @@ object OnlineJoinerStreamingJob {
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
         col("feedback_measurement.last_feedback_ts").as("last_feedback_ts"),
-        when(col("feedback_measurement.last_feedback_ts").isNotNull,
-          ((col("feedback_measurement.last_feedback_ts") - col("impression_ts")) * 1000L).cast(LongType)
+        // From the millisecond pair, not (seconds delta) * 1000: the producers happen to emit
+        // whole-second feedback offsets, which hides a truncation error real traffic would show.
+        when(col("feedback_measurement.last_feedback_ts_ms").isNotNull,
+          (col("feedback_measurement.last_feedback_ts_ms") - col("impression_ts_ms")).cast(LongType)
         ).as("feedback_delay_ms"),
         col("impression_measurement.model_version").as("model_version"),
         col("impression_measurement.policy_version").as("policy_version"),

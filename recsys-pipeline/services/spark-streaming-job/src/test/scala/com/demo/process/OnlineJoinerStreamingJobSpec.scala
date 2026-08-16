@@ -357,6 +357,50 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     rows("item2") shouldBe Seq("drama")
   }
 
+  "feedback_delay_ms" should "report sub-second and non-round delays exactly" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    // Impression and feedback with DIFFERENT sub-second remainders. The producers cannot generate
+    // this shape — every slate shares one now_ms and feedback lands on whole-second offsets, so
+    // truncation to seconds cancels there and hides the defect.
+    val impressionMs = 1780356600400L
+    val noFeatures = Map.empty[String, String]
+    def row(requestId: String, itemId: String, eventType: String, ms: Long) =
+      ("s", requestId, "u", itemId, eventType, ms / 1000L, ms, 0,
+        noFeatures, noFeatures, noFeatures)
+
+    val events = Seq(
+      row("req_ms", "i1", "impression", impressionMs),
+      row("req_ms", "i1", "click", impressionMs + 1500L),
+      row("req_sub", "i2", "impression", impressionMs),
+      row("req_sub", "i2", "click", impressionMs + 400L)
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type",
+      "timestamp", "timestamp_ms", "position", "user_features", "item_features", "context_features")
+
+    val delays = OnlineJoinerStreamingJob.buildTrainingSamples(events)
+      .select("request_id", "feedback_delay_ms")
+      .collect().map(r => r.getString(0) -> r.getAs[Long]("feedback_delay_ms")).toMap
+
+    delays("req_ms") shouldBe 1500L
+    delays("req_sub") shouldBe 400L
+  }
+
+  it should "fall back to second precision when timestamp_ms is absent" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val noFeatures = Map.empty[String, String]
+    val events = Seq(
+      ("s", "req_legacy", "u", "i", "impression", 100L, 0, noFeatures, noFeatures, noFeatures),
+      ("s", "req_legacy", "u", "i", "click", 110L, 0, noFeatures, noFeatures, noFeatures)
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position",
+      "user_features", "item_features", "context_features")
+
+    OnlineJoinerStreamingJob.buildTrainingSamples(events)
+      .select("feedback_delay_ms").collect().head.getAs[Long]("feedback_delay_ms") shouldBe 10000L
+  }
+
   "withDatePartition" should "produce the same date in every session time zone" in {
     val sparkSession = spark
     import sparkSession.implicits._

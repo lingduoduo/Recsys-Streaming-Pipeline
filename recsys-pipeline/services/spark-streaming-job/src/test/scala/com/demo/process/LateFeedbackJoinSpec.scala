@@ -3,7 +3,11 @@ package com.demo.process
 import java.nio.file.Files
 
 import com.demo.SparkTestSupport
+import com.demo.engine.CommitProtocol
+import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.functions.{col, lit}
+import org.apache.spark.sql.types.StringType
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -167,5 +171,40 @@ class LateFeedbackJoinSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
       batch(Seq(event("item_1", "impression", 100L), event("item_1", "click", 105L))), 0L, 1000000L)
       .count() shouldBe 1L
     subject.orphanCounts shouldBe (0L, 0L)
+  }
+
+  "readSnapshot" should "fill columns added since a snapshot was written with typed nulls" in {
+    val session = spark
+    import session.implicits._
+
+    val root = Files.createTempDirectory("late-feedback-schema").toString
+    val namespace = "schema-evolution-query"
+    val subject = new LateFeedbackJoin(root, namespace, "1 hour")
+
+    // Hand-write batch 0's snapshot in the PRE-UPGRADE shape: every SnapshotColumn except
+    // timestamp_ms, which did not exist when that release wrote it. Going through the real commit
+    // protocol so the manifest validates exactly as a genuine prior snapshot would.
+    val preUpgradeColumns = LateFeedbackJoin.SnapshotColumns.filterNot(_ == "timestamp_ms")
+    val pendingRoot = new Path(new Path(new Path(root), s"_queries/$namespace"), "_pending")
+    val staged = OnlineJoinerStreamingJob.MeasurementFields
+      .foldLeft(batch(Seq(event("item_1", "impression", 100L)))) {
+        case (df, (name, dataType)) => df.withColumn(name, lit(null).cast(dataType))
+      }
+      .withColumn("event_id", lit(null).cast(StringType))
+      .select(preUpgradeColumns.map(col): _*)
+      .withColumn("first_seen_ms", lit(100L * 1000L))
+
+    CommitProtocol.writeDirectory(
+      staged,
+      new Path(pendingRoot, "_attempts/0"),
+      new Path(pendingRoot, "0"),
+      partitionByDate = false,
+      "pending slate snapshot 0",
+      s"version=2\nquery=$namespace\nkind=pending\nbatch_id=0\n")
+
+    // Batch 1 runs the current code, whose template carries timestamp_ms. Reading batch 0's
+    // snapshot must fill the absent column rather than failing the batch.
+    val batchOne = batch(Seq(event("item_2", "impression", 200L, requestId = "req_2")))
+    noException should be thrownBy subject.process(batchOne, 1L, 200L * 1000L).count()
   }
 }
