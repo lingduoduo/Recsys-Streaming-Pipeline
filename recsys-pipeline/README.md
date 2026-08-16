@@ -24,6 +24,23 @@ Infrastructure, shared sample data, and orchestration scripts remain at the `rec
 
 > Interactive version: [recsys-streaming-pipeline.html](recsys-streaming-pipeline-architecture.html)
 
+## Recommendation Request Flow
+
+For each incoming request, the retrieval service executes nine steps in order:
+
+1. **Hydrate query** — 21 `QueryHydrator` implementations populate `ScoredMoviesQuery` with per-user context: watch history, rating sequences, social graph, served history, MinHash, cached candidates, bloom filter, geo, demographics, and inferred signals.
+2. **Fetch popular candidates** — pulls top items from `global:item_popularity` (see [2_Fetch_Popular_Stuff.md](docs/recommendation_flows/2_Fetch_Popular_Stuff.md)).
+3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history (see [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md)).
+4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates (see [4_Filtering.md](docs/recommendation_flows/4_Filtering.md)).
+5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags (see [5_Candidate_Hydration.md](docs/recommendation_flows/5_Candidate_Hydration.md)).
+6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md)).
+7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition (see [7_Shuffling.md](docs/recommendation_flows/7_Shuffling.md)).
+8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](docs/recommendation_flows/8_Store_Context.md)).
+9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](docs/recommendation_flows/9_Track_Metrics.md)).
+
+Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
+
+
 
 ### Data Pipeline
 
@@ -31,127 +48,8 @@ Spark Structured Streaming ingestion, derived ML datasets, the Spark job package
 real-time job path (producer + streaming jobs), and the offline embedding-training jobs live in
 [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md).
 
-### Avro ingestion and archive replay
+![Data Pipeline](kafka.png)
 
-The `recsys_events` Kafka input uses the canonical Avro single-object event contract. Topic
-creation is deliberate: Kafka auto-creation is disabled, and the local pipeline wrapper checks
-Kafka health and provisions the checked-in catalog before it launches a process. Start the local
-services, then provision explicitly when operating a single job:
-
-```bash
-docker compose up -d
-python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
-```
-
-Install the live-test dependencies and assemble the Spark JAR before enabling the opt-in
-round-trip test:
-
-```bash
-python -m pip install -r services/python-modeling/requirements.txt pytest
-(cd services/spark-streaming-job && sbt assembly)
-```
-
-Host provisioning uses `kafka-topics` and `kafka-configs` on `PATH`. For the local Compose stack
-instead, use its Kafka CLI explicitly:
-
-```bash
-python scripts/provision-kafka-topics.py \
-  --bootstrap-server localhost:9092 --command-mode docker-compose
-```
-
-The real end-to-end check is opt-in and requires reachable Kafka and Redis. Choose the mode that
-matches the provisioner (`host` is the default):
-
-```bash
-RUN_KAFKA_INTEGRATION=1 KAFKA_INTEGRATION_COMMAND_MODE=docker-compose \
-  pytest -q integration-tests/test_avro_kafka_round_trip.py
-```
-
-When disabled, the test is one clean skip and imports no Kafka/Spark/Parquet dependencies. When
-enabled, missing Python packages, the assembled JAR, reachable Kafka/Redis, or usable host/Compose
-Kafka CLI cause a skip with the exact remediation rather than a false integration failure.
-
-`recsys_events` is the live input. `recsys_events.backfill` is a separately provisioned,
-short-retention replay target; nothing reads it by default. A consumer must deliberately opt in,
-for example:
-
-```bash
-KAFKA_TOPIC=recsys_events.backfill ./scripts/run-streaming-job.sh
-```
-
-The Spark ingestion job archives valid events and dead letters before its business sinks:
-
-```bash
-RECSYS_EVENT_ARCHIVE_PATH=/data/recsys-events \
-RECSYS_EVENT_DEAD_LETTER_PATH=/data/recsys-events-dead-letter \
-  ./scripts/run-streaming-job.sh
-```
-
-Those paths must be on a filesystem that supports atomic, non-overwriting directory renames
-(local/HDFS through Hadoop `FileContext`, for example). Object stores without that rename
-guarantee are not a supported archive target. A committed archive batch has both `_SUCCESS` and
-its version-2 `_COMMITTED` identity manifest below
-`_queries/<checkpoint-hash>/_batches/<batch-id>/`. The manifest inventories every Parquet file and
-its relative path, byte size, and SHA-256 digest plus the total row count; replay verifies all four
-before publishing. `row_count=0` with an empty inventory is a valid all-invalid micro-batch.
-Archive commit protocol v1 is a pre-release format and is rejected with an instruction to
-regenerate the data. There is no v1 migration or backward-compatibility path.
-
-Replay is always bounded and only publishes to `recsys_events.backfill`:
-
-```bash
-REPLAY_ARCHIVE_PATH=/data/recsys-events \
-REPLAY_ARCHIVE_QUERY_NAMESPACE=<checkpoint-hash> \
-REPLAY_OPERATION_ID=incident-2026-08-01 \
-REPLAY_START_DATE=2026-08-01 REPLAY_END_DATE=2026-08-02 \
-REPLAY_MAX_ROWS=100000 REPLAY_RECORDS_PER_SECOND=5000 \
-  ./scripts/run-archive-replay.sh
-```
-
-Replay reads only numeric batches below the selected query namespace whose `_SUCCESS` and exact
-`_COMMITTED` identity manifest both validate; attempt, dedupe, incomplete, and other-query data is
-not eligible. `REPLAY_OPERATION_ID` is a stable operator-owned identity. Its atomic JSON manifest
-is `$REPLAY_MANIFEST_DIR/<operation-id>.json` when configured, otherwise
-`$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. A completed operation is a no-op on
-rerun; an interrupted operation resumes from its last durably recorded
-`(sorted committed file path, row group, row)` position.
-Published records retain `event_id` and carry a stable `operation_id:event_id` Kafka key plus
-operation/event headers.
-
-Replay is at-least-once, not exactly-once. A process can stop after Kafka acknowledges a record but
-before its cursor is persisted, so the cursor narrows but cannot eliminate duplicates. Backfill
-consumers must deduplicate `event_id` (or the stable operation/event identity). See
-[Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#avro-kafka-ingestion-archive-and-replay)
-for schema, retention, dead-letter, and replay constraints.
-
-On the migrated Avro engine path, every business sink has a stable identity and a durable
-`(query, sink, batchId)` completion marker. A completed first sink is skipped when a later sink
-causes the micro-batch to retry. Parquet uses visible
-`query=<hash>/sink=<hash>/batch=<id>` directories. The payload schema may not contain the reserved
-control columns `query`, `sink`, or `batch`. Multiple identities may share a configured root, so
-readers must not discover a schema from that mixed root. Scala/Spark consumers must call
-`DurableParquetCommit.readIdentity` with `spark`, `configuredRoot`, `queryNamespace`,
-`sinkNamespace`, and `expectedPayloadSchema`. It resolves the exact
-`query=<hash>/sink=<hash>` path before reading, sets `basePath` to the configured root, and applies
-the caller's explicit payload schema. Consumers may then filter the visible `batch` partition.
-Redis popularity and sequence effects use one atomic Lua ledger hash per retained batch, a bounded
-batch index, and one monotonic committed-batch watermark per stable query/sink. Completion advances
-the fence and only then prunes outside the configurable recovery window (minimum two batches, so N
-and N-1 remain retry-safe); delayed work below that horizon is skipped. Sequence ledger hashes,
-index, and watermark share a renewed retry horizon, outlive target sequence data by one second,
-and then expire. Kafka enables
-producer idempotence and publishes a
-stable record key and query/sink/batch headers; a failure across producer sessions can still repeat
-an acknowledged record, so derived-topic consumers must deduplicate the stable key. The engine
-rejects sinks without this retry contract and does not claim cross-system exactly-once delivery.
-
-`./scripts/run-data-pipeline.sh` is deliberately the small operable vertical slice: it starts the
-clickstream producer and `UserEventStreamingJob`, which reads `recsys_events`, archives its Avro
-records, and updates Redis popularity. It does not launch `OnlineJoinerStreamingJob`,
-`ExperienceCollectorStreamingJob`, or other derived-topic jobs. Those jobs retain their separate
-launch commands, produce/consume legacy JSON derived topics such as `training_samples` and
-`training_experiences`, and require an operator to provision those legacy topics separately before
-running them.
 
 ### Model Prediction Pipeline
 
@@ -165,6 +63,8 @@ Redis: reward stats, bandit counters ──────────────�
                                                                             ├──► GET  /embedding/{item}
                                                                             └──► GET  /predict/{user}/{item}
 ```
+
+---
 
 ### Experiment Pipeline
 
@@ -181,6 +81,7 @@ POST /feedback ──► online reward update ──► Redis reward-model:{item
 
 GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learning vs SARSA)
 ```
+
 
 ## Scoring Model Architecture
 
@@ -199,22 +100,6 @@ Feature data is split across three tiers by access pattern and update frequency.
 The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
 
 **Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the MLP model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default). To enable the two-tower scoring path, set `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, and `ONNX_RANKING_PATH` to the three ONNX files exported by `movielens_pipeline.py`.
-
-## Recommendation Request Flow
-
-For each incoming request, the retrieval service executes nine steps in order:
-
-1. **Hydrate query** — 21 `QueryHydrator` implementations populate `ScoredMoviesQuery` with per-user context: watch history, rating sequences, social graph, served history, MinHash, cached candidates, bloom filter, geo, demographics, and inferred signals.
-2. **Fetch popular candidates** — pulls top items from `global:item_popularity` (see [2_Fetch_Popular_Stuff.md](docs/recommendation_flows/2_Fetch_Popular_Stuff.md)).
-3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history (see [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md)).
-4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates (see [4_Filtering.md](docs/recommendation_flows/4_Filtering.md)).
-5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags (see [5_Candidate_Hydration.md](docs/recommendation_flows/5_Candidate_Hydration.md)).
-6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md)).
-7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition (see [7_Shuffling.md](docs/recommendation_flows/7_Shuffling.md)).
-8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](docs/recommendation_flows/8_Store_Context.md)).
-9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](docs/recommendation_flows/9_Track_Metrics.md)).
-
-Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
 
 ---
 
@@ -718,7 +603,8 @@ that need whole ranked slates.
   conclusion from either. *Known follow-up: wire the sim's generated catalog into the service so
   the live safety row exercises the real rules.*
 - **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
-  Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback) and
+  Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback, millisecond-precise
+  — it is computed from the millisecond event times, not from a second-truncated difference) and
   `kafka_ingest_lag_ms` (event time → Kafka record time) are emitted as Spark metric events.
 - No user ID, item ID, request ID, or free-form reason is ever used as a metric label; filter
   reasons, countries, and subscription levels are bucketed to fixed allowlists.
@@ -738,7 +624,8 @@ that need whole ranked slates.
 | `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. For *orders* (21–120s base delay) against the streaming job's *default* 10-second trigger, any scale above ~0.5 still crosses it (21s × 0.5 = 10.5s). This does not hold for *clicks* (1–20s base delay): some clicks land under a 10-second trigger even at scale 1.0. The sims themselves run with `TRIGGER_INTERVAL="2 seconds"`, not the 10-second default, so cross-batch behavior in a sim run is governed by that 2-second figure, not this one |
 | `FEEDBACK_TAIL_SECONDS` | `150` | segment and category sims | Floor before a drain may end, so the sim cannot declare completion before the last deferred order has arrived |
 | `FEEDBACK_JOIN_WAIT` | `3 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behaviour. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
-| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock so re-running a historical report gives the same answer. `0` (or negative) reads all history — the previous behaviour, whose cost grew with total archive size rather than with the reported window |
+| `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | every Spark job | Session time zone. Parquet `date` partitions do **not** depend on it — they are derived from the epoch, so the same event lands in the same partition on any host — but timestamp formatting does. Change it only if you want local-time formatting in job output |
+| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N UTC partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock so re-running a historical report gives the same answer. `0` (or negative) reads all history — the previous behaviour, whose cost grew with total archive size rather than with the reported window |
 
 `RECSYS_FAIRNESS_MIN_SUPPORT`, `RECSYS_FRESHNESS_WINDOW_DAYS`, and `RECSYS_LONG_TAIL_PERCENTILE`
 describe offline calculations, so the retrieval service binds and validates them for a single
@@ -1122,6 +1009,7 @@ the remaining diagnostics use the paths shown.
 | Keyword Gap is `unknown`; L1/L2/L3 empty | `docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features' \| wc -l` | snapshot exported without movie metadata | keep Redis running and export from the movie-category path |
 | Dashboard still shows old row count | inspect `input` and `rows` in `frontend/data/dashboard.json` | stale static snapshot/browser | rerun exporter, hard-refresh, or restart `npm run dev` |
 | ONNX Gather index error | `GET /predict/metadata` | raw numeric ID exceeds lookup size | use string IDs or indices within metadata bounds |
+| Fewer training samples than events produced | `grep '\[drop-metrics\]' <job log>` | a field gate rejected the rows; the line names the reason and count, e.g. `null_request_id=3` | fix the producer field named in the reason, or confirm the drop is expected |
 | A drain step (e.g. `[redis]`/`[parquet]`) polls for minutes and never reaches its target | `grep -i wrapRefArray /tmp/spark-recsys/movie-category-sim/*.log` | `SPARK_HOME` is a Scala 2.13 build (mismatched vs. `build.sbt`'s Scala 2.12); the job crashed on startup and the drain loop is polling a job that already died | point `SPARK_HOME` at a Spark 3.5.1 / Scala 2.12 install and rerun |
 
 ---

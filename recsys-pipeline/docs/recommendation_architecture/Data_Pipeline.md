@@ -52,10 +52,11 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
 
 `recsys_events` is the live canonical-event topic. Its only replay counterpart is
 `recsys_events.backfill`; this is a separate topic, not a mode on the live topic. Kafka
-auto-creation is disabled. Provision both catalog entries after Kafka is healthy and before
-starting producers or consumers:
+auto-creation is disabled. Start the local services, then provision both catalog entries after
+Kafka is healthy and before starting producers or consumers:
 
 ```bash
+docker compose up -d
 python scripts/provision-kafka-topics.py --bootstrap-server localhost:9092
 ```
 
@@ -241,7 +242,9 @@ Re-drive is at-least-once for the same reason replay is, and the dead-letter arc
 a successful re-drive neither deletes nor marks its source rows. The manifest is the record of what
 was recovered.
 
-The migrated Avro engine also scopes business completion to the stable
+### Durable sink and retry contract
+
+The migrated Avro engine scopes business completion to the stable
 `(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
 identity before archival or business effects. A successful sink is not invoked again when a later
 sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic visible
@@ -280,7 +283,7 @@ Kafka: training_samples ──► RelevanceSampleStreamingJob  ──► Kafka: 
 |---|---|---|
 | `RecallSampleStreamingJob` | `recall_samples` | `user_id`, `session_id`, `event_ts`, `recommended_movie_id`, `click_movie_id` (null unless clicked), `rating` (label) |
 | `RankingSampleStreamingJob` | `ranking_samples` | + `user_features`/`item_features` maps, `user_embedding` (`uEmb:{user}`), `item_embedding` (`i2vEmb:{item}`), `is_click`, `rating` |
-| `RelevanceSampleStreamingJob` | `relevance_samples` | LTR shape: `query` (`user_id:session_id`), `recommended_movie_id`, `title`/`genres`/`release_year` (from `movie:{id}:features`), `score` (label) |
+| `RelevanceSampleStreamingJob` | `relevance_samples` | LTR shape: `query` (`user_id:session_id`, or `user_id:request_id` when the sample has no session), `recommended_movie_id`, `title`/`genres`/`release_year` (from `movie:{id}:features`), `score` (label) |
 
 `rating`/`score` is the implicit engagement label (click → 1.0, order → 2.0, else 0.0). The ranking
 and relevance jobs join Redis per micro-batch (embeddings / movie metadata); missing keys yield an
@@ -439,6 +442,25 @@ consumers, and their environment variables—for example, `KAFKA_TOPIC` and
 `./run-streaming-job.sh` launcher bootstraps the default `UserEventStreamingJob` input topic
 (`KAFKA_TOPIC`, default `recsys_events`) when it can reach the local Kafka tooling or Docker stack.
 
+### Common environment variables
+
+Every Spark streaming job below reads these. Per-job tables list only the variables that differ or
+that the job alone uses.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `SPARK_APP_NAME` | the job's class name | Spark application name |
+| `SPARK_MASTER` | `local[*]` | Spark master URL |
+| `SPARK_SQL_SHUFFLE_PARTITIONS` | `8` (`4` for `UserEventStreamingJob` and `MovieLensContextCollectorStreamingJob`) | Shuffle parallelism |
+| `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | Session time zone. Date partitions do not depend on it — they are built from the epoch — but timestamp formatting does |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker address |
+| `KAFKA_STARTING_OFFSETS` | `earliest` (`latest` for `MovieLensContextCollectorStreamingJob`) | Initial offset policy |
+| `MAX_OFFSETS_PER_TRIGGER` | `5000` | Per-micro-batch input cap |
+| `TRIGGER_INTERVAL` | `10 seconds` (`5 seconds` for `UserEventStreamingJob`) | Processing-time trigger |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/<job>` | Per-job checkpoint directory; each job's default is listed in its own table |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis target, for the jobs that write it |
+| `REDIS_PIPELINE_SIZE` / `REDIS_POOL_MAX_TOTAL` | `500` / `8` | Redis pipelining and per-executor pool size |
+
 ### `services/python-modeling/producer.py`
 
 Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join — impressions are sent immediately, but each click/order is deferred and released at the offset its own payload already encodes (clicks 1–20s, orders 21–120s after the impression), via `feedback_schedule.py`, instead of being sent as one instant with the impressions. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
@@ -510,20 +532,12 @@ Redis keys written:
 
 Environment variables:
 
+Job-specific variables (plus the [common set](#common-environment-variables)):
+
 | Env var | Default |
 |---|---|
-| `SPARK_APP_NAME` | `UserEventStreamingJob` |
-| `SPARK_MASTER` | `local[*]` |
-| `SPARK_SQL_SHUFFLE_PARTITIONS` | `4` |
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` |
 | `KAFKA_TOPIC` | `recsys_events` |
-| `REDIS_HOST` | `localhost` |
-| `REDIS_PORT` | `6379` |
-| `REDIS_PIPELINE_SIZE` | `500` |
-| `REDIS_POOL_MAX_TOTAL` | `8` |
 | `REDIS_LEDGER_RETENTION_BATCHES` | `2` (minimum `2`; preserves retry state for N and N-1) |
-| `MAX_OFFSETS_PER_TRIGGER` | `5000` |
-| `TRIGGER_INTERVAL` | `5 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/user-event-streaming-job` |
 
 `ZCARD` reports the number of distinct clicked items, so it confirms that the popularity set is
@@ -575,8 +589,10 @@ and only then handed to `buildTrainingSamples`. A click or order arriving within
 Each sample is published exactly once, when its window closes, so every `sample_id` remains unique
 and no consumer of `training_samples` has to dedupe. The cost is latency: a sample reaches the topic
 and the Parquet sink one `FEEDBACK_JOIN_WAIT` after its impression rather than in the impression's
-own batch. Its `date` partition is still `to_date(impression_time)`, so it lands in its impression's
-date regardless of when it publishes.
+own batch. Its `date` partition is still derived from the impression, so it lands in its
+impression's date regardless of when it publishes — `TimePartitions.utcDate(impression_ts)`, built
+from the epoch rather than a formatted local timestamp, so the partition does not move with the
+deploy machine's time zone.
 
 A slate's window closes when either arm fires: observed event time advances past the slate's
 deadline — `impression_ts + FEEDBACK_JOIN_WAIT`, or, for a slate that has not seen an impression,
@@ -598,9 +614,10 @@ residual is counted rather than silent; each batch that sees any logs
 
 Environment variables:
 
+Job-specific variables (plus the [common set](#common-environment-variables)):
+
 | Env var | Default |
 |---|---|
-| `SPARK_APP_NAME` | `OnlineJoinerStreamingJob` |
 | `ONLINE_JOINER_INPUT_TOPIC` | `recsys_events` |
 | `ONLINE_JOINER_OUTPUT_TOPIC` | `training_samples` |
 | `ONLINE_JOINER_HDFS_OUTPUT_PATH` | `/tmp/spark-recsys/training-samples` |
@@ -659,8 +676,43 @@ engagement (sessions/user, slates/session, clicks/session, session CTR) from the
 `OnlineJoinerStreamingJob` drop duplicate `event_id`s within
 `EVENT_WATERMARK_DELAY` (default `10 minutes`). Because this makes the queries
 stateful, **existing checkpoints are incompatible** — on first deploy of this
-change, point `SPARK_CHECKPOINT_LOCATION` at a fresh directory. Per-batch
-`corrupt=<n>` counts are logged by the metrics listener.
+change, point `SPARK_CHECKPOINT_LOCATION` at a fresh directory.
+
+### Gate rejection accounting
+
+Every job rejects rows it cannot use — a null `request_id`, an unclassifiable context record, an id
+containing a packing separator. Those rejections are counted per reason and logged once per
+micro-batch:
+
+```text
+[drop-metrics] job=OnlineJoinerStreamingJob batch=42 kept=4931 dropped=62
+               null_request_id=3 null_user_id=7 null_item_id=48 null_event_type=0 null_timestamp=4
+```
+
+Attribution is **first-match**: a row violating several rules is counted once, under the first, so
+the per-reason counts sum exactly to `dropped` and `kept + dropped` equals the input row count.
+Every declared reason is printed every batch including zeros, and the line is printed even when
+nothing was dropped — a steady `dropped=0` is the evidence that the counter is alive.
+
+The engine emits the same line for decode outcomes, keyed by Avro error code (`invalid_marker`,
+`unknown_fingerprint`, `corrupt_payload`, `required_field`), counted from the dead-letter frame
+after it has been archived.
+
+Counting is a driver-side aggregation inside `foreachBatch`, never `Dataset.observe`. The Avro
+`ExecutionEngine.run` overload applies no stages to the streaming DataFrame, so its plan holds no
+`CollectMetrics` node and `StreamingQueryProgress.observedMetrics` is always empty — an
+observe-based counter there reports zero forever. Gating a streaming frame still filters, but logs
+a warning that counts are unavailable rather than failing the query.
+
+| Site | Reasons |
+|---|---|
+| `OnlineJoinerStreamingJob` | `null_request_id`, `null_user_id`, `null_item_id`, `null_event_type`, `null_timestamp` |
+| `UserEventStreamingJob` | `null_user_id`, `null_item_id` |
+| `ExperienceCollectorStreamingJob` | `null_request_id`, `null_user_id`, `null_item_id` |
+| `Recall`/`Ranking`/`RelevanceSampleStreamingJob` | `null_user_id`, `null_item_id` |
+| `MovieLensContextCollectorStreamingJob` | `unclassifiable_shape` |
+| `SequenceEncoder` | `separator_in_identifier` |
+| `ExecutionEngine` (decode) | the four Avro error codes |
 
 ### `ExperienceCollectorStreamingJob`
 
@@ -677,9 +729,10 @@ For each micro-batch, it groups samples by `(request_id, user_id)`, sorts items 
 
 Environment variables:
 
+Job-specific variables (plus the [common set](#common-environment-variables)):
+
 | Env var | Default |
 |---|---|
-| `SPARK_APP_NAME` | `ExperienceCollectorStreamingJob` |
 | `EXPERIENCE_COLLECTOR_INPUT_TOPIC` | `training_samples` |
 | `EXPERIENCE_COLLECTOR_OUTPUT_TOPIC` | `training_experiences` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/experience-collector` |
@@ -714,9 +767,10 @@ Tag sources:
 
 Environment variables:
 
+Job-specific variables (plus the [common set](#common-environment-variables)):
+
 | Env var | Default |
 |---|---|
-| `SPARK_APP_NAME` | `RecommendationResponseStatsJob` |
 | `RESPONSE_STATS_INPUT_TOPIC` | `training_experiences` |
 | `RESPONSE_STATS_OUTPUT_TOPIC` | `recommendation_metrics` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/response-stats` |
@@ -737,7 +791,9 @@ MOVIELENS_CONTEXT_INPUT_TOPIC=movielens_context \
 
 For each micro-batch, it:
 
-1. Classifies mixed JSON records as `user_update`, `movie_update`, or `rating`.
+1. Classifies mixed JSON records with three **independent** flags — `is_rating`, `is_user_update`,
+   `is_movie_update` — so a record carrying both a rating and demographics feeds both aggregates.
+   A record matching none of them is dropped and counted as `unclassifiable_shape`.
 2. Merges user demographic fields and rating aggregates (`avgRating`, `ratingCount`, `recentlyRatedMovieIds`, `actionSequenceMovieIds`) into `user:{id}:features`.
 3. Stores movie title, genres, and release year under `movie:{id}:features`.
 
@@ -751,18 +807,13 @@ Redis keys written:
 
 Environment variables:
 
+Job-specific variables (plus the [common set](#common-environment-variables)):
+
 | Env var | Default |
 |---|---|
-| `SPARK_APP_NAME` | `MovieLensContextCollectorStreamingJob` |
 | `MOVIELENS_CONTEXT_INPUT_TOPIC` | `movielens_context` |
-| `REDIS_HOST` | `localhost` |
-| `REDIS_PORT` | `6379` |
 | `MOVIELENS_CONTEXT_TTL_SECONDS` | `2592000` (30 days) |
 | `MOVIELENS_RECENT_RATINGS_LIMIT` | `50` |
-| `REDIS_PIPELINE_SIZE` | `500` |
-| `REDIS_POOL_MAX_TOTAL` | `8` |
-| `MAX_OFFSETS_PER_TRIGGER` | `5000` |
-| `TRIGGER_INTERVAL` | `10 seconds` |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/movielens-context-collector` |
 
 Confirm that movie feature hashes exist in Redis:
@@ -793,7 +844,14 @@ are positionally aligned — row *i* is element *i* of every field:
 | `n` | row count (consistency guard) | `3` |
 
 `genres` uses `|` within a row because genre strings already contain commas; `n` is
-the guard a reader uses to detect and truncate a torn write. Column names, `kind`
+the guard a reader uses to detect and truncate a torn write.
+
+Descriptive values have those two separators stripped before packing, which is cosmetic. Identity
+values do not: `user_id` is part of the Redis key and `item_id` is what a recommendation resolves
+to, so stripping would silently merge `a,b` into the distinct id `ab`. Events whose `user_id` or
+`item_id` contains `,` or `|` are therefore **dropped and counted** as `separator_in_identifier`
+rather than mutated. The packing format is unchanged; see
+[Gate rejection accounting](#gate-rejection-accounting). Column names, `kind`
 values, and the bucket function all come from one `SequenceSchema` object, mirrored
 by `SequenceSchemaConstants` in the Java retrieval service (a cross-language fixture
 test asserts the two agree).
