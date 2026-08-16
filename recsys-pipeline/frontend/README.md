@@ -44,8 +44,14 @@ REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --output frontend/data/dashboard.json \
   --experiences /tmp/spark-recsys/movie-category-sim/slates \
   --live-metrics /tmp/spark-recsys/movie-category-sim/live-metrics.json \
-  --mdp-csv /tmp/spark-recsys/mdp_eval.csv   # optional; MovieLensPolicyEvaluation writes it
+  --mdp-csv /tmp/spark-recsys/movie-category-sim/mdp_eval.csv   # optional; written by MovieLensPolicyEvaluation
 ```
+
+`--mdp-csv` defaults to `<input>/../mdp_eval.csv`, so for the sim path above that is
+`/tmp/spark-recsys/movie-category-sim/mdp_eval.csv`. Writing the file anywhere else leaves the MDP
+card unpopulated even though the evaluator succeeded. The sim never produces it: it needs
+`MovieLensPolicyEvaluation` run against a real MovieLens `ratings.csv`, since the default
+`--min-user-ratings`/`--min-movie-ratings` filters empty out the bundled `sampledata/ratings.csv`.
 
 Measurement configuration flags (defaults shown): `--fairness-min-support 100`,
 `--freshness-window-days 30`, `--long-tail-percentile 0.80`,
