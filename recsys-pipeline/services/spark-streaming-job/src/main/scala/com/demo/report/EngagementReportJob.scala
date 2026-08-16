@@ -1,6 +1,6 @@
 package com.demo.report
 
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions, TimePartitions}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 
@@ -46,9 +46,14 @@ object EngagementReportJob {
     }
   }
 
-  /** Daily CTR + impression count, ordered by day. */
+  /** Daily CTR + impression count, ordered by day.
+    *
+    * Buckets by UTC date via the instant rather than `to_date` of the local timestamp, so a report
+    * lines up with the `date` partition its samples were written under. `byHour` and `byDow` below
+    * stay in session-local time deliberately: hour-of-day is a statement about when users engage,
+    * which is a local-time question. */
   def daily(df: DataFrame): DataFrame =
-    df.groupBy(to_date(col("impression_time")).as("day"))
+    df.groupBy(TimePartitions.utcDate(unix_timestamp(col("impression_time"))).as("day"))
       .agg(avg("clicked").as("ctr"), count(lit(1)).as("impressions"))
       .orderBy("day")
 
