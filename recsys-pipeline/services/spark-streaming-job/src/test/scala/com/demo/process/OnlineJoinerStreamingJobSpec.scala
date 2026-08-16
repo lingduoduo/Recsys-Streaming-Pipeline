@@ -357,6 +357,31 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     rows("item2") shouldBe Seq("drama")
   }
 
+  "withDatePartition" should "produce the same date in every session time zone" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    // 2026-06-01T23:30:00Z: Tokyo is already on 06-02, New York is still on 06-01.
+    val lateInTheUtcDay = 1780356600L
+    val events = Seq(
+      ("s", "req_tz", "user_tz", "item_tz", "impression", lateInTheUtcDay, 0,
+        Map.empty[String, String], Map.empty[String, String], Map.empty[String, String])
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position",
+      "user_features", "item_features", "context_features")
+    val samples = OnlineJoinerStreamingJob.buildTrainingSamples(events)
+
+    val dates = Seq("UTC", "America/New_York", "Asia/Tokyo").map { zone =>
+      val previous = sparkSession.conf.get("spark.sql.session.timeZone")
+      sparkSession.conf.set("spark.sql.session.timeZone", zone)
+      try
+        OnlineJoinerStreamingJob.withDatePartition(samples, None)
+          .select("date").collect().head.getAs[java.sql.Date]("date").toString
+      finally sparkSession.conf.set("spark.sql.session.timeZone", previous)
+    }
+
+    dates.distinct shouldBe Seq("2026-06-01")
+  }
+
   "dedupedEvents" should "drop duplicate event_id within the watermark across micro-batches" in {
     val s = spark; import s.implicits._
     implicit val sqlCtx = s.sqlContext

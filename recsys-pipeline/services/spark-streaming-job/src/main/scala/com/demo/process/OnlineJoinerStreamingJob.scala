@@ -2,7 +2,7 @@ package com.demo.process
 
 import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, RawArchiveSink, Sink, Stage}
 import com.demo.event.{DecodedEventBatch, EventParsing}
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{Env, SparkSessions, TimePartitions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -70,7 +70,7 @@ object OnlineJoinerStreamingJob {
     val sinks: Seq[Sink] = Seq(
       new KafkaSink(cfg.bootstrapServers, outputTopic, "sample_id"),
       new ParquetSink(outputPath, "date", outputFiles,
-        (df: DataFrame) => withCatalog(df, catalog).withColumn("date", to_date(col("impression_time"))))
+        (df: DataFrame) => withDatePartition(df, catalog))
     )
 
     ExecutionEngine.run(
@@ -95,6 +95,15 @@ object OnlineJoinerStreamingJob {
         col("profile.tags").as("tags")
       )
   }
+
+  /** Enrich, then stamp the Parquet partition key.
+    *
+    * The partition is derived from `impression_ts` (epoch seconds) rather than from `to_date` of
+    * the local `impression_time`, so it does not move with the deploy machine's time zone.
+    * `CtrRankingModelTrainingJob.splitByDate` uses this value as its train/holdout key, and the
+    * raw archive already partitions by UTC — the two must agree. */
+  def withDatePartition(samples: DataFrame, catalog: Option[DataFrame]): DataFrame =
+    withCatalog(samples, catalog).withColumn("date", TimePartitions.utcDate(col("impression_ts")))
 
   /** Attach genres/tags to the samples. When no catalog is configured, add empty arrays so the
     * Parquet schema is identical with or without a catalog. */
