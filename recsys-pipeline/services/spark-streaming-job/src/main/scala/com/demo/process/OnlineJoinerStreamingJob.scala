@@ -130,7 +130,7 @@ object OnlineJoinerStreamingJob {
     * `timestamp_ms` rides alongside so `feedback_delay_ms` can be a real millisecond delta rather
     * than a second-granularity value wearing a millisecond name. */
   def parseEvents(rawKafka: DataFrame): DataFrame =
-    EventParsing.observeIngest(EventParsing.canonicalEvents(rawKafka))
+    EventParsing.canonicalEvents(rawKafka)
       .withColumn("timestamp", (col("timestamp_ms") / 1000L).cast(LongType))
       .filter(
         col("request_id").isNotNull &&

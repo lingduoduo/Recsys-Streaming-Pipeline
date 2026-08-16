@@ -8,8 +8,8 @@ import org.slf4j.LoggerFactory
 object BatchMetricsListener {
   private val log = LoggerFactory.getLogger(getClass)
 
-  def format(name: String, numInputRows: Long, rowsPerSecond: Double, durationMs: Long, corrupt: Long): String =
-    s"[batch-metrics] query=$name rows=$numInputRows rps=$rowsPerSecond batchMs=$durationMs corrupt=$corrupt"
+  def format(name: String, numInputRows: Long, rowsPerSecond: Double, durationMs: Long): String =
+    s"[batch-metrics] query=$name rows=$numInputRows rps=$rowsPerSecond batchMs=$durationMs"
 
   def register(spark: SparkSession): Unit =
     spark.streams.addListener(new StreamingQueryListener {
@@ -19,8 +19,7 @@ object BatchMetricsListener {
         val p = e.progress
         // durationMs is a Map of phase -> millis; "triggerExecution" is the batch wall time.
         val batchMs = Option(p.durationMs.get("triggerExecution")).map(_.toLong).getOrElse(0L)
-        val corrupt = Option(p.observedMetrics.get("ingest")).map(_.getAs[Long]("corrupt")).getOrElse(0L)
-        log.info(format(p.name, p.numInputRows, p.processedRowsPerSecond, batchMs, corrupt))
+        log.info(format(p.name, p.numInputRows, p.processedRowsPerSecond, batchMs))
       }
     })
 }

@@ -117,7 +117,7 @@ object ExecutionEngine {
       spark: SparkSession, cfg: EngineConfig, source: Source,
       streamingStages: Seq[Stage], batchStages: Seq[BatchStage], sinks: Seq[Sink]
   ): Unit = {
-    // Per-batch metrics (rows/rps/batchMs/corrupt) for every engine adopter.
+    // Per-batch throughput metrics (rows/rps/batchMs) for every engine adopter.
     BatchMetricsListener.register(spark)
     val streamed = streamingStages.foldLeft(source.read(spark, cfg))((df, s) => s(df))
     streamed.writeStream
