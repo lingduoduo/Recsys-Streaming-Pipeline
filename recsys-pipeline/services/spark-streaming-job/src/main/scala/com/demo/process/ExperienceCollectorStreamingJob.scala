@@ -1,8 +1,8 @@
 package com.demo.process
 
 import com.demo.engine.ParquetSink
-import com.demo.event.EventParsing
-import com.demo.util.{BatchMetricsListener, SparkSessions, TimePartitions}
+import com.demo.event.{EventParsing, FieldGate, Gated}
+import com.demo.util.{BatchMetricsListener, DropMetrics, SparkSessions, TimePartitions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
@@ -10,6 +10,8 @@ import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
 
 object ExperienceCollectorStreamingJob {
+
+  private val JobName = "ExperienceCollectorStreamingJob"
 
   private val MeasurementFields: Seq[(String, DataType)] = Seq(
     "last_feedback_ts" -> LongType,
@@ -85,7 +87,7 @@ object ExperienceCollectorStreamingJob {
 
     raw.writeStream
       .foreachBatch { (batch: DataFrame, batchId: Long) =>
-        val slates = buildSlates(parseSamples(batch))
+        val slates = buildSlates(DropMetrics.report(parseSamples(batch), JobName, batchId))
           .withColumn("batch_id", lit(batchId))
           .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
@@ -126,13 +128,12 @@ object ExperienceCollectorStreamingJob {
   def withDatePartition(slates: DataFrame): DataFrame =
     slates.withColumn("date", TimePartitions.utcDate(col("request_ts")))
 
-  def parseSamples(rawKafka: DataFrame): DataFrame =
-    EventParsing.fromJson(rawKafka, TrainingSampleSchema)
-      .filter(
-        col("request_id").isNotNull &&
-          col("user_id").isNotNull &&
-          col("item_id").isNotNull
-      )
+  def parseSamples(rawKafka: DataFrame): Gated =
+    FieldGate(EventParsing.fromJson(rawKafka, TrainingSampleSchema), Seq(
+      "null_request_id" -> col("request_id").isNull,
+      "null_user_id" -> col("user_id").isNull,
+      "null_item_id" -> col("item_id").isNull
+    ))
 
   def buildSlates(samples: DataFrame): DataFrame =
     MeasurementFields.foldLeft(samples) { case (df, (name, dataType)) =>

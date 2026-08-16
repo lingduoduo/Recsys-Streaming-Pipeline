@@ -111,7 +111,7 @@ class ExperienceCollectorStreamingJobSpec extends AnyFlatSpec with Matchers with
       """{"sample_id":"s2","request_id":"r1","user_id":"u1","item_id":"item_2","position":1,"impression_ts":1753000000,"clicked":0,"ordered":0,"label":0.0}"""
     ).toDF("value")
     val slates = ExperienceCollectorStreamingJob.buildSlates(
-      ExperienceCollectorStreamingJob.parseSamples(samples))
+      ExperienceCollectorStreamingJob.parseSamples(samples).kept)
 
     val target = java.nio.file.Files.createTempDirectory("slate-sink").resolve("slates").toString
     ExperienceCollectorStreamingJob.parquetSink(target, 1).get.write(slates, 0L)

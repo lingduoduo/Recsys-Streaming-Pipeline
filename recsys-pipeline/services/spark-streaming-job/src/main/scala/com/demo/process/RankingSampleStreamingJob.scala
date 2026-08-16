@@ -1,11 +1,12 @@
 package com.demo.process
 
 import com.demo.engine.RedisPool
-import com.demo.event.EventParsing
-import com.demo.util.{BatchMetricsListener, Env, SparkSessions}
+import com.demo.event.{EventParsing, FieldGate, Gated}
+import com.demo.util.{BatchMetricsListener, DropMetrics, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.storage.StorageLevel
 
 /** Derives per-impression **ranking records** from `training_samples`, enriched with the
   * user/item embedding vectors from Redis, and emits them to the `ranking_samples` Kafka topic:
@@ -20,6 +21,8 @@ import org.apache.spark.sql.streaming.Trigger
   * written by the offline embedding jobs).
   */
 object RankingSampleStreamingJob {
+
+  private val JobName = "RankingSampleStreamingJob"
 
   /** Reshape training samples into ranking rows, attaching embeddings from the given lookups. */
   def buildRankingSamples(
@@ -43,9 +46,13 @@ object RankingSampleStreamingJob {
     )
   }
 
-  def parseSamples(rawKafka: DataFrame): DataFrame =
-    EventParsing.fromJson(rawKafka, ExperienceCollectorStreamingJob.TrainingSampleSchema)
-      .filter(col("user_id").isNotNull && col("item_id").isNotNull)
+  def parseSamples(rawKafka: DataFrame): Gated =
+    FieldGate(
+      EventParsing.fromJson(rawKafka, ExperienceCollectorStreamingJob.TrainingSampleSchema),
+      Seq(
+        "null_user_id" -> col("user_id").isNull,
+        "null_item_id" -> col("item_id").isNull
+      ))
 
   /** Driver-side Redis lookup of `prefix:id` embeddings (space-separated floats). Missing keys are
     * omitted (buildRankingSamples then emits an empty vector for them). */
@@ -91,8 +98,12 @@ object RankingSampleStreamingJob {
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()
 
-    parseSamples(raw).writeStream
-      .foreachBatch { (batch: DataFrame, _: Long) =>
+    raw.writeStream
+      .foreachBatch { (raw: DataFrame, batchId: Long) =>
+        val gated = parseSamples(raw)
+        val tagged = gated.tagged.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        try {
+        val batch = DropMetrics.report(gated.copy(tagged = tagged), JobName, batchId)
         val users = batch.select("user_id").distinct().collect().flatMap(r => Option(r.getString(0)))
         val items = batch.select("item_id").distinct().collect().flatMap(r => Option(r.getString(0)))
         val userEmb = fetchEmbeddings(users, userPrefix, redisHost, redisPort, redisPoolMax)
@@ -110,6 +121,7 @@ object RankingSampleStreamingJob {
           .option("kafka.bootstrap.servers", kafkaBootstrapServers)
           .option("topic", outputTopic)
           .save()
+        } finally tagged.unpersist()
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))

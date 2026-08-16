@@ -28,7 +28,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       ("e2", "user_5", "movie_4", "impression", 1718400001000L, "recsys_events", 11L)
     ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms", "kafka_topic", "kafka_offset")
 
-    val parsed = UserEventStreamingJob.parseEvents(decoded)
+    val parsed = UserEventStreamingJob.parseEvents(decoded).kept
     val clicks = parsed.filter($"event_type" === "click").collect()
     clicks should have length 1
     clicks.head.getAs[String]("user_id") shouldBe "user_5"
@@ -45,7 +45,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       ("e2", None: Option[String], Some("item_2"), "click", 1718400001000L)
     ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
 
-    UserEventStreamingJob.parseEvents(decoded).select("event_id").as[String].collect() should contain only "e1"
+    UserEventStreamingJob.parseEvents(decoded).kept.select("event_id").as[String].collect() should contain only "e1"
   }
 
   it should "drop duplicate event_id within the watermark across micro-batches" in {

@@ -89,4 +89,31 @@ class SequenceEncoderSpec extends AnyFlatSpec with Matchers with SparkTestSuppor
       }
     }
   }
+
+  it should "drop an id containing a separator rather than merging it with a neighbour" in {
+    val df = events(Seq(
+      // "m1,m2" would be stripped to "m1m2" and become indistinguishable from the real "m1m2".
+      ("u1", "rating", "m1,m2", dayStart + 1000L, "rate", 4.0: java.lang.Double, Seq("Drama"), 1995: java.lang.Integer),
+      ("u1", "rating", "m1m2", dayStart + 2000L, "rate", 5.0: java.lang.Double, Seq("Action"), 1999: java.lang.Integer)
+    ))
+
+    val chunk = SequenceEncoder.toColumnChunks(df).collect()
+
+    chunk.length shouldBe 1
+    chunk.head.getAs[String]("item_id") shouldBe "m1m2"
+    chunk.head.getAs[Long]("n") shouldBe 1L
+  }
+
+  it should "count the separator rejection rather than dropping it silently" in {
+    val df = events(Seq(
+      ("u1", "rating", "m1,m2", dayStart + 1000L, "rate", 4.0: java.lang.Double, Seq("Drama"), 1995: java.lang.Integer),
+      ("u|2", "rating", "m3", dayStart + 2000L, "rate", 5.0: java.lang.Double, Seq("Action"), 1999: java.lang.Integer),
+      ("u3", "rating", "m4", dayStart + 3000L, "rate", 3.0: java.lang.Double, Seq("Drama"), 2001: java.lang.Integer)
+    ))
+
+    val (kept, reasons) = SequenceEncoder.gateIdentifiers(df).counts
+
+    kept shouldBe 1L
+    reasons shouldBe Seq("separator_in_identifier" -> 2L)
+  }
 }

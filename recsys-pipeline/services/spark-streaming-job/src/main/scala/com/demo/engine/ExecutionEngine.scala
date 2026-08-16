@@ -1,7 +1,7 @@
 package com.demo.engine
 
 import com.demo.event.DecodedEventFrames
-import com.demo.util.BatchMetricsListener
+import com.demo.util.{BatchMetricsListener, DropMetrics, Reporter}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.storage.StorageLevel
@@ -51,7 +51,8 @@ object ExecutionEngine {
       batchStages: Seq[BatchStage],
       sinks: Seq[Sink],
       maxRetries: Int,
-      watermarkDelay: String = "10 minutes"
+      watermarkDelay: String = "10 minutes",
+      reporter: Reporter = DropMetrics
   ): Unit = {
     val durableSinks = requireDurableSinks(sinks)
     val decoded = decode(batch)
@@ -60,6 +61,10 @@ object ExecutionEngine {
     try {
       withRetry(maxRetries)(archive.writeValid(valid, batchId))
       withRetry(maxRetries)(archive.writeDeadLetters(deadLetters, batchId))
+      // After the durable write, so a failed archive aborts before we log a number that was never
+      // persisted. Both frames are already persisted, so these counts scan materialized data.
+      reporter.reportDecode(
+        deadLetters, valid.count(), batch.sparkSession.sparkContext.appName, batchId)
       val unseenValid = archive.deduplicateValid(valid, batchId, watermarkDelay)
       val stagedValid = streamingStages.foldLeft(unseenValid)((df, stage) => stage(df))
       processDurableBatch(stagedValid, batchId, batchStages, durableSinks, archive, maxRetries)

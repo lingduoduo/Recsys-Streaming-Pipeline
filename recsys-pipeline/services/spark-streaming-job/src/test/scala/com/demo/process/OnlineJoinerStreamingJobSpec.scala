@@ -3,7 +3,7 @@ package com.demo.process
 import com.demo.event.{EventParsing, EventSchemas}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.execution.streaming.MemoryStream
-import org.apache.spark.sql.functions.{coalesce, col, struct, to_json}
+import org.apache.spark.sql.functions.{coalesce, col, struct, to_json, unix_timestamp}
 import org.apache.spark.sql.types.LongType
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
@@ -141,7 +141,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       .withColumn("kafka_topic", org.apache.spark.sql.functions.lit("recsys_events"))
       .withColumn("kafka_offset", org.apache.spark.sql.functions.lit(10L))
 
-    val normalised = OnlineJoinerStreamingJob.parseEvents(events)
+    val normalised = OnlineJoinerStreamingJob.parseEvents(events).kept
     normalised.columns should not contain "kafka_topic"
     normalised.columns should not contain "kafka_offset"
 
@@ -167,13 +167,13 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     ).toDF("value")
 
     val samples = OnlineJoinerStreamingJob.buildTrainingSamples(
-      OnlineJoinerStreamingJob.parseEvents(decodedJson(rawEvents)))
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(rawEvents)).kept)
     Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
       samples.schema(field).dataType shouldBe LongType
     }
 
     val kafkaSamples = samples.select(to_json(struct(samples.columns.map(col): _*)).as("value"))
-    val decoded = ExperienceCollectorStreamingJob.parseSamples(kafkaSamples)
+    val decoded = ExperienceCollectorStreamingJob.parseSamples(kafkaSamples).kept
     Seq("impression_ts", "last_feedback_ts", "feedback_delay_ms").foreach { field =>
       decoded.schema(field).dataType shouldBe LongType
     }
@@ -199,7 +199,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     def attribution(input: Seq[String]) =
       OnlineJoinerStreamingJob.buildTrainingSamples(
-        OnlineJoinerStreamingJob.parseEvents(decodedJson(input.toDF("value"))))
+        OnlineJoinerStreamingJob.parseEvents(decodedJson(input.toDF("value"))).kept)
         .select(
           "model_version", "policy_version", "algorithm_version", "last_feedback_ts", "feedback_delay_ms",
           "rating", "negative_feedback_reason", "dwell_millis", "completion_rate"
@@ -241,7 +241,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     def sample(events: Seq[String]) =
       OnlineJoinerStreamingJob.buildTrainingSamples(
-        OnlineJoinerStreamingJob.parseEvents(decodedJson(events.toDF("value")))).first()
+        OnlineJoinerStreamingJob.parseEvents(decodedJson(events.toDF("value"))).kept).first()
 
     val row = sample(Seq(impression, click, ratingOnlyOrder))
 
@@ -275,7 +275,7 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     ).toDF("value")
 
     val rows = OnlineJoinerStreamingJob.buildTrainingSamples(
-      OnlineJoinerStreamingJob.parseEvents(decodedJson(raw)))
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(raw)).kept)
       .select(
         "request_id", "model_version", "policy_version", "algorithm_version", "rating",
         "negative_feedback_reason", "dwell_millis", "completion_rate", "published_at",
@@ -420,6 +420,38 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
 
     OnlineJoinerStreamingJob.buildTrainingSamples(events)
       .select("feedback_delay_ms").collect().head.getAs[Long]("feedback_delay_ms") shouldBe 10000L
+  }
+
+  "impression_time" should "survive a DST fall-back hour in any session time zone" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    // US Eastern falls back 2026-11-01 06:00Z. Both instants format to the same local wall clock
+    // "2026-11-01 01:30:00", so a to_timestamp(from_unixtime(...)) round trip collapses them and
+    // moves the later one an hour into the past.
+    val beforeFallBack = 1793511000L // 05:30Z = 01:30 EDT
+    val afterFallBack = 1793514600L // 06:30Z = 01:30 EST
+    val noFeatures = Map.empty[String, String]
+
+    val events = Seq(
+      ("s", "req_edt", "u", "i1", "impression", beforeFallBack, 0, noFeatures, noFeatures, noFeatures),
+      ("s", "req_est", "u", "i2", "impression", afterFallBack, 0, noFeatures, noFeatures, noFeatures)
+    ).toDF("session_id", "request_id", "user_id", "item_id", "event_type", "timestamp", "position",
+      "user_features", "item_features", "context_features")
+
+    def instantsIn(zone: String): Map[String, Long] = {
+      val previous = sparkSession.conf.get("spark.sql.session.timeZone")
+      sparkSession.conf.set("spark.sql.session.timeZone", zone)
+      try
+        OnlineJoinerStreamingJob.buildTrainingSamples(events)
+          .select(col("request_id"), unix_timestamp(col("impression_time")).as("instant"))
+          .collect().map(r => r.getString(0) -> r.getAs[Long]("instant")).toMap
+      finally sparkSession.conf.set("spark.sql.session.timeZone", previous)
+    }
+
+    val expected = Map("req_edt" -> beforeFallBack, "req_est" -> afterFallBack)
+    instantsIn("UTC") shouldBe expected
+    instantsIn("America/New_York") shouldBe expected
   }
 
   "withDatePartition" should "produce the same date in every session time zone" in {

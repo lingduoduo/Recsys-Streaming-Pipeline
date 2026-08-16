@@ -1,5 +1,7 @@
 package com.demo.sequence
 
+import com.demo.event.{FieldGate, Gated}
+import com.demo.util.{DropMetrics, Reporter}
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions._
 
@@ -9,8 +11,28 @@ object SequenceEncoder {
 
   private val RowsField = "__rows"
 
-  def toColumnChunks(events: DataFrame): DataFrame = {
-    val sorted = events
+  /** Identity fields must not contain a packing separator.
+    *
+    * `sanitized` strips `,` and `|` from every packed value, which is cosmetic for descriptive
+    * fields but not for identity: `user_id` is a Redis key component and `item_id` is what a
+    * recommendation resolves to, so stripping can silently merge two distinct entities (`a,b`
+    * and `ab`). The packing format cannot change cheaply — every read path would need a decoder
+    * and existing data a migration — so these rows are dropped and counted instead.
+    */
+  def gateIdentifiers(events: DataFrame): Gated =
+    FieldGate(events, Seq(
+      "separator_in_identifier" ->
+        (col("user_id").rlike("[,|]") || col(SequenceSchema.ColItemId).rlike("[,|]"))
+    ))
+
+  /** Gate identity fields here rather than at each call site, so no producer can forget it.
+    * `batchId` defaults to -1 for the sink lambda, which has no batch in scope. */
+  def toColumnChunks(
+      events: DataFrame,
+      batchId: Long = -1L,
+      reporter: Reporter = DropMetrics
+  ): DataFrame = {
+    val sorted = reporter.report(gateIdentifiers(events), "SequenceEncoder", batchId)
       .withColumn("bucket", SequenceSchema.bucketColumn(col(SequenceSchema.ColTs)))
       .groupBy("user_id", "kind", "bucket")
       // sort_array on a struct sorts by its first field (ts) — no UDF needed, same idiom

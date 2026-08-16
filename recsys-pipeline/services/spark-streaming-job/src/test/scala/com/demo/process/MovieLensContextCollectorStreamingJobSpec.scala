@@ -28,7 +28,10 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
       """{"user_id":"u2","item_id":"m2","event_type":"click","timestamp":103}"""
     ).toDF("value")
 
-    val classified = MovieLensContextCollectorStreamingJob.parseEvents(raw)
+    // parseEvents classifies; gateEvents is what drops the unclassifiable rows and counts them.
+    val gated = MovieLensContextCollectorStreamingJob
+      .gateEvents(MovieLensContextCollectorStreamingJob.parseEvents(raw))
+    val classified = gated.kept
       .select("is_rating", "is_user_update", "is_movie_update")
       .collect()
       .map(r => (r.getBoolean(0), r.getBoolean(1), r.getBoolean(2)))
@@ -38,6 +41,8 @@ class MovieLensContextCollectorStreamingJobSpec extends AnyFlatSpec with Matcher
     classified.count(_._1) shouldBe 1
     classified.count(_._2) shouldBe 1
     classified.count(_._3) shouldBe 1
+
+    gated.counts shouldBe (3L, Seq("unclassifiable_shape" -> 1L))
   }
 
   it should "feed both aggregates when one event carries a rating and demographics" in {
