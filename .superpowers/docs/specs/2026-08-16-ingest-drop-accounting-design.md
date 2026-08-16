@@ -1,5 +1,10 @@
 # Ingest Drop Accounting Design
 
+> **Status: deferred, not scheduled.** This design is complete and reviewed but deliberately not
+> being implemented yet. `2026-08-16-filtering-and-projection-correctness-design.md` takes priority:
+> it makes the gates and projections *correct*, which is a precondition for counting them being
+> worth anything. Revisit once that work lands.
+
 ## Purpose
 
 Make every row the streaming pipeline discards at a field-level gate visible as a per-reason,
