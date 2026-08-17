@@ -29,6 +29,30 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/*
+ * Skips on Docker 25+ daemons, including Colima's, and that is expected rather than a broken test.
+ *
+ * docker-java 3.x requests Docker API v1.32. Docker 25 raised the minimum accepted version and
+ * Docker 29 requires 1.44, so the daemon rejects the handshake with "client version 1.32 is too
+ * old" before any container starts. Testcontainers reports "Could not find a valid Docker
+ * environment" and disabledWithoutDocker turns that into a skip, which is the right behaviour --
+ * the alternative is a hard failure on every machine with a current Docker.
+ *
+ * Confirm the daemon side with:
+ *   curl -s --unix-socket <docker.sock> http://localhost/v1.32/version   # rejected
+ *   curl -s --unix-socket <docker.sock> http://localhost/v1.44/version   # succeeds
+ *
+ * Five fixes were tried on 2026-08-16 and none worked, so do not spend time on them again:
+ * bumping Testcontainers to 1.20.4 and 1.21.3 (docker-java 3.4.0 / 3.4.2), setting
+ * DOCKER_API_VERSION=1.44, passing -Dapi.version=1.44 into the forked surefire JVM, and forcing
+ * EnvironmentAndSystemPropertyClientProviderStrategy instead of the tc.host strategy. The last one
+ * proved the point: the strategy named in the error changed, and it still sent 1.32. docker-java
+ * pins that version through every configuration surface reachable from this project.
+ *
+ * The fix belongs upstream in Testcontainers/docker-java. Until then, run this test against a
+ * Docker daemon older than 25 if you need it. The Testcontainers version comes from the Spring
+ * Boot parent, not from our pom.
+ */
 @SpringBootTest(properties = {
     "recsys.catalog.a-sci-fi.title=Shared Fixture Sci-Fi",
     "recsys.catalog.a-sci-fi.genres[0]=sci-fi",
