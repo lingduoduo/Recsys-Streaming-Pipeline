@@ -48,6 +48,20 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
 > training/report enrichment. `user:{id}:candidates` (written by
 > `EmbeddingCandidateGenerationJob`) is also not currently read by the retrieval service.
 
+## Storage Architecture
+
+Feature data is split across three tiers by access pattern and update frequency.
+
+| Tier | Contents | Updated by |
+|------|----------|------------|
+| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), two-tower ONNX models (`movielens_user_tower.onnx`, `movielens_item_tower.onnx`, `movielens_ranking.onnx`), Parquet training samples partitioned by date | Training jobs; swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild |
+| **Redis** | User click history, global item popularity, per-user columnar rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`, `twoTowerItemEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
+| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
+
+The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
+
+**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the MLP model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default). To enable the two-tower scoring path, set `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, and `ONNX_RANKING_PATH` to the three ONNX files exported by `movielens_pipeline.py`.
+
 ## Avro Kafka ingestion, archive, and replay
 
 `recsys_events` is the live canonical-event topic. Its only replay counterpart is
@@ -144,18 +158,20 @@ RECSYS_EVENT_DEAD_LETTER_PATH=/data/recsys-events-dead-letter \
 Archive roots require a filesystem with atomic, non-overwriting directory rename semantics (local
 or HDFS via Hadoop `FileContext`). Do not place this archive on an object store that lacks that
 atomic rename contract. Valid and dead-letter data is partitioned by UTC date below a
-checkpoint-hash namespace. A batch is consumable only when its directory has both `_SUCCESS` and
-the version-2 `_COMMITTED` manifest with the expected query, kind, batch identity, row count, and
-exact Parquet inventory. Every inventory entry records relative path, byte size, and SHA-256 digest;
-replay validates all three before publishing. An explicit zero row count and empty inventory is a
-committed all-invalid batch, not an incomplete write. Protocol v1 was a pre-release archive format:
-replay rejects it with an instruction to regenerate the data. There is no v1 migration or
+checkpoint-hash namespace.
+
+A batch is consumable only when its directory has both `_SUCCESS` and the version-2 `_COMMITTED`
+manifest with the expected query, kind, batch identity, row count, and exact Parquet inventory.
+Every inventory entry records relative path, byte size, and SHA-256 digest, and replay validates
+all three before publishing. An explicit zero row count and empty inventory is a committed
+all-invalid batch, not an incomplete write. Protocol v1 was a pre-release archive format: replay
+rejects it with an instruction to regenerate the data, and there is no v1 migration or
 backward-compatibility path.
 
-Replay is an explicit half-open UTC date range (`start <= date < end`), enforces its row limit
-before creating a producer, rate-limits sends, and strips archive/Kafka lineage before encoding the
-canonical event again. It can only target `recsys_events.backfill`. The query namespace and durable
-operation identity are required rather than inferred:
+Replay takes an explicit half-open UTC date range (`start <= date < end`). It enforces its row
+limit before creating a producer, rate-limits sends, and strips archive/Kafka lineage before
+encoding the canonical event again. It can only target `recsys_events.backfill`, and it requires
+the query namespace and durable operation identity rather than inferring them:
 
 ```bash
 REPLAY_ARCHIVE_PATH=/data/recsys-events \
@@ -175,12 +191,14 @@ Verification is scoped to the batches a replay reads. Each batch declares its pa
 `_COMMITTED` inventory; a batch declaring no date in the requested range is skipped before anything
 inside it is opened or hashed, so replaying one day costs one day rather than the whole archive.
 Every batch that is read is validated in full, so no byte is published unverified. Two consequences
-follow. A damaged batch outside the requested range no longer blocks an unrelated recovery — replay
-is not a whole-archive integrity audit, and out-of-range damage will not surface here. And pruning
-trusts the manifest, never the directory listing: a batch whose declared partition has been deleted
-still fails validation instead of being mistaken for an empty batch, and a declaration that cannot be
-trusted — missing, unparseable, wrong version, or claiming rows while listing no files — keeps its
-batch eligible so full validation runs.
+follow:
+
+- **A damaged batch outside the requested range no longer blocks an unrelated recovery.** Replay is
+  not a whole-archive integrity audit, so out-of-range damage will not surface here.
+- **Pruning trusts the manifest, never the directory listing.** A batch whose declared partition has
+  been deleted still fails validation instead of being mistaken for an empty batch. A declaration
+  that cannot be trusted — missing, unparseable, wrong version, or claiming rows while listing no
+  files — keeps its batch eligible, so full validation runs.
 
 Set `REPLAY_MANIFEST_DIR` to choose the operation directory; otherwise the deterministic manifest
 is written to `$REPLAY_ARCHIVE_PATH/_replay_manifests/<operation-id>.json`. It records the stable
@@ -226,7 +244,7 @@ the flags are named `--start-ingest-date` / `--end-ingest-date` so the two canno
 
 Eligibility is decided by re-decoding each row against the current catalog and applying required-field
 validation, never by its recorded `error_code`. Nothing is published that would dead-letter again on
-arrival, so `corrupt_payload` and `invalid_marker` rows can never be recovered, and a mislabelled row
+arrival, so `corrupt_payload` and `invalid_marker` rows can never be recovered, and a mislabeled row
 whose bytes are fine still can be. Published values are the archived bytes verbatim, preserving the
 original writer fingerprint; they are not re-encoded.
 
@@ -246,26 +264,32 @@ was recovered.
 
 The migrated Avro engine scopes business completion to the stable
 `(query identity, sink identity, batchId)` tuple. It rejects an unrecognized or duplicate sink
-identity before archival or business effects. A successful sink is not invoked again when a later
-sink fails and Spark retries the same batch. Parquet sinks atomically publish deterministic visible
-`query=<hash>/sink=<hash>/batch=<id>` directories. Payload schemas must not contain the reserved
-control columns `query`, `sink`, or `batch`. A root may contain several query/sink identities, so a
-reader must not perform schema discovery at the configured root. Scala/Spark readers use
+identity before archival or business effects, and a successful sink is not invoked again when a
+later sink fails and Spark retries the same batch.
+
+**Parquet.** Sinks atomically publish deterministic visible
+`query=<hash>/sink=<hash>/batch=<id>` directories, so payload schemas must not contain the reserved
+control columns `query`, `sink`, or `batch`. One root may hold several query/sink identities, so a
+reader must not perform schema discovery at the configured root. Scala/Spark readers instead use
 `DurableParquetCommit.readIdentity` with `spark`, `configuredRoot`, `queryNamespace`,
-`sinkNamespace`, and `expectedPayloadSchema`. The helper first resolves the exact visible
+`sinkNamespace`, and `expectedPayloadSchema`: the helper resolves the exact visible
 `query=<hash>/sink=<hash>` identity path, sets `basePath` to `configuredRoot`, and applies the
-explicit payload schema. The returned frame includes visible `query`, `sink`, and `batch` partition
-columns, so callers may filter `batch` after the identity-safe read.
-Redis popularity increments and sequence hash updates atomically pair each effect with a ledger
-field in that batch's hash. A bounded sorted-set index retains only the configured batch window and
-a stable per-query/sink watermark fences delayed work below the recovery horizon. The window is at
-least two batches, preserves N and N-1 retries, and is pruned only after the newer batch completes;
-an executing higher batch cannot prune older recovery state. Each sequence effect atomically renews
-the target plus the state, index, current ledger, and every retained ledger. Control keys share a
-retry horizon one second longer than the target, then expire. Kafka output enables producer idempotence and carries a
-stable key plus query/sink/batch headers; because a later producer session may repeat a record after
-a partial batch failure, derived-topic consumers still must deduplicate that stable key. These are
-retry-safe per-sink contracts, not a cross-system exactly-once transaction.
+explicit payload schema. The returned frame keeps the visible `query`, `sink`, and `batch`
+partition columns, so callers may filter `batch` after the identity-safe read.
+
+**Redis.** Popularity increments and sequence hash updates atomically pair each effect with a
+ledger field in that batch's hash. A bounded sorted-set index retains only the configured batch
+window, and a stable per-query/sink watermark fences delayed work below the recovery horizon. The
+window is at least two batches, preserves N and N-1 retries, and is pruned only after the newer
+batch completes, so an executing higher batch cannot prune older recovery state. Each sequence
+effect atomically renews the target plus the state, index, current ledger, and every retained
+ledger. Control keys share a retry horizon one second longer than the target, then expire.
+
+**Kafka.** Output enables producer idempotence and carries a stable key plus query/sink/batch
+headers. A later producer session may still repeat a record after a partial batch failure, so
+derived-topic consumers must deduplicate that stable key.
+
+These are retry-safe per-sink contracts, not a cross-system exactly-once transaction.
 
 ## Derived ML Datasets
 
@@ -437,7 +461,7 @@ Spark connection errors at that point do not indicate an application failure.
 
 Producer and streaming-job commands are long-running unless a producer is bounded with
 `MAX_EVENTS` or a job is externally stopped. Kafka topic names must match across producers,
-consumers, and their environment variables—for example, `KAFKA_TOPIC` and
+consumers, and their environment variables — for example, `KAFKA_TOPIC` and
 `ONLINE_JOINER_INPUT_TOPIC` must name the same topic when those processes form one flow. The local
 `./run-streaming-job.sh` launcher bootstraps the default `UserEventStreamingJob` input topic
 (`KAFKA_TOPIC`, default `recsys_events`) when it can reach the local Kafka tooling or Docker stack.
@@ -463,7 +487,16 @@ that the job alone uses.
 
 ### `services/python-modeling/producer.py`
 
-Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by `user_id`. In `behavior` mode it writes impression/click/order slates keyed by `request_id`, which co-partitions all events in the same slate for the `OnlineJoinerStreamingJob` join — impressions are sent immediately, but each click/order is deferred and released at the offset its own payload already encodes (clicks 1–20s, orders 21–120s after the impression), via `feedback_schedule.py`, instead of being sent as one instant with the impressions. It uses lz4 compression; the event loop accounts for send latency so the configured rate is maintained accurately at high throughput.
+Publishes synthetic events to Kafka. In `clickstream` mode it writes simple click events keyed by
+`user_id`. In `behavior` mode it writes impression/click/order slates keyed by `request_id`, which
+co-partitions every event in a slate for the `OnlineJoinerStreamingJob` join.
+
+Feedback in `behavior` mode is not sent as one instant alongside the impressions. Impressions go
+out immediately; each click or order is deferred by `feedback_schedule.py` and released at the
+offset its own payload already encodes — clicks 1–20s and orders 21–120s after the impression.
+
+Messages use lz4 compression, and the event loop accounts for send latency so the configured rate
+holds accurately at high throughput.
 
 Environment variables:
 
@@ -477,7 +510,7 @@ Environment variables:
 | `NUM_ITEMS` | `10` | Synthetic item pool size |
 | `SLATE_SIZE` | `5` | Items per slate in `behavior` mode |
 | `LOG_EVERY` | `100` | Log a summary line every N events |
-| `MAX_EVENTS` | `0` | Stop taking on new events once N have been sent; `0` runs indefinitely. On reaching the cap, the producer still drains every feedback event already scheduled (deliberately not re-checking the cap while draining), so the actual total sent can exceed N |
+| `MAX_EVENTS` | `0` | Stop accepting new events once N have been sent; `0` runs indefinitely. On reaching the cap, the producer still drains every feedback event already scheduled (deliberately not re-checking the cap while draining), so the actual total sent can exceed N |
 | `FEEDBACK_DELAY_SCALE` | `1.0` | Multiplies the click/order delay each slate already encodes, compressing (or stretching) how long deferred feedback takes to be released |
 
 `clickstream` mode event schema:
@@ -530,9 +563,7 @@ Redis keys written:
 | `global:item_popularity` | sorted set | Global click counts | none |
 | `seq:{id}:click:{day}` | hash | Per-user click sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
 
-Environment variables:
-
-Job-specific variables (plus the [common set](#common-environment-variables)):
+Job-specific environment variables (plus the [common set](#common-environment-variables)):
 
 | Env var | Default |
 |---|---|
@@ -594,27 +625,28 @@ impression's date regardless of when it publishes — `TimePartitions.utcDate(im
 from the epoch rather than a formatted local timestamp, so the partition does not move with the
 deploy machine's time zone.
 
-A slate's window closes when either arm fires: observed event time advances past the slate's
-deadline — `impression_ts + FEEDBACK_JOIN_WAIT`, or, for a slate that has not seen an impression,
-its earliest observed event time plus the same window — or the slate has been held that long in
-wall-clock time. The event-time arm keeps an archive backfill fast; the wall-clock arm bounds how
-long a slate waits whenever batches are still running, but it cannot drain a stream that has gone
-completely idle — the joiner's plan is a stateless `foreachBatch`, so a quiet topic produces no
-no-data micro-batches and the wall clock never gets re-evaluated. A stopped stream leaves its
-remaining slates in the pending snapshot until traffic resumes, at which point they publish on the
-first batch.
+A slate's window closes when either of two arms fires:
+
+- **Event time** — observed event time advances past the slate's deadline, `impression_ts +
+  FEEDBACK_JOIN_WAIT`; for a slate that has not seen an impression, the deadline is its earliest
+  observed event time plus the same window.
+- **Wall clock** — the slate has been held that long in real time.
+
+The event-time arm keeps an archive backfill fast. The wall-clock arm bounds how long a slate waits
+while batches are still running, but it cannot drain a stream that has gone completely idle: the
+joiner's plan is a stateless `foreachBatch`, so a quiet topic produces no no-data micro-batches and
+the wall clock is never re-evaluated. A stopped stream leaves its remaining slates in the pending
+snapshot until traffic resumes, at which point they publish on the first batch.
 
 Feedback arriving *more* than `FEEDBACK_JOIN_WAIT` after its impression is still dropped — the
 sample it belongs to has already published, and the one-row contract rules out restating it. That
-residual is counted rather than silent; each batch that sees any logs
+residual is counted rather than left silent — every batch that sees an orphan logs a line:
 
     [late-feedback] batch=<id> orphan_slates=<n> orphan_events=<n>
 
 `EVENT_WATERMARK_DELAY` remains unrelated to this: it governs deduplication only, not join buffering.
 
-Environment variables:
-
-Job-specific variables (plus the [common set](#common-environment-variables)):
+Job-specific environment variables (plus the [common set](#common-environment-variables)):
 
 | Env var | Default |
 |---|---|
@@ -654,7 +686,7 @@ Two consequences for operators:
 - **A directory path is effectively frozen at startup.** Adding a shard has no effect until the job
   restarts.
 
-`CatalogRefreshSemanticsSpec` pins both behaviours so a Spark upgrade cannot change them silently.
+`CatalogRefreshSemanticsSpec` pins both behaviors so a Spark upgrade cannot change them silently.
 
 Confirm that the Parquet sink created training-sample files:
 
@@ -727,9 +759,7 @@ EXPERIENCE_COLLECTOR_OUTPUT_TOPIC=training_experiences \
 
 For each micro-batch, it groups samples by `(request_id, user_id)`, sorts items by `position`, and emits a slate JSON containing request context, item features, item labels, slate size, and aggregate slate reward.
 
-Environment variables:
-
-Job-specific variables (plus the [common set](#common-environment-variables)):
+Job-specific environment variables (plus the [common set](#common-environment-variables)):
 
 | Env var | Default |
 |---|---|
@@ -765,9 +795,7 @@ Tag sources:
 | `country` | Context/user country fields | Bucketed |
 | `blender` | `context_features.AdsBlenderType` or `context_features.ads_blender_type` | Optional |
 
-Environment variables:
-
-Job-specific variables (plus the [common set](#common-environment-variables)):
+Job-specific environment variables (plus the [common set](#common-environment-variables)):
 
 | Env var | Default |
 |---|---|
@@ -805,9 +833,7 @@ Redis keys written:
 | `movie:{id}:features` | hash | Movie title, genres, and release year for derived samples, training, and reports (not serving reads) | `MOVIELENS_CONTEXT_TTL_SECONDS` (default 30 days) |
 | `seq:{id}:rating:{day}` | hash | Per-user rating sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
 
-Environment variables:
-
-Job-specific variables (plus the [common set](#common-environment-variables)):
+Job-specific environment variables (plus the [common set](#common-environment-variables)):
 
 | Env var | Default |
 |---|---|
@@ -848,7 +874,7 @@ the guard a reader uses to detect and truncate a torn write.
 
 Descriptive values have those two separators stripped before packing, which is cosmetic. Identity
 values do not: `user_id` is part of the Redis key and `item_id` is what a recommendation resolves
-to, so stripping would silently merge `a,b` into the distinct id `ab`. Events whose `user_id` or
+to, so stripping would silently merge `a,b` into the unrelated id `ab`. Events whose `user_id` or
 `item_id` contains `,` or `|` are therefore **dropped and counted** as `separator_in_identifier`
 rather than mutated. The packing format is unchanged; see
 [Gate rejection accounting](#gate-rejection-accounting). Column names, `kind`
