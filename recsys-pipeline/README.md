@@ -41,7 +41,6 @@ For each incoming request, the retrieval service executes nine steps in order:
 Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
 
 
-
 ### Data Pipeline
 
 Spark Structured Streaming ingestion, derived ML datasets, the Spark job package layout, the
@@ -124,8 +123,12 @@ docker compose up -d
 
 ### Dashboard
 ```
-cd recsys-pipeline/frontend && npm run validate:data
+cd recsys-pipeline/frontend 
+npm run dev
 ```
+
+
+---
 
 ### Step 1 — Offline embeddings
 
