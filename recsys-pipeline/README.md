@@ -82,10 +82,6 @@ GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learnin
 ```
 
 
-## Scoring Model Architecture
-
-See [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md) for the three-stage scoring model (offline / two-tower / online / bandit), the `offlineScore` → `learnedPrior` → `banditScore` formulas, and the per-algorithm bandit notes.
-
 ## Storage Architecture
 
 Feature data is split across three tiers by access pattern and update frequency.
