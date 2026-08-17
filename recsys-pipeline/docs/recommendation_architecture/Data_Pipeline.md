@@ -48,6 +48,21 @@ user_embedding.txt + item_embedding.txt ──► EmbeddingCandidateGenerationJo
 > training/report enrichment. `user:{id}:candidates` (written by
 > `EmbeddingCandidateGenerationJob`) is also not currently read by the retrieval service.
 
+## Storage Architecture
+
+Feature data is split across three tiers by access pattern and update frequency.
+
+| Tier | Contents | Updated by |
+|------|----------|------------|
+| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), two-tower ONNX models (`movielens_user_tower.onnx`, `movielens_item_tower.onnx`, `movielens_ranking.onnx`), Parquet training samples partitioned by date | Training jobs; swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild |
+| **Redis** | User click history, global item popularity, per-user columnar rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`, `twoTowerItemEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
+| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
+
+The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
+
+**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the MLP model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default). To enable the two-tower scoring path, set `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, and `ONNX_RANKING_PATH` to the three ONNX files exported by `movielens_pipeline.py`.
+
+
 ## Avro Kafka ingestion, archive, and replay
 
 `recsys_events` is the live canonical-event topic. Its only replay counterpart is
