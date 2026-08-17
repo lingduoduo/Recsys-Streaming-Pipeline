@@ -41,7 +41,6 @@ For each incoming request, the retrieval service executes nine steps in order:
 Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
 
 
-
 ### Data Pipeline
 
 Spark Structured Streaming ingestion, derived ML datasets, the Spark job package layout, the
@@ -124,8 +123,12 @@ docker compose up -d
 
 ### Dashboard
 ```
-cd recsys-pipeline/frontend && npm run validate:data
+cd recsys-pipeline/frontend 
+npm run dev
 ```
+
+
+---
 
 ### Step 1 — Offline embeddings
 
@@ -264,52 +267,32 @@ The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX
 4. **Python two-tower** — fine-tunes the two-tower model on the merged dataset and writes item embeddings to Redis under the `twoTowerItemEmb:*` prefix
 5. **Model hot-reload** — calls `POST /actuator/model-reload` to swap the ONNX model in the running Java service without restart
 
-### One-Off Run
+### Run it
 
 ```bash
-./scripts/run-retrain.sh
+./scripts/run-retrain.sh                       # all five stages
+./scripts/run-retrain.sh --skip-spark          # Python + reload only
+./scripts/run-retrain.sh --skip-python         # Spark + reload only
+./scripts/run-retrain.sh --skip-reload         # train without hot-reload (offline mode)
+DRY_RUN=1 ./scripts/run-retrain.sh             # print each step; execute nothing
 ```
 
 ### Scheduled Run (cron)
 
-Use the install script to add a cron job on the host machine:
+`install-cron.sh` adds the job on the host machine. It is idempotent — running it twice does not
+create duplicate entries. Verify with `crontab -l`.
 
 ```bash
-# Install — runs every 6 hours, logs to /var/log/recsys-retrain.log
-./scripts/install-cron.sh
-
-# Custom schedule (every day at 2 AM)
+./scripts/install-cron.sh                      # every 6h → /var/log/recsys-retrain.log
 ./scripts/install-cron.sh --schedule "0 2 * * *" --log /var/log/recsys-retrain.log
-
-# Preview the crontab entry without writing it
-./scripts/install-cron.sh --dry-run
-
-# Remove the cron job
+./scripts/install-cron.sh --dry-run            # preview the entry without writing it
 ./scripts/install-cron.sh --uninstall
 ```
-
-The script is idempotent — running it twice does not create duplicate entries. Verify the installed entry with `crontab -l`.
 
 To add the entry manually instead:
 
 ```
 0 */6 * * * cd /path/to/recsys-pipeline && ./scripts/run-retrain.sh >> /var/log/recsys-retrain.log 2>&1
-```
-
-### Skip Individual Stages
-
-```bash
-./scripts/run-retrain.sh --skip-spark          # Only Python + reload
-./scripts/run-retrain.sh --skip-python         # Only Spark + reload
-./scripts/run-retrain.sh --skip-reload         # Train without hot-reload (offline mode)
-```
-
-### Dry Run
-
-Preview the stages without training, writing embeddings, or hitting the service:
-
-```bash
-DRY_RUN=1 ./scripts/run-retrain.sh             # print each step; execute nothing
 ```
 
 ### Environment Variables
@@ -357,22 +340,18 @@ Before scoring, each request is enriched through two sequential pipelines — se
 
 ### Disk model paths
 
-Set these to load model artifacts from the filesystem instead of the bundled classpath resources. When unset, falls back to classpath (the development and test default).
+Set these to absolute filesystem paths to load model artifacts from disk instead of the bundled
+classpath resources. When unset, falls back to classpath (the development and test default).
 
-**MLP model** (`DeepLearningPredictionService`):
-
-| Env var | Default | Description |
+| Env var | Default | Loads |
 |---|---|---|
-| `ONNX_MODEL_PATH` | *(classpath)* | Absolute path to `mlp_embedding_model.onnx` on the filesystem |
-| `ONNX_LOOKUPS_PATH` | *(classpath)* | Absolute path to `mlp_embedding_lookups.json` on the filesystem |
+| `ONNX_MODEL_PATH` | *(classpath)* | `mlp_embedding_model.onnx` — `DeepLearningPredictionService` |
+| `ONNX_LOOKUPS_PATH` | *(classpath)* | `mlp_embedding_lookups.json` |
+| `ONNX_USER_TOWER_PATH` | *(unset)* | `movielens_user_tower.onnx`, exported by `movielens_pipeline.py` |
+| `ONNX_ITEM_TOWER_PATH` | *(unset)* | `movielens_item_tower.onnx` |
+| `ONNX_RANKING_PATH` | *(unset)* | `movielens_ranking.onnx` (transformer re-ranker) |
 
-**Two-tower model** (`TwoTowerPredictionService` — disabled unless all three are set):
-
-| Env var | Default | Description |
-|---|---|---|
-| `ONNX_USER_TOWER_PATH` | *(unset)* | Absolute path to `movielens_user_tower.onnx` exported by `movielens_pipeline.py` |
-| `ONNX_ITEM_TOWER_PATH` | *(unset)* | Absolute path to `movielens_item_tower.onnx` |
-| `ONNX_RANKING_PATH` | *(unset)* | Absolute path to `movielens_ranking.onnx` (transformer re-ranker) |
+`TwoTowerPredictionService` stays disabled unless all three tower paths are set.
 
 ### In-memory cache (FeatureCache)
 
@@ -385,44 +364,44 @@ Set these to load model artifacts from the filesystem instead of the bundled cla
 
 ### Recommendation properties
 
+Each property is overridden at runtime by the env var in the same row.
+
 **Embeddings**
 
-| Property | Default |
-|---|---|
-| `recsys.embeddings.item-prefix` | `i2vEmb` |
-| `recsys.embeddings.user-prefix` | `uEmb` |
+| Property | Env var | Default |
+|---|---|---|
+| `recsys.embeddings.item-prefix` | `ITEM_EMBEDDING_PREFIX` | `i2vEmb` |
+| `recsys.embeddings.user-prefix` | `USER_EMBEDDING_PREFIX` | `uEmb` |
 
 **Bandit**
 
-| Property | Default |
-|---|---|
-| `recsys.bandit.algorithm` | `ucb` |
-| `recsys.bandit.exploration-alpha` | `0.75` |
-| `recsys.bandit.max-exploration-bonus` | `0.25` |
-| `recsys.bandit.cold-start-exposure-threshold` | `5` |
-| `recsys.bandit.cold-start-boost` | `1.35` |
-| `recsys.bandit.relevance-weight` | `0.6` |
-| `recsys.bandit.content-weight` | `0.25` |
-| `recsys.bandit.popularity-weight` | `0.15` |
-| `recsys.bandit.deep-learning-weight` | `0.0` |
-| `recsys.bandit.q-learning-alpha` | `0.1` |
-| `recsys.bandit.q-learning-gamma` | `0.9` |
-| `recsys.bandit.q-learning-epsilon` | `0.1` |
+| Property | Env var | Default |
+|---|---|---|
+| `recsys.bandit.algorithm` | `RECSYS_BANDIT_ALGORITHM` | `ucb` |
+| `recsys.bandit.exploration-alpha` | `RECSYS_EXPLORATION_ALPHA` | `0.75` |
+| `recsys.bandit.max-exploration-bonus` | `RECSYS_MAX_EXPLORATION_BONUS` | `0.25` |
+| `recsys.bandit.cold-start-exposure-threshold` | `RECSYS_COLD_START_THRESHOLD` | `5` |
+| `recsys.bandit.cold-start-boost` | `RECSYS_COLD_START_BOOST` | `1.35` |
+| `recsys.bandit.relevance-weight` | `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
+| `recsys.bandit.content-weight` | `RECSYS_CONTENT_WEIGHT` | `0.25` |
+| `recsys.bandit.popularity-weight` | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
+| `recsys.bandit.deep-learning-weight` | `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
+| `recsys.bandit.q-learning-alpha` | `RECSYS_Q_LEARNING_ALPHA` | `0.1` |
+| `recsys.bandit.q-learning-gamma` | `RECSYS_Q_LEARNING_GAMMA` | `0.9` |
+| `recsys.bandit.q-learning-epsilon` | `RECSYS_Q_LEARNING_EPSILON` | `0.1` |
 
 **Reward model**
 
-| Property | Default |
-|---|---|
-| `recsys.reward-model.weight` | `0.25` |
-| `recsys.reward-model.global-weight` | `0.15` |
-| `recsys.reward-model.item-weight` | `0.45` |
-| `recsys.reward-model.genre-weight` | `0.25` |
-| `recsys.reward-model.tag-weight` | `0.15` |
-| `recsys.reward-model.min-feature-count` | `3` |
+| Property | Env var | Default |
+|---|---|---|
+| `recsys.reward-model.weight` | `RECSYS_REWARD_MODEL_WEIGHT` | `0.25` |
+| `recsys.reward-model.global-weight` | `RECSYS_REWARD_GLOBAL_WEIGHT` | `0.15` |
+| `recsys.reward-model.item-weight` | `RECSYS_REWARD_ITEM_WEIGHT` | `0.45` |
+| `recsys.reward-model.genre-weight` | `RECSYS_REWARD_GENRE_WEIGHT` | `0.25` |
+| `recsys.reward-model.tag-weight` | `RECSYS_REWARD_TAG_WEIGHT` | `0.15` |
+| `recsys.reward-model.min-feature-count` | `RECSYS_REWARD_MIN_FEATURE_COUNT` | `3` |
 
-Runtime overrides:
-
-**Infrastructure**
+**Infrastructure** — env vars only, no `recsys` property:
 
 | Env var | Default |
 |---|---|
@@ -430,61 +409,13 @@ Runtime overrides:
 | `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |
 
-**Embeddings**
-
-| Env var | Default |
-|---|---|
-| `ITEM_EMBEDDING_PREFIX` | `i2vEmb` |
-| `USER_EMBEDDING_PREFIX` | `uEmb` |
-
-**Bandit**
-
-| Env var | Default |
-|---|---|
-| `RECSYS_BANDIT_ALGORITHM` | `ucb` |
-| `RECSYS_EXPLORATION_ALPHA` | `0.75` |
-| `RECSYS_MAX_EXPLORATION_BONUS` | `0.25` |
-| `RECSYS_COLD_START_THRESHOLD` | `5` |
-| `RECSYS_COLD_START_BOOST` | `1.35` |
-| `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
-| `RECSYS_CONTENT_WEIGHT` | `0.25` |
-| `RECSYS_POPULARITY_WEIGHT` | `0.15` |
-| `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
-
-**Reward model**
-
-| Env var | Default |
-|---|---|
-| `RECSYS_REWARD_MODEL_WEIGHT` | `0.25` |
-| `RECSYS_REWARD_GLOBAL_WEIGHT` | `0.15` |
-| `RECSYS_REWARD_ITEM_WEIGHT` | `0.45` |
-| `RECSYS_REWARD_GENRE_WEIGHT` | `0.25` |
-| `RECSYS_REWARD_TAG_WEIGHT` | `0.15` |
-| `RECSYS_REWARD_MIN_FEATURE_COUNT` | `3` |
-
-**In-memory cache**
-
-| Env var | Default |
-|---|---|
-| `RECSYS_ITEM_VECTOR_CACHE_SIZE` | `10000` |
-| `RECSYS_ITEM_VECTOR_TTL` | `300` |
-| `RECSYS_REWARD_CACHE_SIZE` | `50000` |
-| `RECSYS_REWARD_TTL` | `30` |
-
-**Disk model**
-
-| Env var | Default |
-|---|---|
-| `ONNX_MODEL_PATH` | *(classpath fallback)* |
-| `ONNX_LOOKUPS_PATH` | *(classpath fallback)* |
-
 ### Bandit algorithm notes
 
 Moved to [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md#bandit-algorithm-notes) alongside the scoring model — covers how each of `ucb` / `thompson` / `q-learning` / `sarsa` turns `learnedPrior` into a `banditScore`.
 
 ### Real-time training write path
 
-`/feedback` triggers online learning by updating reward statistics in Redis for the item, its genres, tags, and a global prior. Before batching, this was ~22 individual round-trips per feedback call. The current implementation collapses all writes into one:
+`/feedback` triggers online learning by updating reward statistics in Redis for the item, its genres, tags, and a global prior — collapsed from ~22 individual round-trips into a single pipelined write:
 
 ```
 GET  replay:pending:{user}:{item}           ← phase 1: read (before pipeline)
@@ -525,12 +456,11 @@ Java service only observes the work it was already doing.
 
 ### Capture the inputs
 
-`./scripts/run-movie-category-sim.sh` runs the whole capture-and-export sequence below as its last two
-steps: it runs `ExperienceCollectorStreamingJob` with `EXPERIENCE_COLLECTOR_OUTPUT_PATH` set (so
-slates land as Parquet, not just on the `training_experiences` Kafka topic), bursts traffic
-against the retrieval service to populate `/metrics`, then exports and validates the snapshot —
-one command, no manual steps. To capture the same inputs by hand from `recsys-pipeline/` against
-a run already in progress:
+`./scripts/run-movie-category-sim.sh` already runs the sequence below as its last two steps: it
+sets `EXPERIENCE_COLLECTOR_OUTPUT_PATH` on `ExperienceCollectorStreamingJob` (so slates land as
+Parquet, not just on the `training_experiences` Kafka topic), bursts traffic against the retrieval
+service to populate `/metrics`, then exports and validates the snapshot. To capture the same
+inputs by hand from `recsys-pipeline/` against a run already in progress:
 
 ```bash
 # 1. live operational measurements from the running retrieval service
@@ -547,10 +477,9 @@ REDIS_HOST=localhost python frontend/export_dashboard_json.py \
 
 `/metrics` keeps every pre-existing key and adds `measurements` (schema `2.0`) with the live
 latency, freshness, safety, and feedback-coverage sections. `--experiences` accepts a `.json` /
-`.jsonl` file or a Parquet directory — `ExperienceCollectorStreamingJob` writes the slates
-directly to Parquet under `$EXPERIENCE_COLLECTOR_OUTPUT_PATH` (no manual `kafka-console-consumer`
-dump needed); without it, relevance and diversity stay N/A because they are the only measures
-that need whole ranked slates.
+`.jsonl` file or the Parquet directory written under `$EXPERIENCE_COLLECTOR_OUTPUT_PATH` (no
+manual `kafka-console-consumer` dump needed); without it, relevance and diversity stay N/A — they
+are the only measures that need whole ranked slates.
 
 ### What each dimension measures
 
@@ -591,21 +520,19 @@ that need whole ranked slates.
   which policy rule rejected a candidate under `policy_version`; it is not a content-moderation
   verdict. `unsafe_exposure_rate` requires independently supplied `unsafe_label` values.
 - **A filter decision is recorded for allowed candidates too, so `filter_decision_rate` is not a
-  rejection rate.** `unknown` is the reason recorded when the policy has no catalog profile for a
-  candidate and therefore could not classify it — the candidate still passes through.
-  `ContentCandidateRetriever` returns `unknown` for any candidate missing from the catalog, so a
-  service started without `RECSYS_CATALOG_PATH` covering the served items reports **100%
-  `unknown`**. That is exactly what `run-movie-category-sim.sh` currently produces: it starts the
-  retrieval service with the built-in demo catalog, which contains none of the sim's `movie_*`
-  ids, so no expiry, muted-genre, or muted-keyword rule ever fires and the live safety row is
-  entirely `unknown` (the inline catalog in `application.yml` holds `item1`…`itemN`). Read
-  `unknown_share` alongside `filter_decision_rate` before drawing any
-  conclusion from either. *Known follow-up: wire the sim's generated catalog into the service so
-  the live safety row exercises the real rules.*
+  rejection rate.** `unknown` means the policy had no catalog profile for the candidate and could
+  not classify it — the candidate still passes through. `ContentCandidateRetriever` returns
+  `unknown` for anything missing from the catalog, so a service started without a
+  `RECSYS_CATALOG_PATH` covering the served items reports **100% `unknown`**. That is what
+  `run-movie-category-sim.sh` currently produces: it starts the service with the built-in demo
+  catalog (`item1`…`itemN`, inline in `application.yml`), which holds none of the sim's `movie_*`
+  ids, so no expiry, muted-genre, or muted-keyword rule ever fires. Read `unknown_share` alongside
+  `filter_decision_rate` before drawing any conclusion from either. *Known follow-up: wire the
+  sim's generated catalog into the service so the live safety row exercises the real rules.*
 - **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
-  Pipeline delay is separate: `feedback_delay_ms` (impression → last feedback, millisecond-precise
-  — it is computed from the millisecond event times, not from a second-truncated difference) and
-  `kafka_ingest_lag_ms` (event time → Kafka record time) are emitted as Spark metric events.
+  Pipeline delay is separate and emitted as Spark metric events: `feedback_delay_ms` (impression →
+  last feedback, computed from millisecond event times, not a second-truncated difference) and
+  `kafka_ingest_lag_ms` (event time → Kafka record time).
 - No user ID, item ID, request ID, or free-form reason is ever used as a metric label; filter
   reasons, countries, and subscription levels are bucketed to fixed allowlists.
 
@@ -621,11 +548,11 @@ that need whole ranked slates.
 | `EXPERIENCE_COLLECTOR_OUTPUT_PATH` | unset (Parquet write disabled) | `ExperienceCollectorStreamingJob` | Directory to also write ranked slates as Parquet — the `--experiences` input; unset means slates publish only to the `training_experiences` Kafka topic |
 | `MEASUREMENT_BURST_REQUESTS` | `50` | `run-movie-category-sim.sh` | Number of `/recommend` calls the sim's service burst makes to populate live latency/freshness/safety/feedback-coverage metrics |
 | `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port the sim starts the retrieval service on for its traffic burst |
-| `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. For *orders* (21–120s base delay) against the streaming job's *default* 10-second trigger, any scale above ~0.5 still crosses it (21s × 0.5 = 10.5s). This does not hold for *clicks* (1–20s base delay): some clicks land under a 10-second trigger even at scale 1.0. The sims themselves run with `TRIGGER_INTERVAL="2 seconds"`, not the 10-second default, so cross-batch behavior in a sim run is governed by that 2-second figure, not this one |
+| `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. *Orders* (21–120s base delay) still cross the streaming job's *default* 10-second trigger at any scale above ~0.5 (21s × 0.5 = 10.5s); *clicks* (1–20s base delay) can land inside one even at scale 1.0. The sims run with `TRIGGER_INTERVAL="2 seconds"`, so that figure — not the 10-second default — governs their cross-batch behavior |
 | `FEEDBACK_TAIL_SECONDS` | `150` | segment and category sims | Floor before a drain may end, so the sim cannot declare completion before the last deferred order has arrived |
 | `FEEDBACK_JOIN_WAIT` | `3 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behaviour. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
-| `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | every Spark job | Session time zone. Parquet `date` partitions do **not** depend on it — they are derived from the epoch, so the same event lands in the same partition on any host — but timestamp formatting does. Change it only if you want local-time formatting in job output |
-| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N UTC partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock so re-running a historical report gives the same answer. `0` (or negative) reads all history — the previous behaviour, whose cost grew with total archive size rather than with the reported window |
+| `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | every Spark job | Session time zone; affects timestamp **formatting** only. Parquet `date` partitions are derived from the epoch, so the same event lands in the same partition on any host. Change it only for local-time formatting in job output |
+| `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N UTC partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock, so re-running a historical report gives the same answer. `0` or negative reads all history, at a cost that grows with total archive size rather than with the reported window |
 
 `RECSYS_FAIRNESS_MIN_SUPPORT`, `RECSYS_FRESHNESS_WINDOW_DAYS`, and `RECSYS_LONG_TAIL_PERCENTILE`
 describe offline calculations, so the retrieval service binds and validates them for a single
@@ -652,20 +579,19 @@ generated.
 Reports (`services/python-modeling/*_report*.py`, plus the Scala `com.demo.report.*` jobs) read the
 resulting Parquet (joining Redis demographics/movie features where needed) and write per-segment CSVs.
 
-> Run PySpark reports through the project's pinned Spark: `"$SPARK_HOME/bin/spark-submit"`. A
-> mismatched pip `pyspark` (vs `$SPARK_HOME`) fails with `JavaPackage object is not callable`. See
-> `docs/specs/` and `docs/plans/` for the per-sim specs/plans.
->
+> Run PySpark reports through the project's pinned Spark: `"$SPARK_HOME/bin/spark-submit"`.
 > `SPARK_HOME` must point at a **Spark 3.5.1 / Scala 2.12** distribution matching
-> `services/spark-streaming-job/build.sbt` — not any pip-installed `pyspark`. A Scala 2.13 build
-> (e.g. conda's `pyspark` 4.1.1) fails every streaming job in these sims with
-> `NoSuchMethodError: ...wrapRefArray...`. That failure doesn't surface as a startup error — the
-> job dies immediately but the sim's own drain loop keeps polling for up to `DRAIN_TIMEOUT`
-> seconds (default 600) before giving up, so it presents as a silent multi-minute timeout. Check
-> `$SIM_ROOT/*.log` (e.g. `redis.log`, `parquet.log`) first if a drain step stalls.
+> `services/spark-streaming-job/build.sbt`, not any pip-installed `pyspark`. A mismatched pip
+> `pyspark` fails reports with `JavaPackage object is not callable`; a Scala 2.13 build (e.g.
+> conda's `pyspark` 4.1.1) fails every streaming job with `NoSuchMethodError: ...wrapRefArray...`.
+> That second failure doesn't surface as a startup error — the job dies immediately but the sim's
+> drain loop keeps polling for up to `DRAIN_TIMEOUT` seconds (default 600), so it presents as a
+> silent multi-minute timeout. Check `$SIM_ROOT/*.log` (e.g. `redis.log`, `parquet.log`) first if
+> a drain step stalls.
 >
 > These sims also need Docker running (`docker info` must succeed) — a Colima VM (`colima start`)
-> works as a drop-in for Docker Desktop with no extra configuration.
+> works as a drop-in for Docker Desktop with no extra configuration. See `docs/specs/` and
+> `docs/plans/` for the per-sim specs/plans.
 
 ## Analysis Reports
 
@@ -777,32 +703,27 @@ explicitly optional references, not alternative quick starts.
 
 ### 1. Verify prerequisites
 
-From `recsys-pipeline/`, verify the tools used by this workflow. Java 17, Spark 3.5 with
-`spark-submit` on `PATH`, sbt, Python, Docker Compose, Node.js 18+, and npm must be available.
+Each command must print a version and exit successfully before continuing:
 
 ```bash
-java -version
-spark-submit --version
+java -version              # 17
+spark-submit --version     # 3.5.1 / Scala 2.12, on PATH — see below
 sbt --version
 python --version
-docker compose version
-node --version
+docker compose version     # any working Docker daemon; Colima (`colima start`) is a drop-in
+node --version             # 18+
 npm --version
 ```
 
-Each command must print a version and exit successfully before continuing.
-
 `spark-submit` must resolve to a **Spark 3.5.1 / Scala 2.12** distribution matching
-`recsys-pipeline/services/spark-streaming-job/build.sbt` — set `SPARK_HOME` to that install, not
-to a pip-installed `pyspark`. A Scala 2.13 build (e.g. conda's `pyspark` 4.1.1) fails every
-streaming job with `NoSuchMethodError: ...wrapRefArray...`, which presents as a silent multi-minute
-timeout rather than a startup error — see [Troubleshooting](#troubleshooting-the-local-workflow).
-`docker compose version` only needs a working Docker daemon; a Colima VM (`colima start`) is a
-drop-in for Docker Desktop here and needs no extra configuration.
+`services/spark-streaming-job/build.sbt` — set `SPARK_HOME` to that install, not to a
+pip-installed `pyspark`. A Scala 2.13 build (e.g. conda's `pyspark` 4.1.1) fails every streaming
+job with `NoSuchMethodError: ...wrapRefArray...`, which presents as a silent multi-minute timeout
+rather than a startup error — see [Troubleshooting](#troubleshooting-the-local-workflow).
 
 ### 2. Check host-port conflicts
 
-From `recsys-pipeline/`, inspect the local ports before starting infrastructure:
+Inspect the local ports before starting infrastructure:
 
 ```bash
 lsof -nP -iTCP:6379 -sTCP:LISTEN
@@ -816,8 +737,6 @@ you know it belongs to this project; do not stop unrelated containers or service
 
 ### 3. Start Kafka and Redis
 
-From `recsys-pipeline/`:
-
 ```bash
 docker compose up -d zookeeper kafka redis
 docker compose ps
@@ -829,8 +748,6 @@ failure.
 
 ### 4. Install dependencies and build the Spark artifact
 
-From `recsys-pipeline/`:
-
 ```bash
 python -m pip install -r services/python-modeling/requirements.txt
 python -m pip install pandas pyarrow numpy redis
@@ -841,8 +758,6 @@ test -s services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 The final command exits successfully when the required fat jar exists.
 
 ### 5. Run the finite movie-category simulation
-
-From `recsys-pipeline/`:
 
 ```bash
 ./scripts/run-movie-category-sim.sh
@@ -867,15 +782,12 @@ Keep Redis running after this line; the exporter still needs `movie:*:features`,
 
 ### 7. Export and validate the React snapshot
 
-From `recsys-pipeline/`:
-
 ```bash
 # Optional: capture live latency/freshness/safety/feedback coverage while the service runs.
 curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
 
-# The ranked slates that relevance and diversity need: ExperienceCollectorStreamingJob writes
-# them straight to Parquet under $EXPERIENCE_COLLECTOR_OUTPUT_PATH — run-movie-category-sim.sh
-# sets this (and captures /metrics above) automatically, so no manual Kafka dump is needed.
+# --experiences reads the ranked slates relevance and diversity need; the sim already wrote them
+# to Parquet under $EXPERIENCE_COLLECTOR_OUTPUT_PATH, so no manual Kafka dump is needed.
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --input /tmp/spark-recsys/movie-category-sim/training-samples \
   --experiences /tmp/spark-recsys/movie-category-sim/slates \
@@ -904,14 +816,13 @@ consumed by the React app.
 The snapshot carries seven measurement sections — relevance, satisfaction, freshness, diversity,
 fairness, safety, and latency — alongside the engagement/keyword/query/recall/ranking/OPE/MDP
 diagnostics. Note the schema change at `schemaVersion: "2.0"`: `relevance` now holds the listwise
-measurement envelope (NDCG/MRR), and the engagement funnel it used to hold moved to `engagement`. Any section whose inputs are missing reports `"status": "unavailable"` with an
-explicit reason and renders an N/A card; nothing is zero-filled. See
-[Recommendation Measurements](#recommendation-measurements) for the
-metric definitions, denominators, interpretation caveats, and configuration variables.
+measurement envelope (NDCG/MRR), and the engagement funnel it used to hold moved to `engagement`.
+Sections whose inputs are missing report `"status": "unavailable"` with an explicit reason and
+render N/A cards; nothing is zero-filled. See
+[Recommendation Measurements](#recommendation-measurements) for definitions, denominators,
+caveats, and configuration variables.
 
 ### 8. Launch and refresh the React dashboard
-
-From `recsys-pipeline/`:
 
 ```bash
 cd frontend
@@ -925,21 +836,16 @@ row count, stop the server with `Ctrl-C` and run `npm run dev` again.
 
 ### 9. Stop processes and infrastructure
 
-Stop the dashboard with `Ctrl-C` in its terminal. Manual producers and Spark jobs from the optional
-reference below are also long-running and should be stopped with `Ctrl-C` in their own terminals.
-If a terminal was lost, inspect the exact process first, then enter only a PID owned by this
-project:
+Stop the dashboard, and any producers or Spark jobs from the optional reference below, with
+`Ctrl-C` in their own terminals. If a terminal was lost, inspect the exact process first and enter
+only a PID owned by this project — then stop this repository's Compose project:
 
 ```bash
 ps -Ao pid=,command= | grep -E '[p]roducer.py|[r]un-streaming-job.sh|[s]park-submit|[n]ext dev'
 printf 'Confirmed project PID to stop: '
 read -r RECSYS_PROCESS_PID
 kill -TERM "$RECSYS_PROCESS_PID"
-```
 
-Finally, from `recsys-pipeline/`, stop only this repository's Compose project:
-
-```bash
 docker compose down
 ```
 
@@ -1020,33 +926,12 @@ the remaining diagnostics use the paths shown.
 ## Optional reference: modeling pipeline — Spark embeddings + Python two-tower → ONNX
 
 This optional reference trains embeddings offline and produces the ONNX model the retrieval
-service serves. Run the block from the repository root.
+service serves. Both halves are documented above rather than repeated here:
 
-```bash
-cd recsys-pipeline
-# Item2Vec item embeddings (writes sampledata/item_embedding.txt + Redis)
-RATINGS_INPUT_PATH=sampledata/ratings.csv ./scripts/run-offline-pipeline.sh
-
-# ALS collaborative-filtering embeddings
-RATINGS_INPUT_PATH=sampledata/ratings.csv ./scripts/run-als-pipeline.sh
-
-# User embeddings (needs the item embedding file from the offline step)
-RATINGS_INPUT_PATH=sampledata/ratings.csv \
-  ITEM2VEC_EMBEDDING_PATH=sampledata/item_embedding.txt \
-  ./scripts/run-user-embedding-pipeline.sh
-
-# Export the Redis replay buffer back to a ratings CSV (for retraining)
-python services/python-modeling/replay_export.py
-
-# Full retrain: replay export → ALS → user emb → two-tower → hot-reload
-./scripts/run-retrain.sh                       # flags: --skip-spark --skip-python --skip-reload; DRY_RUN=1
-```
-
-The retrain's final step hot-reloads the ONNX model in the running service (`:8080`):
-
-```bash
-curl -X POST http://localhost:8080/actuator/model-reload
-```
+- **Offline embeddings** (Item2Vec, ALS, user vectors) and the standalone two-tower/ONNX export —
+  [Quick Start Step 1](#step-1--offline-embeddings).
+- **Replay export, full retrain, and the `POST /actuator/model-reload` hot-swap** —
+  [Automated Retraining](#automated-retraining).
 
 ---
 
@@ -1089,12 +974,11 @@ curl -X POST http://localhost:8080/feedback \
 curl http://localhost:8080/metrics
 ```
 
-The default MLP string lookup contains four user families:
-`user_employee_01..08`, `user_manager_01..08`, `user_new_hire_01..08`, and
-`user_payroll_admin_01..08`. Its item lookup uses twelve `action_*` IDs, including
-`action_benefits`, `action_learning`, `action_onboarding`, and `action_payroll`. Use those string
-IDs with `/predict/{user}/{item}`. Numeric `/predict/id` values are internal indices, not external
-movie IDs, and must satisfy `0 <= userId < users` and `0 <= itemId < items` from
+Use string IDs from the default MLP lookup with `/predict/{user}/{item}`: four user families
+(`user_employee_01..08`, `user_manager_01..08`, `user_new_hire_01..08`,
+`user_payroll_admin_01..08`) and twelve `action_*` items (`action_benefits`, `action_learning`,
+`action_onboarding`, `action_payroll`, …). Numeric `/predict/id` values are internal indices, not
+external movie IDs, and must satisfy `0 <= userId < users` and `0 <= itemId < items` from
 `/predict/metadata`.
 
 ---
