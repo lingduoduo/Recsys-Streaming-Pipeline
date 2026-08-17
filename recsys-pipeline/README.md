@@ -123,7 +123,7 @@ docker compose up -d
 
 ### Dashboard
 ```
-cd recsys-pipeline/frontend 
+cd recsys-pipeline/frontend
 npm run dev
 ```
 
@@ -205,10 +205,11 @@ USER_PROFILE_OUTPUT_PATH=/path/to/user-profiles/run-2026-08-06 \
 ```
 
 The retrieval service uses the active profile for content affinity and exposes it at
-`GET /users/{user}/profile`. Missing, invalid, stale-version, or unreachable profile data safely
-falls back to the established recommendation signals. Keep `USER_PROFILE_REDIS_KEY_PREFIX` on the
-Spark job and `RECSYS_USER_PROFILE_KEY_PREFIX` on the service equal (both default to
-`user-profile:v1`). Profile values default to a one-day TTL; the active-run pointer does not expire.
+`GET /users/{user}/profile`. When profile data is missing, invalid, stale-version, or unreachable,
+the service falls back to the established recommendation signals. Keep
+`USER_PROFILE_REDIS_KEY_PREFIX` on the Spark job and `RECSYS_USER_PROFILE_KEY_PREFIX` on the
+service equal (both default to `user-profile:v1`). Profile values default to a one-day TTL; the
+active-run pointer does not expire.
 See [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#behavioral-user-profile-snapshots)
 for input, decay, taxonomy, output, activation, metrics, and all environment variables, and
 [API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
@@ -550,7 +551,7 @@ are the only measures that need whole ranked slates.
 | `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port the sim starts the retrieval service on for its traffic burst |
 | `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. *Orders* (21–120s base delay) still cross the streaming job's *default* 10-second trigger at any scale above ~0.5 (21s × 0.5 = 10.5s); *clicks* (1–20s base delay) can land inside one even at scale 1.0. The sims run with `TRIGGER_INTERVAL="2 seconds"`, so that figure — not the 10-second default — governs their cross-batch behavior |
 | `FEEDBACK_TAIL_SECONDS` | `150` | segment and category sims | Floor before a drain may end, so the sim cannot declare completion before the last deferred order has arrived |
-| `FEEDBACK_JOIN_WAIT` | `3 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behaviour. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
+| `FEEDBACK_JOIN_WAIT` | `3 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behavior. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
 | `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | every Spark job | Session time zone; affects timestamp **formatting** only. Parquet `date` partitions are derived from the epoch, so the same event lands in the same partition on any host. Change it only for local-time formatting in job output |
 | `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N UTC partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock, so re-running a historical report gives the same answer. `0` or negative reads all history, at a cost that grows with total archive size rather than with the reported window |
 
