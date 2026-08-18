@@ -257,6 +257,41 @@ class RecommendationMeasurementServiceTest {
         }
     }
 
+    @Test
+    void decaysLatencyPercentilesWhileKeepingCountsCumulative() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getMeasurements().setPercentileWindowSeconds(1);
+        RecommendationMeasurementService measurements =
+            new RecommendationMeasurementService(registry, properties);
+
+        measurements.recordRequest("recommend", Duration.ofMillis(900), false);
+        assertTrue(((Number) endpoint(measurements, "recommend").get("p99")).doubleValue() > 100.0);
+
+        await(2_000);
+        measurements.recordRequest("recommend", Duration.ofMillis(1), false);
+        Map<?, ?> after = endpoint(measurements, "recommend");
+
+        assertTrue(((Number) after.get("p99")).doubleValue() < 100.0,
+            "percentiles must decay out of the configured window");
+        assertEquals(2L, after.get("count"), "counts stay cumulative");
+        assertEquals(0.0, after.get("errorRate"), "error rate stays cumulative");
+    }
+
+    private Map<?, ?> endpoint(RecommendationMeasurementService measurements, String name) {
+        Map<?, ?> latency = (Map<?, ?>) measurements.snapshot().asMap().get("latency");
+        return (Map<?, ?>) ((Map<?, ?>) latency.get("endpoints")).get(name);
+    }
+
+    private void await(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+    }
+
     private RecommendationMeasurementService measurements(SimpleMeterRegistry registry) {
         return new RecommendationMeasurementService(registry, new RecommendationProperties());
     }

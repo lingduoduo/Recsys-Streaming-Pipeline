@@ -36,6 +36,7 @@ public class RecommendationMeasurementService {
 
     private final MeterRegistry registry;
     private final Duration[] latencyBuckets;
+    private final Duration percentileWindow;
     private final String safetyPolicyVersion;
     private final boolean noOp;
     private final Object freshnessLock = new Object();
@@ -52,20 +53,23 @@ public class RecommendationMeasurementService {
 
     @Autowired
     public RecommendationMeasurementService(MeterRegistry registry, RecommendationProperties properties) {
-        this(registry, latencyBuckets(properties), safetyPolicyVersion(properties), false);
+        this(registry, latencyBuckets(properties), percentileWindow(properties), safetyPolicyVersion(properties), false);
     }
 
     private RecommendationMeasurementService(
-        MeterRegistry registry, Duration[] latencyBuckets, String safetyPolicyVersion, boolean noOp
+        MeterRegistry registry, Duration[] latencyBuckets, Duration percentileWindow,
+        String safetyPolicyVersion, boolean noOp
     ) {
         this.registry = registry;
         this.latencyBuckets = latencyBuckets;
+        this.percentileWindow = percentileWindow;
         this.safetyPolicyVersion = safetyPolicyVersion;
         this.noOp = noOp;
     }
 
     public static RecommendationMeasurementService noOp() {
-        return new RecommendationMeasurementService(new SimpleMeterRegistry(), new Duration[0], "unknown", true);
+        return new RecommendationMeasurementService(
+            new SimpleMeterRegistry(), new Duration[0], Duration.ofSeconds(300), "unknown", true);
     }
 
     public void recordRequest(String endpoint, Duration duration, boolean error) {
@@ -199,6 +203,8 @@ public class RecommendationMeasurementService {
                 .tag("stage", stage)
                 .serviceLevelObjectives(latencyBuckets)
                 .publishPercentiles(0.50, 0.95, 0.99)
+                .distributionStatisticExpiry(percentileWindow)
+                .distributionStatisticBufferLength(5)
                 .register(registry)
                 .record(safeDuration(duration));
         } catch (RuntimeException e) {
@@ -211,6 +217,8 @@ public class RecommendationMeasurementService {
             .tag("endpoint", endpoint)
             .serviceLevelObjectives(latencyBuckets)
             .publishPercentiles(0.50, 0.95, 0.99)
+            .distributionStatisticExpiry(percentileWindow)
+            .distributionStatisticBufferLength(5)
             .register(registry);
     }
 
@@ -454,6 +462,12 @@ public class RecommendationMeasurementService {
             .sorted(Comparator.naturalOrder())
             .map(Duration::ofMillis)
             .toArray(Duration[]::new);
+    }
+
+    private static Duration percentileWindow(RecommendationProperties properties) {
+        return properties == null || properties.getMeasurements() == null
+            ? Duration.ofSeconds(300)
+            : Duration.ofSeconds(properties.getMeasurements().getPercentileWindowSeconds());
     }
 
     private static String safetyPolicyVersion(RecommendationProperties properties) {
