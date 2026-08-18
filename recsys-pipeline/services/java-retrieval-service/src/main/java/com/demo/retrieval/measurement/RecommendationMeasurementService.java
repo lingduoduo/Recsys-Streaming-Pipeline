@@ -28,7 +28,8 @@ import java.util.OptionalDouble;
 @Service
 public class RecommendationMeasurementService {
     private static final Logger log = LoggerFactory.getLogger(RecommendationMeasurementService.class);
-    private static final Set<String> ENDPOINTS = Set.of("recommend", "feedback");
+    private static final Set<String> ENDPOINTS =
+        Set.of("recommend", "feedback", "predict", "embedding", "profile");
     private static final Set<String> STAGES =
         Set.of("hydration", "redis_fetch", "scoring", "selection", "side_effects");
     private static final Set<String> FILTER_REASONS =

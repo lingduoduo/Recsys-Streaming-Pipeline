@@ -383,4 +383,31 @@ class RecommendationControllerTest {
 
         verify(measurementService).recordRequest(eq("feedback"), any(Duration.class), eq(true), eq(true));
     }
+
+    @Test
+    void recordsLatencyForPredictEmbeddingAndProfileEndpoints() throws Exception {
+        ValueOperations<String, String> ops = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(ops);
+        when(ops.get("i2vEmb:i1")).thenReturn("0.1 0.2");
+        when(predictionService.predict("u1", "i1")).thenReturn(Optional.empty());
+        when(predictionService.metadata()).thenReturn(Map.of("model", "test"));
+        when(userProfileClient.getProfile("u1")).thenReturn(Optional.of(profile("u1")));
+
+        mockMvc.perform(get("/predict/u1/i1")).andExpect(status().isOk());
+        mockMvc.perform(get("/users/u1/profile")).andExpect(status().isOk());
+        mockMvc.perform(get("/embedding/i1")).andExpect(status().isOk());
+
+        verify(measurementService).recordRequest(eq("predict"), any(Duration.class), eq(false), eq(false));
+        verify(measurementService).recordRequest(eq("profile"), any(Duration.class), eq(false), eq(false));
+        verify(measurementService).recordRequest(eq("embedding"), any(Duration.class), eq(false), eq(false));
+    }
+
+    @Test
+    void treatsAnUnknownProfileAsAbsentRatherThanAServerError() throws Exception {
+        when(userProfileClient.getProfile("nobody")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/users/nobody/profile")).andExpect(status().isNotFound());
+
+        verify(measurementService).recordRequest(eq("profile"), any(Duration.class), eq(false), eq(false));
+    }
 }

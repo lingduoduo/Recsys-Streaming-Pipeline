@@ -73,25 +73,39 @@ public class RecommendationController {
     public Map<String, Object> embedding(
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String item
     ) {
-        String key = itemEmbeddingPrefix + ":" + item;
-        String raw;
+        long started = System.nanoTime();
+        boolean error = true;
+        boolean timeout = false;
         try {
-            raw = redis.opsForValue().get(key);
-        } catch (Exception e) {
-            log.error("Redis fetch failed for embedding {}", key, e);
-            return Map.of("item", item, "embedding", List.of());
-        }
-        if (raw == null) {
-            return Map.of("item", item, "embedding", List.of());
-        }
-        try {
-            List<Double> vector = Arrays.stream(raw.split(" "))
-                .map(Double::parseDouble)
-                .toList();
-            return Map.of("item", item, "embedding", vector);
-        } catch (NumberFormatException e) {
-            log.warn("Corrupt embedding data for key {}", key);
-            return Map.of("item", item, "embedding", List.of(), "error", "corrupt_data");
+            String key = itemEmbeddingPrefix + ":" + item;
+            String raw;
+            try {
+                raw = redis.opsForValue().get(key);
+            } catch (Exception e) {
+                log.error("Redis fetch failed for embedding {}", key, e);
+                error = false;
+                return Map.of("item", item, "embedding", List.of());
+            }
+            if (raw == null) {
+                error = false;
+                return Map.of("item", item, "embedding", List.of());
+            }
+            try {
+                List<Double> vector = Arrays.stream(raw.split(" "))
+                    .map(Double::parseDouble)
+                    .toList();
+                error = false;
+                return Map.of("item", item, "embedding", vector);
+            } catch (NumberFormatException e) {
+                log.warn("Corrupt embedding data for key {}", key);
+                error = false;
+                return Map.of("item", item, "embedding", List.of(), "error", "corrupt_data");
+            }
+        } catch (RuntimeException | Error e) {
+            timeout = isTimeout(e);
+            throw e;
+        } finally {
+            measurementService.recordRequest("embedding", Duration.ofNanos(System.nanoTime() - started), error, timeout);
         }
     }
 
@@ -127,14 +141,26 @@ public class RecommendationController {
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user,
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String item
     ) {
-        return predictionService.predict(user, item)
-            .map(this::predictionPayload)
-            .orElseGet(() -> Map.of(
-                "user", user,
-                "item", item,
-                "error", "unknown_user_or_item",
-                "metadata", predictionService.metadata()
-            ));
+        long started = System.nanoTime();
+        boolean error = true;
+        boolean timeout = false;
+        try {
+            Map<String, Object> response = predictionService.predict(user, item)
+                .map(this::predictionPayload)
+                .orElseGet(() -> Map.of(
+                    "user", user,
+                    "item", item,
+                    "error", "unknown_user_or_item",
+                    "metadata", predictionService.metadata()
+                ));
+            error = false;
+            return response;
+        } catch (RuntimeException | Error e) {
+            timeout = isTimeout(e);
+            throw e;
+        } finally {
+            measurementService.recordRequest("predict", Duration.ofNanos(System.nanoTime() - started), error, timeout);
+        }
     }
 
     @GetMapping("/predict/id")
@@ -142,7 +168,19 @@ public class RecommendationController {
         @RequestParam @Min(0) long userId,
         @RequestParam @Min(0) long itemId
     ) {
-        return predictionPayload(predictionService.predict(userId, itemId));
+        long started = System.nanoTime();
+        boolean error = true;
+        boolean timeout = false;
+        try {
+            Map<String, Object> response = predictionPayload(predictionService.predict(userId, itemId));
+            error = false;
+            return response;
+        } catch (RuntimeException | Error e) {
+            timeout = isTimeout(e);
+            throw e;
+        } finally {
+            measurementService.recordRequest("predict", Duration.ofNanos(System.nanoTime() - started), error, timeout);
+        }
     }
 
     @GetMapping("/predict/metadata")
@@ -154,9 +192,24 @@ public class RecommendationController {
     public ResponseEntity<UserBehaviorProfile> profile(
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user
     ) {
-        return userProfileClient.getProfile(user)
-            .map(ResponseEntity::ok)
-            .orElseThrow(() -> new ProfileNotFoundException(user));
+        long started = System.nanoTime();
+        boolean error = true;
+        boolean timeout = false;
+        try {
+            ResponseEntity<UserBehaviorProfile> response = userProfileClient.getProfile(user)
+                .map(ResponseEntity::ok)
+                .orElseThrow(() -> new ProfileNotFoundException(user));
+            error = false;
+            return response;
+        } catch (ProfileNotFoundException e) {
+            error = false;
+            throw e;
+        } catch (RuntimeException | Error e) {
+            timeout = isTimeout(e);
+            throw e;
+        } finally {
+            measurementService.recordRequest("profile", Duration.ofNanos(System.nanoTime() - started), error, timeout);
+        }
     }
 
     @PostMapping("/feedback")
