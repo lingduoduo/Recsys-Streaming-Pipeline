@@ -8,12 +8,16 @@ import java.util.Collections;
 public record MeasurementSnapshot(
     String schemaVersion,
     Map<String, Object> latency,
+    Map<String, Object> throughput,
+    Map<String, Object> cache,
     Map<String, Object> freshness,
     Map<String, Object> safety,
     Map<String, Object> feedbackCoverage
 ) {
     public MeasurementSnapshot {
         latency = immutableCopy(latency);
+        throughput = immutableCopy(throughput);
+        cache = immutableCopy(cache);
         freshness = immutableCopy(freshness);
         safety = immutableCopy(safety);
         feedbackCoverage = immutableCopy(feedbackCoverage);
@@ -23,6 +27,8 @@ public record MeasurementSnapshot(
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("schemaVersion", schemaVersion);
         result.put("latency", latency);
+        result.put("throughput", throughput);
+        result.put("cache", cache);
         result.put("freshness", freshness);
         result.put("safety", safety);
         result.put("feedbackCoverage", feedbackCoverage);

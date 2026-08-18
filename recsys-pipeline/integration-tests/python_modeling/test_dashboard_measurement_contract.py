@@ -67,7 +67,7 @@ def _live_metrics():
     return {
         "requestCount": 5,
         "measurements": {
-            "schemaVersion": "2.0",
+            "schemaVersion": "2.1",
             "latency": {
                 "availability": "available",
                 "unit": "milliseconds",

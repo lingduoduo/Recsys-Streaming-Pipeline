@@ -334,13 +334,13 @@ class RecommendationControllerTest {
     void metricsEndpointReturnsAggregateMetrics() throws Exception {
         when(recommendationService.getAggregateMetrics()).thenReturn(Map.of("ctr", 0.25, "requests", 4));
         when(measurementService.snapshot()).thenReturn(new MeasurementSnapshot(
-            "2.0", Map.of(), Map.of(), Map.of(), Map.of()));
+            "2.1", Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of()));
 
         mockMvc.perform(get("/metrics"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.ctr").value(0.25))
             .andExpect(jsonPath("$.requests").value(4))
-            .andExpect(jsonPath("$.measurements.schemaVersion").value("2.0"));
+            .andExpect(jsonPath("$.measurements.schemaVersion").value("2.1"));
     }
 
     @Test

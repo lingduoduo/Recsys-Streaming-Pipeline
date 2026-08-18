@@ -96,7 +96,7 @@ class HybridRecommendationServiceTest {
                 userId -> new UserMovieHistory(List.of("watched"), List.of("rated"))
             )),
             twoTowerPredictionService,
-            new RecommendationMeasurementService(meterRegistry, properties)
+            new RecommendationMeasurementService(meterRegistry, properties, featureCache)
         );
 
         RecommendationResult result = service.recommend("u1", 1);
