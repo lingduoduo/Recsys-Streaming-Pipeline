@@ -2,9 +2,12 @@ package com.demo.retrieval.model;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.demo.retrieval.config.RecommendationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -28,10 +31,12 @@ public class FeatureCache {
         this.itemVectors = Caffeine.newBuilder()
             .maximumSize(cfg.getItemVectorMaxSize())
             .expireAfterWrite(cfg.getItemVectorTtlSeconds(), TimeUnit.SECONDS)
+            .recordStats()
             .build();
         this.rewardStats = Caffeine.newBuilder()
             .maximumSize(cfg.getRewardMaxSize())
             .expireAfterWrite(cfg.getRewardTtlSeconds(), TimeUnit.SECONDS)
+            .recordStats()
             .build();
     }
 
@@ -64,4 +69,29 @@ public class FeatureCache {
     }
 
     public record RewardModelStats(long count, double rewardTotal) {}
+
+    // --- statistics ---
+
+    /**
+     * Caffeine's counters, copied into a plain value so the measurement layer
+     * never depends on the cache library.
+     *
+     * A presence probe through {@code hasItemVector} is a real cache read and
+     * counts as a lookup, so item-vector lookups exceed the number of vectors
+     * actually consumed.
+     */
+    public record CacheStatsView(long hitCount, long missCount, long evictionCount, long estimatedSize) {}
+
+    public Map<String, CacheStatsView> stats() {
+        Map<String, CacheStatsView> values = new LinkedHashMap<>();
+        values.put("item_vectors", view(itemVectors));
+        values.put("reward_stats", view(rewardStats));
+        return values;
+    }
+
+    private static CacheStatsView view(Cache<String, ?> cache) {
+        CacheStats stats = cache.stats();
+        return new CacheStatsView(
+            stats.hitCount(), stats.missCount(), stats.evictionCount(), cache.estimatedSize());
+    }
 }

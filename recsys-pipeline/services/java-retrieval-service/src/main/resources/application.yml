@@ -20,6 +20,8 @@ recsys:
     long-tail-percentile: ${RECSYS_LONG_TAIL_PERCENTILE:0.80}
     safety-policy-version: ${RECSYS_SAFETY_POLICY_VERSION:catalog-filter-v1}
     latency-buckets-ms: ${RECSYS_LATENCY_BUCKETS_MS:5,10,25,50,100,250,500,1000,2500}
+    throughput-window-seconds: ${RECSYS_THROUGHPUT_WINDOW_SECONDS:60}
+    percentile-window-seconds: ${RECSYS_PERCENTILE_WINDOW_SECONDS:300}
   cache:
     item-vector-max-size: ${RECSYS_ITEM_VECTOR_CACHE_SIZE:10000}
     item-vector-ttl-seconds: ${RECSYS_ITEM_VECTOR_TTL:300}

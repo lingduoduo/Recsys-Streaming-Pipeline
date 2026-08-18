@@ -1,6 +1,7 @@
 package com.demo.retrieval.measurement;
 
 import com.demo.retrieval.config.RecommendationProperties;
+import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.model.FeedbackRequest;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -73,7 +74,7 @@ class RecommendationMeasurementServiceTest {
         MeasurementSnapshot snapshot = measurements.snapshot();
         Map<String, Object> values = snapshot.asMap();
 
-        assertEquals("2.0", snapshot.schemaVersion());
+        assertEquals("2.1", snapshot.schemaVersion());
         Map<?, ?> latency = (Map<?, ?>) values.get("latency");
         Map<?, ?> endpoints = (Map<?, ?>) latency.get("endpoints");
         Map<?, ?> feedback = (Map<?, ?>) endpoints.get("feedback");
@@ -200,8 +201,9 @@ class RecommendationMeasurementServiceTest {
         MeterRegistry registry = mock(MeterRegistry.class);
         when(registry.find("recommendation.request.latency"))
             .thenThrow(new IllegalStateException("registry unavailable"));
+        RecommendationProperties properties = new RecommendationProperties();
         RecommendationMeasurementService measurements = new RecommendationMeasurementService(
-            registry, new RecommendationProperties());
+            registry, properties, new FeatureCache(properties));
 
         Map<String, Object> snapshot = measurements.snapshot().asMap();
         Map<?, ?> latency = (Map<?, ?>) snapshot.get("latency");
@@ -209,6 +211,8 @@ class RecommendationMeasurementServiceTest {
         Map<?, ?> freshness = (Map<?, ?>) snapshot.get("freshness");
         Map<?, ?> safety = (Map<?, ?>) snapshot.get("safety");
         Map<?, ?> feedback = (Map<?, ?>) snapshot.get("feedbackCoverage");
+        Map<?, ?> throughput = (Map<?, ?>) snapshot.get("throughput");
+        Map<?, ?> cache = (Map<?, ?>) snapshot.get("cache");
 
         assertEquals("unavailable", latency.get("availability"));
         assertNull(recommend.get("count"));
@@ -216,6 +220,8 @@ class RecommendationMeasurementServiceTest {
         assertEquals("available", freshness.get("availability"));
         assertEquals("available", safety.get("availability"));
         assertEquals("available", feedback.get("availability"));
+        assertEquals("available", throughput.get("availability"));
+        assertEquals("available", cache.get("availability"));
     }
 
     private void recordFreshness(
@@ -257,7 +263,88 @@ class RecommendationMeasurementServiceTest {
         }
     }
 
+    @Test
+    void decaysLatencyPercentilesWhileKeepingCountsCumulative() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getMeasurements().setPercentileWindowSeconds(1);
+        RecommendationMeasurementService measurements =
+            new RecommendationMeasurementService(registry, properties, new FeatureCache(properties));
+
+        measurements.recordRequest("recommend", Duration.ofMillis(900), false);
+        assertTrue(((Number) endpoint(measurements, "recommend").get("p99")).doubleValue() > 100.0);
+
+        await(2_000);
+        measurements.recordRequest("recommend", Duration.ofMillis(1), false);
+        Map<?, ?> after = endpoint(measurements, "recommend");
+
+        assertTrue(((Number) after.get("p99")).doubleValue() < 100.0,
+            "percentiles must decay out of the configured window");
+        assertEquals(2L, after.get("count"), "counts stay cumulative");
+        assertEquals(0.0, after.get("errorRate"), "error rate stays cumulative");
+    }
+
+    private Map<?, ?> endpoint(RecommendationMeasurementService measurements, String name) {
+        Map<?, ?> latency = (Map<?, ?>) measurements.snapshot().asMap().get("latency");
+        return (Map<?, ?>) ((Map<?, ?>) latency.get("endpoints")).get(name);
+    }
+
+    private void await(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    void snapshotReportsThroughputAndCacheSectionsAtSchemaTwoOne() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RecommendationProperties properties = new RecommendationProperties();
+        FeatureCache cache = new FeatureCache(properties);
+        RecommendationMeasurementService measurements =
+            new RecommendationMeasurementService(registry, properties, cache);
+
+        measurements.recordRequest("recommend", Duration.ofMillis(5), false);
+        measurements.recordRequest("recommend", Duration.ofMillis(5), false);
+        cache.getItemVector("missing");
+        cache.putItemVector("present", new double[] {1.0});
+        cache.getItemVector("present");
+
+        Map<String, Object> values = measurements.snapshot().asMap();
+        assertEquals("2.1", measurements.snapshot().schemaVersion());
+
+        Map<?, ?> throughput = (Map<?, ?>) values.get("throughput");
+        assertEquals("available", throughput.get("availability"));
+        Map<?, ?> recommend = (Map<?, ?>) ((Map<?, ?>) throughput.get("endpoints")).get("recommend");
+        assertEquals(2L, recommend.get("windowRequests"));
+        assertEquals(60, recommend.get("windowSeconds"));
+        Map<?, ?> feedback = (Map<?, ?>) ((Map<?, ?>) throughput.get("endpoints")).get("feedback");
+        assertNull(feedback.get("qps"), "an endpoint with no traffic has an undefined rate");
+
+        Map<?, ?> caches = (Map<?, ?>) values.get("cache");
+        assertEquals("available", caches.get("availability"));
+        Map<?, ?> vectors = (Map<?, ?>) ((Map<?, ?>) caches.get("caches")).get("item_vectors");
+        assertEquals(1L, vectors.get("hitCount"));
+        assertEquals(1L, vectors.get("missCount"));
+        assertEquals(0.5, vectors.get("hitRate"));
+        Map<?, ?> rewards = (Map<?, ?>) ((Map<?, ?>) caches.get("caches")).get("reward_stats");
+        assertNull(rewards.get("hitRate"), "a cache with no lookups has an undefined hit rate");
+    }
+
+    @Test
+    void noOpMeasurementsReportEmptyThroughputAndCacheSections() {
+        Map<String, Object> values = RecommendationMeasurementService.noOp().snapshot().asMap();
+
+        Map<?, ?> throughput = (Map<?, ?>) values.get("throughput");
+        Map<?, ?> recommend = (Map<?, ?>) ((Map<?, ?>) throughput.get("endpoints")).get("recommend");
+        assertNull(recommend.get("qps"));
+        assertTrue(((Map<?, ?>) ((Map<?, ?>) values.get("cache")).get("caches")).isEmpty());
+    }
+
     private RecommendationMeasurementService measurements(SimpleMeterRegistry registry) {
-        return new RecommendationMeasurementService(registry, new RecommendationProperties());
+        RecommendationProperties properties = new RecommendationProperties();
+        return new RecommendationMeasurementService(registry, properties, new FeatureCache(properties));
     }
 }

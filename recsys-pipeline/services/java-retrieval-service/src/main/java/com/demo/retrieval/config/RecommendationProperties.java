@@ -3,6 +3,7 @@ package com.demo.retrieval.config;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -474,6 +475,28 @@ public class RecommendationProperties {
         @Size(min = 1, max = 20)
         private List<@Positive Long> latencyBucketsMs =
             new ArrayList<>(List.of(5L, 10L, 25L, 50L, 100L, 250L, 500L, 1000L, 2500L));
+        @Min(1)
+        @Max(3600)
+        private int throughputWindowSeconds = 60;
+        @Min(1)
+        @Max(3600)
+        private int percentileWindowSeconds = 300;
+
+        public int getThroughputWindowSeconds() {
+            return throughputWindowSeconds;
+        }
+
+        public void setThroughputWindowSeconds(int throughputWindowSeconds) {
+            this.throughputWindowSeconds = throughputWindowSeconds;
+        }
+
+        public int getPercentileWindowSeconds() {
+            return percentileWindowSeconds;
+        }
+
+        public void setPercentileWindowSeconds(int percentileWindowSeconds) {
+            this.percentileWindowSeconds = percentileWindowSeconds;
+        }
 
         public int getFairnessMinSupport() {
             return fairnessMinSupport;

@@ -2,6 +2,7 @@ package com.demo.retrieval.measurement;
 
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
+import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.model.FeedbackRequest;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -20,13 +21,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.OptionalDouble;
 
 @Service
 public class RecommendationMeasurementService {
     private static final Logger log = LoggerFactory.getLogger(RecommendationMeasurementService.class);
-    private static final Set<String> ENDPOINTS = Set.of("recommend", "feedback");
+    private static final Set<String> ENDPOINTS =
+        Set.of("recommend", "feedback", "predict", "embedding", "profile");
     private static final Set<String> STAGES =
         Set.of("hydration", "redis_fetch", "scoring", "selection", "side_effects");
     private static final Set<String> FILTER_REASONS =
@@ -36,6 +39,9 @@ public class RecommendationMeasurementService {
 
     private final MeterRegistry registry;
     private final Duration[] latencyBuckets;
+    private final Duration percentileWindow;
+    private final FeatureCache featureCache;
+    private final Map<String, ThroughputWindow> throughputByEndpoint = new LinkedHashMap<>();
     private final String safetyPolicyVersion;
     private final boolean noOp;
     private final Object freshnessLock = new Object();
@@ -51,21 +57,40 @@ public class RecommendationMeasurementService {
     private final Map<String, Long> feedbackPresenceCounts = new LinkedHashMap<>();
 
     @Autowired
-    public RecommendationMeasurementService(MeterRegistry registry, RecommendationProperties properties) {
-        this(registry, latencyBuckets(properties), safetyPolicyVersion(properties), false);
+    public RecommendationMeasurementService(
+        MeterRegistry registry, RecommendationProperties properties, FeatureCache featureCache
+    ) {
+        this(
+            registry,
+            latencyBuckets(properties),
+            percentileWindow(properties),
+            safetyPolicyVersion(properties),
+            featureCache,
+            throughputWindowSeconds(properties),
+            System::currentTimeMillis,
+            false
+        );
     }
 
     private RecommendationMeasurementService(
-        MeterRegistry registry, Duration[] latencyBuckets, String safetyPolicyVersion, boolean noOp
+        MeterRegistry registry, Duration[] latencyBuckets, Duration percentileWindow,
+        String safetyPolicyVersion, FeatureCache featureCache, int throughputWindowSeconds,
+        LongSupplier nowMillis, boolean noOp
     ) {
         this.registry = registry;
         this.latencyBuckets = latencyBuckets;
+        this.percentileWindow = percentileWindow;
         this.safetyPolicyVersion = safetyPolicyVersion;
+        this.featureCache = featureCache;
         this.noOp = noOp;
+        ENDPOINTS.stream().sorted().forEach(endpoint -> throughputByEndpoint.put(
+            endpoint, new ThroughputWindow(throughputWindowSeconds, nowMillis)));
     }
 
     public static RecommendationMeasurementService noOp() {
-        return new RecommendationMeasurementService(new SimpleMeterRegistry(), new Duration[0], "unknown", true);
+        return new RecommendationMeasurementService(
+            new SimpleMeterRegistry(), new Duration[0], Duration.ofSeconds(300), "unknown",
+            null, 60, System::currentTimeMillis, true);
     }
 
     public void recordRequest(String endpoint, Duration duration, boolean error) {
@@ -79,6 +104,7 @@ public class RecommendationMeasurementService {
             }
             synchronized (requestLock) {
                 requestTimer(endpoint).record(safeDuration(duration));
+                throughputByEndpoint.get(endpoint).record();
                 if (error) {
                     incrementRequestCounter("recommendation.request.errors", endpoint);
                 }
@@ -185,8 +211,10 @@ public class RecommendationMeasurementService {
 
     public MeasurementSnapshot snapshot() {
         return new MeasurementSnapshot(
-            "2.0",
+            "2.1",
             snapshotSection("latency", this::latencySnapshot, this::unavailableLatency),
+            snapshotSection("throughput", this::throughputSnapshot, this::unavailableThroughput),
+            snapshotSection("cache", this::cacheSnapshot, this::unavailableCache),
             snapshotSection("freshness", this::freshnessSnapshot, this::unavailableFreshness),
             snapshotSection("safety", this::safetySnapshot, this::unavailableSafety),
             snapshotSection("feedback coverage", this::feedbackSnapshot, this::unavailableFeedback)
@@ -199,6 +227,8 @@ public class RecommendationMeasurementService {
                 .tag("stage", stage)
                 .serviceLevelObjectives(latencyBuckets)
                 .publishPercentiles(0.50, 0.95, 0.99)
+                .distributionStatisticExpiry(percentileWindow)
+                .distributionStatisticBufferLength(5)
                 .register(registry)
                 .record(safeDuration(duration));
         } catch (RuntimeException e) {
@@ -211,6 +241,8 @@ public class RecommendationMeasurementService {
             .tag("endpoint", endpoint)
             .serviceLevelObjectives(latencyBuckets)
             .publishPercentiles(0.50, 0.95, 0.99)
+            .distributionStatisticExpiry(percentileWindow)
+            .distributionStatisticBufferLength(5)
             .register(registry);
     }
 
@@ -329,6 +361,59 @@ public class RecommendationMeasurementService {
         Map<String, Object> values = timerLatency(null);
         values.put("count", null);
         return values;
+    }
+
+    private Map<String, Object> throughputSnapshot() {
+        Map<String, Object> endpoints = new LinkedHashMap<>();
+        throughputByEndpoint.forEach((endpoint, window) -> endpoints.put(endpoint, window.snapshot()));
+        Map<String, Object> throughput = new LinkedHashMap<>();
+        throughput.put("availability", "available");
+        throughput.put("unit", "requests_per_second");
+        throughput.put("endpoints", endpoints);
+        return throughput;
+    }
+
+    private Map<String, Object> unavailableThroughput() {
+        Map<String, Object> endpoints = new LinkedHashMap<>();
+        ENDPOINTS.stream().sorted().forEach(endpoint -> {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("qps", null);
+            values.put("windowRequests", null);
+            values.put("windowSeconds", null);
+            values.put("observedSeconds", null);
+            endpoints.put(endpoint, values);
+        });
+        Map<String, Object> throughput = new LinkedHashMap<>();
+        throughput.put("availability", "unavailable");
+        throughput.put("unit", "requests_per_second");
+        throughput.put("endpoints", endpoints);
+        return throughput;
+    }
+
+    private Map<String, Object> cacheSnapshot() {
+        Map<String, Object> caches = new LinkedHashMap<>();
+        if (featureCache != null) {
+            featureCache.stats().forEach((name, stats) -> {
+                Map<String, Object> values = new LinkedHashMap<>();
+                values.put("hitCount", stats.hitCount());
+                values.put("missCount", stats.missCount());
+                values.put("hitRate", rate(stats.hitCount(), stats.hitCount() + stats.missCount()));
+                values.put("evictionCount", stats.evictionCount());
+                values.put("estimatedSize", stats.estimatedSize());
+                caches.put(name, values);
+            });
+        }
+        Map<String, Object> cache = new LinkedHashMap<>();
+        cache.put("availability", "available");
+        cache.put("caches", caches);
+        return cache;
+    }
+
+    private Map<String, Object> unavailableCache() {
+        Map<String, Object> cache = new LinkedHashMap<>();
+        cache.put("availability", "unavailable");
+        cache.put("caches", new LinkedHashMap<String, Object>());
+        return cache;
     }
 
     private Map<String, Object> freshnessSnapshot() {
@@ -454,6 +539,17 @@ public class RecommendationMeasurementService {
             .sorted(Comparator.naturalOrder())
             .map(Duration::ofMillis)
             .toArray(Duration[]::new);
+    }
+
+    private static Duration percentileWindow(RecommendationProperties properties) {
+        return properties == null || properties.getMeasurements() == null
+            ? Duration.ofSeconds(300)
+            : Duration.ofSeconds(properties.getMeasurements().getPercentileWindowSeconds());
+    }
+
+    private static int throughputWindowSeconds(RecommendationProperties properties) {
+        return properties == null || properties.getMeasurements() == null
+            ? 60 : properties.getMeasurements().getThroughputWindowSeconds();
     }
 
     private static String safetyPolicyVersion(RecommendationProperties properties) {

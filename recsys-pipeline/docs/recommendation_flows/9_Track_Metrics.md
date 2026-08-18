@@ -65,3 +65,25 @@ Redis keys:
 | `bandit:metrics:q-learning` | Q-learning only |
 | `bandit:metrics:sarsa` | SARSA only |
 | `replay:recommendations` | Rewarded replay events populated by `POST /feedback` |
+
+## `measurements` (schema 2.1)
+
+`GET /metrics` nests a `measurements` object beside the bandit aggregates.
+
+| Section | Contents |
+|---|---|
+| `latency` | p50/p95/p99, count, error rate, and timeout rate per endpoint (`recommend`, `feedback`, `predict`, `embedding`, `profile`) and per stage |
+| `throughput` | `qps`, `windowRequests`, `windowSeconds`, and `observedSeconds` per endpoint |
+| `cache` | `hitCount`, `missCount`, `hitRate`, `evictionCount`, and `estimatedSize` for `item_vectors` and `reward_stats` |
+| `freshness` | Fresh-item exposure share |
+| `safety` | Candidate-filter decisions by reason |
+| `feedbackCoverage` | Presence rate of each optional feedback signal |
+
+Percentiles decay over `RECSYS_PERCENTILE_WINDOW_SECONDS` (default 300), so they
+describe recent traffic. Counts, error rate, and timeout rate stay cumulative for
+the life of the process. The throughput window is `RECSYS_THROUGHPUT_WINDOW_SECONDS`
+(default 60).
+
+`qps` divides by `observedSeconds` — the time actually observed, capped at the
+window — rather than the full window width, so a short burst is not understated.
+An endpoint that has served nothing reports `qps: null`, not zero.
