@@ -33,7 +33,7 @@
 - Consumes: nothing from earlier tasks.
 - Produces: `ThroughputWindow(int windowSeconds, LongSupplier nowMillis)`, `void record()`, `Map<String, Object> snapshot()` returning keys `qps` (`Double`, nullable), `windowRequests` (`Long`), `windowSeconds` (`Integer`), `observedSeconds` (`Long`). Task 5 calls all three.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/test/java/com/demo/retrieval/measurement/ThroughputWindowTest.java`:
 
@@ -127,12 +127,12 @@ class ThroughputWindowTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=ThroughputWindowTest`
 Expected: compilation failure — `cannot find symbol: class ThroughputWindow`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `src/main/java/com/demo/retrieval/measurement/ThroughputWindow.java`:
 
@@ -217,12 +217,12 @@ final class ThroughputWindow {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=ThroughputWindowTest`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/java/com/demo/retrieval/measurement/ThroughputWindow.java \
@@ -243,7 +243,7 @@ git commit -m "feat: add trailing-window throughput counter"
 - Consumes: nothing from earlier tasks.
 - Produces: `RecommendationProperties.Measurements#getThroughputWindowSeconds()` and `#getPercentileWindowSeconds()`, both `int`, defaults 60 and 300. Tasks 3 and 5 read them.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/test/java/com/demo/retrieval/config/MeasurementWindowPropertiesTest.java`:
 
@@ -279,12 +279,12 @@ class MeasurementWindowPropertiesTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=MeasurementWindowPropertiesTest`
 Expected: compilation failure — `cannot find symbol: method getThroughputWindowSeconds()`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add the `Max` import alongside the existing constraint imports at the top of `RecommendationProperties.java`:
 
@@ -326,12 +326,12 @@ In `src/main/resources/application.yml`, add two keys to the existing `measureme
     percentile-window-seconds: ${RECSYS_PERCENTILE_WINDOW_SECONDS:300}
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=MeasurementWindowPropertiesTest`
 Expected: PASS, 2 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/java/com/demo/retrieval/config/RecommendationProperties.java \
@@ -352,7 +352,7 @@ git commit -m "feat: configure throughput and percentile windows"
 - Consumes: `Measurements#getPercentileWindowSeconds()` from Task 2.
 - Produces: a `private final Duration percentileWindow` field on the service, read by both timer builders. Task 5 does not touch it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `RecommendationMeasurementServiceTest`. Micrometer does not expose a
 timer's configured expiry, so this asserts the observable consequence — an old
@@ -398,12 +398,12 @@ sample leaving the window — rather than the setting:
 This uses the two-argument `@Autowired` constructor, which is still the only one
 at this point. Task 5 adds a third parameter and updates this call site.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=RecommendationMeasurementServiceTest#decaysLatencyPercentilesWhileKeepingCountsCumulative`
 Expected: FAIL — the p99 after the window still reflects the 900ms sample, because no expiry is configured.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `RecommendationMeasurementService`, add a field beside `latencyBuckets`:
 
@@ -430,12 +430,12 @@ Add these two lines to **both** `Timer.builder` chains — in `recordStage` and 
             .distributionStatisticBufferLength(5)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=RecommendationMeasurementServiceTest`
 Expected: PASS, all tests in the class.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/java/com/demo/retrieval/measurement/RecommendationMeasurementService.java \
@@ -455,7 +455,7 @@ git commit -m "fix: decay latency percentiles out of a bounded window"
 - Consumes: `RecommendationProperties` (already a constructor parameter).
 - Produces: `FeatureCache.CacheStatsView(long hitCount, long missCount, long evictionCount, long estimatedSize)` and `Map<String, CacheStatsView> FeatureCache#stats()`, keyed `"item_vectors"` and `"reward_stats"` in that order. Task 5 consumes both.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/test/java/com/demo/retrieval/model/FeatureCacheStatsTest.java`:
 
@@ -511,12 +511,12 @@ class FeatureCacheStatsTest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=FeatureCacheStatsTest`
 Expected: compilation failure — `cannot find symbol: class CacheStatsView`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `FeatureCache.java`, add `.recordStats()` to both builders:
 
@@ -560,12 +560,12 @@ Add the view type and accessor, plus the imports `java.util.LinkedHashMap` and `
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=FeatureCacheStatsTest`
 Expected: PASS, 3 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/java/com/demo/retrieval/model/FeatureCache.java \
@@ -588,7 +588,7 @@ git commit -m "feat: record Caffeine cache statistics"
 - Consumes: `ThroughputWindow` (Task 1), `getThroughputWindowSeconds()` (Task 2), `FeatureCache#stats()` and `CacheStatsView` (Task 4).
 - Produces: `MeasurementSnapshot(String schemaVersion, Map latency, Map throughput, Map cache, Map freshness, Map safety, Map feedbackCoverage)` with `asMap()` keys in that order. Nothing later consumes it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `RecommendationMeasurementServiceTest`:
 
@@ -650,12 +650,12 @@ Update the existing `measurements(SimpleMeterRegistry)` helper so every other te
 
 Change the existing assertion at line 76 from `assertEquals("2.0", ...)` to `assertEquals("2.1", ...)`. Update the two-argument construction inside `decaysLatencyPercentilesWhileKeepingCountsCumulative` (Task 3) to `new RecommendationMeasurementService(registry, properties, new FeatureCache(properties))`. Add the imports `com.demo.retrieval.model.FeatureCache` and `java.util.Map` if absent.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=RecommendationMeasurementServiceTest`
 Expected: FAIL — no three-argument constructor, no `throughput` key, schema still `2.0`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `MeasurementSnapshot`, add `throughput` and `cache` as the second and third components, copy them in the compact constructor exactly like the others, and put them into `asMap()` after `latency`.
 
@@ -751,7 +751,7 @@ Change the snapshot version string from `"2.0"` to `"2.1"`.
 
 Update the two remaining `2.0` assertions: `RecommendationControllerTest.java:343` and the `schemaVersion` value in the fixture at `integration-tests/python_modeling/test_dashboard_measurement_contract.py:70`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test`
 Expected: PASS, whole Java suite.
@@ -759,7 +759,7 @@ Expected: PASS, whole Java suite.
 Run: `cd ../../.. && python3 -m pytest recsys-pipeline/integration-tests/python_modeling/test_dashboard_measurement_contract.py -q`
 Expected: PASS — the exporter reads named keys and ignores the new sections.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/java/com/demo/retrieval/measurement/ \
@@ -782,7 +782,7 @@ git commit -m "feat: report request rate and cache hit rate at schema 2.1"
 - Consumes: `recordRequest(String, Duration, boolean, boolean)` — unchanged.
 - Produces: nothing later consumes.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `RecommendationControllerTest` (it already declares `measurementService` as a `@MockBean` and already imports `ValueOperations`, `mock`, `verify`, and `ArgumentMatchers.*`, so no new imports are needed):
 
@@ -815,12 +815,12 @@ Add to `RecommendationControllerTest` (it already declares `measurementService` 
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=RecommendationControllerTest`
 Expected: FAIL — `Wanted but not invoked: measurementService.recordRequest("predict", ...)`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Widen the allowlist in `RecommendationMeasurementService`:
 
@@ -875,12 +875,12 @@ with `error = false;` set immediately before each `return`, and `<name>` being `
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test`
 Expected: PASS, whole Java suite.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/java/com/demo/retrieval/controller/RecommendationController.java \
@@ -900,7 +900,7 @@ git commit -m "feat: time the predict, embedding, and profile endpoints"
 - Consumes: the snapshot shape from Tasks 5 and 6.
 - Produces: nothing.
 
-- [ ] **Step 1: Extend the metrics documentation**
+- [x] **Step 1: Extend the metrics documentation**
 
 `9_Track_Metrics.md` currently documents only the bandit aggregate fields. Append a section describing the `measurements` block, since `GET /metrics` now returns two more sections under it:
 
@@ -927,12 +927,12 @@ window — rather than the full window width, so a short burst is not understate
 An endpoint that has served nothing reports `qps: null`, not zero.
 ```
 
-- [ ] **Step 2: Verify the documented fields match the code**
+- [x] **Step 2: Verify the documented fields match the code**
 
 Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=RecommendationMeasurementServiceTest`
 Expected: PASS. Cross-check each documented key against the assertions in `snapshotReportsThroughputAndCacheSectionsAtSchemaTwoOne`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add ../../docs/recommendation_flows/9_Track_Metrics.md
@@ -943,7 +943,7 @@ git commit -m "docs: document the throughput and cache measurement sections"
 
 ## Verification
 
-- [ ] `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test` passes from `recsys-pipeline/services/java-retrieval-service`.
-- [ ] `python3 -m pytest recsys-pipeline/integration-tests/python_modeling -q` passes from the repository root.
-- [ ] `GET /metrics` returns `measurements.schemaVersion == "2.1"` with non-empty `throughput` and `cache` sections.
-- [ ] `git diff master --stat` shows no change under `services/python-modeling/` or `frontend/`, confirming the dashboard contract is untouched.
+- [x] `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test` passes from `recsys-pipeline/services/java-retrieval-service`.
+- [x] `python3 -m pytest recsys-pipeline/integration-tests/python_modeling -q` passes from the repository root.
+- [x] `GET /metrics` returns `measurements.schemaVersion == "2.1"` with non-empty `throughput` and `cache` sections.
+- [x] `git diff master --stat` shows no change under `services/python-modeling/` or `frontend/`, confirming the dashboard contract is untouched.
