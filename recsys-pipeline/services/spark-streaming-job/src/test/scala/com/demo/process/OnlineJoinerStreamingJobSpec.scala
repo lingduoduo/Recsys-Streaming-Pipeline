@@ -1,5 +1,7 @@
 package com.demo.process
 
+import java.nio.file.Files
+
 import com.demo.event.{EventParsing, EventSchemas}
 import com.demo.process.LateFeedbackJoin
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -558,9 +560,35 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     val sparkSession = spark
     import sparkSession.implicits._
 
-    // SnapshotColumns is a fixed list; a context field missing from it is silently dropped
-    // when a slate waits for late feedback, which no other test would catch.
-    LateFeedbackJoin.SnapshotColumns should contain allOf ("surface", "locale", "timezone", "device")
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0,"surface":"home_feed","locale":"en-US","timezone":"America/New_York","device":"ios"}"""
+    val click =
+      """{"event_id":"click","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":105}"""
+
+    val root = Files.createTempDirectory("online-joiner-late-feedback").toString
+    val subject = new LateFeedbackJoin(root, "context-round-trip", "60 seconds")
+    val startMs = 1000000L
+
+    val impressionEvents =
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(Seq(impression).toDF("value"))).kept
+    // Batch 0: only the impression arrives. The window stays open, so nothing publishes yet — but
+    // the slate's raw row, including the four context fields, is committed to a real Parquet
+    // snapshot on disk (LateFeedbackJoin.normalize -> writeSnapshot).
+    subject.process(impressionEvents, 0L, startMs).count() shouldBe 0L
+
+    val clickEvents =
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(Seq(click).toDF("value"))).kept
+    // Batch 1: the click closes the window. Publishing this slate requires reading batch 0's
+    // snapshot back off disk (readPending -> readSnapshot) and unioning it with this batch's click
+    // before buildTrainingSamples runs — a genuine round trip, not a re-assertion of the schema
+    // list that produced it.
+    val published = subject.process(clickEvents, 1L, startMs + 61000L)
+
+    val row = published.first()
+    row.getAs[String]("surface") shouldBe "home_feed"
+    row.getAs[String]("locale") shouldBe "en-US"
+    row.getAs[String]("timezone") shouldBe "America/New_York"
+    row.getAs[String]("device") shouldBe "ios"
   }
 
   it should "leave thumb null when the user never thumbed" in {

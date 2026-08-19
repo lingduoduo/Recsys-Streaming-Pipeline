@@ -179,7 +179,14 @@ its own `max_by` over the events where *that field* is non-null, tie-broken on
 then leaves the others standing.
 
 `isFeedback` extends from `click`/`order`/`purchase` to include `thumb_up`,
-`thumb_down`, and `abandon`. Two output columns are added to `training_samples`:
+`thumb_down`, and `abandon`. A narrower `isEngagementFeedback`
+(`click`/`order`/`purchase` only) governs `last_feedback_ts` and
+`last_feedback_ts_ms` — and therefore `feedback_delay_ms` — instead: widening
+those timestamp aggregates to thumbs and abandons would have silently
+redefined that existing metric, which `ExperienceCollectorStreamingJob` and
+`RecommendationResponseStatsJob` both read as time-to-engagement, so a thumb
+arriving long after a click would inflate it. Two output columns are added to
+`training_samples`:
 
 - `thumb` — `1` from the latest `thumb_up`, `-1` from the latest `thumb_down`,
   `null` when the user did neither. A user who thumbs up and later thumbs down

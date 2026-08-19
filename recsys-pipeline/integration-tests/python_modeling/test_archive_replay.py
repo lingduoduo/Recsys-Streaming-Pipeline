@@ -177,7 +177,9 @@ def _archive_with_fingerprints(tmp_path: Path, fingerprints: list[int]) -> archi
         table.set_column(
             table.schema.get_field_index("schema_fingerprint"),
             "schema_fingerprint",
-            pa.array(fingerprints),
+            # uint64: event_avro.schema_fingerprint() returns an unsigned 64-bit value, and the
+            # v2 fingerprint's top bit is set, so a signed int64 array would overflow.
+            pa.array(fingerprints, type=pa.uint64()),
         ),
         archive_file,
     )
@@ -959,3 +961,17 @@ def test_archive_accepts_every_catalogued_fingerprint(tmp_path):
     archive = _archive_with_fingerprints(tmp_path, [v1_fingerprint])
 
     assert _validate_archive_fingerprints(archive, None) == (v1_fingerprint,)
+
+
+def test_archive_spanning_both_schema_versions_lists_both_fingerprints(tmp_path):
+    """A manifest spanning both versions lists both fingerprints, sorted."""
+    import event_avro
+    from archive_replay import _validate_archive_fingerprints
+
+    v1_fingerprint = event_avro.schema_fingerprint(
+        event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0]))
+    v2_fingerprint = event_avro.schema_fingerprint(event_avro.load_schema())
+    archive = _archive_with_fingerprints(tmp_path, [v1_fingerprint, v2_fingerprint])
+
+    assert _validate_archive_fingerprints(archive, None) == tuple(
+        sorted((v1_fingerprint, v2_fingerprint)))

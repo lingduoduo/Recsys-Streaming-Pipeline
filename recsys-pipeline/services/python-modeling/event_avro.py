@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import json
 from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 
 import fastavro
 
@@ -25,8 +27,16 @@ class EventValidationError(ValueError):
     """Raised when an event cannot be encoded or decoded as a canonical event."""
 
 
+@functools.lru_cache(maxsize=None)
 def load_schema(path: Path | None = None) -> dict:
-    """Load the canonical Avro writer schema, or a supplied schema artifact."""
+    """Load the canonical Avro writer schema, or a supplied schema artifact.
+
+    Cached per ``path``: repeated calls return the same dict object rather than re-opening
+    and re-parsing the file. Callers must treat the result as read-only — every caller of a
+    given path shares this object, and empirically fastavro's schemaless_reader/writer do
+    not mutate the schema dicts they are given, but a caller that did would corrupt it for
+    everyone else.
+    """
     with (path or DEFAULT_SCHEMA_PATH).open(encoding="utf-8") as schema_file:
         return json.load(schema_file)
 
@@ -39,18 +49,24 @@ def schema_fingerprint(schema: dict) -> int:
     return int.from_bytes(fingerprint_bytes, "little")
 
 
-def load_catalog() -> dict[int, dict]:
+@functools.lru_cache(maxsize=None)
+def load_catalog() -> Mapping[int, dict]:
     """Every writer schema this decoder accepts, keyed by fingerprint.
 
     A record written before a schema bump is still a valid record; keeping the older
     writer schemas here is what lets it resolve into the current reader shape instead
     of dead-lettering as an unknown fingerprint.
+
+    Cached: building this catalog canonicalizes and CRC-64-fingerprints every schema, which
+    is done once per process rather than on every call (this is used per-message as a Kafka
+    deserializer's default catalog). The returned mapping is read-only to stop a caller from
+    corrupting the shared cached object; the schema dicts it holds must not be mutated either.
     """
     catalog: dict[int, dict] = {}
     for path in (*LEGACY_SCHEMA_PATHS, DEFAULT_SCHEMA_PATH):
         schema = load_schema(path)
         catalog[schema_fingerprint(schema)] = schema
-    return catalog
+    return MappingProxyType(catalog)
 
 
 def validate_required(event: Mapping[str, object]) -> None:
