@@ -187,6 +187,23 @@ class TestBehaviorWorkflowEvents:
         event_ids = [e["event_id"] for e in events]
         assert len(event_ids) == len(set(event_ids)), "event_ids must be unique per event"
 
+    def test_country_locale_and_timezone_are_stable_per_user(self):
+        """Fails if country is drawn per slate: a user's country (and the locale/timezone
+        derived from it) must not change between slates."""
+        mod = load_producer_module()
+        users = [f"user_{i}" for i in range(1, 6)]
+        items = ["movie_1", "movie_2", "movie_3"]
+
+        seen = {}
+        for _ in range(60):
+            for event in mod.make_behavior_slate(users, items):
+                if event["event_type"] != "impression":
+                    continue
+                user = event["user_id"]
+                context = (event["user_features"]["country"], event["locale"], event["timezone"])
+                previous = seen.setdefault(user, context)
+                assert previous == context
+
 
 def test_click_event_has_unified_schema():
     users = ["user_1", "user_2"]

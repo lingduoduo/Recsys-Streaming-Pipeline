@@ -30,10 +30,21 @@ LOG_EVERY = max(int(os.getenv("LOG_EVERY", "100")), 1)
 MAX_EVENTS = max(int(os.getenv("MAX_EVENTS", "0")), 0)
 
 SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
+COUNTRIES = ("us", "ca", "gb")
 # One locale and zone per country, matching movie_segment_producer's vocabulary.
 COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
 COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
                     "gb": "Europe/London", "de": "Europe/Berlin"}
+
+
+def user_country(user: str) -> str:
+    """The user's country: a pure function of the user id, so it stays stable across every
+    slate that user appears in instead of being redrawn per slate (which would make locale
+    and timezone, both derived from country, noise no report could attribute to anyone).
+    """
+    tail = user.rsplit("_", 1)[-1]
+    index = int(tail) if tail.isdigit() else 0
+    return COUNTRIES[index % len(COUNTRIES)]
 
 
 def make_click_event(users, items):
@@ -53,7 +64,7 @@ def make_behavior_slate(users, items):
     slate_items = random.sample(items, min(SLATE_SIZE, len(items)))
     surface = random.choice(SURFACES)
     device = random.choice(["ios", "android", "web"])
-    country = random.choice(["us", "ca", "gb"])
+    country = user_country(user)
     user_tier = random.choice(["new", "standard", "vip"])
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
 

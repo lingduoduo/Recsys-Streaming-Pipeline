@@ -36,6 +36,27 @@ def test_slate_times_are_sorted_and_span_window():
     assert times[0] >= START and times[-1] < END
 
 
+def test_country_locale_and_timezone_are_stable_per_user():
+    """Fails if country is drawn per slate: a user's country (and the locale/timezone derived
+    from it) must not change between slates."""
+    import random
+    bp.make_slate.start, bp.make_slate.end = START, END
+    users = [f"user_{i}" for i in range(1, 6)]
+    items = [f"movie_{i}" for i in range(1, 6)]
+    rng = random.Random(1)
+    dt = START
+
+    seen = {}
+    for _ in range(60):
+        for event in bp.make_slate(dt, users, items, rng):
+            if event["event_type"] != "impression":
+                continue
+            user = event["user_id"]
+            context = (event["user_features"]["country"], event["locale"], event["timezone"])
+            previous = seen.setdefault(user, context)
+            assert previous == context
+
+
 def test_valence_events_are_deferred_like_other_feedback():
     """Fails if split_slate sends a thumb at slate time instead of at its own timestamp."""
     from feedback_schedule import split_slate
