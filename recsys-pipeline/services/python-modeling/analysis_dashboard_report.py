@@ -389,10 +389,12 @@ def _feature_map(value) -> dict:
 
 
 def _with_demographic_columns(samples):
-    """Hoist allowlisted demographics out of user_features into fairness columns.
+    """Hoist allowlisted demographics into fairness columns.
 
-    The allowlist is the cardinality guard: a key outside DEFAULT_DIMENSIONS is
-    never promoted, so no arbitrary user attribute can become a published group.
+    A dimension already present as a typed column is left alone. Otherwise it is read
+    from user_features, which is where user attributes live until they are typed. The
+    allowlist is the cardinality guard: a key outside DEFAULT_DIMENSIONS is never
+    promoted, so no arbitrary user attribute can become a published group.
     """
     from governance_measurements import DEFAULT_DIMENSIONS
     if "user_features" not in samples.columns:

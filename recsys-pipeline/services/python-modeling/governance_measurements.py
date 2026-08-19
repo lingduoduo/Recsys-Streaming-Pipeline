@@ -20,7 +20,7 @@ DEFAULT_DIMENSIONS: tuple[str, ...] = (
     "gender",
     "occupation",
     "geo",
-    "platform",
+    "device",
     "country",
     "subscription",
 )
