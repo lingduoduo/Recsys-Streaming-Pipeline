@@ -26,11 +26,13 @@ FEEDBACK_TAIL_SECONDS="${FEEDBACK_TAIL_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_
   'BEGIN { v = 150 * scale; if (v < 10) v = 10; printf "%d", v }')}"
 
 # An idle stream produces no micro-batches, so only the arriving feedback itself can close a
-# window — the wall-clock arm cannot drain a stopped producer. The wait is therefore tied to the
-# producer's maximum order delay (120s * scale): by the time the last impression's deadline is
-# reached, feedback is still arriving to close it, and nothing is stranded.
+# window — the wall-clock arm cannot drain a stopped producer. The wait is therefore tied to
+# movielens_segment_producer's maximum feedback delay — order at up to 120s, the largest of
+# impression/click/order — plus margin so an order landing near the true maximum doesn't race
+# the window's close (130s * scale): by the time the last impression's deadline is reached,
+# feedback is still arriving to close it, and nothing is stranded.
 FEEDBACK_JOIN_WAIT_SECONDS="${FEEDBACK_JOIN_WAIT_SECONDS:-$(awk -v scale="$FEEDBACK_DELAY_SCALE" \
-  'BEGIN { v = 120 * scale; if (v < 10) v = 10; printf "%d", v }')}"
+  'BEGIN { v = 130 * scale; if (v < 10) v = 10; printf "%d", v }')}"
 # The parquet drain must outlast the last order's arrival *and* the window the joiner then holds
 # it for, plus one trigger interval for the publishing batch itself.
 SAMPLE_DRAIN_SECONDS="${SAMPLE_DRAIN_SECONDS:-$((FEEDBACK_TAIL_SECONDS + FEEDBACK_JOIN_WAIT_SECONDS + 10))}"

@@ -29,21 +29,30 @@ def _demo(age=30, gender="F", occupation="student", zip_code="90210"):
 
 
 def test_click_prob_age_platform_occupation_geo_orderings():
-    assert mp.click_prob(_demo(age=30), "ios") > mp.click_prob(_demo(age=60), "ios")      # 25-34 > 55+
-    assert mp.click_prob(_demo(), "ios") > mp.click_prob(_demo(), "web")                   # ios > web
-    assert mp.click_prob(_demo(occupation="student"), "web") > \
-        mp.click_prob(_demo(occupation="retired"), "web")                                  # student > retired
-    assert mp.click_prob(_demo(gender="F"), "web") > mp.click_prob(_demo(gender="M"), "web")
-    assert mp.click_prob(_demo(zip_code="90001"), "web") > \
-        mp.click_prob(_demo(zip_code="70001"), "web")                                      # West > South-Central
+    assert mp.click_prob(_demo(age=30), "ios", "home_feed") > \
+        mp.click_prob(_demo(age=60), "ios", "home_feed")                                   # 25-34 > 55+
+    assert mp.click_prob(_demo(), "ios", "home_feed") > \
+        mp.click_prob(_demo(), "web", "home_feed")                                         # ios > web
+    assert mp.click_prob(_demo(occupation="student"), "web", "home_feed") > \
+        mp.click_prob(_demo(occupation="retired"), "web", "home_feed")                     # student > retired
+    assert mp.click_prob(_demo(gender="F"), "web", "home_feed") > \
+        mp.click_prob(_demo(gender="M"), "web", "home_feed")
+    assert mp.click_prob(_demo(zip_code="90001"), "web", "home_feed") > \
+        mp.click_prob(_demo(zip_code="70001"), "web", "home_feed")                         # West > South-Central
+
+
+def test_click_prob_surface_ordering():
+    # search_results (0.04) > home_feed (0.02) per SURFACE_EFF
+    assert mp.click_prob(_demo(), "web", "search_results") > mp.click_prob(_demo(), "web", "home_feed")
 
 
 def test_click_prob_bounded():
     for age in (18, 30, 64):
         for occ in mp.OCCUPATIONS:
             for plat in mp.PLATFORMS:
-                p = mp.click_prob(_demo(age=age, occupation=occ), plat)
-                assert 0.02 <= p <= 0.95
+                for surface in mp.SURFACES:
+                    p = mp.click_prob(_demo(age=age, occupation=occ), plat, surface)
+                    assert 0.02 <= p <= 0.95
 
 
 def test_assign_demographics_canonical_fields_and_deterministic():
@@ -88,3 +97,67 @@ def test_rating_event_shape_matches_ratingevent():
     assert set(ev) == {"user_id", "item_id", "event_type", "rating", "timestamp"}
     assert ev["event_type"] == "rating"
     assert 1.0 <= ev["rating"] <= 5.0
+
+
+# ── typed context fields on impressions ─────────────────────────────────────────
+def test_impressions_carry_the_four_typed_context_fields():
+    import random
+    rng = random.Random(0)
+    items = [f"movie_{i}" for i in range(1, 11)]
+    slate = mp.make_slate("user_1", _demo(), items, rng, "sess1")
+    impressions = [e for e in slate if e["event_type"] == "impression"]
+    assert impressions
+    for e in impressions:
+        assert e["surface"] in mp.SURFACES
+        assert e["device"] in mp.PLATFORMS
+        assert e["locale"] == "en-US"
+        assert e["timezone"] in set(mp.ZIP_TIMEZONE.values())
+
+
+def test_context_features_is_empty_on_every_event():
+    import random
+    rng = random.Random(0)
+    items = [f"movie_{i}" for i in range(1, 11)]
+    slate = mp.make_slate("user_1", _demo(), items, rng, "sess1")
+    assert slate
+    assert all(e["context_features"] == {} for e in slate)
+
+
+def test_locale_is_always_en_us_movielens_zips_are_us_only():
+    import random
+    rng = random.Random(0)
+    items = [f"movie_{i}" for i in range(1, 11)]
+    for zip_code in ("90210", "02139", "70001", ""):
+        slate = mp.make_slate("user_1", _demo(zip_code=zip_code), items, rng, "sessX")
+        impressions = [e for e in slate if e["event_type"] == "impression"]
+        assert impressions
+        assert all(e["locale"] == "en-US" for e in impressions)
+
+
+def test_timezone_maps_from_the_zip_region():
+    import random
+    rng = random.Random(0)
+    items = [f"movie_{i}" for i in range(1, 11)]
+    cases = {
+        "02139": "America/New_York",   # Northeast
+        "70001": "America/Chicago",    # South-Central
+        "80001": "America/Denver",     # Mountain
+        "90210": "America/Los_Angeles",  # West
+    }
+    for zip_code, expected_tz in cases.items():
+        region = sf.derive_geo(zip_code)
+        assert mp.ZIP_TIMEZONE[region] == expected_tz
+        slate = mp.make_slate("user_1", _demo(zip_code=zip_code), items, rng, "sessX")
+        impressions = [e for e in slate if e["event_type"] == "impression"]
+        assert all(e["timezone"] == expected_tz for e in impressions)
+
+
+def test_unknown_zip_region_yields_a_none_timezone():
+    import random
+    rng = random.Random(0)
+    items = [f"movie_{i}" for i in range(1, 11)]
+    assert sf.derive_geo("") == "unknown"
+    slate = mp.make_slate("user_1", _demo(zip_code=""), items, rng, "sessX")
+    impressions = [e for e in slate if e["event_type"] == "impression"]
+    assert impressions
+    assert all(e["timezone"] is None for e in impressions)

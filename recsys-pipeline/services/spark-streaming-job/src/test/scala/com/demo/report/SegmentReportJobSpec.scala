@@ -20,9 +20,30 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     rows("u2").getAs[Long]("clicks") shouldBe 0L
   }
 
-  "platformMetrics" should "break down CTR by the context_features platform" in {
+  "platformMetrics" should "break down CTR by the typed device column when present" in {
     val s = spark; import s.implicits._
     // u1 ios (1 click / 2), u2 web (2 clicks / 2, 1 order); overall CTR = 0.75
+    // context_features is empty, matching what current producers actually emit.
+    val df = Seq(
+      ("ios", Map.empty[String, String], 1, 0, "u1"),
+      ("ios", Map.empty[String, String], 0, 0, "u1"),
+      ("web", Map.empty[String, String], 1, 1, "u2"),
+      ("web", Map.empty[String, String], 1, 0, "u2")
+    ).toDF("device", "context_features", "clicked", "ordered", "user_id")
+
+    val rows = SegmentReportJob.platformMetrics(df, overallCtr = 0.75)
+      .collect().map(r => r.getAs[String]("platform") -> r).toMap
+
+    rows("ios").getAs[Long]("impressions") shouldBe 2L
+    rows("ios").getAs[Double]("ctr") shouldBe 0.5
+    rows("ios").getAs[Long]("users") shouldBe 1L
+    rows("web").getAs[Double]("ctr") shouldBe 1.0
+    rows("web").getAs[Double]("order_rate") shouldBe 0.5
+  }
+
+  it should "fall back to the legacy context_features[\"platform\"] map key when there is no typed device column" in {
+    val s = spark; import s.implicits._
+    // Pre-migration Parquet: no `device` column at all, platform only in context_features.
     val df = Seq(
       (Map("platform" -> "ios"), 1, 0, "u1"),
       (Map("platform" -> "ios"), 0, 0, "u1"),
