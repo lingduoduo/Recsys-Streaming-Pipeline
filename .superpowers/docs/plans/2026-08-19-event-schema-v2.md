@@ -880,8 +880,15 @@ Replace the two `cf_*` lines in `assembleFeatures`:
 
 ```scala
       .withColumn("cf_device",  firstAvailable(df, "device", "context_features", "device"))
-      .withColumn("cf_country", firstAvailable(df, "country", "user_features", "country"))
+      .withColumn("cf_country", mapValue(df, "user_features", "country", "context_features"))
 ```
+
+**Correction applied during implementation:** the original text routed `cf_country` through
+`firstAvailable(df, "country", "user_features", "country")`, which never consults
+`context_features` — `country` is never a typed column, so the legacy fallback was unreachable and
+legacy rows resolved to "NA". `cf_country` needs a map-to-map coalesce
+(`user_features["country"]` then `context_features["country"]` then `"NA"`), not the
+column-then-map shape. TDD caught it.
 
 Keep `uf_tier` and `if_bucket` exactly as they are — `tier` is unresolved between producers and is sub-project B's problem.
 
