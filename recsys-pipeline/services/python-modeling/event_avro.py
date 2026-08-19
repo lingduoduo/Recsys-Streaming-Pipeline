@@ -12,7 +12,9 @@ import fastavro
 
 MAGIC = b"\xc3\x01"
 REQUIRED_FIELDS = ("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
-DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas/recsys-event-v1.avsc"
+_SCHEMA_DIR = Path(__file__).resolve().parents[2] / "schemas"
+DEFAULT_SCHEMA_PATH = _SCHEMA_DIR / "recsys-event-v2.avsc"
+LEGACY_SCHEMA_PATHS: tuple[Path, ...] = (_SCHEMA_DIR / "recsys-event-v1.avsc",)
 
 
 class SchemaFingerprintError(ValueError):
@@ -35,6 +37,20 @@ def schema_fingerprint(schema: dict) -> int:
         fastavro.schema.fingerprint(canonical, "CRC-64-AVRO")
     )
     return int.from_bytes(fingerprint_bytes, "little")
+
+
+def load_catalog() -> dict[int, dict]:
+    """Every writer schema this decoder accepts, keyed by fingerprint.
+
+    A record written before a schema bump is still a valid record; keeping the older
+    writer schemas here is what lets it resolve into the current reader shape instead
+    of dead-lettering as an unknown fingerprint.
+    """
+    catalog: dict[int, dict] = {}
+    for path in (*LEGACY_SCHEMA_PATHS, DEFAULT_SCHEMA_PATH):
+        schema = load_schema(path)
+        catalog[schema_fingerprint(schema)] = schema
+    return catalog
 
 
 def validate_required(event: Mapping[str, object]) -> None:
@@ -64,12 +80,13 @@ def decode_event(payload: bytes, catalog: Mapping[int, dict] | None = None) -> d
     if len(payload) < 10 or payload[:2] != MAGIC:
         raise EventValidationError("invalid Avro single-object marker")
     fingerprint = int.from_bytes(payload[2:10], "little")
-    schemas = catalog if catalog is not None else {schema_fingerprint(load_schema()): load_schema()}
+    schemas = catalog if catalog is not None else load_catalog()
     if fingerprint not in schemas:
         raise SchemaFingerprintError(f"unknown schema fingerprint {fingerprint}")
     encoded_record = io.BytesIO(payload[10:])
     try:
-        decoded = fastavro.schemaless_reader(encoded_record, schemas[fingerprint])
+        decoded = fastavro.schemaless_reader(
+            encoded_record, schemas[fingerprint], load_schema())
     except (TypeError, ValueError, EOFError) as exc:
         raise EventValidationError(str(exc)) from exc
     if encoded_record.read(1):
