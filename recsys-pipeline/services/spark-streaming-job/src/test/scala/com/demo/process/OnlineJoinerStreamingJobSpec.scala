@@ -520,6 +520,9 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     row.getAs[Int]("abandoned") shouldBe 0
     row.getAs[Long]("dwell_millis") shouldBe 9000L
     row.getAs[Double]("completion_rate") shouldBe 0.80
+    // feedback_delay_ms measures time-to-engagement: it must track the click (t=105), not the
+    // later thumb_up (t=200) — a valence signal must not silently redefine this existing metric.
+    row.getAs[Long]("feedback_delay_ms") shouldBe 5000L
     row.getAs[String]("surface") shouldBe "home_feed"
     row.getAs[String]("locale") shouldBe "en-US"
     row.getAs[String]("timezone") shouldBe "America/New_York"

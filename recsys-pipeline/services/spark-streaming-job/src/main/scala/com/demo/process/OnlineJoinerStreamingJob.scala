@@ -175,6 +175,10 @@ object OnlineJoinerStreamingJob {
     val isImpression = col("etype").isin("impression", "exposure")
     val isFeedback = col("etype").isin(
       "click", "order", "purchase", "thumb_up", "thumb_down", "abandon")
+    // last_feedback_ts / feedback_delay_ms are an existing downstream contract measuring
+    // time-to-engagement (ExperienceCollectorStreamingJob, RecommendationResponseStatsJob).
+    // Thumbs and abandons are valence signals, not engagement, and must not silently redefine it.
+    val isEngagementFeedback = col("etype").isin("click", "order", "purchase")
 
     val withMeasurementFields = MeasurementFields.foldLeft(events) { case (df, (name, dataType)) =>
       if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
@@ -214,8 +218,8 @@ object OnlineJoinerStreamingJob {
           )),
           when(isImpression, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
         ).as("impression_measurement"),
-        latestFeedback("timestamp", isFeedback).as("last_feedback_ts"),
-        latestFeedback("timestamp_ms", isFeedback).as("last_feedback_ts_ms"),
+        latestFeedback("timestamp", isEngagementFeedback).as("last_feedback_ts"),
+        latestFeedback("timestamp_ms", isEngagementFeedback).as("last_feedback_ts_ms"),
         latestFeedback("rating", isFeedback).as("rating"),
         latestFeedback("negative_feedback_reason", isFeedback).as("negative_feedback_reason"),
         latestFeedback("dwell_millis", isFeedback).as("dwell_millis"),
