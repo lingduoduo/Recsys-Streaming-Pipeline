@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Java build commands must use JDK 17: `JAVA_HOME=$(/usr/libexec/java_home -v 17)`. The default JDK 25 aborts every Spark-session test with a misleading `getSubject` error.
-- Scala tests run from `recsys-pipeline/services/spark-streaming-job`; Python tests run from the repository root.
+- Scala tests run from `recsys-pipeline/services/spark-streaming-job`, which is an **sbt** module (`build.sbt`, no `pom.xml`): `JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test`. Python tests run from the repository root. (The `mvn` commands elsewhere in this plan were wrong; only `services/java-retrieval-service` is Maven, and this plan does not touch it.)
 - The v2 fingerprint is **`0xAF86ABE880FE4BB3`** (`af86abe880fe4bb3` as the lowercase hex string stored in config). This value is fixed by the exact field list and order in Task 1. If you change that list, recompute with:
   `python3 -c "import json,fastavro;s=json.load(open('recsys-pipeline/schemas/recsys-event-v2.avsc'));print(format(int.from_bytes(bytes.fromhex(fastavro.schema.fingerprint(fastavro.schema.to_parsing_canonical_form(s),'CRC-64-AVRO')),'little'),'016x'))"`
 - The Avro schema file is duplicated: `recsys-pipeline/schemas/` (read by Python) and `recsys-pipeline/services/spark-streaming-job/src/main/resources/schemas/` (read by Scala). Both copies must be written and kept byte-identical.
@@ -333,7 +333,7 @@ Add the imports this needs at the top of the spec, if absent: `org.apache.avro.g
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=EventAvroCodecSpec`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch "testOnly com.demo.event.EventAvroCodecSpec"`
 Expected: FAIL — the codec still loads v1, so the field names assertion fails and the v1 payload's fingerprint matches, returning a record without the new fields rather than exercising the catalog.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -398,7 +398,7 @@ The existing spec assertion "keep its checked-in schema semantically identical t
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test`
 Expected: PASS, whole Scala suite.
 
 - [ ] **Step 5: Commit**
@@ -479,7 +479,7 @@ The existing test at line 227, `"keep only the latest feedback event's measureme
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=OnlineJoinerStreamingJobSpec`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch "testOnly com.demo.process.OnlineJoinerStreamingJobSpec"`
 Expected: FAIL — `negative_feedback_reason` is `null` rather than `"not_interested"`, because the rating-only order supersedes the whole struct.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -535,7 +535,7 @@ Then delete the now-unnecessary copy-forward in `movie_segment_producer.py`:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test`
 Then: `cd ../../.. && python3 -m pytest recsys-pipeline/integration-tests/python_modeling/test_movie_category_sim.py -q`
 Expected: PASS both. `LateFeedbackJoinSpec` exercises the same builder and must stay green.
 
@@ -644,7 +644,7 @@ Add to `OnlineJoinerStreamingJobSpec.scala`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=OnlineJoinerStreamingJobSpec`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch "testOnly com.demo.process.OnlineJoinerStreamingJobSpec"`
 Expected: FAIL — `org.apache.spark.sql.AnalysisException` for the missing `thumb` column.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -705,7 +705,7 @@ In `LateFeedbackJoin.scala`, `SnapshotColumns` already appends `MeasurementField
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test`
 Expected: PASS, whole Scala suite including `LateFeedbackJoinSpec` and `ExperienceCollectorStreamingJobSpec`. Add `import com.demo.process.LateFeedbackJoin` to the spec if it is not already imported.
 
 - [ ] **Step 5: Commit**
@@ -770,7 +770,7 @@ Add to `CtrRankingModelTrainingJobSpec.scala`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test -Dtest=CtrRankingModelTrainingJobSpec`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch "testOnly com.demo.task.CtrRankingModelTrainingJobSpec"`
 Expected: FAIL — the typed case yields `"NA"` for both, because the trainer only reads `context_features`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -805,7 +805,7 @@ Add `org.apache.spark.sql.Column` to the imports if absent.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test`
+Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test`
 Expected: PASS, whole Scala suite.
 
 - [ ] **Step 5: Commit**
@@ -1262,7 +1262,7 @@ git commit -m "docs: document the v2 event contract and event types"
 
 ## Verification
 
-- [ ] `JAVA_HOME=$(/usr/libexec/java_home -v 17) mvn -q test` passes from `recsys-pipeline/services/spark-streaming-job`.
+- [ ] `JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test` passes from `recsys-pipeline/services/spark-streaming-job`.
 - [ ] `python3 -m pytest recsys-pipeline/integration-tests -q` passes from the repository root.
 - [ ] `git grep -n '"platform"' recsys-pipeline/services/python-modeling/governance_measurements.py` returns nothing.
 - [ ] `git grep -n 'context_features": {"device"' recsys-pipeline/services/python-modeling` returns nothing — no producer writes context to the map.
