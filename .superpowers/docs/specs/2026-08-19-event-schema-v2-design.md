@@ -1,7 +1,7 @@
 # Event Schema v2 — Context and Feedback Signals — Design
 
 **Date:** 2026-08-19
-**Status:** draft
+**Status:** approved
 **Depends on:** [2026-08-09-avro-kafka-ingestion-backfill-design.md](2026-08-09-avro-kafka-ingestion-backfill-design.md), [2026-08-11-late-feedback-join-design.md](2026-08-11-late-feedback-join-design.md)
 
 ## Problem
