@@ -187,14 +187,21 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
     timezone = user_timezone(country)
 
     def base(item: str, event_type: str, timestamp_ms: int, position: int) -> dict:
-        return {
+        """One event. Request context rides on the impression only.
+
+        The joiner reads context with first(when(isImpression, ...)), so copies on feedback
+        events are ignored — but emitting them anyway makes this producer's events a different
+        shape from every other producer's and from the documented contract.
+        """
+        event = {
             "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
             "user_id": user, "item_id": item, "event_type": event_type,
             "timestamp_ms": timestamp_ms, "position": position,
             "user_features": dict(user_meta), "item_features": {}, "context_features": {},
-            "surface": surface, "device": device,
-            "locale": locale, "timezone": timezone,
         }
+        if event_type == "impression":
+            event.update(surface=surface, device=device, locale=locale, timezone=timezone)
+        return event
 
     events = []
     for position, item in enumerate(slate_items):

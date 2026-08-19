@@ -41,6 +41,23 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     rows("web").getAs[Double]("order_rate") shouldBe 0.5
   }
 
+  it should "prefer the typed device column over a stale legacy map key" in {
+    val s = spark; import s.implicits._
+    // Both sources present and disagreeing: a slate written during the migration can carry a
+    // typed device AND a leftover context_features["platform"]. The typed field is the current
+    // contract, so it must win. Neither single-source test can catch a reversed coalesce.
+    val df = Seq(
+      ("ios", Map("platform" -> "web"), 1, 0, "u1"),
+      ("ios", Map("platform" -> "web"), 0, 0, "u1")
+    ).toDF("device", "context_features", "clicked", "ordered", "user_id")
+
+    val rows = SegmentReportJob.platformMetrics(df, overallCtr = 0.5)
+      .collect().map(r => r.getAs[String]("platform") -> r).toMap
+
+    rows.keySet shouldBe Set("ios")
+    rows("ios").getAs[Long]("impressions") shouldBe 2L
+  }
+
   it should "fall back to the legacy context_features[\"platform\"] map key when there is no typed device column" in {
     val s = spark; import s.implicits._
     // Pre-migration Parquet: no `device` column at all, platform only in context_features.
