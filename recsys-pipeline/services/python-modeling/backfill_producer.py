@@ -39,7 +39,7 @@ import random
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from producer import make_producer  # reuse the tuned KafkaProducer config
+from producer import COUNTRIES, COUNTRY_LOCALE, COUNTRY_TIMEZONE, SURFACES, make_producer  # reuse the tuned KafkaProducer config
 
 TOPIC = os.getenv("KAFKA_TOPIC", "recsys_events")
 BACKFILL_DAYS = max(int(os.getenv("BACKFILL_DAYS", "21")), 1)
@@ -55,6 +55,16 @@ WEEKEND_BOOST = float(os.getenv("WEEKEND_BOOST", "0.06"))
 TREND_DELTA = float(os.getenv("TREND_DELTA", "-0.10"))
 CHANGEPOINT_DAY = int(os.getenv("CHANGEPOINT_DAY", "14"))
 CHANGEPOINT_DROP = float(os.getenv("CHANGEPOINT_DROP", "0.12"))
+
+
+def user_country(user: str) -> str:
+    """The user's country: a pure function of SEED and the user id, so it is stable across
+    every slate that user appears in within one run (locale/timezone, both derived from
+    country, would otherwise be noise no report could attribute to anyone) while a different
+    SEED still injects a different per-user assignment — this file's whole reproducibility
+    contract is that everything is a function of SEED, never of slate order.
+    """
+    return random.Random(f"{SEED}:{user}").choice(COUNTRIES)
 
 
 def click_prob(dt: datetime, start: datetime, end: datetime) -> float:
@@ -93,8 +103,9 @@ def make_slate(dt: datetime, users, items, rng: random.Random) -> list[dict]:
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
+    surface = rng.choice(SURFACES)
     device = rng.choice(["ios", "android", "web"])
-    country = rng.choice(["US", "CA", "GB"])
+    country = user_country(user)
     user_tier = rng.choice(["new", "standard", "vip"])
 
     events = []
@@ -108,9 +119,13 @@ def make_slate(dt: datetime, users, items, rng: random.Random) -> list[dict]:
             "event_type": "impression",
             "timestamp_ms": base_ms,
             "position": position,
-            "user_features": {"tier": user_tier},
+            "user_features": {"tier": user_tier, "country": country},
             "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
-            "context_features": {"device": device, "country": country},
+            "context_features": {},
+            "surface": surface,
+            "device": device,
+            "locale": COUNTRY_LOCALE[country],
+            "timezone": COUNTRY_TIMEZONE[country],
         })
 
     p = click_prob(dt, make_slate.start, make_slate.end)

@@ -156,3 +156,56 @@ def test_user_click_bias_creates_a_documented_subscription_gap():
     import movie_segment_producer as producer
     assert producer.user_click_bias({"subscription": "premium"}) > producer.user_click_bias({"subscription": "free"})
     assert producer.user_click_bias({"subscription": "unknown_tier"}) == 0.0
+
+
+def test_locale_and_timezone_are_stable_per_user():
+    """Fails if context is drawn per slate: a user's locale must not change between slates."""
+    import movie_segment_producer as producer
+    rng = random.Random(17)
+    movies = producer.assign_movies(20, rng)
+    users = producer.assign_users(10, rng)
+    items = list(movies)
+
+    seen = {}
+    for _ in range(40):
+        user = rng.choice(list(users))
+        for event in producer.make_slate(user, users[user], items, movies, rng):
+            if event["event_type"] != "impression":
+                continue
+            previous = seen.setdefault(user, (event["locale"], event["timezone"]))
+            assert previous == (event["locale"], event["timezone"])
+
+
+def test_impressions_carry_typed_context_and_country_moves_to_user_features():
+    import movie_segment_producer as producer
+    rng = random.Random(17)
+    movies = producer.assign_movies(20, rng)
+    users = producer.assign_users(10, rng)
+    user = next(iter(users))
+
+    events = producer.make_slate(user, users[user], list(movies), movies, rng)
+    impression = next(e for e in events if e["event_type"] == "impression")
+
+    assert impression["surface"] in producer.SURFACES
+    assert impression["device"] in ("ios", "android", "web")
+    assert impression["locale"] in ("en-US", "en-CA", "fr-CA", "en-GB", "de-DE")
+    assert "country" not in impression.get("context_features", {})
+    assert impression["user_features"]["country"] == users[user]["country"]
+    assert impression["context_features"] == {}
+
+
+def test_low_completion_clicks_produce_an_abandon_and_high_ones_a_thumb_up():
+    import movie_segment_producer as producer
+    rng = random.Random(3)
+    movies = producer.assign_movies(40, rng)
+    users = producer.assign_users(20, rng)
+    items = list(movies)
+
+    types = set()
+    for _ in range(200):
+        user = rng.choice(list(users))
+        for event in producer.make_slate(user, users[user], items, movies, rng):
+            types.add(event["event_type"])
+
+    assert "thumb_up" in types
+    assert "abandon" in types

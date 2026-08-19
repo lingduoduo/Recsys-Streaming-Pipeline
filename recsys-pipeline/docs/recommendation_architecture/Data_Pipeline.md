@@ -140,6 +140,11 @@ the fingerprints in that local catalog, not only the current writer schema. Ther
 compatible producer/consumer schema change together and
 do not replay an archive under an unregistered schema.
 
+Both decoders also register the current schema's predecessor, `recsys-event-v1.avsc`, which has no
+`surface`, `locale`, `timezone`, or `device` fields. A record written under that schema still
+decodes: Avro schema resolution reads it against the current reader schema, so those four fields
+come back null rather than the record dead-lettering.
+
 Malformed records are archived separately at `RECSYS_EVENT_DEAD_LETTER_PATH` with Kafka topic,
 partition, offset, timestamp, optional headers, `raw_value`, `schema_fingerprint`, `error_code`,
 and `error_detail`. Codes are `invalid_marker`, `unknown_fingerprint`, `corrupt_payload`, and
@@ -517,24 +522,66 @@ Environment variables:
 `clickstream` mode event schema:
 
 ```json
-{"user_id":"user_1","item_id":"item_3","event_type":"click","timestamp":1713600001}
+{"event_id":"evt_9c1f2a3b","user_id":"user_1","item_id":"item_3","event_type":"click","timestamp_ms":1713600001000}
 ```
 
-`behavior` mode event schema:
+`behavior` mode event schema — an impression; request-context fields are set only on the
+impression, not on the click/order events that follow it:
 
 ```json
 {
+  "event_id": "evt_a1b2c3d4",
   "request_id": "req_abc123",
+  "session_id": "sess_1a2b3c4d",
   "user_id": "user_1",
   "item_id": "item_3",
   "event_type": "impression",
-  "timestamp": 1713600001,
+  "timestamp_ms": 1713600001000,
   "position": 0,
-  "user_features": {"tier": "vip"},
+  "user_features": {"tier": "vip", "country": "us"},
   "item_features": {"bucket": "b1"},
-  "context_features": {"device": "ios", "country": "US"}
+  "context_features": {},
+  "surface": "home_feed",
+  "device": "ios",
+  "locale": "en-US",
+  "timezone": "America/New_York"
 }
 ```
+
+Its later `click`/`order` events reuse `request_id`/`session_id`/`user_id`/`item_id` but carry
+empty `user_features`/`item_features`/`context_features` and omit `surface`/`device`/`locale`/
+`timezone` entirely — those are properties of the request, already recorded on the impression, and
+the Avro schema defaults an omitted field to null.
+
+#### Where a field belongs
+
+Request context — what was true of the request itself — is a typed field on the event: `surface`,
+`device`, `locale`, `timezone`. User attributes — what is true of the person regardless of the
+request — live in `user_features` (for example `tier`, `country`) until they are promoted to a
+typed field. `context_features` is reserved for ad-hoc experiment keys; every current producer
+sends it empty.
+
+#### Event types
+
+Not every producer emits every type: `producer.py`'s `behavior` mode sends only
+`impression`/`click`/`order`, while `movie_segment_producer.py` additionally sends `thumb_up`,
+`thumb_down`, and `abandon`.
+
+| Type | Meaning |
+|---|---|
+| `impression` (alias `exposure`) | An item was shown in a slate |
+| `click` | The item was opened; may carry `dwell_millis`, `completion_rate`, and `negative_feedback_reason` |
+| `order` (alias `purchase`) | Conversion; may carry `rating` |
+| `thumb_up` / `thumb_down` | Explicit valence, sent at its own time after the click |
+| `abandon` | The user stopped early; carries the `completion_rate` reached |
+| `rating` | Explicit 1-5 rating, sent as a JSON record (not a canonical Avro event) on the `movielens_context` topic |
+
+`OnlineJoinerStreamingJob` treats `click`, `order`/`purchase`, `thumb_up`, `thumb_down`, and
+`abandon` all as feedback for `rating`, `negative_feedback_reason`, `dwell_millis`, and
+`completion_rate` — each field takes its value from the latest feedback event that set it, so a
+later thumb does not blank an earlier click's engagement signals. `last_feedback_ts` and
+`feedback_delay_ms` use a narrower predicate — only `click`/`order`/`purchase` — so a thumb or an
+abandon never moves those two fields; they measure time-to-engagement, not time-to-valence.
 
 Check whether the default topic has received records:
 
@@ -603,9 +650,9 @@ ONLINE_JOINER_HDFS_OUTPUT_PATH=/tmp/spark-recsys/training-samples \
 
 For each micro-batch, it:
 
-1. Runs a **single-pass conditional `groupBy`** over `(request_id, user_id, item_id)`: impression/exposure rows contribute position, timestamp, and feature fields; click/order/purchase rows contribute feedback signals. Replaces the previous double-filter + join pattern — one shuffle and one scan instead of two each.
+1. Runs a **single-pass conditional `groupBy`** over `(request_id, user_id, item_id)`: impression/exposure rows contribute position, timestamp, and feature fields; click/order/purchase rows contribute feedback signals; thumb_up/thumb_down/abandon rows contribute valence and early-stop signals. Replaces the previous double-filter + join pattern — one shuffle and one scan instead of two each.
 2. Drops groups with no impression in this batch (`impression_ts IS NULL`) — pure late-feedback events with no matching slate exposure.
-3. Produces one sample per exposed item with `clicked`, `ordered`, and numeric `label` (`0.0` = not clicked, `1.0` = clicked, `2.0` = ordered).
+3. Produces one sample per exposed item with `clicked`, `ordered`, numeric `label` (`0.0` = not clicked, `1.0` = clicked, `2.0` = ordered), `thumb` (`+1`/`-1` from the latest thumb_up/thumb_down, else null), and `abandoned` (`1` if any abandon event arrived, else `0`).
 4. Persists the joined samples (`MEMORY_AND_DISK_SER`) and writes to both sinks inside a `try/finally` that always unpersists.
 5. Writes samples to Kafka for online model updates.
 6. Writes samples to Parquet **partitioned by date** (`date=YYYY-MM-DD/`) for efficient incremental reads by downstream training jobs.
@@ -1093,11 +1140,12 @@ Key environment variables:
 ### `CtrRankingModelTrainingJob`
 
 Offline batch trainer over the Parquet training-samples store (the
-`OnlineJoinerStreamingJob` output). Reads the date-partitioned Parquet, assembles
-features (hashed user/item/context map fields + `item_id` via `FeatureHasher`,
-`genres`/`tags` via `HashingTF`, numeric `position`), does a temporal train/val
-split by `date`, trains a click-probability classifier, and writes the Spark ML
-model plus a `metrics.json` (AUC-ROC, PR-AUC, logloss). Offline only — no serving,
+`OnlineJoinerStreamingJob` output). Reads the date-partitioned Parquet, assembles features via
+`FeatureHasher` (`user_features.tier`, `item_features.bucket`, `item_id`, `position`, `device` —
+the typed column when present, else `context_features.device` for Parquet written before schema
+v2 — and `country` from `user_features` or `context_features`) and `HashingTF` (`genres`/`tags`),
+does a temporal train/val split by `date`, trains a click-probability classifier, and writes the
+Spark ML model plus a `metrics.json` (AUC-ROC, PR-AUC, logloss). Offline only — no serving,
 Redis, or ONNX changes.
 
 ```bash

@@ -12,6 +12,26 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling
 from governance_measurements import compute_fairness, compute_safety  # noqa: E402
 
 
+def test_device_is_a_declared_dimension_not_platform():
+    """Fails while the event says device and the dimension list says platform."""
+    from governance_measurements import DEFAULT_DIMENSIONS
+
+    assert "device" in DEFAULT_DIMENSIONS
+    assert "platform" not in DEFAULT_DIMENSIONS
+
+
+def test_device_resolves_from_a_typed_column_and_from_user_features():
+    """Fails if hoisting only looks in user_features, which is why platform never resolved."""
+    import pandas as pd
+    from analysis_dashboard_report import _with_demographic_columns
+
+    typed = pd.DataFrame({"user_id": ["u1"], "device": ["ios"], "user_features": [{}]})
+    assert _with_demographic_columns(typed)["device"].tolist() == ["ios"]
+
+    legacy = pd.DataFrame({"user_id": ["u1"], "user_features": [{"device": "web"}]})
+    assert _with_demographic_columns(legacy)["device"].tolist() == ["web"]
+
+
 def test_fairness_suppresses_small_groups_and_reports_gaps():
     """Groups below support are excluded before disparity calculations."""
     rows = (

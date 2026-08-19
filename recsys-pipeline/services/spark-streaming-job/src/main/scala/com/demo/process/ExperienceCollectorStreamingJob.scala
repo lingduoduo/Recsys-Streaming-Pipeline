@@ -53,6 +53,12 @@ object ExperienceCollectorStreamingJob {
     StructField("new_release", BooleanType, nullable = true),
     StructField("filter_reason", StringType, nullable = true),
     StructField("unsafe_label", BooleanType, nullable = true),
+    StructField("thumb", IntegerType, nullable = true),
+    StructField("abandoned", IntegerType, nullable = false),
+    StructField("surface", StringType, nullable = true),
+    StructField("locale", StringType, nullable = true),
+    StructField("timezone", StringType, nullable = true),
+    StructField("device", StringType, nullable = true),
     StructField("user_features", MapType(StringType, StringType), nullable = true),
     StructField("item_features", MapType(StringType, StringType), nullable = true),
     StructField("context_features", MapType(StringType, StringType), nullable = true)

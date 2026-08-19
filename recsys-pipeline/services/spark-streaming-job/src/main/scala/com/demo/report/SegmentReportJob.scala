@@ -18,7 +18,9 @@ import scala.collection.JavaConverters._
   *     ratingCount), written by [[com.demo.process.MovieLensContextCollectorStreamingJob]].
   *
   * Per segment: impressions, CTR, order_rate, clicks/user, CTR lift vs overall. `platform` comes
-  * straight from the Parquet `context_features` map (always emitted, no Redis). The demographic
+  * from the typed Parquet `device` column, falling back to the legacy `context_features["platform"]`
+  * / `context_features["device"]` map keys for Parquet written before schema v2 (no Redis). The
+  * demographic
   * dimensions (age_band, gender, occupation, geo) come from the Redis join, fetched only for the
   * user_ids present in the samples; age→age_band and zip→geo are derived with
   * [[com.demo.util.SegmentFeatures]]. When Redis has no demographics the report degrades to the
@@ -86,10 +88,18 @@ object SegmentReportJob {
       sum("clicked").as("clicks"),
       sum("ordered").as("orders"))
 
-  /** Platform breakdown straight from the Parquet `context_features` map (no Redis). */
+  /** Platform breakdown from the typed `device` column, falling back to the legacy
+    * `context_features["platform"]` / `context_features["device"]` map keys for Parquet
+    * written before schema v2 promoted `device` out of the map. Output column stays named
+    * `platform` for compatibility with existing consumers of the `by_platform` CSV output. */
   def platformMetrics(df: DataFrame, overallCtr: Double): DataFrame = {
+    val typedDevice = if (df.columns.contains("device")) col("device") else lit(null).cast("string")
+    val legacyDevice =
+      if (df.columns.contains("context_features"))
+        coalesce(col("context_features").getItem("platform"), col("context_features").getItem("device"))
+      else lit(null).cast("string")
     val seg = df.select(
-      col("context_features").getItem("platform").as("platform"),
+      coalesce(typedDevice, legacyDevice).as("platform"),
       col("clicked"), col("ordered"), col("user_id"))
     val grouped = seg.groupBy("platform").agg(
       count(lit(1)).as("impressions"),

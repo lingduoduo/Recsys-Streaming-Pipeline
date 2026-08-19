@@ -42,6 +42,12 @@ GENDERS = ["F", "M"]
 OCCUPATIONS = ["student", "engineer", "scientist", "educator", "technician",
                "writer", "artist", "administrator", "marketing", "retired", "other"]
 PLATFORMS = ["ios", "android", "web"]
+SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
+# One timezone per derive_geo() region. MovieLens ZIPs are US-only, so locale is fixed en-US.
+ZIP_TIMEZONE = {"Northeast": "America/New_York", "Mid-Atlantic": "America/New_York",
+                "Southeast": "America/New_York", "Midwest": "America/Chicago",
+                "South-Central": "America/Chicago", "Mountain": "America/Denver",
+                "West": "America/Los_Angeles", "unknown": None}
 
 # Ground-truth additive effects on click probability (base below), keyed by the *derived*
 # buckets so the report can recover them: 25-34 top / 55+ bottom; F>M; student/eng/sci top,
@@ -55,6 +61,9 @@ OCC_EFF = {"student": 0.04, "engineer": 0.03, "scientist": 0.03, "educator": 0.0
 REGION_EFF = {"Northeast": 0.02, "Mid-Atlantic": 0.02, "Southeast": 0.0, "Midwest": 0.0,
               "South-Central": -0.01, "Mountain": 0.0, "West": 0.03, "unknown": 0.0}
 PLATFORM_EFF = {"ios": 0.04, "android": 0.01, "web": 0.0}
+# Additive per-slate click effect, so the surface is recoverable from the report.
+SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
+               "detail_page": 0.01, "continue_watching": 0.03}
 
 
 def assign_demographics(num_users: int, rng: random.Random) -> dict[str, dict]:
@@ -72,10 +81,10 @@ def assign_demographics(num_users: int, rng: random.Random) -> dict[str, dict]:
     return demo
 
 
-def click_prob(demo: dict, platform: str) -> float:
+def click_prob(demo: dict, platform: str, surface: str) -> float:
     p = (BASE_CTR + AGE_EFF[derive_age_band(demo["age"])] + GENDER_EFF[demo["gender"]]
          + OCC_EFF[demo["occupation"]] + REGION_EFF[derive_geo(demo["zip_code"])]
-         + PLATFORM_EFF[platform])
+         + PLATFORM_EFF[platform] + SURFACE_EFF[surface])
     return min(0.95, max(0.02, p))
 
 
@@ -125,7 +134,14 @@ def make_slate(user: str, demo: dict, items, rng: random.Random, session_id: str
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
     platform = rng.choice(PLATFORMS)
-    context_features = {"platform": platform}   # demographics are NOT embedded here
+    surface = rng.choice(SURFACES)
+    region = derive_geo(demo["zip_code"])
+    context = {
+        "surface": surface,
+        "device": platform,
+        "locale": "en-US",              # MovieLens ZIPs are US-only
+        "timezone": ZIP_TIMEZONE[region],
+    }
 
     events = []
     for position, item in enumerate(slate_items):
@@ -140,10 +156,11 @@ def make_slate(user: str, demo: dict, items, rng: random.Random, session_id: str
             "position": position,
             "user_features": {},
             "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
-            "context_features": context_features,
+            "context_features": {},
+            **context,
         })
 
-    if rng.random() < click_prob(demo, platform):
+    if rng.random() < click_prob(demo, platform, surface):
         clicked = rng.choice(slate_items)
         events.append({
             "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,

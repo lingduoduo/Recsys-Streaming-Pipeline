@@ -1,7 +1,7 @@
 package com.demo.process
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions.{col, lit, when}
+import org.apache.spark.sql.functions.{col, from_json, lit, when}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -96,6 +96,26 @@ class ExperienceCollectorStreamingJobSpec extends AnyFlatSpec with Matchers with
     enriched.getAs[Boolean]("unsafe_label") shouldBe false
     enriched.getAs[Long]("last_feedback_ts") shouldBe 105L
     enriched.getAs[Long]("feedback_delay_ms") shouldBe 5000L
+  }
+
+  it should "parse the v2 context and valence columns out of a training sample" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val json =
+      """{"sample_id":"req:user:item","session_id":"s","request_id":"req","user_id":"user","item_id":"item","position":0,"impression_ts":100,"clicked":1,"ordered":0,"label":1.0,"thumb":1,"abandoned":0,"surface":"home_feed","locale":"en-US","timezone":"America/New_York","device":"ios"}"""
+
+    val row = Seq(json).toDF("value")
+      .select(from_json(col("value"), ExperienceCollectorStreamingJob.TrainingSampleSchema).as("s"))
+      .select("s.*")
+      .first()
+
+    row.getAs[Int]("thumb") shouldBe 1
+    row.getAs[Int]("abandoned") shouldBe 0
+    row.getAs[String]("surface") shouldBe "home_feed"
+    row.getAs[String]("locale") shouldBe "en-US"
+    row.getAs[String]("timezone") shouldBe "America/New_York"
+    row.getAs[String]("device") shouldBe "ios"
   }
 
   it should "not create a Parquet sink when no output path is configured" in {
