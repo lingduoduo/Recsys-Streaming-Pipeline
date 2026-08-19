@@ -7,7 +7,7 @@ import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{FeatureHasher, HashingTF, VectorAssembler}
 import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.ml.util.MLWritable
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 object CtrRankingModelTrainingJob {
@@ -22,12 +22,29 @@ object CtrRankingModelTrainingJob {
 
   val HashTfSize = 256
 
+  /** Reads `map(key)` if `map` exists on `df`, else null. */
+  private def mapValue(df: DataFrame, map: String, key: String): Column =
+    if (df.columns.contains(map)) element_at(col(map), key) else lit(null).cast("string")
+
+  /** The first source that has the value: the typed column, then the named map key.
+    *
+    * `device` moved from `context_features` to a typed field in schema v2. Reading both
+    * keeps Parquet written before that bump trainable, and keeps a producer that has not
+    * been updated yet from silently degrading the model to the "NA" default. */
+  private def firstAvailable(df: DataFrame, column: String, map: String, key: String): Column = {
+    val fromColumn = if (df.columns.contains(column)) col(column) else lit(null).cast("string")
+    coalesce(fromColumn, mapValue(df, map, key), lit("NA"))
+  }
+
   def assembleFeatures(df: DataFrame, numFeatures: Int): DataFrame = {
     val withCols = df
       .withColumn("uf_tier",    coalesce(element_at(col("user_features"), "tier"), lit("NA")))
       .withColumn("if_bucket",  coalesce(element_at(col("item_features"), "bucket"), lit("NA")))
-      .withColumn("cf_device",  coalesce(element_at(col("context_features"), "device"), lit("NA")))
-      .withColumn("cf_country", coalesce(element_at(col("context_features"), "country"), lit("NA")))
+      .withColumn("cf_device",  firstAvailable(df, "device", "context_features", "device"))
+      .withColumn("cf_country", coalesce(
+        mapValue(df, "user_features", "country"),
+        mapValue(df, "context_features", "country"),
+        lit("NA")))
       .withColumn("position_d", coalesce(col("position").cast("double"), lit(0.0)))
       .withColumn("genres_arr", coalesce(col("genres"), array().cast("array<string>")))
       .withColumn("tags_arr",   coalesce(col("tags"),   array().cast("array<string>")))

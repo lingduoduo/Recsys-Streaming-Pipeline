@@ -55,6 +55,37 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
     v.size shouldBe (1024 + 2 * CtrRankingModelTrainingJob.HashTfSize)
   }
 
+  it should "read device and country from their new homes, falling back to the legacy map" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    // genres and tags must be present: assembleFeatures reads them with coalesce, which
+    // raises AnalysisException on a missing column rather than yielding null.
+    val typed = Seq(
+      ("u1", "i1", Map("country" -> "us"), Map.empty[String, String],
+        Map.empty[String, String], "ios", 0, 1, Seq("drama"), Seq("classic"))
+    ).toDF("user_id", "item_id", "user_features", "item_features",
+      "context_features", "device", "position", "clicked", "genres", "tags")
+
+    val typedRow = CtrRankingModelTrainingJob.assembleFeatures(
+      CtrRankingModelTrainingJob.labelColumn(typed, "click"), 64).first()
+
+    typedRow.getAs[String]("cf_device") shouldBe "ios"
+    typedRow.getAs[String]("cf_country") shouldBe "us"
+
+    val legacy = Seq(
+      ("u1", "i1", Map.empty[String, String], Map.empty[String, String],
+        Map("device" -> "ios", "country" -> "us"), 0, 1, Seq("drama"), Seq("classic"))
+    ).toDF("user_id", "item_id", "user_features", "item_features",
+      "context_features", "position", "clicked", "genres", "tags")
+
+    val legacyRow = CtrRankingModelTrainingJob.assembleFeatures(
+      CtrRankingModelTrainingJob.labelColumn(legacy, "click"), 64).first()
+
+    legacyRow.getAs[String]("cf_device") shouldBe "ios"
+    legacyRow.getAs[String]("cf_country") shouldBe "us"
+  }
+
   "splitByDate" should "hold out the latest date" in {
     val s = spark; import s.implicits._
     val df = Seq(
