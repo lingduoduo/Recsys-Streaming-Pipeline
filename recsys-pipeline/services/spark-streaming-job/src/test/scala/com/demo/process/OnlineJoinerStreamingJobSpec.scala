@@ -1,6 +1,7 @@
 package com.demo.process
 
 import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.process.LateFeedbackJoin
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions.{coalesce, col, struct, to_json, unix_timestamp}
@@ -498,5 +499,79 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       input.addData(e); q.processAllAvailable()
       s.table("oj_out").count() shouldBe 1
     } finally q.stop()
+  }
+
+  it should "record thumbs and abandons without erasing click engagement" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0,"surface":"home_feed","locale":"en-US","timezone":"America/New_York","device":"ios"}"""
+    val click =
+      """{"event_id":"click","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":105,"dwell_millis":9000,"completion_rate":0.80}"""
+    val thumbUp =
+      """{"event_id":"thumb","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"thumb_up","timestamp":200}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression, click, thumbUp).toDF("value"))).kept).first()
+
+    row.getAs[Int]("thumb") shouldBe 1
+    row.getAs[Int]("abandoned") shouldBe 0
+    row.getAs[Long]("dwell_millis") shouldBe 9000L
+    row.getAs[Double]("completion_rate") shouldBe 0.80
+    row.getAs[String]("surface") shouldBe "home_feed"
+    row.getAs[String]("locale") shouldBe "en-US"
+    row.getAs[String]("timezone") shouldBe "America/New_York"
+    row.getAs[String]("device") shouldBe "ios"
+    row.getAs[Double]("label") shouldBe 1.0
+  }
+
+  it should "take the latest thumb and flag an abandon" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
+    val thumbUp =
+      """{"event_id":"t1","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"thumb_up","timestamp":150}"""
+    val thumbDown =
+      """{"event_id":"t2","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"thumb_down","timestamp":250}"""
+    val abandon =
+      """{"event_id":"a1","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"abandon","timestamp":300,"completion_rate":0.05}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression, thumbUp, thumbDown, abandon).toDF("value"))).kept).first()
+
+    row.getAs[Int]("thumb") shouldBe -1
+    row.getAs[Int]("abandoned") shouldBe 1
+    row.getAs[Double]("completion_rate") shouldBe 0.05
+    // A thumb is not a click: the label is unchanged by valence signals.
+    row.getAs[Double]("label") shouldBe 0.0
+  }
+
+  it should "carry the typed context fields through a late-feedback snapshot" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    // SnapshotColumns is a fixed list; a context field missing from it is silently dropped
+    // when a slate waits for late feedback, which no other test would catch.
+    LateFeedbackJoin.SnapshotColumns should contain allOf ("surface", "locale", "timezone", "device")
+  }
+
+  it should "leave thumb null when the user never thumbed" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression).toDF("value"))).kept).first()
+
+    row.getAs[AnyRef]("thumb") shouldBe null
+    row.getAs[Int]("abandoned") shouldBe 0
   }
 }

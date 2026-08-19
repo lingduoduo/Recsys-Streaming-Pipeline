@@ -22,7 +22,11 @@ object OnlineJoinerStreamingJob {
     "published_at" -> LongType,
     "new_release" -> BooleanType,
     "filter_reason" -> StringType,
-    "unsafe_label" -> BooleanType
+    "unsafe_label" -> BooleanType,
+    "surface" -> StringType,
+    "locale" -> StringType,
+    "timezone" -> StringType,
+    "device" -> StringType
   )
 
   def main(args: Array[String]): Unit = {
@@ -169,7 +173,8 @@ object OnlineJoinerStreamingJob {
 
   def buildTrainingSamples(events: DataFrame): DataFrame = {
     val isImpression = col("etype").isin("impression", "exposure")
-    val isFeedback   = col("etype").isin("click", "order", "purchase")
+    val isFeedback = col("etype").isin(
+      "click", "order", "purchase", "thumb_up", "thumb_down", "abandon")
 
     val withMeasurementFields = MeasurementFields.foldLeft(events) { case (df, (name, dataType)) =>
       if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
@@ -216,7 +221,17 @@ object OnlineJoinerStreamingJob {
         latestFeedback("dwell_millis", isFeedback).as("dwell_millis"),
         latestFeedback("completion_rate", isFeedback).as("completion_rate"),
         // session_id is constant across a slate's events; carry it through (one session per request).
-        first(col("session_id"), ignoreNulls = true).as("session_id")
+        first(col("session_id"), ignoreNulls = true).as("session_id"),
+        first(when(isImpression, col("surface")),  ignoreNulls = true).as("surface"),
+        first(when(isImpression, col("locale")),   ignoreNulls = true).as("locale"),
+        first(when(isImpression, col("timezone")), ignoreNulls = true).as("timezone"),
+        first(when(isImpression, col("device")),   ignoreNulls = true).as("device"),
+        max_by(
+          when(col("etype") === "thumb_up", lit(1)).when(col("etype") === "thumb_down", lit(-1)),
+          when(col("etype").isin("thumb_up", "thumb_down"),
+            struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
+        ).as("thumb"),
+        max(when(col("etype") === "abandon", lit(1)).otherwise(lit(0))).as("abandoned")
       )
       // Drop groups that have no impression in this batch (pure late-feedback events)
       .filter(col("impression_ts").isNotNull)
@@ -253,6 +268,12 @@ object OnlineJoinerStreamingJob {
         col("impression_measurement.filter_reason").as("filter_reason"),
         col("impression_measurement.unsafe_label").as("unsafe_label"),
         coalesce(col("session_id"), lit("")).as("session_id"),
+        col("thumb"),
+        coalesce(col("abandoned"), lit(0)).as("abandoned"),
+        col("surface"),
+        col("locale"),
+        col("timezone"),
+        col("device"),
         coalesce(col("user_features"),     typedLit(Map.empty[String, String])).as("user_features"),
         coalesce(col("item_features"),     typedLit(Map.empty[String, String])).as("item_features"),
         coalesce(col("context_features"),  typedLit(Map.empty[String, String])).as("context_features")

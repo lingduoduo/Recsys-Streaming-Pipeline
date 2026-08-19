@@ -45,7 +45,11 @@ object EventSchemas {
       StructField("published_at", LongType, nullable = true),
       StructField("new_release", BooleanType, nullable = true),
       StructField("filter_reason", StringType, nullable = true),
-      StructField("unsafe_label", BooleanType, nullable = true)
+      StructField("unsafe_label", BooleanType, nullable = true),
+      StructField("surface", StringType, nullable = true),
+      StructField("locale", StringType, nullable = true),
+      StructField("timezone", StringType, nullable = true),
+      StructField("device", StringType, nullable = true)
     )
   )
 }
