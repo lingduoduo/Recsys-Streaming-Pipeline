@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 
 IMPRESSION_TYPES = frozenset({"impression", "exposure"})
-FEEDBACK_TYPES = frozenset({"click", "order", "purchase"})
+FEEDBACK_TYPES = frozenset({"click", "order", "purchase", "thumb_up", "thumb_down", "abandon"})
 
 DELAY_SCALE = float(os.getenv("FEEDBACK_DELAY_SCALE", "1.0"))
 

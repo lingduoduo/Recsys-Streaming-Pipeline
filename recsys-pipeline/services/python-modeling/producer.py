@@ -29,6 +29,12 @@ PRODUCER_MODE = os.getenv("PRODUCER_MODE", "clickstream").lower()
 LOG_EVERY = max(int(os.getenv("LOG_EVERY", "100")), 1)
 MAX_EVENTS = max(int(os.getenv("MAX_EVENTS", "0")), 0)
 
+SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
+# One locale and zone per country, matching movie_segment_producer's vocabulary.
+COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
+COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
+                    "gb": "Europe/London", "de": "Europe/Berlin"}
+
 
 def make_click_event(users, items):
     return {
@@ -45,8 +51,9 @@ def make_behavior_slate(users, items):
     user = random.choice(users)
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     slate_items = random.sample(items, min(SLATE_SIZE, len(items)))
+    surface = random.choice(SURFACES)
     device = random.choice(["ios", "android", "web"])
-    country = random.choice(["US", "CA", "GB"])
+    country = random.choice(["us", "ca", "gb"])
     user_tier = random.choice(["new", "standard", "vip"])
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
 
@@ -61,9 +68,13 @@ def make_behavior_slate(users, items):
             "event_type": "impression",
             "timestamp_ms": now_ms,
             "position": position,
-            "user_features": {"tier": user_tier},
+            "user_features": {"tier": user_tier, "country": country},
             "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
-            "context_features": {"device": device, "country": country},
+            "context_features": {},
+            "surface": surface,
+            "device": device,
+            "locale": COUNTRY_LOCALE[country],
+            "timezone": COUNTRY_TIMEZONE[country],
         })
 
     clicked_item = random.choice(slate_items) if random.random() < 0.35 else None

@@ -42,6 +42,12 @@ GENDERS = ["F", "M"]
 OCCUPATIONS = ["student", "engineer", "scientist", "educator", "technician",
                "writer", "artist", "administrator", "marketing", "retired", "other"]
 PLATFORMS = ["ios", "android", "web"]
+SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
+# One timezone per derive_geo() region. MovieLens ZIPs are US-only, so locale is fixed en-US.
+ZIP_TIMEZONE = {"Northeast": "America/New_York", "Mid-Atlantic": "America/New_York",
+                "Southeast": "America/New_York", "Midwest": "America/Chicago",
+                "South-Central": "America/Chicago", "Mountain": "America/Denver",
+                "West": "America/Los_Angeles", "unknown": None}
 
 # Ground-truth additive effects on click probability (base below), keyed by the *derived*
 # buckets so the report can recover them: 25-34 top / 55+ bottom; F>M; student/eng/sci top,
@@ -125,7 +131,14 @@ def make_slate(user: str, demo: dict, items, rng: random.Random, session_id: str
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
     platform = rng.choice(PLATFORMS)
-    context_features = {"platform": platform}   # demographics are NOT embedded here
+    surface = rng.choice(SURFACES)
+    region = derive_geo(demo["zip_code"])
+    context = {
+        "surface": surface,
+        "device": platform,
+        "locale": "en-US",              # MovieLens ZIPs are US-only
+        "timezone": ZIP_TIMEZONE[region],
+    }
 
     events = []
     for position, item in enumerate(slate_items):
@@ -140,7 +153,8 @@ def make_slate(user: str, demo: dict, items, rng: random.Random, session_id: str
             "position": position,
             "user_features": {},
             "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
-            "context_features": context_features,
+            "context_features": {},
+            **context,
         })
 
     if rng.random() < click_prob(demo, platform):

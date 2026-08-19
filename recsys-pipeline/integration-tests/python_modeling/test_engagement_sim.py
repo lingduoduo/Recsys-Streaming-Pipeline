@@ -34,3 +34,20 @@ def test_slate_times_are_sorted_and_span_window():
     times = bp.slate_times(START, END, random.Random(1))
     assert times == sorted(times)
     assert times[0] >= START and times[-1] < END
+
+
+def test_valence_events_are_deferred_like_other_feedback():
+    """Fails if split_slate sends a thumb at slate time instead of at its own timestamp."""
+    from feedback_schedule import split_slate
+
+    base_ms = 1_700_000_000_000
+    events = [
+        {"event_type": "impression", "timestamp_ms": base_ms},
+        {"event_type": "thumb_up", "timestamp_ms": base_ms + 30_000},
+        {"event_type": "abandon", "timestamp_ms": base_ms + 45_000},
+    ]
+
+    immediate, deferred = split_slate(events)
+
+    assert [e["event_type"] for e in immediate] == ["impression"]
+    assert sorted(delay for delay, _ in deferred) == [30.0, 45.0]

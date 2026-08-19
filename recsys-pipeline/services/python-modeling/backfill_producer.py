@@ -39,7 +39,7 @@ import random
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from producer import make_producer  # reuse the tuned KafkaProducer config
+from producer import COUNTRY_LOCALE, COUNTRY_TIMEZONE, SURFACES, make_producer  # reuse the tuned KafkaProducer config
 
 TOPIC = os.getenv("KAFKA_TOPIC", "recsys_events")
 BACKFILL_DAYS = max(int(os.getenv("BACKFILL_DAYS", "21")), 1)
@@ -93,8 +93,9 @@ def make_slate(dt: datetime, users, items, rng: random.Random) -> list[dict]:
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
+    surface = rng.choice(SURFACES)
     device = rng.choice(["ios", "android", "web"])
-    country = rng.choice(["US", "CA", "GB"])
+    country = rng.choice(["us", "ca", "gb"])
     user_tier = rng.choice(["new", "standard", "vip"])
 
     events = []
@@ -108,9 +109,13 @@ def make_slate(dt: datetime, users, items, rng: random.Random) -> list[dict]:
             "event_type": "impression",
             "timestamp_ms": base_ms,
             "position": position,
-            "user_features": {"tier": user_tier},
+            "user_features": {"tier": user_tier, "country": country},
             "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
-            "context_features": {"device": device, "country": country},
+            "context_features": {},
+            "surface": surface,
+            "device": device,
+            "locale": COUNTRY_LOCALE[country],
+            "timezone": COUNTRY_TIMEZONE[country],
         })
 
     p = click_prob(dt, make_slate.start, make_slate.end)

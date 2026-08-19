@@ -69,6 +69,20 @@ COUNTRIES = ("us", "ca", "gb", "de")
 # Additive per-user click effect, so fairness has one explainable gap to report.
 SUBSCRIPTION_EFF = {"premium": 0.03, "basic": 0.0, "free": -0.02}
 
+SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
+# Additive per-slate click effect, so the surface is recoverable from the report.
+SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
+               "detail_page": 0.01, "continue_watching": 0.03}
+# One locale and zone per country. Canada is split so a locale is not a country alias.
+COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
+COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
+                    "gb": "Europe/London", "de": "Europe/Berlin"}
+FRENCH_CANADIAN_SHARE = 4  # every Nth Canadian user gets fr-CA
+
+THUMB_UP_COMPLETION = 0.70   # completion at or above this may thumb up
+THUMB_UP_PROB = 0.30
+THUMB_DOWN_PROB = 0.50       # applied to clicks already reporting not_interested
+
 
 def assign_movies(num_items: int, rng: random.Random) -> dict[str, dict]:
     """Per-movie metadata: 1-3 genres (primary first), releaseYear 1980-2024, title,
@@ -120,6 +134,26 @@ def user_click_bias(user_meta: dict) -> float:
     return SUBSCRIPTION_EFF.get(user_meta.get("subscription"), 0.0)
 
 
+def _user_index(user: str) -> int:
+    tail = user.rsplit("_", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
+def user_locale(user: str, country: str) -> str:
+    """The user's locale: a pure function of user id + country, so it is stable across every
+    slate that user appears in without needing to ride in user_features (which stays on the
+    governance allowlist, per assign_users' contract). Canada is split so a locale is not a
+    plain country alias.
+    """
+    if country == "ca" and _user_index(user) % FRENCH_CANADIAN_SHARE == 0:
+        return "fr-CA"
+    return COUNTRY_LOCALE.get(country, "en-US")
+
+
+def user_timezone(country: str) -> str:
+    return COUNTRY_TIMEZONE.get(country, "America/New_York")
+
+
 def click_completion(meta: dict, rng: random.Random) -> float:
     """Completion tracks the item's appeal: higher-CTR items get watched further."""
     center = min(0.95, item_click_prob(meta) * 3.0)
@@ -146,6 +180,11 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
+    surface = rng.choice(SURFACES)
+    device = rng.choice(("ios", "android", "web"))
+    country = user_meta.get("country", "us")
+    locale = user_locale(user, country)
+    timezone = user_timezone(country)
 
     def base(item: str, event_type: str, timestamp_ms: int, position: int) -> dict:
         return {
@@ -153,6 +192,8 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
             "user_id": user, "item_id": item, "event_type": event_type,
             "timestamp_ms": timestamp_ms, "position": position,
             "user_features": dict(user_meta), "item_features": {}, "context_features": {},
+            "surface": surface, "device": device,
+            "locale": locale, "timezone": timezone,
         }
 
     events = []
@@ -165,8 +206,9 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
         events.append(impression)
 
         # independent per-item click decision → per-item CTR reflects the item's category,
-        # shifted by the user's documented subscription effect
-        click_prob = min(0.6, max(0.02, item_click_prob(meta) + user_click_bias(user_meta)))
+        # shifted by the user's documented subscription effect and the surface it appeared on
+        click_prob = min(0.6, max(0.02, item_click_prob(meta) + user_click_bias(user_meta)
+                                  + SURFACE_EFF[surface]))
         if rng.random() < click_prob:
             completion = click_completion(meta, rng)
             click = base(item, "click", now_ms + rng.randint(1, 20) * 1000, position)
@@ -175,6 +217,17 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
             click["negative_feedback_reason"] = (
                 "not_interested" if click["completion_rate"] < NEGATIVE_COMPLETION_CUTOFF else None)
             events.append(click)
+
+            if completion >= THUMB_UP_COMPLETION and rng.random() < THUMB_UP_PROB:
+                events.append(base(item, "thumb_up", now_ms + rng.randint(30, 180) * 1000, position))
+            elif click["negative_feedback_reason"] and rng.random() < THUMB_DOWN_PROB:
+                thumb_down = base(item, "thumb_down", now_ms + rng.randint(30, 180) * 1000, position)
+                thumb_down["negative_feedback_reason"] = click["negative_feedback_reason"]
+                events.append(thumb_down)
+            if completion < NEGATIVE_COMPLETION_CUTOFF:
+                abandon = base(item, "abandon", now_ms + rng.randint(21, 90) * 1000, position)
+                abandon["completion_rate"] = click["completion_rate"]
+                events.append(abandon)
 
             if rng.random() < order_prob(meta):
                 order = base(item, "order", now_ms + rng.randint(21, 120) * 1000, position)
