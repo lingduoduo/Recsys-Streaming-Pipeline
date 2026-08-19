@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from event_avro import encode_event, load_catalog, load_schema, schema_fingerprint
+from event_avro import encode_event, load_catalog, load_schema
 
 
 class ReplayConfigError(ValueError):

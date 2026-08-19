@@ -13,7 +13,7 @@
     {"name": "position", "type": ["null", "int"], "default": null},
     {"name": "user_features", "type": ["null", {"type": "map", "values": "string"}], "default": null},
     {"name": "item_features", "type": ["null", {"type": "map", "values": "string"}], "default": null},
-    {"name": "context_features", "type": ["null", {"type": "map", "values": "string"}], "default": null},
+    {"name": "context_features", "type": ["null", {"type": "map", "values": "string"}], "default": null, "doc": "Ad-hoc experiment keys only. Stable request-context dimensions are typed fields; stable user attributes live in user_features."},
     {"name": "model_version", "type": ["null", "string"], "default": null},
     {"name": "policy_version", "type": ["null", "string"], "default": null},
     {"name": "algorithm_version", "type": ["null", "string"], "default": null},

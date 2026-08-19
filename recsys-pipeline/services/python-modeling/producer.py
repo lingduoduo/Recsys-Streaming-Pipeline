@@ -32,9 +32,10 @@ MAX_EVENTS = max(int(os.getenv("MAX_EVENTS", "0")), 0)
 SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
 COUNTRIES = ("us", "ca", "gb")
 # One locale and zone per country, matching movie_segment_producer's vocabulary.
-COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
+# Keyed by COUNTRIES above; an entry for a country this producer never draws would be dead data.
+COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB"}
 COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
-                    "gb": "Europe/London", "de": "Europe/Berlin"}
+                    "gb": "Europe/London"}
 
 
 def user_country(user: str) -> str:

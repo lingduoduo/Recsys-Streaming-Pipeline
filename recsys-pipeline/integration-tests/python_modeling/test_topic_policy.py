@@ -9,7 +9,11 @@ import pytest
 PYTHON_MODELING = Path(__file__).resolve().parents[2] / "services/python-modeling"
 sys.path.insert(0, str(PYTHON_MODELING))
 
+import event_avro
 from topic_policy import TopicPolicy, config_args, create_args, required_storage_bytes, validate_policy
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+KAFKA_TOPICS_CONFIG = REPO_ROOT / "recsys-pipeline/config/kafka-topics.json"
 
 
 PRIMARY = TopicPolicy(
@@ -24,7 +28,7 @@ PRIMARY = TopicPolicy(
     1.10,
     "delete",
     "recsys-event",
-    "225b275f487979ab",
+    "af86abe880fe4bb3",
 )
 BACKFILL = TopicPolicy(
     "recsys_events.backfill",
@@ -38,7 +42,7 @@ BACKFILL = TopicPolicy(
     1.10,
     "delete",
     "recsys-event",
-    "225b275f487979ab",
+    "af86abe880fe4bb3",
 )
 
 
@@ -101,3 +105,22 @@ def test_nonfinite_overhead_factor_is_rejected(overhead_factor: float) -> None:
 def test_unknown_or_delimited_cleanup_policy_is_rejected() -> None:
     with pytest.raises(ValueError, match="cleanup policy"):
         validate_policy(dataclasses.replace(PRIMARY, cleanup_policy="delete,retention.ms=1"))
+
+
+def test_configured_fingerprint_matches_the_current_writer_schema() -> None:
+    """Fails if a schema bump forgets kafka-topics.json.
+
+    The fingerprint in that config is what an operator reconciles a live topic against, and
+    nothing else in the suite reads it — every other test builds its own TopicPolicy fixtures,
+    so a stale value here passed unnoticed through the v1 to v2 bump.
+    """
+    import json
+
+    expected = format(event_avro.schema_fingerprint(event_avro.load_schema()), "016x")
+    configured = json.loads(KAFKA_TOPICS_CONFIG.read_text())
+
+    for topic in configured["topics"]:
+        assert topic["schema_fingerprint"] == expected, (
+            f"{topic['name']} pins {topic['schema_fingerprint']}, "
+            f"but the current writer schema is {expected}"
+        )
