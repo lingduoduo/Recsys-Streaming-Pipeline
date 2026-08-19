@@ -1,14 +1,18 @@
 package com.demo.event
 
+import java.io.ByteArrayOutputStream
 import java.nio.{ByteBuffer, ByteOrder}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
 
 import org.apache.avro.{Schema, SchemaNormalization}
-import org.apache.avro.generic.GenericData
+import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
+import org.apache.avro.io.EncoderFactory
 import org.scalatest.OptionValues
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+
+import scala.collection.JavaConverters._
 
 class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
 
@@ -38,26 +42,63 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
     )
     ByteBuffer.wrap(bytes, 2, 8).order(ByteOrder.LITTLE_ENDIAN).getLong shouldBe
       SchemaNormalization.parsingFingerprint64(schema)
-    EventAvroCodec.fingerprint shouldBe SchemaNormalization.parsingFingerprint64(schema)
+    EventAvroCodec.catalog.keySet should contain(SchemaNormalization.parsingFingerprint64(schema))
 
     val decoded = EventAvroCodec.decode(bytes).toOption.value
     requiredStringFields.foreach { case (field, value) => decoded.get(field).toString shouldBe value }
     decoded.get("timestamp_ms") shouldBe timestampMs
   }
 
-  it should "keep its checked-in schema semantically identical to the canonical schema" in {
-    val resourceSchema = new Schema.Parser().parse(
-      new String(readResource("/schemas/recsys-event-v1.avsc"), StandardCharsets.UTF_8)
-    )
-    val canonicalSchemaPath = Seq(
-      Paths.get("recsys-pipeline/schemas/recsys-event-v1.avsc"),
-      Paths.get("../../schemas/recsys-event-v1.avsc")
-    ).find(path => Files.exists(path)).value
-    val canonicalSchema = new Schema.Parser().parse(
-      new String(Files.readAllBytes(canonicalSchemaPath), StandardCharsets.UTF_8)
-    )
+  it should "keep its checked-in schemas semantically identical to the canonical schemas" in {
+    Seq("recsys-event-v1.avsc", "recsys-event-v2.avsc").foreach { fileName =>
+      val resourceSchema = new Schema.Parser().parse(
+        new String(readResource(s"/schemas/$fileName"), StandardCharsets.UTF_8)
+      )
+      val canonicalSchemaPath = Seq(
+        Paths.get(s"recsys-pipeline/schemas/$fileName"),
+        Paths.get(s"../../schemas/$fileName")
+      ).find(path => Files.exists(path)).value
+      val canonicalSchema = new Schema.Parser().parse(
+        new String(Files.readAllBytes(canonicalSchemaPath), StandardCharsets.UTF_8)
+      )
 
-    resourceSchema.toString shouldBe canonicalSchema.toString
+      resourceSchema.toString shouldBe canonicalSchema.toString
+    }
+  }
+
+  it should "decode a v1 payload into the v2 reader shape" in {
+    val v1Schema = {
+      val input = getClass.getResourceAsStream("/schemas/recsys-event-v1.avsc")
+      try new Schema.Parser().parse(input) finally input.close()
+    }
+    val v1Record = new GenericData.Record(v1Schema)
+    v1Record.put("event_id", "e-legacy")
+    v1Record.put("user_id", "u-1")
+    v1Record.put("item_id", "i-1")
+    v1Record.put("event_type", "click")
+    v1Record.put("timestamp_ms", 1718400000000L)
+
+    val output = new ByteArrayOutputStream()
+    output.write(EventAvroCodec.Magic)
+    output.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+      .putLong(SchemaNormalization.parsingFingerprint64(v1Schema)).array())
+    val encoder = EncoderFactory.get.binaryEncoder(output, null)
+    new GenericDatumWriter[GenericRecord](v1Schema).write(v1Record, encoder)
+    encoder.flush()
+
+    EventAvroCodec.decode(output.toByteArray) match {
+      case Right(record) =>
+        record.get("event_id").toString shouldBe "e-legacy"
+        record.get("surface") shouldBe null
+        record.get("device") shouldBe null
+      case Left(failure) => fail(s"expected a decoded record, got ${failure.code}")
+    }
+  }
+
+  it should "expose v2 as the writer schema" in {
+    val names = EventAvroCodec.schema.getFields.asScala.map(_.name).toSeq
+    names.takeRight(4) shouldBe Seq("surface", "locale", "timezone", "device")
+    EventAvroCodec.fingerprint shouldBe 0xAF86ABE880FE4BB3L
   }
 
   it should "return invalid_marker for a malformed single-object header" in {
