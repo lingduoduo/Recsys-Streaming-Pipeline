@@ -10,15 +10,31 @@ An audit of the data this pipeline generates, measured against the fields a
 recommendation training record is normally expected to carry, found the event
 contract thin in two places.
 
-**Context is three keys wide.** `recsys-event-v1.avsc` declares
-`context_features` as an untyped `map<string,string>`. Across all four producers
-only `device`, `country`, and `platform` (a second name for `device`) are ever
-written into it. There is no surface, no locale, and no timezone, so nothing
-downstream can distinguish a home-feed impression from a search result, and no
-analysis can segment by language or local time. Because the map is untyped, the
-keys that do exist are invisible in the schema and discoverable only by grepping
-for string literals — `CtrRankingModelTrainingJob` reaches into it with
-`element_at(context_features, "device")`, and nothing would report a typo.
+**Context is three keys wide, and empty where it matters most.**
+`recsys-event-v1.avsc` declares `context_features` as an untyped
+`map<string,string>`. Across all four producers only `device`, `country`, and
+`platform` (a second name for `device`) are ever written into it — and
+`movie_segment_producer.py`, the sim behind the 98,850-row dataset the committed
+dashboard snapshot reports on, writes `context_features: {}` on every event. In
+the dataset this project showcases, context is entirely absent. There is no
+surface, no locale, and no timezone anywhere, so nothing downstream can
+distinguish a home-feed impression from a search result, and no analysis can
+segment by language or local time.
+
+Because the map is untyped, the keys that do exist are invisible in the schema
+and discoverable only by grepping for string literals.
+`CtrRankingModelTrainingJob` reaches into it with `element_at(context_features,
+"device")` and nothing would report a typo — and because the flagship sim writes
+no context at all, that expression already resolves to its `"NA"` default for
+every row of that dataset.
+
+**The same dimension has two names and two homes.** The event calls it `device`;
+`governance_measurements.DEFAULT_DIMENSIONS` calls it `platform`. The dashboard's
+`_with_demographic_columns` hoists governance dimensions out of `user_features`
+only, while the MovieLens sim writes `platform` into `context_features`, so the
+dimension can never resolve. The committed snapshot records the consequence
+directly: `"missing demographic dimension: platform"`, with fairness coverage at
+`0.5714` — four of seven declared dimensions.
 
 **Valence signals are missing.** The event vocabulary is `impression`, `click`,
 `order` (with `purchase` as an alias), and `rating`. There is no thumb up or
@@ -38,9 +54,20 @@ bug rather than inherit it.
 
 ## Goal
 
-The canonical event declares its context dimensions as typed fields, carries
+The canonical event declares its **request context** as typed fields, carries
 thumb and abandon as first-class user actions, and lands all of it in
 `training_samples` — with v1 events still decoding after the bump.
+
+This spec also settles the boundary that today is ad-hoc:
+
+> **Request context** — what was true of the request — is a typed field on the
+> event. **User attributes** — what is true of the person regardless of request —
+> stay in `user_features` until sub-project B gives them their own typed
+> contract. `context_features` is for ad-hoc experiment keys only.
+
+Under that rule `device`, `surface`, `locale`, and `timezone` become typed
+fields, and `country` stays in `user_features`, where `DEFAULT_DIMENSIONS` and
+the dashboard's hoisting already expect it.
 
 ## Non-goals
 
@@ -49,9 +76,9 @@ Deliberately excluded, each deserving its own spec:
 | Deferred | Why separate |
 |---|---|
 | CTR and reward-model *features* from the new fields | Changes what models learn and shifts every metric baseline; this spec only keeps the existing trainer working |
-| Dashboard and governance dimensions (fairness by surface or locale) | Touches `DEFAULT_DIMENSIONS` and the dashboard schema version, which have their own contract and snapshot tests |
+| Fairness or diversity broken down *by* surface or locale | Adding a published dimension changes what the dashboard asserts about groups; the `platform` → `device` rename in section 5 is in scope only because leaving it would break an existing dimension |
 | Serving-side surface awareness | The serving path does not read context today; making it do so is a scoring change, not a data change |
-| User tenure and first-class subscription plan | A different contract: `movielens_context` UserUpdated → `user:{id}:features` |
+| User tenure and first-class subscription plan | A different contract: `movielens_context` UserUpdated → `user:{id}:features`. This also carries the unresolved `tier` (`new`/`standard`/`vip`) versus `subscription` (`premium`/`basic`/`free`) split — two producers, two vocabularies, and only `subscription` declared as a dimension |
 | Item synopsis and popularity trend | A different contract: MovieUpdated → `movie:{id}:features`, plus a new derived time series |
 | Next-item prediction task | Consumes the existing sequence store; needs no schema change at all |
 
@@ -59,11 +86,17 @@ Deliberately excluded, each deserving its own spec:
 
 Three alternatives were weighed for where the new context fields live.
 
-**Typed top-level fields, with `device` and `country` promoted out of the map**
-(chosen). The contract becomes self-describing and queryable without `element_at`,
-and it matches how `dwell_millis`, `completion_rate`, and `published_at` are
-already modeled. The cost is two lines in `CtrRankingModelTrainingJob`, which
-must be updated as part of this change rather than after it.
+**Typed top-level fields, with `device` promoted out of the map** (chosen). The
+contract becomes self-describing and queryable without `element_at`, and it
+matches how `dwell_millis`, `completion_rate`, and `published_at` are already
+modeled. The cost is two lines in `CtrRankingModelTrainingJob` and the rename of
+one governance dimension, both of which must be updated as part of this change
+rather than after it.
+
+`country` was originally slated for promotion too. It is excluded because it is a
+user attribute, not request context: the flagship sim already writes it into
+`user_features`, and `DEFAULT_DIMENSIONS` reads it from there. Promoting it would
+break the fairness hoisting rather than being neutral.
 
 **New keys inside the existing map** (rejected). Zero schema change for context
 and nothing downstream breaks, but it reproduces exactly the defect this spec
@@ -83,7 +116,7 @@ Add `schemas/recsys-event-v2.avsc`. `recsys-event-v1.avsc` stays on disk,
 byte-for-byte unchanged, because it remains a valid writer schema for records
 already in Kafka and in the archive.
 
-Five new fields, each `["null", "string"]` with `default: null`, matching every
+Four new fields, each `["null", "string"]` with `default: null`, matching every
 other optional field on the record:
 
 | Field | Contents | Vocabulary |
@@ -92,7 +125,8 @@ other optional field on the record:
 | `locale` | BCP-47 language tag | `en-US`, `en-CA`, `fr-CA`, `en-GB`, `de-DE` |
 | `timezone` | IANA zone name | `America/New_York`, `America/Chicago`, `America/Denver`, `America/Los_Angeles`, `America/Toronto`, `Europe/London`, `Europe/Berlin` |
 | `device` | Client platform, promoted out of `context_features` | `ios`, `android`, `web` |
-| `country` | Two-letter country, promoted out of `context_features` | `us`, `ca`, `gb`, `de` |
+
+`country` is deliberately not here; see the boundary rule under Goal.
 
 The vocabularies are producer conventions, not Avro enums. Declaring them as
 enums would make an unrecognized value a decode failure, which turns a
@@ -107,7 +141,7 @@ Three new `event_type` values — `thumb_up`, `thumb_down`, `abandon` — add no
 new fields to the event. A `thumb_down` carries the existing
 `negative_feedback_reason`; an `abandon` carries the existing `completion_rate`
 as its stopping point. They do produce two derived columns on `training_samples`,
-described in section 3; the Avro record itself gains only the five context
+described in section 3; the Avro record itself gains only the four context
 fields above.
 
 The schema file is duplicated: Python reads `recsys-pipeline/schemas/`, Scala
@@ -129,7 +163,7 @@ unredrivable.
 The codec gains a fingerprint → schema catalog built from both resources.
 `decode` resolves the writer schema by the payload's fingerprint and reads it
 through Avro's resolving decoder into the v2 reader schema, so a v1 record
-arrives with `null` in the five new fields. Encoding always writes v2. A
+arrives with `null` in the four new fields. Encoding always writes v2. A
 fingerprint in neither entry still fails as `unknown_fingerprint`, unchanged.
 
 Python already accepts a `catalog` argument in `decode_event`; only the default
@@ -152,9 +186,9 @@ then leaves the others standing.
   ends at `-1`, because the latest expression wins.
 - `abandoned` — `1` when an `abandon` event exists for the sample, else `0`.
 
-The five context fields carry through from the impression, using the same
+The four context fields carry through from the impression, using the same
 `first(when(isImpression, ...), ignoreNulls = true)` treatment as
-`user_features`, and appear as five columns on `training_samples`.
+`user_features`, and appear as four columns on `training_samples`.
 
 Two fixed lists must learn the new names or late-arriving feedback silently
 loses them: `OnlineJoinerStreamingJob.MeasurementFields` and
@@ -203,30 +237,53 @@ existing `NEGATIVE_COMPLETION_CUTOFF` of 0.10 produces `abandon`, and
 thumb would be published at slate time regardless of the timestamp in its own
 payload — defeating the reason for modeling it as a late event.
 
-Producers stop writing `device` and `country` into `context_features` and write
-the typed fields instead.
+Producers stop writing `device` (and its alias `platform`) into
+`context_features` and write the typed `device` field instead. `country` moves
+the other way: `producer.py` and `backfill_producer.py` currently put it in
+`context_features`, while `movie_segment_producer.py` already puts it in
+`user_features`; both converge on `user_features`, so every sim presents it where
+`DEFAULT_DIMENSIONS` reads it. After this change no producer writes
+`context_features` at all, which is the intended end state — it holds experiment
+keys only, and there are none.
 
-## 5. Required by the change: the CTR trainer
+## 5. Required by the change: trainer and governance
 
-Once producers stop populating the map keys, `element_at(context_features,
-"device")` yields its `"NA"` default for every new row. Nothing errors; the model
-just quietly loses two features.
+Two consumers read the moved keys by their old names and would degrade silently
+rather than fail.
 
-`CtrRankingModelTrainingJob` therefore reads the typed column when the DataFrame
-has it and falls back to the map key when it does not, which also keeps Parquet
-written before this change trainable. No features are added and no retraining
-expectation changes.
+**`CtrRankingModelTrainingJob`** builds `cf_device` and `cf_country` from
+`element_at(context_features, ...)`. Once producers stop populating those keys,
+both yield the `"NA"` default for every new row — no error, just two features
+quietly gone. For the flagship movie-category dataset this is already the state
+today, since that sim never wrote context at all. `cf_device` therefore reads the
+typed column and `cf_country` reads `element_at(user_features, "country")`, each
+falling back to the legacy map key when the newer source is absent, so Parquet
+written before this change stays trainable.
+
+**`governance_measurements.DEFAULT_DIMENSIONS`** declares `platform`, which is
+this event's `device` under a second name, and the dashboard hoists dimensions
+out of `user_features` only — so `platform` resolves for no sim and the committed
+snapshot warns `"missing demographic dimension: platform"`. The dimension is
+renamed `platform` → `device`, and the hoisting reads the typed `device` column
+when present, falling back to `user_features`. That closes the warning and raises
+fairness coverage; `occupation` and `geo`, the other two missing dimensions, have
+their own unrelated cause and stay out of scope.
+
+Renaming a published dimension changes the dashboard snapshot, so the snapshot
+fixture is regenerated as part of this work and the change is called out in the
+commit.
 
 ## Error handling
 
 | Condition | Behavior |
 |---|---|
-| v1 payload after the bump | Decodes through the catalog; five new fields are `null` |
+| v1 payload after the bump | Decodes through the catalog; four new fields are `null` |
 | Fingerprint in neither schema | `unknown_fingerprint` dead letter, unchanged |
 | Unrecognized `event_type` | Ignored by the joiner's conditional aggregation, as today — not a dead letter |
 | Unrecognized `surface` / `locale` value | Flows through as data; no validation rejects it |
 | `thumb_up` with no matching impression in the batch | Handled by the existing late-feedback path, like a late click |
-| Old Parquet without the new columns | CTR trainer falls back to the map key; other readers select by name and are unaffected |
+| Old Parquet without the new columns | CTR trainer and dimension hoisting fall back to the legacy map key; other readers select by name and are unaffected |
+| A sim that still writes `country` to `context_features` | Fallback path keeps it working; the dimension resolves either way |
 
 ## Testing
 
@@ -239,12 +296,15 @@ expectation changes.
   click's `dwell_millis` and `completion_rate`; this test fails against today's
   code and is the regression proof for section 3. Plus: `abandon` sets
   `abandoned = 1`; a later `thumb_down` overrides an earlier `thumb_up`; the
-  five context fields reach `training_samples`.
+  four context fields reach `training_samples`.
 - **Late feedback** — a snapshot round-trip preserves the new columns.
 - **Producers** — `locale` and `timezone` are stable per user across slates and
   consistent with that user's country; `surface` stays inside its vocabulary;
   the new event types are deferred by `split_slate` rather than sent immediately.
 - **CTR trainer** — trains on a DataFrame with typed columns and on one with
   only the legacy map, producing the same features from each.
+- **Governance** — `device` resolves as a dimension from both the typed column
+  and a legacy `user_features` map; the fairness section no longer warns about
+  it, and coverage rises accordingly.
 - **Archive and replay** — a manifest spanning both versions lists both
   fingerprints.
