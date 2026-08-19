@@ -3,7 +3,7 @@ package com.demo.process
 import com.demo.engine.{BatchStage, EngineConfig, ExecutionEngine, KafkaSink, KafkaSource, ParquetSink, RawArchiveSink, Sink, Stage}
 import com.demo.event.{DecodedEventBatch, EventParsing, FieldGate, Gated}
 import com.demo.util.{DropMetrics, Env, Reporter, SparkSessions, TimePartitions}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
@@ -22,7 +22,11 @@ object OnlineJoinerStreamingJob {
     "published_at" -> LongType,
     "new_release" -> BooleanType,
     "filter_reason" -> StringType,
-    "unsafe_label" -> BooleanType
+    "unsafe_label" -> BooleanType,
+    "surface" -> StringType,
+    "locale" -> StringType,
+    "timezone" -> StringType,
+    "device" -> StringType
   )
 
   def main(args: Array[String]): Unit = {
@@ -156,9 +160,25 @@ object OnlineJoinerStreamingJob {
         "null_timestamp" -> col("timestamp").isNull
       ))
 
+  /** The value of `field` from the latest feedback event that actually set it.
+    *
+    * A single max_by over one struct would attribute every field to one event, so a later
+    * event carrying only a rating blanks an earlier click's engagement signals. Ordering on
+    * (timestamp, event_id) matches the impression aggregate's tie-break. */
+  private def latestFeedback(field: String, isFeedback: Column): Column =
+    max_by(
+      when(isFeedback && col(field).isNotNull, col(field)),
+      when(isFeedback && col(field).isNotNull,
+        struct(col("timestamp"), coalesce(col("event_id"), lit("")))))
+
   def buildTrainingSamples(events: DataFrame): DataFrame = {
     val isImpression = col("etype").isin("impression", "exposure")
-    val isFeedback   = col("etype").isin("click", "order", "purchase")
+    val isFeedback = col("etype").isin(
+      "click", "order", "purchase", "thumb_up", "thumb_down", "abandon")
+    // last_feedback_ts / feedback_delay_ms are an existing downstream contract measuring
+    // time-to-engagement (ExperienceCollectorStreamingJob, RecommendationResponseStatsJob).
+    // Thumbs and abandons are valence signals, not engagement, and must not silently redefine it.
+    val isEngagementFeedback = col("etype").isin("click", "order", "purchase")
 
     val withMeasurementFields = MeasurementFields.foldLeft(events) { case (df, (name, dataType)) =>
       if (df.columns.contains(name)) df else df.withColumn(name, lit(null).cast(dataType))
@@ -198,16 +218,24 @@ object OnlineJoinerStreamingJob {
           )),
           when(isImpression, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
         ).as("impression_measurement"),
-        max_by(
-          when(isFeedback, struct(
-            col("timestamp").as("last_feedback_ts"), col("timestamp_ms").as("last_feedback_ts_ms"),
-            col("rating"), col("negative_feedback_reason"),
-            col("dwell_millis"), col("completion_rate")
-          )),
-          when(isFeedback, struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
-        ).as("feedback_measurement"),
+        latestFeedback("timestamp", isEngagementFeedback).as("last_feedback_ts"),
+        latestFeedback("timestamp_ms", isEngagementFeedback).as("last_feedback_ts_ms"),
+        latestFeedback("rating", isFeedback).as("rating"),
+        latestFeedback("negative_feedback_reason", isFeedback).as("negative_feedback_reason"),
+        latestFeedback("dwell_millis", isFeedback).as("dwell_millis"),
+        latestFeedback("completion_rate", isFeedback).as("completion_rate"),
         // session_id is constant across a slate's events; carry it through (one session per request).
-        first(col("session_id"), ignoreNulls = true).as("session_id")
+        first(col("session_id"), ignoreNulls = true).as("session_id"),
+        first(when(isImpression, col("surface")),  ignoreNulls = true).as("surface"),
+        first(when(isImpression, col("locale")),   ignoreNulls = true).as("locale"),
+        first(when(isImpression, col("timezone")), ignoreNulls = true).as("timezone"),
+        first(when(isImpression, col("device")),   ignoreNulls = true).as("device"),
+        max_by(
+          when(col("etype") === "thumb_up", lit(1)).when(col("etype") === "thumb_down", lit(-1)),
+          when(col("etype").isin("thumb_up", "thumb_down"),
+            struct(col("timestamp"), coalesce(col("event_id"), lit(""))))
+        ).as("thumb"),
+        max(when(col("etype") === "abandon", lit(1)).otherwise(lit(0))).as("abandoned")
       )
       // Drop groups that have no impression in this batch (pure late-feedback events)
       .filter(col("impression_ts").isNotNull)
@@ -226,24 +254,30 @@ object OnlineJoinerStreamingJob {
         when(coalesce(col("ordered"), lit(0)) === 1, lit(2.0))
           .when(coalesce(col("clicked"), lit(0)) === 1, lit(1.0))
           .otherwise(lit(0.0)).as("label"),
-        col("feedback_measurement.last_feedback_ts").as("last_feedback_ts"),
+        col("last_feedback_ts"),
         // From the millisecond pair, not (seconds delta) * 1000: the producers happen to emit
         // whole-second feedback offsets, which hides a truncation error real traffic would show.
-        when(col("feedback_measurement.last_feedback_ts_ms").isNotNull,
-          (col("feedback_measurement.last_feedback_ts_ms") - col("impression_ts_ms")).cast(LongType)
+        when(col("last_feedback_ts_ms").isNotNull,
+          (col("last_feedback_ts_ms") - col("impression_ts_ms")).cast(LongType)
         ).as("feedback_delay_ms"),
         col("impression_measurement.model_version").as("model_version"),
         col("impression_measurement.policy_version").as("policy_version"),
         col("impression_measurement.algorithm_version").as("algorithm_version"),
-        col("feedback_measurement.rating").as("rating"),
-        col("feedback_measurement.negative_feedback_reason").as("negative_feedback_reason"),
-        col("feedback_measurement.dwell_millis").as("dwell_millis"),
-        col("feedback_measurement.completion_rate").as("completion_rate"),
+        col("rating"),
+        col("negative_feedback_reason"),
+        col("dwell_millis"),
+        col("completion_rate"),
         col("impression_measurement.published_at").as("published_at"),
         col("impression_measurement.new_release").as("new_release"),
         col("impression_measurement.filter_reason").as("filter_reason"),
         col("impression_measurement.unsafe_label").as("unsafe_label"),
         coalesce(col("session_id"), lit("")).as("session_id"),
+        col("thumb"),
+        coalesce(col("abandoned"), lit(0)).as("abandoned"),
+        col("surface"),
+        col("locale"),
+        col("timezone"),
+        col("device"),
         coalesce(col("user_features"),     typedLit(Map.empty[String, String])).as("user_features"),
         coalesce(col("item_features"),     typedLit(Map.empty[String, String])).as("item_features"),
         coalesce(col("context_features"),  typedLit(Map.empty[String, String])).as("context_features")

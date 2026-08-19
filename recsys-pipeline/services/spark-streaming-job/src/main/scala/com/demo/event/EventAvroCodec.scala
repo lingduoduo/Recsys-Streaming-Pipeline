@@ -14,12 +14,24 @@ object EventAvroCodec {
 
   private val RequiredFields = Seq("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
 
-  lazy val schema: Schema = {
-    val input = Option(getClass.getResourceAsStream("/schemas/recsys-event-v1.avsc"))
-      .getOrElse(throw new IllegalStateException("missing recsys event Avro schema resource"))
+  private def parse(resource: String): Schema = {
+    val input = Option(getClass.getResourceAsStream(resource))
+      .getOrElse(throw new IllegalStateException(s"missing Avro schema resource $resource"))
     try new Schema.Parser().parse(input)
     finally input.close()
   }
+
+  /** The schema new records are written with. */
+  lazy val schema: Schema = parse("/schemas/recsys-event-v2.avsc")
+
+  /** Every writer schema this decoder accepts, keyed by fingerprint. A record written
+    * before a bump is still valid; resolving it against `schema` is what keeps it out
+    * of the dead-letter archive. */
+  lazy val catalog: Map[Long, Schema] =
+    Seq("/schemas/recsys-event-v1.avsc", "/schemas/recsys-event-v2.avsc")
+      .map(parse)
+      .map(parsed => SchemaNormalization.parsingFingerprint64(parsed) -> parsed)
+      .toMap
 
   lazy val fingerprint: Long = SchemaNormalization.parsingFingerprint64(schema)
 
@@ -52,20 +64,24 @@ object EventAvroCodec {
   def decode(bytes: Array[Byte]): Either[DecodeFailure, GenericRecord] = {
     if (bytes == null || bytes.length < 10 || !bytes.take(2).sameElements(Magic)) {
       Left(DecodeFailure.InvalidMarker("invalid Avro single-object marker"))
-    } else if (ByteBuffer.wrap(bytes, 2, 8).order(ByteOrder.LITTLE_ENDIAN).getLong != fingerprint) {
-      Left(DecodeFailure.UnknownFingerprint("writer schema is not in the local catalog"))
     } else {
-      Try {
-        val decoder = DecoderFactory.get.binaryDecoder(bytes, 10, bytes.length - 10, null)
-        val record = new GenericDatumReader[GenericRecord](schema).read(null, decoder)
-        if (!decoder.isEnd) throw new IllegalArgumentException("unexpected trailing Avro payload bytes")
-        record
-      } match {
-        case Success(record) => missingRequiredField(record) match {
-            case Some(field) => Left(DecodeFailure.RequiredField(s"missing required field $field"))
-            case None        => Right(record)
+      val writerFingerprint = ByteBuffer.wrap(bytes, 2, 8).order(ByteOrder.LITTLE_ENDIAN).getLong
+      catalog.get(writerFingerprint) match {
+        case None =>
+          Left(DecodeFailure.UnknownFingerprint("writer schema is not in the local catalog"))
+        case Some(writerSchema) =>
+          Try {
+            val decoder = DecoderFactory.get.binaryDecoder(bytes, 10, bytes.length - 10, null)
+            val record = new GenericDatumReader[GenericRecord](writerSchema, schema).read(null, decoder)
+            if (!decoder.isEnd) throw new IllegalArgumentException("unexpected trailing Avro payload bytes")
+            record
+          } match {
+            case Success(record) => missingRequiredField(record) match {
+                case Some(field) => Left(DecodeFailure.RequiredField(s"missing required field $field"))
+                case None        => Right(record)
+              }
+            case Failure(error) => Left(DecodeFailure.CorruptPayload(errorDetail(error)))
           }
-        case Failure(error) => Left(DecodeFailure.CorruptPayload(errorDetail(error)))
       }
     }
   }

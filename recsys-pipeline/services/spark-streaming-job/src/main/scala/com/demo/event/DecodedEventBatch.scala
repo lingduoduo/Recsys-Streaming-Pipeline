@@ -63,7 +63,7 @@ object DecodedEventBatch {
     val writerFingerprint = parsedWriterFingerprint(bytes)
     try {
       EventAvroCodec.decode(bytes) match {
-        case Right(record) => Row(recordRow(record), EventAvroCodec.fingerprint, null, null)
+        case Right(record) => Row(recordRow(record), writerFingerprint, null, null)
         case Left(failure) => Row(null, writerFingerprint, failure.code, failure.detail)
       }
     } catch {

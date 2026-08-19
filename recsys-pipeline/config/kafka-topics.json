@@ -12,7 +12,7 @@
       "overhead_factor": 1.1,
       "cleanup_policy": "delete",
       "schema_subject": "recsys-event",
-      "schema_fingerprint": "225b275f487979ab"
+      "schema_fingerprint": "af86abe880fe4bb3"
     },
     {
       "name": "recsys_events.backfill",
@@ -26,7 +26,7 @@
       "overhead_factor": 1.1,
       "cleanup_policy": "delete",
       "schema_subject": "recsys-event",
-      "schema_fingerprint": "225b275f487979ab"
+      "schema_fingerprint": "af86abe880fe4bb3"
     }
   ]
 }

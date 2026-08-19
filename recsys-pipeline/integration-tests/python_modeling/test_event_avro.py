@@ -26,7 +26,7 @@ def test_single_object_round_trip():
 
 def test_single_object_header_uses_standard_avro_fingerprint_bytes():
     """Fails if the Avro fingerprint bytes are reversed in the wire header."""
-    schema = event_avro.load_schema()
+    schema = event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0])
     expected_fingerprint = 0x225B275F487979AB
     payload = event_avro.encode_event(
         {
@@ -90,3 +90,75 @@ def test_decode_rejects_trailing_bytes_after_a_valid_record():
 
     with pytest.raises(event_avro.EventValidationError, match="trailing"):
         event_avro.decode_event(payload + b"\x00")
+
+
+def test_v2_is_the_default_writer_schema():
+    """Fails if producers still encode v1 after the bump."""
+    schema = event_avro.load_schema()
+    names = [field["name"] for field in schema["fields"]]
+
+    assert names[-4:] == ["surface", "locale", "timezone", "device"]
+    assert event_avro.schema_fingerprint(schema) == 0xAF86ABE880FE4BB3
+
+
+def test_v1_payload_decodes_into_the_v2_shape():
+    """Fails if a v1 record dead-letters instead of resolving through the catalog."""
+    v1 = event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0])
+    payload = event_avro.encode_event(
+        {
+            "event_id": "e-legacy",
+            "user_id": "u-1",
+            "item_id": "i-1",
+            "event_type": "click",
+            "timestamp_ms": 1718400000000,
+        },
+        v1,
+    )
+
+    decoded = event_avro.decode_event(payload)
+
+    assert decoded["event_id"] == "e-legacy"
+    assert decoded["surface"] is None
+    assert decoded["locale"] is None
+    assert decoded["timezone"] is None
+    assert decoded["device"] is None
+
+
+def test_v2_round_trips_the_new_context_fields():
+    payload = event_avro.encode_event(
+        {
+            "event_id": "e-v2",
+            "user_id": "u-1",
+            "item_id": "i-1",
+            "event_type": "impression",
+            "timestamp_ms": 1718400000000,
+            "surface": "home_feed",
+            "locale": "en-US",
+            "timezone": "America/New_York",
+            "device": "ios",
+        }
+    )
+
+    decoded = event_avro.decode_event(payload)
+
+    assert decoded["surface"] == "home_feed"
+    assert decoded["locale"] == "en-US"
+    assert decoded["timezone"] == "America/New_York"
+    assert decoded["device"] == "ios"
+
+
+def test_unknown_fingerprint_is_still_rejected():
+    """Fails if widening the catalog accidentally accepts any fingerprint."""
+    payload = event_avro.encode_event(
+        {
+            "event_id": "e-1",
+            "user_id": "u-1",
+            "item_id": "i-1",
+            "event_type": "click",
+            "timestamp_ms": 1718400000000,
+        }
+    )
+    corrupted = payload[:2] + (0xDEADBEEF).to_bytes(8, "little") + payload[10:]
+
+    with pytest.raises(event_avro.SchemaFingerprintError):
+        event_avro.decode_event(corrupted)

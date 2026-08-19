@@ -168,6 +168,25 @@ def write_archive(
             (batch_root / "_COMMITTED").write_text(manifest, encoding="utf-8")
 
 
+def _archive_with_fingerprints(tmp_path: Path, fingerprints: list[int]) -> archive_replay._CommittedArchive:
+    """Build a committed archive whose rows carry the given schema_fingerprint values."""
+    write_archive(tmp_path, events=len(fingerprints))
+    archive_file = next(tmp_path.rglob("*.parquet"))
+    table = pq.read_table(archive_file).drop(["date"])
+    pq.write_table(
+        table.set_column(
+            table.schema.get_field_index("schema_fingerprint"),
+            "schema_fingerprint",
+            # uint64: event_avro.schema_fingerprint() returns an unsigned 64-bit value, and the
+            # v2 fingerprint's top bit is set, so a signed int64 array would overflow.
+            pa.array(fingerprints, type=pa.uint64()),
+        ),
+        archive_file,
+    )
+    refresh_archive_commit(tmp_path)
+    return archive_replay.open_archive(config(tmp_path))
+
+
 def config(root: Path, **overrides: object) -> ReplayConfig:
     values = {
         "archive_path": root,
@@ -927,3 +946,32 @@ def test_requirements_declare_pyarrow_dependency() -> None:
     requirements = (PYTHON_MODELING / "requirements.txt").read_text(encoding="utf-8").splitlines()
 
     assert any(requirement.startswith("pyarrow>=") for requirement in requirements)
+
+
+def test_archive_accepts_every_catalogued_fingerprint(tmp_path):
+    """Fails while the gate compares against one schema: a v1 archive must stay replayable."""
+    import event_avro
+    from archive_replay import _validate_archive_fingerprints
+
+    catalog = event_avro.load_catalog()
+    assert len(catalog) == 2, "the catalog should hold v1 and v2"
+
+    v1_fingerprint = event_avro.schema_fingerprint(
+        event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0]))
+    archive = _archive_with_fingerprints(tmp_path, [v1_fingerprint])
+
+    assert _validate_archive_fingerprints(archive, None) == (v1_fingerprint,)
+
+
+def test_archive_spanning_both_schema_versions_lists_both_fingerprints(tmp_path):
+    """A manifest spanning both versions lists both fingerprints, sorted."""
+    import event_avro
+    from archive_replay import _validate_archive_fingerprints
+
+    v1_fingerprint = event_avro.schema_fingerprint(
+        event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0]))
+    v2_fingerprint = event_avro.schema_fingerprint(event_avro.load_schema())
+    archive = _archive_with_fingerprints(tmp_path, [v1_fingerprint, v2_fingerprint])
+
+    assert _validate_archive_fingerprints(archive, None) == tuple(
+        sorted((v1_fingerprint, v2_fingerprint)))

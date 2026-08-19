@@ -1,6 +1,9 @@
 package com.demo.process
 
+import java.nio.file.Files
+
 import com.demo.event.{EventParsing, EventSchemas}
+import com.demo.process.LateFeedbackJoin
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions.{coalesce, col, struct, to_json, unix_timestamp}
@@ -224,14 +227,14 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     forward.getAs[Double]("completion_rate") shouldBe 0.9
   }
 
-  it should "keep only the latest feedback event's measurement fields when they are disjoint" in {
+  it should "attribute each feedback field to the latest event that set it" in {
     val sparkSession = spark
     import sparkSession.implicits._
 
     // The click carries engagement signals and the order carries only a rating: exactly the
-    // shape a producer emits when it splits measurement fields across the two feedback events.
-    // One max_by over the whole struct means the later event wins wholesale, so the click's
-    // fields do NOT survive. Producers must repeat them on the later event.
+    // shape a producer emits when it splits measurement fields across two feedback events.
+    // Each field is attributed independently, so the later rating does not blank the earlier
+    // engagement signals and producers need not repeat them.
     val impression =
       """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
     val click =
@@ -246,22 +249,29 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     val row = sample(Seq(impression, click, ratingOnlyOrder))
 
     row.getAs[Double]("rating") shouldBe 4.5
-    row.getAs[AnyRef]("negative_feedback_reason") shouldBe null
-    row.getAs[AnyRef]("dwell_millis") shouldBe null
-    row.getAs[AnyRef]("completion_rate") shouldBe null
-    // The click still counts as a click; only its measurement struct is superseded.
+    row.getAs[String]("negative_feedback_reason") shouldBe "not_interested"
+    row.getAs[Long]("dwell_millis") shouldBe 9000L
+    row.getAs[Double]("completion_rate") shouldBe 0.08
     row.getAs[Int]("clicked") shouldBe 1
     row.getAs[Int]("ordered") shouldBe 1
+  }
 
-    // Repeating the click's fields on the order is what preserves them.
-    val carryingOrder =
-      """{"event_id":"order","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"order","timestamp":110,"rating":4.5,"negative_feedback_reason":"not_interested","dwell_millis":9000,"completion_rate":0.08}"""
-    val preserved = sample(Seq(impression, click, carryingOrder))
+  it should "let a later feedback event override a field it actually sets" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
 
-    preserved.getAs[Double]("rating") shouldBe 4.5
-    preserved.getAs[String]("negative_feedback_reason") shouldBe "not_interested"
-    preserved.getAs[Long]("dwell_millis") shouldBe 9000L
-    preserved.getAs[Double]("completion_rate") shouldBe 0.08
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
+    val firstClick =
+      """{"event_id":"c1","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":105,"completion_rate":0.10}"""
+    val secondClick =
+      """{"event_id":"c2","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":115,"completion_rate":0.90}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression, firstClick, secondClick).toDF("value"))).kept).first()
+
+    row.getAs[Double]("completion_rate") shouldBe 0.90
   }
 
   it should "preserve nullable measurement attribution without changing legacy events" in {
@@ -491,5 +501,108 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
       input.addData(e); q.processAllAvailable()
       s.table("oj_out").count() shouldBe 1
     } finally q.stop()
+  }
+
+  it should "record thumbs and abandons without erasing click engagement" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0,"surface":"home_feed","locale":"en-US","timezone":"America/New_York","device":"ios"}"""
+    val click =
+      """{"event_id":"click","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":105,"dwell_millis":9000,"completion_rate":0.80}"""
+    val thumbUp =
+      """{"event_id":"thumb","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"thumb_up","timestamp":200}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression, click, thumbUp).toDF("value"))).kept).first()
+
+    row.getAs[Int]("thumb") shouldBe 1
+    row.getAs[Int]("abandoned") shouldBe 0
+    row.getAs[Long]("dwell_millis") shouldBe 9000L
+    row.getAs[Double]("completion_rate") shouldBe 0.80
+    // feedback_delay_ms measures time-to-engagement: it must track the click (t=105), not the
+    // later thumb_up (t=200) — a valence signal must not silently redefine this existing metric.
+    row.getAs[Long]("feedback_delay_ms") shouldBe 5000L
+    row.getAs[String]("surface") shouldBe "home_feed"
+    row.getAs[String]("locale") shouldBe "en-US"
+    row.getAs[String]("timezone") shouldBe "America/New_York"
+    row.getAs[String]("device") shouldBe "ios"
+    row.getAs[Double]("label") shouldBe 1.0
+  }
+
+  it should "take the latest thumb and flag an abandon" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
+    val thumbUp =
+      """{"event_id":"t1","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"thumb_up","timestamp":150}"""
+    val thumbDown =
+      """{"event_id":"t2","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"thumb_down","timestamp":250}"""
+    val abandon =
+      """{"event_id":"a1","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"abandon","timestamp":300,"completion_rate":0.05}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression, thumbUp, thumbDown, abandon).toDF("value"))).kept).first()
+
+    row.getAs[Int]("thumb") shouldBe -1
+    row.getAs[Int]("abandoned") shouldBe 1
+    row.getAs[Double]("completion_rate") shouldBe 0.05
+    // A thumb is not a click: the label is unchanged by valence signals.
+    row.getAs[Double]("label") shouldBe 0.0
+  }
+
+  it should "carry the typed context fields through a late-feedback snapshot" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0,"surface":"home_feed","locale":"en-US","timezone":"America/New_York","device":"ios"}"""
+    val click =
+      """{"event_id":"click","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":105}"""
+
+    val root = Files.createTempDirectory("online-joiner-late-feedback").toString
+    val subject = new LateFeedbackJoin(root, "context-round-trip", "60 seconds")
+    val startMs = 1000000L
+
+    val impressionEvents =
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(Seq(impression).toDF("value"))).kept
+    // Batch 0: only the impression arrives. The window stays open, so nothing publishes yet — but
+    // the slate's raw row, including the four context fields, is committed to a real Parquet
+    // snapshot on disk (LateFeedbackJoin.normalize -> writeSnapshot).
+    subject.process(impressionEvents, 0L, startMs).count() shouldBe 0L
+
+    val clickEvents =
+      OnlineJoinerStreamingJob.parseEvents(decodedJson(Seq(click).toDF("value"))).kept
+    // Batch 1: the click closes the window. Publishing this slate requires reading batch 0's
+    // snapshot back off disk (readPending -> readSnapshot) and unioning it with this batch's click
+    // before buildTrainingSamples runs — a genuine round trip, not a re-assertion of the schema
+    // list that produced it.
+    val published = subject.process(clickEvents, 1L, startMs + 61000L)
+
+    val row = published.first()
+    row.getAs[String]("surface") shouldBe "home_feed"
+    row.getAs[String]("locale") shouldBe "en-US"
+    row.getAs[String]("timezone") shouldBe "America/New_York"
+    row.getAs[String]("device") shouldBe "ios"
+  }
+
+  it should "leave thumb null when the user never thumbed" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression).toDF("value"))).kept).first()
+
+    row.getAs[AnyRef]("thumb") shouldBe null
+    row.getAs[Int]("abandoned") shouldBe 0
   }
 }

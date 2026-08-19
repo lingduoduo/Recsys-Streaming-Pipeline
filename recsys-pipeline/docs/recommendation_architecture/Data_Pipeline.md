@@ -130,13 +130,14 @@ Adjust topic-policy inputs and validate storage before treating any higher workl
 
 Producers emit Avro single-object messages: marker `c3 01`, followed by the eight-byte
 little-endian CRC-64-AVRO parsing fingerprint, then the record. The shared schema is
-`schemas/recsys-event-v1.avsc`; its current fingerprint is `225b275f487979ab`. Required fields
+`schemas/recsys-event-v2.avsc`; its current fingerprint is `af86abe880fe4bb3`. Required fields
 are `event_id`, `user_id`, `item_id`, `event_type`, and `timestamp_ms`.
 
 Schema changes must be backwards-compatible additions with Avro defaults. Do not rename, remove,
 or change the type of existing fields. The Spark reader accepts only fingerprints registered in its
-local schema catalog, and archive replay requires every selected row's fingerprint to match the
-local writer schema. Therefore deploy a compatible producer/consumer schema change together and
+local schema catalog, and archive replay requires every selected row's fingerprint to match one of
+the fingerprints in that local catalog, not only the current writer schema. Therefore deploy a
+compatible producer/consumer schema change together and
 do not replay an archive under an unregistered schema.
 
 Malformed records are archived separately at `RECSYS_EVENT_DEAD_LETTER_PATH` with Kafka topic,

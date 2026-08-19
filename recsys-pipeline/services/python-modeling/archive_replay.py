@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from event_avro import encode_event, load_schema, schema_fingerprint
+from event_avro import encode_event, load_catalog, load_schema, schema_fingerprint
 
 
 class ReplayConfigError(ValueError):
@@ -439,7 +439,7 @@ def _count_archive_rows(archive: _CommittedArchive, date_filter: Any) -> int:
 def _validate_archive_fingerprints(
     archive: _CommittedArchive, date_filter: Any
 ) -> tuple[int, ...]:
-    expected = schema_fingerprint(load_schema())
+    accepted = set(load_catalog())
     observed: set[int] = set()
     for dataset in archive.datasets:
         scanner = dataset.scanner(columns=["schema_fingerprint"], filter=date_filter)
@@ -452,10 +452,10 @@ def _validate_archive_fingerprints(
                     )
                 fingerprint = int(raw_fingerprint)
                 observed.add(fingerprint)
-                if fingerprint != expected:
+                if fingerprint not in accepted:
                     raise ReplaySchemaFingerprintError(
                         "archive schema_fingerprint "
-                        f"{fingerprint} does not match local schema_fingerprint {expected}",
+                        f"{fingerprint} is not in the local schema catalog {sorted(accepted)}",
                         observed,
                     )
     return tuple(sorted(observed))
