@@ -719,6 +719,90 @@ git commit -m "feat: carry typed context, thumb, and abandon into training sampl
 
 ---
 
+### Task 4b: Extend TrainingSampleSchema for the new columns
+
+Added after the whole-branch review of PR #194, which found this gap. Ships in the follow-up PR and
+**must land before Task 7** — once producers emit thumbs, abandons, and surface, this schema is what
+decides whether those columns reach four downstream datasets or are silently dropped.
+
+**Files:**
+- Modify: `recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/process/ExperienceCollectorStreamingJob.scala:32-59`
+- Test: `recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/process/ExperienceCollectorStreamingJobSpec.scala`
+
+**Interfaces:**
+- Consumes: the six columns Task 4 added to `training_samples`.
+- Produces: `TrainingSampleSchema` gains the same six fields, so `RecallSampleStreamingJob`,
+  `RankingSampleStreamingJob`, and `RelevanceSampleStreamingJob` — which all read the
+  `training_samples` topic through this `from_json` schema — can see them.
+
+**Why this is not optional.** `TrainingSampleSchema` is the reader schema for the `training_samples`
+Kafka topic. `from_json` silently yields null for any field the schema does not declare, so a
+producer emitting `surface` and a joiner writing it are both wasted if this list does not name it.
+The schema is deliberately a subset — it omits `date`, `batch_id`, `genres`, and `tags` — so
+"it is a subset" is not by itself a reason to leave the six out; the six are the point of the change.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `ExperienceCollectorStreamingJobSpec.scala`:
+
+```scala
+  it should "parse the v2 context and valence columns out of a training sample" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val json =
+      """{"sample_id":"req:user:item","session_id":"s","request_id":"req","user_id":"user","item_id":"item","position":0,"impression_ts":100,"clicked":1,"ordered":0,"label":1.0,"thumb":1,"abandoned":0,"surface":"home_feed","locale":"en-US","timezone":"America/New_York","device":"ios"}"""
+
+    val row = Seq(json).toDF("value")
+      .select(from_json(col("value"), ExperienceCollectorStreamingJob.TrainingSampleSchema).as("s"))
+      .select("s.*")
+      .first()
+
+    row.getAs[Int]("thumb") shouldBe 1
+    row.getAs[Int]("abandoned") shouldBe 0
+    row.getAs[String]("surface") shouldBe "home_feed"
+    row.getAs[String]("locale") shouldBe "en-US"
+    row.getAs[String]("timezone") shouldBe "America/New_York"
+    row.getAs[String]("device") shouldBe "ios"
+  }
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch "testOnly com.demo.process.ExperienceCollectorStreamingJobSpec"`
+Expected: FAIL — `AnalysisException`, no such field `thumb` in the parsed struct.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Append to `TrainingSampleSchema`, after `unsafe_label` and before the three map fields, matching the
+nullability the joiner actually produces (`abandoned` is coalesced to 0 and never null; `thumb` is
+null when the user never thumbed):
+
+```scala
+    StructField("thumb", IntegerType, nullable = true),
+    StructField("abandoned", IntegerType, nullable = false),
+    StructField("surface", StringType, nullable = true),
+    StructField("locale", StringType, nullable = true),
+    StructField("timezone", StringType, nullable = true),
+    StructField("device", StringType, nullable = true),
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `JAVA_HOME=$(/usr/libexec/java_home -v 17) sbt -batch test`
+Expected: PASS, whole Scala suite — `RecallSampleStreamingJobSpec`, `RankingSampleStreamingJobSpec`,
+and `RelevanceSampleStreamingJobSpec` all parse through this schema and must stay green.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/process/ExperienceCollectorStreamingJob.scala \
+        recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/process/ExperienceCollectorStreamingJobSpec.scala
+git commit -m "feat: parse the v2 context and valence columns in TrainingSampleSchema"
+```
+
+---
+
 ### Task 5: CTR trainer reads the moved keys
 
 Lands before Task 7 so no window exists where the trainer silently loses features.
