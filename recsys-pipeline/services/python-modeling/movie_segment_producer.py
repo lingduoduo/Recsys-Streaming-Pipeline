@@ -179,12 +179,6 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
             if rng.random() < order_prob(meta):
                 order = base(item, "order", now_ms + rng.randint(21, 120) * 1000, position)
                 order["rating"] = round(min(5.0, 3.0 + 2.0 * completion), 1)
-                # OnlineJoinerStreamingJob attributes the whole feedback struct to the latest
-                # feedback event (one max_by over the event timestamp), so an order carrying
-                # only `rating` erases the click's engagement signals. Carry them forward —
-                # this is the same shape OnlineJoinerStreamingJobSpec's fixture asserts.
-                for field in ("completion_rate", "dwell_millis", "negative_feedback_reason"):
-                    order[field] = click[field]
                 events.append(order)
     return events
 

@@ -224,14 +224,14 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     forward.getAs[Double]("completion_rate") shouldBe 0.9
   }
 
-  it should "keep only the latest feedback event's measurement fields when they are disjoint" in {
+  it should "attribute each feedback field to the latest event that set it" in {
     val sparkSession = spark
     import sparkSession.implicits._
 
     // The click carries engagement signals and the order carries only a rating: exactly the
-    // shape a producer emits when it splits measurement fields across the two feedback events.
-    // One max_by over the whole struct means the later event wins wholesale, so the click's
-    // fields do NOT survive. Producers must repeat them on the later event.
+    // shape a producer emits when it splits measurement fields across two feedback events.
+    // Each field is attributed independently, so the later rating does not blank the earlier
+    // engagement signals and producers need not repeat them.
     val impression =
       """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
     val click =
@@ -246,22 +246,29 @@ class OnlineJoinerStreamingJobSpec extends AnyFlatSpec with Matchers with Before
     val row = sample(Seq(impression, click, ratingOnlyOrder))
 
     row.getAs[Double]("rating") shouldBe 4.5
-    row.getAs[AnyRef]("negative_feedback_reason") shouldBe null
-    row.getAs[AnyRef]("dwell_millis") shouldBe null
-    row.getAs[AnyRef]("completion_rate") shouldBe null
-    // The click still counts as a click; only its measurement struct is superseded.
+    row.getAs[String]("negative_feedback_reason") shouldBe "not_interested"
+    row.getAs[Long]("dwell_millis") shouldBe 9000L
+    row.getAs[Double]("completion_rate") shouldBe 0.08
     row.getAs[Int]("clicked") shouldBe 1
     row.getAs[Int]("ordered") shouldBe 1
+  }
 
-    // Repeating the click's fields on the order is what preserves them.
-    val carryingOrder =
-      """{"event_id":"order","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"order","timestamp":110,"rating":4.5,"negative_feedback_reason":"not_interested","dwell_millis":9000,"completion_rate":0.08}"""
-    val preserved = sample(Seq(impression, click, carryingOrder))
+  it should "let a later feedback event override a field it actually sets" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
 
-    preserved.getAs[Double]("rating") shouldBe 4.5
-    preserved.getAs[String]("negative_feedback_reason") shouldBe "not_interested"
-    preserved.getAs[Long]("dwell_millis") shouldBe 9000L
-    preserved.getAs[Double]("completion_rate") shouldBe 0.08
+    val impression =
+      """{"event_id":"impression","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"impression","timestamp":100,"position":0}"""
+    val firstClick =
+      """{"event_id":"c1","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":105,"completion_rate":0.10}"""
+    val secondClick =
+      """{"event_id":"c2","session_id":"s","request_id":"req","user_id":"user","item_id":"item","event_type":"click","timestamp":115,"completion_rate":0.90}"""
+
+    val row = OnlineJoinerStreamingJob.buildTrainingSamples(
+      OnlineJoinerStreamingJob.parseEvents(
+        decodedJson(Seq(impression, firstClick, secondClick).toDF("value"))).kept).first()
+
+    row.getAs[Double]("completion_rate") shouldBe 0.90
   }
 
   it should "preserve nullable measurement attribution without changing legacy events" in {
