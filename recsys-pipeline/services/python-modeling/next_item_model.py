@@ -352,20 +352,23 @@ def train_next_item(split: Split, epochs: int = EPOCHS, seed: int = SEED):
         loss = loss_fn(logits[valid], targets[valid])
         loss.backward()
         optimizer.step()
+    # Only positions 0..width-2 ever appear as a training input (the loop above always
+    # feeds padded[:, :-1]), so a query longer than width-1 would read logits off an
+    # untrained position embedding. Recorded on the model so model_rankings can cap its
+    # query length without a signature change.
+    model.trained_input_length = width - 1
     return model, item_index
 
 
 def model_rankings(model, item_index: dict[str, int], split: Split, k: int = TOP_K):
     """Rank the catalog for each test user from their training history.
 
-    Drops the final event before querying. `train_next_item` teaches position i to
-    predict the item at position i+1 within a user's own sequence (input=seq[:-1],
-    target=seq[1:]); the last position of the longest sequence in the batch is therefore
-    never used as a training input, so its position embedding stays at its random
-    initialisation. Querying with the full history would read logits off that untrained
-    position. Dropping the last event keeps the query within the position range the
-    model actually learned to condition on, at the cost of asking about the item after
-    the second-to-last event rather than after the very latest one.
+    Queries with the user's newest events — including the very last one, which
+    `repeat_last` and `item2vec_neighbors` also anchor on, so the model sees the same
+    signal the baselines do. Truncated to `model.trained_input_length` from the front
+    (keeping the tail) rather than from the back: `train_next_item` only ever trains
+    positions 0..width-2 as inputs, so a longer query would read logits off an untrained
+    position embedding. A history shorter than that length is used in full.
 
     Seen items stay in the candidate set, matching the baselines and the spec.
     """
@@ -375,9 +378,9 @@ def model_rankings(model, item_index: dict[str, int], split: Split, k: int = TOP
     rankings: dict[str, list[str]] = {}
     with torch.no_grad():
         for user in split.targets:
-            events = split.train.get(user, [])[-MAX_SEQUENCE:]
-            history = [item for _, item in events[:-1]]
+            history = [item for _, item in split.train.get(user, [])[-MAX_SEQUENCE:]]
             ids = [item_index[item] for item in history if item in item_index]
+            ids = ids[-model.trained_input_length:]
             if not ids:
                 rankings[user] = []
                 continue
