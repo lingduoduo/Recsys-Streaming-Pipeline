@@ -412,3 +412,35 @@ def test_main_survives_a_replay_with_a_null_action_space(tmp_path):
 
     assert result["n_transitions"] > 0
     assert destination.exists()
+
+
+def _duplicate(reward):
+    """A terminal transition on one shared (state, action) key."""
+    return _transition("s", "a", reward, terminal=True)
+
+
+def test_duplicate_state_action_converges_to_the_mean_of_its_targets():
+    """C3: an incremental per-occurrence update yields 0.667/0.333 by order; the mean is 0.5."""
+    q = tabular_q.fit([_duplicate(0.0), _duplicate(1.0)], gamma=0.9, sweeps=500)
+    assert tabular_q.score(q, "s", "a") == pytest.approx(0.5, abs=1e-6)
+
+
+def test_duplicate_state_action_is_not_recency_weighted():
+    q = tabular_q.fit([_duplicate(0.0), _duplicate(0.0), _duplicate(1.0)],
+                      gamma=0.9, sweeps=500)
+    assert tabular_q.score(q, "s", "a") == pytest.approx(1.0 / 3.0, abs=1e-6)
+
+
+def test_tabular_fit_is_order_independent():
+    import random
+
+    transitions = list(CHAIN) + [_duplicate(0.0), _duplicate(1.0), _duplicate(1.0)]
+    shuffled = list(transitions)
+    random.Random(20260820).shuffle(shuffled)
+
+    baseline = tabular_q.fit(transitions, gamma=0.9, sweeps=500)
+    reordered = tabular_q.fit(shuffled, gamma=0.9, sweeps=500)
+
+    assert set(baseline) == set(reordered)
+    for key, value in baseline.items():
+        assert reordered[key] == pytest.approx(value, abs=1e-9)

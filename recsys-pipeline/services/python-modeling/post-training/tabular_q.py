@@ -27,19 +27,35 @@ def max_next_q(q: dict, transition) -> float:
 
 def fit(transitions, gamma: float = DEFAULT_GAMMA, alpha: float = DEFAULT_ALPHA,
         sweeps: int = DEFAULT_SWEEPS, tol: float = DEFAULT_TOL) -> dict[tuple[str, str], float]:
-    """Sweep the dataset until the largest value change falls below `tol`."""
-    q: dict[tuple[str, str], float] = defaultdict(float)
+    """Sweep the dataset until the largest value change falls below `tol`.
+
+    Each sweep is a BATCH backup: every transition sharing a (state_key, action) key
+    contributes one Bellman target, those targets are averaged, and the key is updated once
+    against the average. Updating once per occurrence instead would make the result a
+    recency-weighted geometric average of the targets and would depend on list order -- one key
+    seen with rewards {0, 1} would settle at 0.667 or 0.333 rather than 0.5. The state key is
+    coarse (a genre/tag signature), so duplicate keys are the norm, not an edge case.
+
+    Targets are computed against the values held at the START of the sweep, so the result does
+    not depend on the iteration order of the grouping either.
+    """
+    grouped: dict[tuple[str, str], list] = defaultdict(list)
+    for transition in transitions:
+        grouped[(transition.state_key, transition.action)].append(transition)
+
+    q: dict[tuple[str, str], float] = {}
     for _ in range(sweeps):
-        delta = 0.0
-        for transition in transitions:
-            target = transition.reward + gamma * max_next_q(q, transition)
-            key = (transition.state_key, transition.action)
-            updated = q[key] + alpha * (target - q[key])
-            delta = max(delta, abs(updated - q[key]))
-            q[key] = updated
+        updated = {}
+        for key, rows in grouped.items():
+            target = sum(t.reward + gamma * max_next_q(q, t) for t in rows) / len(rows)
+            current = q.get(key, 0.0)
+            updated[key] = current + alpha * (target - current)
+        delta = max((abs(value - q.get(key, 0.0)) for key, value in updated.items()),
+                    default=0.0)
+        q = updated
         if delta < tol:
             break
-    return dict(q)
+    return q
 
 
 def score(q: dict, state_key_value: str, action: str) -> float:
