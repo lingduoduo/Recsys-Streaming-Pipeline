@@ -23,7 +23,9 @@ from feature_derivations import l1
 
 def slates_to_frame(num_items: int, num_users: int, slates_per_user: int,
                     seed: int) -> pd.DataFrame:
-    """One row per impression, carrying the columns next_item_model reads."""
+    """One row per impression, carrying the columns next_item_model reads plus `preferred`
+    (whether the item's l1 family is the clicking user's preferred family), so callers can
+    derive preferred_share from this frame instead of regenerating the dataset."""
     rng = random.Random(seed)
     movies = producer.assign_movies(num_items, rng)
     users = producer.assign_users(num_users, rng)
@@ -33,19 +35,22 @@ def slates_to_frame(num_items: int, num_users: int, slates_per_user: int,
     stamp = 1_700_000_000
     for round_index in range(slates_per_user):
         for user in users:
+            preferred_family = producer.user_preferred_family(user)
             events = producer.make_slate(user, users[user], items, movies, rng)
             clicked = {e["item_id"] for e in events if e["event_type"] == "click"}
             ordered = {e["item_id"] for e in events if e["event_type"] == "order"}
             for event in events:
                 if event["event_type"] != "impression":
                     continue
+                item = event["item_id"]
                 rows.append({
                     "user_id": user,
-                    "item_id": event["item_id"],
+                    "item_id": item,
                     "impression_ts": stamp + round_index,
                     "position": event["position"],
-                    "clicked": int(event["item_id"] in clicked),
-                    "ordered": int(event["item_id"] in ordered),
+                    "clicked": int(item in clicked),
+                    "ordered": int(item in ordered),
+                    "preferred": l1(movies[item]["genres"]) == preferred_family,
                 })
     return pd.DataFrame(rows)
 
@@ -88,6 +93,9 @@ def measure(strength: float, num_items: int, num_users: int, slates_per_user: in
     finally:
         producer.AFFINITY_STRENGTH = original
 
+    clicks = frame[frame["clicked"] == 1]
+    share = float(clicks["preferred"].mean()) if len(clicks) else 0.0
+
     positives = frame[nim.positive_mask(frame)]
     timelines = nim.build_timelines(positives)
     split = nim.split_timelines(timelines, nim.resolve_cutoff(timelines))
@@ -97,7 +105,7 @@ def measure(strength: float, num_items: int, num_users: int, slates_per_user: in
         "strength": strength,
         "test_users": len(split.targets),
         "catalog_size": len(item_index),
-        "preferred_share": preferred_share(strength, num_items, num_users, slates_per_user, seed),
+        "preferred_share": share,
         "most_popular": nim.evaluate_system(nim.most_popular(split), split.targets),
         "next_item_transformer": nim.evaluate_system(
             nim.model_rankings(model, item_index, split), split.targets),
@@ -115,14 +123,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--epochs", type=int, default=60)
     args = parser.parse_args(argv)
 
-    print(f"{'strength':>9} {'pref_share':>11} {'pop hit@10':>11} {'model hit@10':>13} {'n':>5}")
+    print(f"{'strength':>9} {'pref_share':>11} {'pop hit@10':>11} {'model hit@10':>13} "
+          f"{'n':>5} {'catalog_size':>12}")
     for strength in args.strengths:
         result = measure(strength, args.num_items, args.num_users,
                          args.slates_per_user, args.seed, args.epochs)
         print(f"{result['strength']:>9.2f} {result['preferred_share']:>11.3f} "
               f"{result['most_popular']['hit_rate@10']:>11.4f} "
               f"{result['next_item_transformer']['hit_rate@10']:>13.4f} "
-              f"{result['test_users']:>5}")
+              f"{result['test_users']:>5} {result['catalog_size']:>12}")
 
 
 if __name__ == "__main__":

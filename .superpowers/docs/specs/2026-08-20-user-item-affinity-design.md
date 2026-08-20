@@ -97,6 +97,18 @@ recovers `FAMILY_EFF`, `by_l2` and `by_l3` still recover what they recover today
 and the personalization signal sits strictly underneath them rather than replacing
 them.
 
+**The second identity is exact only when the user count is a multiple of six.**
+Preferred family is assigned round-robin over the six sorted families by user
+index, so for a population of `N` users, a family's count of preferring users
+`n_f` is equal across all six only when `N % 6 == 0`. Otherwise the mean bonus
+for family `f` carries a residual of `S · (6·n_f − N) / (5N)`, where `S` is
+`AFFINITY_STRENGTH`. At the sim's real default, `N = 200`, this is at most
+`0.004·S` (two families get 34 preferring users, the rest 33), small next to the
+smallest true `FAMILY_EFF` gap of 0.010, but not zero — it is a bound, not an
+elimination. The construction is left unchanged (round-robin assignment is simple
+and the residual is negligible at realistic `N`); the bound is documented here,
+on `user_preferred_family`, and pinned by a test at `N = 200`.
+
 The term is added alongside the existing ones, inside the same clamp:
 
 ```
@@ -164,6 +176,51 @@ Nothing about the harness changes. It takes `--input`, so this is a re-run.
 | Every existing vocabulary — genres, surfaces, locales, countries, subscriptions | Untouched |
 | Slates as a uniform sample of the catalog | Slate composition is explicitly out of scope |
 | The v2 event contract | No new field; the affinity is latent |
+
+### 5a. Known side effect: affinity inflates zero-truth fairness spreads (documented, not fixed)
+
+Section 1's zero-mean identity is exact over the six **families**, not over the **catalog**.
+A user does not see six families equally often — they see a uniform sample of a catalog whose
+family shares are unbalanced by construction (`assign_movies` draws genres uniformly over 18
+genres, not uniformly over the 6 l1 families). So a user's expected bonus over a catalog draw,
+`s_f·S − (1 − s_f)·S/5` where `s_f` is that family's catalog share, is zero only at `s_f = 1/6`.
+The aggregate identity across families still cancels exactly (why section 1 and the `by_l1`
+report are unaffected), but every individual user now carries a hidden CTR offset keyed to
+`user_index % 6`, and that offset inflates the apparent spread on fairness dimensions —
+gender, age_band, country — that have no injected ground-truth effect.
+
+Measured at the shipped default (`AFFINITY_STRENGTH = 0.80`, the sim's real `SEED = 17`,
+`NUM_USERS = 200`, `NUM_ITEMS = 400`), exact population expectation (mean `click_prob` over
+every item × surface per user, so no sampling noise):
+
+```
+dimension      spread S=0   spread S=0.80   one se at default run scale
+gender           0.0017        0.0072          ~0.0022  (~3 se)
+age_band         0.0049        0.0114          ~0.0026  (~4 se)
+country          0.0070        0.0036          ~0.0026  (this seed happens to shrink)
+```
+
+`gender` and `age_band` widen 2–4x into a range visible against sampling noise on a published
+dashboard, at a run with no injected effect on either dimension. `country` moved the other way
+at this seed — a reminder that the sign of the shift depends on which fairness groups happen to
+correlate with `user_index % 6` for a given population draw, not a directional guarantee.
+
+The affinity also **compresses** the one gap the sim exists to teach: `SUBSCRIPTION_EFF`'s
+premium-vs-free spread is 0.0500 by construction, but at `S = 0.80` the measured spread is
+0.0380 — a ~24% reduction. Mechanism: the top clamp (`click_prob` capped at 0.60) saturates for
+the ~1-in-6 preferred-family impressions regardless of subscription tier, so a growing share of
+impressions carry no room left for the subscription term to move the number. This is the same
+clamp-saturation mechanism documented on `AFFINITY_STRENGTH` (section 3 / the code comment); it
+is not a new mechanism, but it means the subscription gap is smaller at the shipped default than
+section 1's "sits strictly underneath" language implies for a per-user, per-dimension read.
+
+**This is not corrected in code.** Balancing the catalog's family shares or scaling the bonus by
+observed share so the per-user catalog expectation is exactly zero are both real fixes but are a
+separate design question from this spec's goal (make personalization learnable) — see Non-goals.
+Anyone reading the fairness dashboard off a regenerated dataset should expect `gender` and
+`age_band` spreads a few standard errors wider than their true (zero) effect, and the
+`subscription` gap a few percent narrower than 0.05, both explained by this section rather than
+by an unrelated data-quality regression.
 
 ## Error handling
 
