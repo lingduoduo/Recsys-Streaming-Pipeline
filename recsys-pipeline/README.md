@@ -1019,8 +1019,12 @@ REDIS_HOST=localhost python3 post_train_q.py --output-parquet /tmp/scored_replay
 python3 ../ope_eval_report.py --parquet /tmp/scored_replay.parquet
 ```
 
-The second command's table gains `model:tabQ` and `model:fqiQ` rows. This path is offline only:
-it does not write to Redis and does not affect live ranking.
+The second command's table gains `model:tabQ` and `model:fqiQ` rows. The injected keys are scored
+as policies but deliberately excluded from the reward model's feature schema, so scoring a replay
+leaves every other policy's number untouched. The trainer prints each arm's held-out mean
+`|TD error|` on its own line — they are not comparable to each other — with the tabular one
+reported alongside its held-out Q-table coverage. This path is offline only: it does not write to
+Redis and does not affect live ranking.
 
 ---
 

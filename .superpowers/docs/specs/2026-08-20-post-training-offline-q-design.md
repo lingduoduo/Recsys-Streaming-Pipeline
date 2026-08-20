@@ -20,8 +20,28 @@ call. An audit of that implementation found it unsuitable as the basis of a post
   already watched and the policy can never serve.
 - No terminal handling: every feedback bootstraps.
 
-Offline batch fitting avoids all four by construction. Values are never clamped because evaluation is
-argmax-based; episodes have real terminal transitions; and the logged action space bounds the max.
+Offline batch fitting fixes two of these four. It is worth being precise about which, because the
+other two survive the move offline.
+
+**Fixed — the feasible-action restriction and terminal handling.** Chaining a session supplies the
+action space at `s'` from the following event, so `max_a' Q(s', a')` ranges only over actions the
+policy could actually have taken; and the last transition of a session targets `r` alone, with no
+bootstrap term. Both are properties of the episode structure, so they hold by construction.
+
+**Unchanged — self-bootstrapping.** `replay_dataset.state_key` reproduces the same genre/tag
+signature the online path uses, deliberately, so that the comparison against the online
+implementation is direct. The measured 88.5% `s' == s` rate therefore carries over unaltered.
+Batch sweeping changes *when* the bootstrap happens, not *what* it bootstraps off. Repairing this
+requires a different state representation and is out of scope for this component; the FQI arm
+avoids it only incidentally, by keying on per-candidate features rather than on the state
+signature. This is also why the trainer reports held-out Q-table coverage: a state key this coarse
+produces few distinct keys and heavy duplication within each.
+
+**Still occurs, but harmless — value inflation.** Nothing here caps the fixed point at
+`r/(1-gamma)`; `Q(B) = 10.0` in the analytic fixture below *is* that inflation. What changed is
+only that offline evaluation ranks by argmax and never clamps, so values above 1.0 remain ordering
+information instead of being flattened into a tie at the clamp ceiling. The magnitude carries no
+meaning; only the order is used.
 
 This document specifies the first component of a **post-training track**: offline policy improvement
 trained on logged data. DPO follows as a sibling component reusing the same dataset layer and
@@ -96,12 +116,26 @@ policies `model:tabQ` and `model:fqiQ` then evaluate with **no change to `pick()
 logistic reward model, the `requestId`-hash held-out split, and the bootstrap confidence intervals,
 and landing in the same table as `ctr`, `popularity`, `random`, and the existing `model:qValue`.
 
+One change to `ope_eval_report.py` *is* required, and it is not optional: `feature_names()` derives
+the reward model's schema from `modelPredictions` keys, so the injected keys must be excluded from
+it (`POLICY_ONLY_PRED_KEYS`) while remaining in `policy_names()`. A score produced by a policy must
+never become an input feature of the reward model that judges it — otherwise the estimator is fit
+on the values it is then asked to grade, reports lift for a policy that learned nothing, and,
+because the schema is shared, shifts every other policy's number the moment a replay is scored.
+
 This also preserves an existing property: `ope_eval_report.py` is deliberately numpy-only. Torch stays
 in the trainer, which emits a scored replay file the evaluator reads.
 
 **Held-out Bellman/TD residual.** The Direct Method estimator above is single-step: it cannot credit
 long-horizon value, which is precisely what Q-learning claims to add. Mean absolute TD error on the
 held-out split, reported per algorithm, is the RL-native check on fit quality.
+
+Two limits on how that residual may be read. It is reported per algorithm and never as a
+head-to-head, because the two arms fit different state representations — the tabular arm keys on
+the genre/tag state signature, FQI on the per-candidate feature vector — so the numbers are not on
+a common scale. And the tabular residual must be read alongside the held-out Q-table coverage the
+trainer prints beside it: an unseen `(s, a)` scores exactly 0.0, so at low coverage the residual
+collapses toward `mean|reward|` and an empty table scores better than a fitted one.
 
 Neither number is asserted in tests as a quality threshold; both are reported. The tests assert
 correctness of the machinery, not the outcome of a stochastic fit.

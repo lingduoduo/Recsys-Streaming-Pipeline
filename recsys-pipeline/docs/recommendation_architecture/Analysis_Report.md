@@ -141,11 +141,19 @@ are normally written to `replay:recommendations` by later `POST /feedback` calls
 
 `post-training/post_train_q.py` fits offline Q functions on the same replay buffer and injects
 their per-candidate predictions as `tabQ` and `fqiQ`, which the evaluator discovers automatically
-as `model:tabQ` and `model:fqiQ`. Two caveats when reading those rows: the Direct Method estimator
-is single-step, so it cannot credit the long-horizon value that Q-learning exists to capture — the
-held-out mean `|TD error|` printed by the trainer is the complementary check. And the fitted Q is
-trained on the non-held-out split while policy values are computed over all events, the same
-footing as the reward model itself.
+as `model:tabQ` and `model:fqiQ`. Those two keys are policy scores, not observations, so
+`feature_names()` excludes them from the reward model's schema (`POLICY_ONLY_PRED_KEYS`) while
+`policy_names()` keeps them: an estimator fit on the Q values it is then asked to grade would
+report lift for a policy that learned nothing.
+
+Caveats when reading those rows. The Direct Method estimator is single-step, so it cannot credit
+the long-horizon value that Q-learning exists to capture — the held-out mean `|TD error|` printed
+by the trainer is the complementary check. That residual is reported per algorithm and is not a
+head-to-head: the two arms fit different state representations. The tabular residual in particular
+must be read against the held-out Q-table coverage printed beside it, because an unseen
+`(state, action)` scores 0.0 and so flatters a sparse table. And the fitted Q is trained on the
+non-held-out split while policy values are computed over all events, the same footing as the
+reward model itself.
 
 Run the Redis-backed evaluation from the repository root:
 
