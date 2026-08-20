@@ -1,3 +1,4 @@
+import json
 import random
 import sys
 import time
@@ -282,3 +283,97 @@ def test_zero_strength_disables_the_effect(monkeypatch):
     for n in range(1, 25):
         for family in producer.FAMILY_EFF:
             assert producer.affinity_bonus(f"user_{n}", {"genres": [_genre_in(family)]}) == 0.0
+
+
+def test_affinity_shifts_click_rate_toward_the_preferred_family():
+    """End to end through make_slate: a user's clicks skew to their family.
+
+    This is the property every downstream model depends on. Without it the data has a
+    per-item effect and a per-user effect but no interaction, and personalization is
+    unlearnable no matter how good the model is.
+    """
+    import movie_segment_producer as producer
+
+    rng = random.Random(23)
+    movies = producer.assign_movies(240, rng)
+    users = producer.assign_users(40, rng)
+    items = list(movies)
+
+    user = "user_7"
+    preferred = producer.user_preferred_family(user)
+    from feature_derivations import l1
+
+    preferred_clicks = other_clicks = 0
+    preferred_impressions = other_impressions = 0
+    for _ in range(400):
+        events = producer.make_slate(user, users[user], items, movies, rng)
+        clicked = {e["item_id"] for e in events if e["event_type"] == "click"}
+        for event in events:
+            if event["event_type"] != "impression":
+                continue
+            item = event["item_id"]
+            if l1(movies[item]["genres"]) == preferred:
+                preferred_impressions += 1
+                preferred_clicks += item in clicked
+            else:
+                other_impressions += 1
+                other_clicks += item in clicked
+
+    preferred_ctr = preferred_clicks / preferred_impressions
+    other_ctr = other_clicks / other_impressions
+    assert preferred_ctr > other_ctr
+
+
+def test_affinity_never_reaches_an_emitted_field():
+    """Latent by construction. If this fails, a model could copy the answer."""
+    import movie_segment_producer as producer
+
+    rng = random.Random(11)
+    movies = producer.assign_movies(60, rng)
+    users = producer.assign_users(10, rng)
+    user = "user_3"
+    preferred = producer.user_preferred_family(user)
+
+    for _ in range(30):
+        for event in producer.make_slate(user, users[user], list(movies), movies, rng):
+            flat = json.dumps(event, default=str)
+            assert preferred not in flat
+            assert "preferred_family" not in flat
+            assert "affinity" not in flat
+
+
+def test_zero_strength_removes_the_preferred_family_gap(monkeypatch):
+    """Opt-out, asserted on the effect rather than on determinism.
+
+    Comparing a strength-0 run against itself would only prove the rng is seeded. What
+    matters is that at strength 0 the preferred family stops being special, so the sim
+    behaves as it did before this change.
+    """
+    import movie_segment_producer as producer
+    from feature_derivations import l1
+
+    monkeypatch.setattr(producer, "AFFINITY_STRENGTH", 0.0)
+    rng = random.Random(29)
+    movies = producer.assign_movies(240, rng)
+    users = producer.assign_users(40, rng)
+    items = list(movies)
+
+    user = "user_7"
+    preferred = producer.user_preferred_family(user)
+    pref_clicks = pref_imps = other_clicks = other_imps = 0
+    for _ in range(400):
+        events = producer.make_slate(user, users[user], items, movies, rng)
+        clicked = {e["item_id"] for e in events if e["event_type"] == "click"}
+        for event in events:
+            if event["event_type"] != "impression":
+                continue
+            item = event["item_id"]
+            if l1(movies[item]["genres"]) == preferred:
+                pref_imps += 1
+                pref_clicks += item in clicked
+            else:
+                other_imps += 1
+                other_clicks += item in clicked
+
+    # No taste term, so any remaining gap is the category effect plus sampling noise.
+    assert abs(pref_clicks / pref_imps - other_clicks / other_imps) < 0.06

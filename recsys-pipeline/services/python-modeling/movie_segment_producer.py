@@ -247,9 +247,10 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
         events.append(impression)
 
         # independent per-item click decision → per-item CTR reflects the item's category,
-        # shifted by the user's documented subscription effect and the surface it appeared on
+        # shifted by the user's documented subscription effect, the surface it appeared on,
+        # and the user's own taste for that item's genre family
         click_prob = min(0.6, max(0.02, item_click_prob(meta) + user_click_bias(user_meta)
-                                  + SURFACE_EFF[surface]))
+                                  + SURFACE_EFF[surface] + affinity_bonus(user, meta)))
         if rng.random() < click_prob:
             completion = click_completion(meta, rng)
             click = base(item, "click", now_ms + rng.randint(1, 20) * 1000, position)
