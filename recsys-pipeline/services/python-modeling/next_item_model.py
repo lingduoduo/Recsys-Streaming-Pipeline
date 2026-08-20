@@ -10,9 +10,12 @@ Offline only: nothing here touches Spark, Redis, the serving path, or ONNX.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass
 
 import pandas as pd
+
+from recall_eval_report import cosine, rank_topk
 
 SEED = 42
 
@@ -193,3 +196,67 @@ def evaluate_system(
     metrics["mrr@10"] = mrr_total / users
     metrics["ndcg@10"] = ndcg_total / users
     return metrics
+
+
+TOP_K = 20
+
+
+def load_item_vectors(path: str) -> dict[str, list[float]]:
+    """Read the `item_id:v1 v2 ...` embedding file the sims already write."""
+    vectors: dict[str, list[float]] = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            item, raw = line.split(":", 1)
+            values = [float(part) for part in raw.split() if part]
+            if values:
+                vectors[item] = values
+    return vectors
+
+
+def most_popular(split: Split, k: int = TOP_K) -> dict[str, list[str]]:
+    """The null hypothesis: the most-engaged training items, same list for everyone.
+
+    A learned model that does not beat this has demonstrated nothing.
+    """
+    counts = Counter(item for events in split.train.values() for _, item in events)
+    ranking = rank_topk({item: float(n) for item, n in counts.items()}, k)
+    return {user: list(ranking) for user in split.targets}
+
+
+def repeat_last(split: Split, k: int = TOP_K) -> dict[str, list[str]]:
+    """The user's own most recent distinct items, most recent first."""
+    rankings: dict[str, list[str]] = {}
+    for user in split.targets:
+        seen: list[str] = []
+        for _, item in reversed(split.train.get(user, [])):
+            if item not in seen:
+                seen.append(item)
+            if len(seen) == k:
+                break
+        rankings[user] = seen
+    return rankings
+
+
+def item2vec_neighbors(
+    split: Split, vectors: dict[str, list[float]], k: int = TOP_K
+) -> dict[str, list[str]]:
+    """Nearest neighbours of the user's last training item in the item2vec space.
+
+    Returns an empty ranking when the anchor has no embedding — that is a real property
+    of this baseline, and evaluate_system counts it as a miss rather than dropping the
+    user from the denominator.
+    """
+    rankings: dict[str, list[str]] = {}
+    for user in split.targets:
+        history = split.train.get(user, [])
+        anchor = history[-1][1] if history else None
+        if anchor is None or anchor not in vectors:
+            rankings[user] = []
+            continue
+        query = vectors[anchor]
+        scores = {item: cosine(query, vec) for item, vec in vectors.items()}
+        rankings[user] = rank_topk(scores, k)
+    return rankings

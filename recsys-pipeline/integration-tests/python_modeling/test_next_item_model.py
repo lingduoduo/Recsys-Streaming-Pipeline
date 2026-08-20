@@ -218,3 +218,68 @@ def test_a_user_with_no_ranking_counts_as_a_miss():
     metrics = nim.evaluate_system({"u1": ["target1"]}, {"u1": "target1", "u2": "target2"})
 
     assert metrics["hit_rate@5"] == pytest.approx(0.5)
+
+
+def _split(train, targets):
+    return nim.Split(train=train, targets=targets, cutoff_ts=100, dropped={})
+
+
+def test_most_popular_ranks_by_training_count_and_is_identical_for_every_user():
+    split = _split(
+        train={"u1": [(1, "a"), (2, "a"), (3, "b")], "u2": [(1, "a"), (2, "c")]},
+        targets={"u1": "z", "u2": "z"},
+    )
+
+    rankings = nim.most_popular(split, k=3)
+
+    assert rankings["u1"][:2] == ["a", "b"] or rankings["u1"][:2] == ["a", "c"]
+    assert rankings["u1"][0] == "a"          # 3 engagements beats 1
+    assert rankings["u1"] == rankings["u2"]  # not personalised
+
+
+def test_repeat_last_returns_most_recent_distinct_items_first():
+    split = _split(
+        train={"u1": [(1, "old"), (2, "mid"), (3, "new"), (4, "new")]},
+        targets={"u1": "z"},
+    )
+
+    assert nim.repeat_last(split, k=3) == {"u1": ["new", "mid", "old"]}
+
+
+def test_item2vec_neighbors_ranks_by_cosine_to_the_last_item():
+    split = _split(train={"u1": [(1, "far"), (2, "anchor")]}, targets={"u1": "z"})
+    vectors = {
+        "anchor": [1.0, 0.0],
+        "near": [0.9, 0.1],
+        "orthogonal": [0.0, 1.0],
+        "far": [-1.0, 0.0],
+    }
+
+    ranking = nim.item2vec_neighbors(split, vectors, k=4)["u1"]
+
+    assert ranking.index("near") < ranking.index("orthogonal") < ranking.index("far")
+
+
+def test_item2vec_neighbors_handles_an_anchor_with_no_embedding():
+    split = _split(train={"u1": [(1, "unknown_item")]}, targets={"u1": "z"})
+
+    ranking = nim.item2vec_neighbors(split, {"a": [1.0]}, k=3)
+
+    assert ranking["u1"] == []
+
+
+def test_load_item_vectors_parses_the_sim_embedding_format(tmp_path):
+    path = tmp_path / "item-embedding.txt"
+    path.write_text("movie_1:0.5 -0.25 0.75\nmovie_2:1.0 0.0 0.0\n")
+
+    vectors = nim.load_item_vectors(str(path))
+
+    assert vectors["movie_1"] == [0.5, -0.25, 0.75]
+    assert len(vectors) == 2
+
+
+def test_baselines_keep_items_the_user_already_engaged_with():
+    """The opposite of recall_eval_report's convention, and deliberate."""
+    split = _split(train={"u1": [(1, "seen"), (2, "seen"), (3, "other")]}, targets={"u1": "seen"})
+
+    assert "seen" in nim.most_popular(split, k=5)["u1"]
