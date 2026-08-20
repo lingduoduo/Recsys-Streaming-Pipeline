@@ -11,6 +11,19 @@ import feature_derivations as mc  # noqa: E402
 import movie_segment_producer as mp  # noqa: E402
 
 
+# ── helpers ────────────────────────────────────────────────────────────────────
+def _genre_in(family: str) -> str:
+    """A genre whose l1 family is `family`. Inverts feature_derivations.l1 for tests."""
+    from feature_derivations import GENRES, l1
+
+    for genre in GENRES:
+        if l1([genre]) == family:
+            return genre
+    if family == "Other":
+        return "NotARealGenre"     # anything unmatched maps to Other
+    raise AssertionError(f"no genre maps to family {family}")
+
+
 # ── movie_categories (pure derivations) ─────────────────────────────────────────
 def test_l1_l2_l3_from_list():
     assert mc.l1(["Sci-Fi", "Action"]) == "SciFi&Fantasy"
@@ -209,3 +222,63 @@ def test_low_completion_clicks_produce_an_abandon_and_high_ones_a_thumb_up():
 
     assert "thumb_up" in types
     assert "abandon" in types
+
+
+# ── affinity (per-user taste) ──────────────────────────────────────────────────
+def test_preferred_family_is_one_of_the_six_and_stable_per_user():
+    import movie_segment_producer as producer
+
+    families = set(producer.FAMILY_EFF)
+    for n in range(1, 61):
+        user = f"user_{n}"
+        assert producer.user_preferred_family(user) in families
+        assert producer.user_preferred_family(user) == producer.user_preferred_family(user)
+
+
+def test_affinity_bonus_is_zero_mean_for_one_user():
+    """The six bonuses a single user carries must cancel."""
+    import movie_segment_producer as producer
+
+    user = "user_3"
+    bonuses = [
+        producer.affinity_bonus(user, {"genres": [_genre_in(family)]})
+        for family in producer.FAMILY_EFF
+    ]
+
+    assert sum(bonuses) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_affinity_bonus_is_zero_mean_across_the_population():
+    """The identity that protects by_l1: averaged over users, each family nets zero.
+
+    If this drifts, the movie-category report stops recovering FAMILY_EFF and the sim
+    silently starts measuring something else.
+    """
+    import movie_segment_producer as producer
+
+    users = [f"user_{n}" for n in range(1, 1201)]
+    for family in producer.FAMILY_EFF:
+        meta = {"genres": [_genre_in(family)]}
+        mean = sum(producer.affinity_bonus(u, meta) for u in users) / len(users)
+        assert mean == pytest.approx(0.0, abs=1e-9), family
+
+
+def test_preferred_family_items_score_higher_for_that_user():
+    import movie_segment_producer as producer
+
+    user = "user_7"
+    preferred = producer.user_preferred_family(user)
+    other = next(f for f in producer.FAMILY_EFF if f != preferred)
+
+    assert producer.affinity_bonus(user, {"genres": [_genre_in(preferred)]}) > 0
+    assert producer.affinity_bonus(user, {"genres": [_genre_in(other)]}) < 0
+
+
+def test_zero_strength_disables_the_effect(monkeypatch):
+    """Provably opt-out: at strength 0 the bonus vanishes for every user and family."""
+    import movie_segment_producer as producer
+
+    monkeypatch.setattr(producer, "AFFINITY_STRENGTH", 0.0)
+    for n in range(1, 25):
+        for family in producer.FAMILY_EFF:
+            assert producer.affinity_bonus(f"user_{n}", {"genres": [_genre_in(family)]}) == 0.0

@@ -73,6 +73,15 @@ SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
 # Additive per-slate click effect, so the surface is recoverable from the report.
 SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
                "detail_page": 0.01, "continue_watching": 0.03}
+
+# Per-user taste. Items in a user's preferred l1 family gain AFFINITY_STRENGTH; each of the
+# other five loses a fifth as much, so the six bonuses cancel for that user AND — because the
+# preferred family is drawn uniformly over users — the mean bonus for any given family is zero
+# across the population. That second identity is what keeps the by_l1 report recovering
+# FAMILY_EFF unchanged: this signal sits underneath the existing ground truth, not on top of it.
+#
+# The default is calibrated by measurement, not argument — see the plan's Task 3 and the spec.
+AFFINITY_STRENGTH = float(os.getenv("AFFINITY_STRENGTH", "0.15"))
 # One locale and zone per country. Canada is split so a locale is not a country alias.
 COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
 COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
@@ -152,6 +161,31 @@ def user_locale(user: str, country: str) -> str:
 
 def user_timezone(country: str) -> str:
     return COUNTRY_TIMEZONE.get(country, "America/New_York")
+
+
+def user_preferred_family(user: str) -> str:
+    """The l1 family this user favours: a pure function of the user id.
+
+    Deliberately NOT stored in the dict assign_users returns. That dict is copied into
+    user_features, which feeds governance_measurements.DEFAULT_DIMENSIONS — an allowlist whose
+    members are published as fairness groups — and a taste attribute does not belong there.
+    Deriving it here also keeps it latent by construction: a model must infer it from behaviour
+    rather than read it off a field, which is the whole point of the signal.
+    """
+    families = sorted(FAMILY_EFF)
+    return families[_user_index(user) % len(families)]
+
+
+def affinity_bonus(user: str, meta: dict) -> float:
+    """Click-probability bonus for showing `meta` to `user`.
+
+    +AFFINITY_STRENGTH for the user's preferred family, -AFFINITY_STRENGTH/5 for each of the
+    other five. Zero-mean per user by construction; zero-mean across users because
+    user_preferred_family cycles uniformly over the families.
+    """
+    others = len(FAMILY_EFF) - 1
+    return (AFFINITY_STRENGTH if l1(meta["genres"]) == user_preferred_family(user)
+            else -AFFINITY_STRENGTH / others)
 
 
 def click_completion(meta: dict, rng: random.Random) -> float:
