@@ -444,3 +444,40 @@ def test_tabular_fit_is_order_independent():
     assert set(baseline) == set(reordered)
     for key, value in baseline.items():
         assert reordered[key] == pytest.approx(value, abs=1e-9)
+
+
+def test_score_events_handles_a_null_model_predictions():
+    """I3: Parquet returns an absent nested struct as None, and setdefault returns that None."""
+    events = _replay_fixture()
+    events[0]["actionSpace"][0]["modelPredictions"] = None
+    names, q, model = _fitted_arms(events)
+
+    scored = post_train_q.score_events(events, names, q, model)
+
+    predictions = scored[0]["actionSpace"][0]["modelPredictions"]
+    assert "tabQ" in predictions
+    assert "fqiQ" in predictions
+
+
+def test_held_out_coverage_reports_the_fitted_fraction():
+    """I1: an unseen (s, a) scores 0.0, so the residual alone cannot tell a fitted table
+    from an empty one. Coverage is what distinguishes them."""
+    assert post_train_q.held_out_coverage({}, CHAIN) == 0.0
+    q = tabular_q.fit(CHAIN, gamma=0.9, sweeps=500)
+    assert post_train_q.held_out_coverage(q, CHAIN) == 1.0
+    assert post_train_q.held_out_coverage({}, []) is None
+
+
+def test_main_returns_held_out_q_table_coverage(tmp_path):
+    pd = pytest.importorskip("pandas")
+    source = tmp_path / "replay.parquet"
+    pd.DataFrame(_replay_fixture()).to_parquet(source, index=False)
+
+    result = post_train_q.main([
+        "--parquet", str(source),
+        "--fqi-iterations", "3",
+        "--fqi-epochs", "20",
+    ])
+
+    assert "tabular_held_out_coverage" in result
+    assert 0.0 <= result["tabular_held_out_coverage"] <= 1.0

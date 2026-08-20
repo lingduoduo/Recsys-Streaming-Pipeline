@@ -55,6 +55,19 @@ def tabular_td_residual(q, transitions, gamma: float):
     return total / len(transitions)
 
 
+def held_out_coverage(q, transitions):
+    """Fraction of held-out (state_key, action) pairs the fitted table actually holds.
+
+    Required reading alongside `tabular_td_residual`: an unseen pair scores exactly 0.0, so its
+    residual collapses to |reward| and an EMPTY table scores BETTER than a fitted one on a
+    lower-is-better scale. The residual is only interpretable at the coverage reported here.
+    """
+    if not transitions:
+        return None
+    covered = sum(1 for t in transitions if (t.state_key, t.action) in q)
+    return covered / len(transitions)
+
+
 def fqi_td_residual(model, transitions, gamma: float):
     """Mean absolute Bellman error for the fitted network."""
     if not transitions:
@@ -80,7 +93,12 @@ def score_events(events, names, q, model):
             targets.append((candidate, state))
     fqi_scores = model.score_many(rows)
     for (candidate, state), q_value in zip(targets, fqi_scores):
-        predictions = candidate.setdefault("modelPredictions", {})
+        # setdefault returns the STORED value when the key is present, so a null
+        # modelPredictions -- which is what Parquet yields for an absent nested struct --
+        # would come back as None and the assignment below would raise.
+        predictions = candidate.get("modelPredictions")
+        if predictions is None:
+            predictions = candidate["modelPredictions"] = {}
         predictions["tabQ"] = tabular_q.score(q, state, str(candidate.get("item")))
         predictions["fqiQ"] = float(q_value)
     return events
@@ -141,6 +159,7 @@ def main(argv=None) -> dict:
         "n_terminal": sum(1 for t in transitions if t.terminal),
         "q_table_size": len(q),
         "tabular_td_residual": tabular_td_residual(q, held_out, args.gamma),
+        "tabular_held_out_coverage": held_out_coverage(q, held_out),
         "fqi_td_residual": fqi_td_residual(model, held_out, args.gamma),
     }
 
@@ -148,9 +167,15 @@ def main(argv=None) -> dict:
           f"(train={summary['n_train']} held-out={summary['n_held_out']} "
           f"terminal={summary['n_terminal']})")
     print(f"tabular Q-table entries: {summary['q_table_size']}")
-    print("held-out mean |TD error|: "
-          f"tabular={_format(summary['tabular_td_residual'])} "
-          f"fqi={_format(summary['fqi_td_residual'])}")
+    print(f"tabular: held-out mean |TD error| over the genre/tag state key = "
+          f"{_format(summary['tabular_td_residual'])} "
+          f"(held-out (state,action) coverage of the Q-table = "
+          f"{_format(summary['tabular_held_out_coverage'])}; uncovered pairs score 0.0, which "
+          f"makes the residual optimistic to read as fit quality)")
+    print(f"fqi: held-out mean |TD error| over the per-candidate feature vector = "
+          f"{_format(summary['fqi_td_residual'])}")
+    print("note: the two arms fit different state representations, so the two residuals above "
+          "are NOT directly comparable and must not be read as a head-to-head.")
 
     if args.output_parquet:
         import pandas as pd
