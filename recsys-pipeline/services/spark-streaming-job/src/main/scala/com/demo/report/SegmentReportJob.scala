@@ -66,7 +66,7 @@ object SegmentReportJob {
         frame.coalesce(1).write.mode("overwrite").option("header", "true").csv(s"$outdir/by_$name")
       }
 
-      emit("platform", platformMetrics(df, overallCtr)) // event-context, from Parquet
+      emit("device", deviceMetrics(df, overallCtr)) // event-context, from Parquet
 
       val ids = df.select("user_id").distinct().collect().map(_.getString(0))
       val demographics = fetchDemographics(ids, redisHost, redisPort, redisPoolMaxTotal)
@@ -88,20 +88,23 @@ object SegmentReportJob {
       sum("clicked").as("clicks"),
       sum("ordered").as("orders"))
 
-  /** Platform breakdown from the typed `device` column, falling back to the legacy
+  /** Device breakdown from the typed `device` column, falling back to the legacy
     * `context_features["platform"]` / `context_features["device"]` map keys for Parquet
-    * written before schema v2 promoted `device` out of the map. Output column stays named
-    * `platform` for compatibility with existing consumers of the `by_platform` CSV output. */
-  def platformMetrics(df: DataFrame, overallCtr: Double): DataFrame = {
+    * written before schema v2 promoted `device` out of the map.
+    *
+    * The segment, its column, and the `by_device` CSV directory are all named for the event
+    * field they describe. They were called `platform` while the map key was, which left the
+    * report contradicting both the event schema and the governance dimension. */
+  def deviceMetrics(df: DataFrame, overallCtr: Double): DataFrame = {
     val typedDevice = if (df.columns.contains("device")) col("device") else lit(null).cast("string")
     val legacyDevice =
       if (df.columns.contains("context_features"))
         coalesce(col("context_features").getItem("platform"), col("context_features").getItem("device"))
       else lit(null).cast("string")
     val seg = df.select(
-      coalesce(typedDevice, legacyDevice).as("platform"),
+      coalesce(typedDevice, legacyDevice).as("device"),
       col("clicked"), col("ordered"), col("user_id"))
-    val grouped = seg.groupBy("platform").agg(
+    val grouped = seg.groupBy("device").agg(
       count(lit(1)).as("impressions"),
       sum("clicked").as("clicks"),
       sum("ordered").as("orders"),

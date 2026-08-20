@@ -92,7 +92,18 @@ def encode_event(event: Mapping[str, object], schema: dict | None = None) -> byt
     return out.getvalue()
 
 
-def decode_event(payload: bytes, catalog: Mapping[int, dict] | None = None) -> dict:
+def decode_event(
+    payload: bytes,
+    catalog: Mapping[int, dict] | None = None,
+    reader_schema: dict | None = None,
+) -> dict:
+    """Decode one single-object payload, resolving the writer schema by fingerprint.
+
+    `catalog` overrides which writer schemas are accepted. `reader_schema` overrides the shape
+    the record is read into; it defaults to the current writer schema, so a v1 payload arrives
+    with the fields v2 added set to null. A caller supplying its own catalog usually wants the
+    default reader, but it can now say otherwise instead of being silently overruled.
+    """
     if len(payload) < 10 or payload[:2] != MAGIC:
         raise EventValidationError("invalid Avro single-object marker")
     fingerprint = int.from_bytes(payload[2:10], "little")
@@ -102,7 +113,7 @@ def decode_event(payload: bytes, catalog: Mapping[int, dict] | None = None) -> d
     encoded_record = io.BytesIO(payload[10:])
     try:
         decoded = fastavro.schemaless_reader(
-            encoded_record, schemas[fingerprint], load_schema())
+            encoded_record, schemas[fingerprint], reader_schema or load_schema())
     except (TypeError, ValueError, EOFError) as exc:
         raise EventValidationError(str(exc)) from exc
     if encoded_record.read(1):

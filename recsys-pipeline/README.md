@@ -547,7 +547,7 @@ are the only measures that need whole ranked slates.
 | `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port the sim starts the retrieval service on for its traffic burst |
 | `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. *Orders* (21–120s base delay) still cross the streaming job's *default* 10-second trigger at any scale above ~0.5 (21s × 0.5 = 10.5s); *clicks* (1–20s base delay) can land inside one even at scale 1.0. The sims run with `TRIGGER_INTERVAL="2 seconds"`, so that figure — not the 10-second default — governs their cross-batch behavior |
 | `FEEDBACK_TAIL_SECONDS` | `150` | segment and category sims | Floor before a drain may end, so the sim cannot declare completion before the last deferred order has arrived |
-| `FEEDBACK_JOIN_WAIT` | `3 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behavior. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
+| `FEEDBACK_JOIN_WAIT` | `4 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behavior. The default clears the producers' longest feedback delay (a thumb, up to 180s) with a minute of margin. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
 | `SPARK_SQL_SESSION_TIMEZONE` | `UTC` | every Spark job | Session time zone; affects timestamp **formatting** only. Parquet `date` partitions are derived from the epoch, so the same event lands in the same partition on any host. Change it only for local-time formatting in job output |
 | `MOVIE_CATEGORY_LOOKBACK_DAYS`, `ENGAGEMENT_REPORT_LOOKBACK_DAYS`, `SEGMENT_REPORT_LOOKBACK_DAYS`, `SESSION_REPORT_LOOKBACK_DAYS`, `QUERY_ANALYSIS_LOOKBACK_DAYS`, `KEYWORD_ANALYSIS_LOOKBACK_DAYS`, `RELEVANCE_ANALYSIS_LOOKBACK_DAYS` | `30` | the matching report job | Most recent N UTC partition dates of `training_samples` the report reads, anchored to the newest date present rather than the wall clock, so re-running a historical report gives the same answer. `0` or negative reads all history, at a cost that grows with total archive size rather than with the reported window |
 
@@ -570,7 +570,7 @@ generated.
 | Sim | Script | Question answered |
 |---|---|---|
 | Engagement time-series | `run-engagement-sim.sh` | How does CTR trend over weeks (trend / weekly + diurnal seasonality / changepoint)? |
-| User segments | `run-movielens-segment-sim.sh` | How does engagement differ by cohort / age / sex / education / geo / platform (+ `avg_rating`)? |
+| User segments | `run-movielens-segment-sim.sh` | How does engagement differ by cohort / age / sex / education / geo / device (+ `avg_rating`)? |
 | Movie categories | `run-movie-category-sim.sh` | How does engagement differ by 3-level category (l1 genre family / l2 genre / l3 genre×decade)? |
 
 Reports (`services/python-modeling/*_report*.py`, plus the Scala `com.demo.report.*` jobs) read the
