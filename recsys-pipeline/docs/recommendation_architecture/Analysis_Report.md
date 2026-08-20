@@ -139,6 +139,14 @@ then re-picks every event under logging, popularity, CTR, deterministic random, 
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events
 are normally written to `replay:recommendations` by later `POST /feedback` calls.
 
+`post-training/post_train_q.py` fits offline Q functions on the same replay buffer and injects
+their per-candidate predictions as `tabQ` and `fqiQ`, which the evaluator discovers automatically
+as `model:tabQ` and `model:fqiQ`. Two caveats when reading those rows: the Direct Method estimator
+is single-step, so it cannot credit the long-horizon value that Q-learning exists to capture — the
+held-out mean `|TD error|` printed by the trainer is the complementary check. And the fitted Q is
+trained on the non-held-out split while policy values are computed over all events, the same
+footing as the reward model itself.
+
 Run the Redis-backed evaluation from the repository root:
 
 ```bash

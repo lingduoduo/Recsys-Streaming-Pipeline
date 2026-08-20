@@ -1007,6 +1007,21 @@ mvn -q compile exec:java \
 Both intervals quantify *episode/event-sampling* uncertainty only — the OPE CIs are conditional
 on the fitted reward model, and the MDP CIs on the fixed dataset. Neither is a claim of A/B lift.
 
+#### Offline Q-learning post-training
+
+Fits two Q functions on the logged replay buffer — a tabular baseline and a neural Fitted Q
+Iteration model — and scores the replay so the off-policy evaluator can rank them against the
+existing baselines. Both are fit on the non-held-out split only, matching the reward model.
+
+```bash
+cd services/python-modeling/post-training
+REDIS_HOST=localhost python3 post_train_q.py --output-parquet /tmp/scored_replay.parquet
+python3 ../ope_eval_report.py --parquet /tmp/scored_replay.parquet
+```
+
+The second command's table gains `model:tabQ` and `model:fqiQ` rows. This path is offline only:
+it does not write to Redis and does not affect live ranking.
+
 ---
 
 ## Ports
