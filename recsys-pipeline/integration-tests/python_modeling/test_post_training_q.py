@@ -120,3 +120,65 @@ def test_as_list_normalizes_none_and_arrays():
     assert replay_dataset.as_list(None) == []
     assert replay_dataset.as_list(np.array(["a", "b"])) == ["a", "b"]
     assert replay_dataset.as_list(["a"]) == ["a"]
+
+
+import tabular_q
+
+
+def _transition(state, action, reward, next_state="", next_actions=(), terminal=False,
+                features=(1.0,), next_features=()):
+    """A Transition built directly, so trainer tests do not depend on episode chaining."""
+    return replay_dataset.Transition(
+        request_id="r-" + state + action,
+        user="u",
+        state_key=state,
+        action=action,
+        reward=reward,
+        features=list(features),
+        next_state_key=next_state,
+        next_features=[list(f) for f in next_features],
+        next_actions=list(next_actions),
+        terminal=terminal,
+    )
+
+
+# Analytic fixture: a self-loop at B paying 1.0 forever, A feeding into B for free, and a
+# terminal C paying 0.5 once. With gamma=0.9 the optimal values are closed-form:
+#   Q(B,go) = 1 / (1 - 0.9)      = 10.0
+#   Q(A,go) = 0 + 0.9 * 10.0     =  9.0
+#   Q(C,go) = 0.5                        (terminal: no bootstrap)
+CHAIN = [
+    _transition("B", "go", 1.0, next_state="B", next_actions=["go"], features=(0.0, 1.0, 0.0),
+                next_features=[(0.0, 1.0, 0.0)]),
+    _transition("A", "go", 0.0, next_state="B", next_actions=["go"], features=(1.0, 0.0, 0.0),
+                next_features=[(0.0, 1.0, 0.0)]),
+    _transition("C", "go", 0.5, terminal=True, features=(0.0, 0.0, 1.0)),
+]
+
+
+def test_tabular_q_recovers_the_analytic_self_loop_value():
+    q = tabular_q.fit(CHAIN, gamma=0.9, sweeps=500)
+    assert tabular_q.score(q, "B", "go") == pytest.approx(10.0, abs=1e-3)
+
+
+def test_tabular_q_propagates_value_backwards_through_the_chain():
+    q = tabular_q.fit(CHAIN, gamma=0.9, sweeps=500)
+    assert tabular_q.score(q, "A", "go") == pytest.approx(9.0, abs=1e-3)
+
+
+def test_tabular_q_does_not_bootstrap_past_a_terminal_transition():
+    q = tabular_q.fit(CHAIN, gamma=0.9, sweeps=500)
+    assert tabular_q.score(q, "C", "go") == pytest.approx(0.5, abs=1e-9)
+
+
+def test_max_next_q_is_zero_for_a_terminal_transition():
+    assert tabular_q.max_next_q({("B", "go"): 10.0}, CHAIN[2]) == 0.0
+
+
+def test_max_next_q_ignores_actions_outside_the_next_action_space():
+    q = {("B", "go"): 1.0, ("B", "unreachable"): 99.0}
+    assert tabular_q.max_next_q(q, CHAIN[0]) == 1.0
+
+
+def test_unvisited_state_action_scores_zero():
+    assert tabular_q.score({}, "nowhere", "nothing") == 0.0
