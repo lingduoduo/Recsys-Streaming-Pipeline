@@ -148,3 +148,73 @@ def test_no_surviving_test_users_raises():
 
     with pytest.raises(ValueError, match="no test users"):
         nim.split_timelines(timelines, cutoff_ts=100)
+
+
+def test_metrics_match_hand_worked_values():
+    # u1's target is ranked 1st, u2's is ranked 3rd.
+    rankings = {
+        "u1": ["target1"] + [f"x{n}" for n in range(19)],
+        "u2": ["x", "y", "target2"] + [f"z{n}" for n in range(17)],
+    }
+    targets = {"u1": "target1", "u2": "target2"}
+
+    metrics = nim.evaluate_system(rankings, targets)
+
+    assert metrics["hit_rate@5"] == pytest.approx(1.0)
+    # 1/1 and 1/3, averaged.
+    assert metrics["mrr@10"] == pytest.approx((1.0 + 1.0 / 3.0) / 2)
+    # 1/log2(2) = 1.0 and 1/log2(4) = 0.5, averaged.
+    assert metrics["ndcg@10"] == pytest.approx(0.75)
+
+
+def test_target_outside_top_k_scores_zero():
+    rankings = {"u1": [f"x{n}" for n in range(20)]}
+    targets = {"u1": "never_ranked"}
+
+    metrics = nim.evaluate_system(rankings, targets)
+
+    assert metrics["hit_rate@20"] == 0.0
+    assert metrics["mrr@10"] == 0.0
+    assert metrics["ndcg@10"] == 0.0
+
+
+@pytest.mark.parametrize("rank", [1, 2, 3, 5, 10])
+def test_ndcg_is_the_reciprocal_log_rank_for_a_single_target(rank):
+    """The identity that makes the name honest: with one relevant item, IDCG is 1."""
+    import math as _math
+
+    ranking = [f"x{n}" for n in range(rank - 1)] + ["target"] + [f"y{n}" for n in range(20)]
+
+    metrics = nim.evaluate_system({"u": ranking}, {"u": "target"})
+
+    assert metrics["ndcg@10"] == pytest.approx(1.0 / _math.log2(rank + 1))
+
+
+def test_hit_rate_at_k_respects_the_cutoff():
+    # Target sits at rank 7: inside 10 and 20, outside 5.
+    ranking = [f"x{n}" for n in range(6)] + ["target"] + [f"y{n}" for n in range(20)]
+
+    metrics = nim.evaluate_system({"u": ranking}, {"u": "target"})
+
+    assert metrics["hit_rate@5"] == 0.0
+    assert metrics["hit_rate@10"] == 1.0
+    assert metrics["hit_rate@20"] == 1.0
+
+
+def test_target_absent_from_training_scores_zero_but_still_counts():
+    """An item nobody engaged with before the cutoff is unreachable for every system.
+
+    The spec calls for it to be scored normally rather than skipped: it is a real
+    property of these baselines, and dropping the user would flatter every score.
+    """
+    metrics = nim.evaluate_system({"u1": ["a", "b", "c"]}, {"u1": "never_in_training"})
+
+    assert metrics["hit_rate@20"] == 0.0
+    assert metrics["ndcg@10"] == 0.0
+
+
+def test_a_user_with_no_ranking_counts_as_a_miss():
+    """A baseline that cannot score a user must not silently shrink the denominator."""
+    metrics = nim.evaluate_system({"u1": ["target1"]}, {"u1": "target1", "u2": "target2"})
+
+    assert metrics["hit_rate@5"] == pytest.approx(0.5)

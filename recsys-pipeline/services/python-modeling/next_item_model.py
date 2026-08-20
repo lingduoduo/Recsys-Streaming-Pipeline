@@ -9,6 +9,7 @@ Offline only: nothing here touches Spark, Redis, the serving path, or ONNX.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pandas as pd
@@ -148,3 +149,47 @@ def split_timelines(timelines: dict[str, list[tuple[int, str]]], cutoff_ts: int)
             f"Dropped: {dropped}. Lower the holdout quantile or use a longer-running dataset."
         )
     return Split(train=train, targets=targets, cutoff_ts=int(cutoff_ts), dropped=dropped)
+
+
+KS = (5, 10, 20)
+MRR_K = 10
+NDCG_K = 10
+
+
+def evaluate_system(
+    rankings: dict[str, list[str]], targets: dict[str, str]
+) -> dict[str, float]:
+    """Score one system's rankings against the held-out targets.
+
+    Named hit_rate rather than recall on purpose. Each user contributes exactly one
+    target, so the fraction of relevant items retrieved is 0 or 1 and its mean is a hit
+    rate — and `recall@k` already names a different, set-based quantity in
+    recall_eval_report.py. With a single relevant item the ideal DCG is 1, so ndcg@10 is
+    the reciprocal log rank.
+
+    The denominator is every user in `targets`, so a system that cannot rank a user
+    scores a miss for them rather than quietly excluding them from its own average.
+    """
+    hits = {k: 0 for k in KS}
+    mrr_total = 0.0
+    ndcg_total = 0.0
+
+    for user, target in targets.items():
+        ranking = rankings.get(user, [])
+        try:
+            rank = ranking.index(target) + 1
+        except ValueError:
+            continue
+        for k in KS:
+            if rank <= k:
+                hits[k] += 1
+        if rank <= MRR_K:
+            mrr_total += 1.0 / rank
+        if rank <= NDCG_K:
+            ndcg_total += 1.0 / math.log2(rank + 1)
+
+    users = len(targets)
+    metrics = {f"hit_rate@{k}": hits[k] / users for k in KS}
+    metrics["mrr@10"] = mrr_total / users
+    metrics["ndcg@10"] = ndcg_total / users
+    return metrics
