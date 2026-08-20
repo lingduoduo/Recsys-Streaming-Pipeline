@@ -81,7 +81,7 @@ SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
 # FAMILY_EFF unchanged: this signal sits underneath the existing ground truth, not on top of it.
 #
 # The default is calibrated by measurement, not argument — see the plan's Task 3 and the spec.
-AFFINITY_STRENGTH = float(os.getenv("AFFINITY_STRENGTH", "0.15"))
+AFFINITY_STRENGTH = float(os.getenv("AFFINITY_STRENGTH", "0.10"))
 # One locale and zone per country. Canada is split so a locale is not a country alias.
 COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
 COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
