@@ -330,3 +330,85 @@ def test_score_events_assigns_correct_per_candidate_q_values_not_constant_or_mis
         assert candidate["modelPredictions"]["tabQ"] == pytest.approx(expected_tab, abs=1e-6)
 
     assert m1["modelPredictions"]["fqiQ"] != pytest.approx(m2["modelPredictions"]["fqiQ"], abs=1e-6)
+
+
+def _fitted_arms(events):
+    """Feature schema plus both fitted Q arms for a replay fixture."""
+    names = ope_eval_report.feature_names(events)
+    transitions = replay_dataset.build_transitions(events, names)
+    q = tabular_q.fit(transitions, gamma=0.9, sweeps=50)
+    model = fqi.fit(transitions, gamma=0.9, iterations=3, epochs=20, hidden=8)
+    return names, q, model
+
+
+def test_injected_q_keys_are_policies_but_never_reward_model_features():
+    """C1/I5: a score produced by a policy must not become a feature of the reward model
+    that judges it, or model:tabQ is evaluated by an estimator that already knows its answer."""
+    events = _replay_fixture()
+    names, q, model = _fitted_arms(events)
+    scored = post_train_q.score_events(events, names, q, model)
+
+    features = ope_eval_report.feature_names(scored)
+    assert "tabQ" not in features
+    assert "fqiQ" not in features
+
+    policies = ope_eval_report.policy_names(scored)
+    assert "model:tabQ" in policies
+    assert "model:fqiQ" in policies
+
+    # pick() reads modelPredictions directly, so the exclusion must not break policy resolution.
+    event = scored[0]
+    best = ope_eval_report.pick("model:tabQ", event)
+    assert best is max(event["actionSpace"],
+                       key=lambda c: c["modelPredictions"]["tabQ"])
+
+
+def test_scoring_the_replay_does_not_perturb_the_other_policies():
+    """C2: scoring must leave every pre-existing policy's OPE number byte-identical."""
+    unscored = _replay_fixture()
+    events = _replay_fixture()
+    names, q, model = _fitted_arms(events)
+    scored = post_train_q.score_events(events, names, q, model)
+
+    scored_model = ope_eval_report.fit_reward_model(scored)
+    unscored_model = ope_eval_report.fit_reward_model(unscored)
+    assert scored_model.names == unscored_model.names
+
+    def row(rows, policy):
+        return next(r for r in rows if r["policy"] == policy)
+
+    scored_rows = ope_eval_report.evaluate(scored, scored_model)
+    unscored_rows = ope_eval_report.evaluate(unscored, unscored_model)
+    for policy in ("ctr", "popularity", "random", "logging"):
+        assert row(scored_rows, policy)["value"] == row(unscored_rows, policy)["value"]
+
+
+def test_a_null_action_space_flows_through_the_ope_helpers():
+    """I4: `.get(key, default)` never fires on a present-but-null key, and the Java
+    ReplayEvent permits a feedback-completed event with no serve-time context."""
+    events = _replay_fixture()
+    events[0]["actionSpace"] = None
+
+    names = ope_eval_report.feature_names(events)
+    assert "relevance" in names
+    assert "model:relevance" in ope_eval_report.policy_names(events)
+    assert ope_eval_report.taken_features(events[0], names) == [0.0] * len(names)
+
+
+def test_main_survives_a_replay_with_a_null_action_space(tmp_path):
+    pd = pytest.importorskip("pandas")
+    events = _replay_fixture()
+    events[0]["actionSpace"] = None
+    source = tmp_path / "replay.parquet"
+    pd.DataFrame(events).to_parquet(source, index=False)
+    destination = tmp_path / "scored.parquet"
+
+    result = post_train_q.main([
+        "--parquet", str(source),
+        "--output-parquet", str(destination),
+        "--fqi-iterations", "3",
+        "--fqi-epochs", "20",
+    ])
+
+    assert result["n_transitions"] > 0
+    assert destination.exists()
