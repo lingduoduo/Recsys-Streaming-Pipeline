@@ -419,6 +419,14 @@ def run(
         "item2vec_neighbors": item2vec_neighbors(split, vectors),
         "next_item_transformer": model_rankings(model, item_index, split),
     }
+    caveats = []
+    if vectors_path:
+        caveats.append(
+            "item2vec_neighbors scores using externally trained vectors "
+            f"(--vectors {vectors_path}) whose training window is not bounded by "
+            "this run's cutoff, so that baseline may see post-cutoff information "
+            "the other systems provably cannot."
+        )
     report = {
         "systems": {
             name: evaluate_system(rankings, split.targets)
@@ -431,6 +439,9 @@ def run(
             "positive_rate": len(positives) / len(frame) if len(frame) else 0.0,
             "repeat_rate": repeat_rate(timelines),
             "cutoff_ts": split.cutoff_ts,
+            "epochs": epochs,
+            "seed": seed,
+            "caveats": caveats,
         },
     }
 

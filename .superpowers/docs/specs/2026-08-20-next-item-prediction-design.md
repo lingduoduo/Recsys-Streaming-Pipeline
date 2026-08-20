@@ -117,7 +117,10 @@ support block. Every system — baselines and model alike — sees exactly this 
 
 ## 3. Baselines
 
-All three are fit on pre-cutoff data only.
+`most_popular` and `repeat_last` are fit on pre-cutoff data only. `item2vec_neighbors`
+uses externally trained embeddings whose training window this experiment does not
+control, so it may be fit on data spanning the holdout; the support block records this
+as a caveat whenever a vectors file is supplied.
 
 | Baseline | Prediction |
 |---|---|

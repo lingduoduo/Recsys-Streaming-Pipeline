@@ -288,19 +288,48 @@ def test_baselines_keep_items_the_user_already_engaged_with():
 def test_model_learns_a_deterministic_next_item_pattern():
     """A sequence model that cannot learn a memorised cycle is broken.
 
-    Five users all walk a->b->c->d. Trained on that, the model asked to continue
-    a->b->c should rank d first. This is an overfitting check by design: it proves the
-    plumbing (masking, shifting, indexing) is right, not that the model generalises.
+    Two disjoint cycles, a->b->c->d and e->b->f->g, share item "b" at local position
+    1 but diverge everywhere else, so a model that ignores item identity and predicts
+    from position alone cannot solve both groups at once (position 1 alone maps to two
+    different continuations depending on which cycle the user is on). Each user's
+    pre-cutoff history is one and three-quarter periods (7 events) rather than one
+    (4), so every item is trained both as an input and as a target, and the true next
+    item is the natural wraparound continuation rather than literally the last event
+    in `train` -- otherwise the query used to rank could trivially reproduce the
+    answer regardless of whether the plumbing truncates correctly.
+
+    This also pins commit c76501b: history is 7 events but the model only ever trains
+    on 6-token inputs, so `model_rankings` must truncate from the front (keep the
+    tail, ending on the true last event) rather than from the back (which would keep
+    an exact memorised training row and confidently predict the wrong, off-by-one
+    item). Verified by mutation -- see fix-wave-report.md for the failure output of
+    both the item-embedding-removed and the front-truncation mutations.
+
+    This is still an overfitting check by design: it proves the plumbing (masking,
+    shifting, indexing, item conditioning) is right, not that the model generalises.
     """
-    cycle = ["a", "b", "c", "d"]
-    train = {f"u{n}": [(i, cycle[i]) for i in range(4)] for n in range(5)}
-    split = nim.Split(train=train, targets={f"u{n}": "d" for n in range(5)},
-                      cutoff_ts=100, dropped={})
+    cycle_a = ["a", "b", "c", "d"]
+    cycle_b = ["e", "b", "f", "g"]
+    history_a = (cycle_a + cycle_a)[:7]  # a b c d a b c
+    history_b = (cycle_b + cycle_b)[:7]  # e b f g e b f
+
+    train = {}
+    targets = {}
+    for n in range(5):
+        train[f"a{n}"] = list(enumerate(history_a))
+        targets[f"a{n}"] = cycle_a[3]  # "d", the wraparound continuation
+    for n in range(5):
+        train[f"b{n}"] = list(enumerate(history_b))
+        targets[f"b{n}"] = cycle_b[3]  # "g", the wraparound continuation
+    split = nim.Split(train=train, targets=targets, cutoff_ts=100, dropped={})
 
     model, item_index = nim.train_next_item(split, epochs=200, seed=nim.SEED)
     rankings = nim.model_rankings(model, item_index, split, k=4)
 
-    assert rankings["u0"][0] == "d"
+    for n in range(5):
+        assert rankings[f"a{n}"][0] == "d"
+    for n in range(5):
+        assert rankings[f"b{n}"][0] == "g"
 
 
 def test_model_ranking_covers_every_requested_user():
@@ -366,6 +395,73 @@ def test_run_writes_every_system_and_a_support_block(tmp_path):
     assert set(support["dropped_users"]) >= {"fewer_than_two_positives", "no_pre_cutoff_history"}
     assert 0.0 <= support["positive_rate"] <= 1.0
     assert 0.0 <= support["repeat_rate"] <= 1.0
+
+
+def test_support_block_records_the_epochs_and_seed_actually_used(tmp_path):
+    """metrics.json must be reproducible from its own fields.
+
+    The transformer's numbers depend on epochs and seed; without them recorded, a
+    reader who reruns with the module defaults cannot explain a different result.
+    """
+    (tmp_path / "data").mkdir()
+    _sim_like_frame().to_parquet(tmp_path / "data" / "part.parquet")
+
+    report = nim.run(
+        input_dir=str(tmp_path / "data"),
+        output_path=str(tmp_path / "metrics.json"),
+        quantile=0.9,
+        absolute_cutoff=None,
+        vectors_path=None,
+        epochs=17,
+        seed=99,
+    )
+
+    assert report["support"]["epochs"] == 17
+    assert report["support"]["seed"] == 99
+
+
+def test_support_block_flags_item2vec_vectors_as_not_split_bounded(tmp_path):
+    """item2vec_neighbors scores from an externally trained vector file whose
+    training window this experiment does not control -- unlike the other systems,
+    which are fit strictly on pre-cutoff data. A reader of metrics.json must be able
+    to see that asymmetry without reading the code.
+    """
+    (tmp_path / "data").mkdir()
+    _sim_like_frame().to_parquet(tmp_path / "data" / "part.parquet")
+    vectors_path = tmp_path / "item-embedding.txt"
+    vectors_path.write_text("m0:1.0 0.0\nm1:0.0 1.0\n")
+
+    report = nim.run(
+        input_dir=str(tmp_path / "data"),
+        output_path=str(tmp_path / "metrics.json"),
+        quantile=0.9,
+        absolute_cutoff=None,
+        vectors_path=str(vectors_path),
+        epochs=5,
+        seed=nim.SEED,
+    )
+
+    caveats = report["support"]["caveats"]
+    assert len(caveats) == 1
+    assert "item2vec" in caveats[0]
+    assert "cutoff" in caveats[0] or "split" in caveats[0]
+
+
+def test_support_block_has_no_caveat_without_vectors(tmp_path):
+    (tmp_path / "data").mkdir()
+    _sim_like_frame().to_parquet(tmp_path / "data" / "part.parquet")
+
+    report = nim.run(
+        input_dir=str(tmp_path / "data"),
+        output_path=str(tmp_path / "metrics.json"),
+        quantile=0.9,
+        absolute_cutoff=None,
+        vectors_path=None,
+        epochs=5,
+        seed=nim.SEED,
+    )
+
+    assert report["support"]["caveats"] == []
 
 
 def test_item2vec_baseline_is_empty_without_vectors(tmp_path):
