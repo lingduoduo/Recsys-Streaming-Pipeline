@@ -145,28 +145,42 @@ and tuning it is a non-goal.
 
 ## 5. Metrics and output
 
-recall@5, recall@10, recall@20, MRR@10, and NDCG@10, computed by one shared
-function so all four systems are measured identically.
+`hit_rate@5`, `hit_rate@10`, `hit_rate@20`, `mrr@10`, and `ndcg@10`, computed by
+one shared function so all four systems are measured identically.
 
-Each user contributes exactly one test target, so recall@k here is a hit rate —
-the share of users whose single held-out item appears in the top k — and NDCG@10
-reduces to the reciprocal log rank of that one item. The names are kept because
-they are what the existing eval reports use, but the interpretation is stated so
-nobody reads recall@20 as coverage of a set. `recall_eval_report.py`
-already has `rank_topk` and related helpers; reuse them where they fit rather than
-writing a second implementation.
+**The metric is named `hit_rate`, not `recall`, and the distinction is not
+pedantic here.** Each user contributes exactly one test target, so the fraction of
+relevant items retrieved is either 0 or 1 — the mean over users is a hit rate.
+More importantly, `recall@k` already means something else in this repo:
+`recall_eval_report.evaluate` runs leave-one-out over *every* click a user made,
+tracks `sum_recall` and `sum_hit` as separate quantities, and filters previously
+seen items out of the candidate set. Publishing a different quantity under the
+same name in a sibling report is how two numbers end up compared that were never
+comparable.
+
+`mrr@10` and `ndcg@10` keep their standard names, which are correct as-is:
+reciprocal rank and NDCG are both well defined for a single relevant item, where
+the ideal DCG is 1 and NDCG@10 is therefore the reciprocal log rank.
+
+Reuse `rank_topk` and the cosine helper from `recall_eval_report.py` rather than
+writing a second implementation of either; write the scoring functions fresh,
+since the candidate convention differs.
 
 **Items already in a user's history are not filtered out of the candidate set.**
-This is stated because it moves the numbers substantially, and because the
-opposite convention is common in the literature. Repeats are legitimate here, so
-filtering them would measure a task nobody is asking for.
+This is stated because it moves the numbers substantially, and because
+`recall_eval_report` takes the opposite convention — it excludes seen items
+explicitly. That report asks "can we retrieve a held-out item the user has not
+been shown"; this one asks "what does the user engage with next", and with a
+measured repeat rate in the data, re-engagement is part of the answer. The two
+conventions are both right for their own question, which is the second reason
+these metrics must not share a name.
 
 Output is `metrics.json`, in the shape `CtrRankingModelTrainingJob` already
 writes, extended with a support block:
 
 | Field | Meaning |
 |---|---|
-| `systems` | One entry per baseline and the model, each with the five metrics |
+| `systems` | One entry per baseline and the model, each with `hit_rate@{5,10,20}`, `mrr@10`, `ndcg@10` |
 | `test_users` | Users contributing a test target |
 | `dropped_users` | Split by reason: fewer than two positives, or no pre-cutoff history |
 | `catalog_size` | Distinct items in the training split |
@@ -195,7 +209,9 @@ writes, extended with a support block:
 - **Baselines** — `most_popular` returns the training-count order on a
   hand-built frame; `repeat_last` returns most-recent-first; `item2vec_neighbors`
   falls back cleanly when an item has no embedding.
-- **Metrics** — recall@k, MRR, and NDCG computed against hand-worked expected
-  values on a tiny fixture, not against the implementation's own output.
+- **Metrics** — `hit_rate@k`, `mrr@10`, and `ndcg@10` computed against hand-worked
+  expected values on a tiny fixture, not against the implementation's own output.
+  One case pins the single-target identity `ndcg@10 == 1 / log2(rank + 1)`, which
+  is the property that makes the name honest.
 - **End to end** — the CLI runs on a small fixture and writes a `metrics.json`
   containing all four systems and a complete support block.
