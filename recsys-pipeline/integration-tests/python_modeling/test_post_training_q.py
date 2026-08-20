@@ -7,6 +7,8 @@ _MODELING = Path(__file__).parents[2] / "services" / "python-modeling"
 sys.path.insert(0, str(_MODELING))
 sys.path.insert(0, str(_MODELING / "post-training"))
 
+import ope_eval_report
+import ope_support
 import replay_dataset
 
 
@@ -216,3 +218,93 @@ def test_fqi_scores_an_empty_batch_without_error():
 def test_fqi_rejects_an_empty_dataset():
     with pytest.raises(ValueError, match="no transitions"):
         fqi.fit([], gamma=0.9)
+
+
+import ope_eval_report
+import post_train_q
+
+
+def _replay_fixture(n_users=12, per_user=4):
+    """A replay log with a genuine preference: m1 pays, m2 does not."""
+    events = []
+    for u in range(n_users):
+        for step in range(per_user):
+            item = "m1" if step % 2 == 0 else "m2"
+            events.append({
+                "requestId": f"r{u}-{step}",
+                "user": f"u{u}",
+                "action": item,
+                "state": {"genres": ["drama"], "tags": [], "recent": []},
+                "reward": 1.0 if item == "m1" else 0.0,
+                "clicked": item == "m1",
+                "timestamp": 1_000 + step * 1_000,
+                "actionSpace": [
+                    {"item": "m1", "coldStart": False, "impressions": 20, "clicks": 10,
+                     "modelPredictions": {"relevance": 0.8}},
+                    {"item": "m2", "coldStart": False, "impressions": 20, "clicks": 1,
+                     "modelPredictions": {"relevance": 0.2}},
+                ],
+            })
+    return events
+
+
+def test_split_transitions_uses_the_ope_held_out_hash():
+    transitions = replay_dataset.build_transitions(_replay_fixture())
+    train, test = post_train_q.split_transitions(transitions)
+    assert train and test
+    assert all(not ope_eval_report.is_test(t.request_id) for t in train)
+    assert all(ope_eval_report.is_test(t.request_id) for t in test)
+    assert len(train) + len(test) == len(transitions)
+
+
+def test_score_events_writes_both_q_keys_onto_every_candidate():
+    events = _replay_fixture()
+    names = ope_eval_report.feature_names(events)
+    transitions = replay_dataset.build_transitions(events, names)
+    q = tabular_q.fit(transitions, gamma=0.9, sweeps=50)
+    model = fqi.fit(transitions, gamma=0.9, iterations=3, epochs=20, hidden=8)
+    scored = post_train_q.score_events(events, names, q, model)
+    for event in scored:
+        for candidate in event["actionSpace"]:
+            assert "tabQ" in candidate["modelPredictions"]
+            assert "fqiQ" in candidate["modelPredictions"]
+
+
+def test_scored_replay_registers_both_policies_with_the_ope_harness():
+    events = _replay_fixture()
+    names = ope_eval_report.feature_names(events)
+    transitions = replay_dataset.build_transitions(events, names)
+    q = tabular_q.fit(transitions, gamma=0.9, sweeps=50)
+    model = fqi.fit(transitions, gamma=0.9, iterations=3, epochs=20, hidden=8)
+    scored = post_train_q.score_events(events, names, q, model)
+    policies = ope_eval_report.policy_names(scored)
+    assert "model:tabQ" in policies
+    assert "model:fqiQ" in policies
+
+
+def test_tabular_residual_is_zero_for_a_converged_fit():
+    q = tabular_q.fit(CHAIN, gamma=0.9, sweeps=500)
+    assert post_train_q.tabular_td_residual(q, CHAIN, gamma=0.9) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_residuals_are_none_without_held_out_transitions():
+    assert post_train_q.tabular_td_residual({}, [], gamma=0.9) is None
+
+
+def test_main_writes_a_scored_parquet_the_ope_harness_can_read(tmp_path):
+    pd = pytest.importorskip("pandas")
+    source = tmp_path / "replay.parquet"
+    pd.DataFrame(_replay_fixture()).to_parquet(source, index=False)
+    destination = tmp_path / "scored.parquet"
+
+    result = post_train_q.main([
+        "--parquet", str(source),
+        "--output-parquet", str(destination),
+        "--fqi-iterations", "3",
+        "--fqi-epochs", "20",
+    ])
+
+    assert destination.exists()
+    reloaded = ope_support.load_from_parquet(destination)
+    assert "model:fqiQ" in ope_eval_report.policy_names(reloaded)
+    assert result["n_transitions"] > 0
