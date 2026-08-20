@@ -1,7 +1,7 @@
 # Next-Item Prediction — Offline Evaluation — Design
 
 **Date:** 2026-08-20
-**Status:** draft
+**Status:** approved
 **Depends on:** [2026-08-19-event-schema-v2-design.md](2026-08-19-event-schema-v2-design.md)
 
 ## Problem
