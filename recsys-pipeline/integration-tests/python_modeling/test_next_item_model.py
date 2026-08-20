@@ -283,3 +283,42 @@ def test_baselines_keep_items_the_user_already_engaged_with():
     split = _split(train={"u1": [(1, "seen"), (2, "seen"), (3, "other")]}, targets={"u1": "seen"})
 
     assert "seen" in nim.most_popular(split, k=5)["u1"]
+
+
+def test_model_learns_a_deterministic_next_item_pattern():
+    """A sequence model that cannot learn a memorised cycle is broken.
+
+    Five users all walk a->b->c->d. Trained on that, the model asked to continue
+    a->b->c should rank d first. This is an overfitting check by design: it proves the
+    plumbing (masking, shifting, indexing) is right, not that the model generalises.
+    """
+    cycle = ["a", "b", "c", "d"]
+    train = {f"u{n}": [(i, cycle[i]) for i in range(4)] for n in range(5)}
+    split = nim.Split(train=train, targets={f"u{n}": "d" for n in range(5)},
+                      cutoff_ts=100, dropped={})
+
+    model, item_index = nim.train_next_item(split, epochs=200, seed=nim.SEED)
+    rankings = nim.model_rankings(model, item_index, split, k=4)
+
+    assert rankings["u0"][0] == "d"
+
+
+def test_model_ranking_covers_every_requested_user():
+    train = {"u1": [(1, "a"), (2, "b")], "u2": [(1, "b"), (2, "a")]}
+    split = nim.Split(train=train, targets={"u1": "a", "u2": "b"}, cutoff_ts=100, dropped={})
+
+    model, item_index = nim.train_next_item(split, epochs=5, seed=nim.SEED)
+    rankings = nim.model_rankings(model, item_index, split, k=2)
+
+    assert set(rankings) == {"u1", "u2"}
+    assert all(len(r) == 2 for r in rankings.values())
+
+
+def test_training_is_reproducible_under_the_seed():
+    train = {"u1": [(1, "a"), (2, "b"), (3, "c")], "u2": [(1, "c"), (2, "b"), (3, "a")]}
+    split = nim.Split(train=train, targets={"u1": "a", "u2": "c"}, cutoff_ts=100, dropped={})
+
+    first = nim.model_rankings(*nim.train_next_item(split, epochs=20, seed=7), split, k=3)
+    second = nim.model_rankings(*nim.train_next_item(split, epochs=20, seed=7), split, k=3)
+
+    assert first == second

@@ -260,3 +260,128 @@ def item2vec_neighbors(
         scores = {item: cosine(query, vec) for item, vec in vectors.items()}
         rankings[user] = rank_topk(scores, k)
     return rankings
+
+
+MAX_SEQUENCE = 64
+EMBED_DIM = 64
+ATTENTION_HEADS = 4
+LAYERS = 2
+EPOCHS = 60
+LEARNING_RATE = 1e-3
+
+
+def _torch():
+    """Import torch on demand with an actionable message when it is absent.
+
+    Only movielens_pipeline.py depends on torch today and it is a very large install, so
+    it stays out of requirements.txt and the producers keep working without it.
+    """
+    try:
+        import torch
+        return torch
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+        raise SystemExit(
+            "Missing model dependencies. Run: python -m pip install torch"
+        ) from exc
+
+
+def _build_model(torch, catalog_size: int):
+    nn = torch.nn
+
+    class NextItemTransformer(nn.Module):
+        """Causal transformer over item ids, softmax over the catalog."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.item = nn.Embedding(catalog_size, EMBED_DIM)
+            self.position = nn.Embedding(MAX_SEQUENCE, EMBED_DIM)
+            layer = nn.TransformerEncoderLayer(
+                d_model=EMBED_DIM, nhead=ATTENTION_HEADS,
+                dim_feedforward=EMBED_DIM * 2, batch_first=True, dropout=0.0)
+            self.encoder = nn.TransformerEncoder(layer, num_layers=LAYERS)
+            self.out = nn.Linear(EMBED_DIM, catalog_size)
+
+        def forward(self, ids):
+            length = ids.shape[1]
+            positions = torch.arange(length, device=ids.device).unsqueeze(0)
+            hidden = self.item(ids) + self.position(positions)
+            mask = torch.triu(torch.ones(length, length, dtype=torch.bool), diagonal=1)
+            return self.out(self.encoder(hidden, mask=mask.to(ids.device)))
+
+    return NextItemTransformer()
+
+
+def _sequences(split: Split, item_index: dict[str, int]) -> list[list[int]]:
+    return [
+        [item_index[item] for _, item in events[-MAX_SEQUENCE:]]
+        for events in split.train.values()
+        if len(events) >= 2
+    ]
+
+
+def train_next_item(split: Split, epochs: int = EPOCHS, seed: int = SEED):
+    """Train the causal transformer on the pre-cutoff timelines.
+
+    Returns the model and the item->index map; both are needed to rank.
+    """
+    torch = _torch()
+    torch.manual_seed(seed)
+
+    items = sorted({item for events in split.train.values() for _, item in events})
+    item_index = {item: n for n, item in enumerate(items)}
+    sequences = _sequences(split, item_index)
+    if not sequences:
+        raise ValueError("No training sequence has two or more events; nothing to learn from.")
+
+    model = _build_model(torch, len(items))
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    loss_fn = torch.nn.CrossEntropyLoss()
+    width = max(len(seq) for seq in sequences)
+    padded = torch.zeros(len(sequences), width, dtype=torch.long)
+    keep = torch.zeros(len(sequences), width, dtype=torch.bool)
+    for row, seq in enumerate(sequences):
+        padded[row, : len(seq)] = torch.tensor(seq, dtype=torch.long)
+        keep[row, : len(seq)] = True
+
+    model.train()
+    for _ in range(epochs):
+        optimizer.zero_grad()
+        logits = model(padded[:, :-1])
+        targets = padded[:, 1:]
+        valid = keep[:, 1:]
+        loss = loss_fn(logits[valid], targets[valid])
+        loss.backward()
+        optimizer.step()
+    return model, item_index
+
+
+def model_rankings(model, item_index: dict[str, int], split: Split, k: int = TOP_K):
+    """Rank the catalog for each test user from their training history.
+
+    Drops the final event before querying. `train_next_item` teaches position i to
+    predict the item at position i+1 within a user's own sequence (input=seq[:-1],
+    target=seq[1:]); the last position of the longest sequence in the batch is therefore
+    never used as a training input, so its position embedding stays at its random
+    initialisation. Querying with the full history would read logits off that untrained
+    position. Dropping the last event keeps the query within the position range the
+    model actually learned to condition on, at the cost of asking about the item after
+    the second-to-last event rather than after the very latest one.
+
+    Seen items stay in the candidate set, matching the baselines and the spec.
+    """
+    torch = _torch()
+    index_item = {n: item for item, n in item_index.items()}
+    model.eval()
+    rankings: dict[str, list[str]] = {}
+    with torch.no_grad():
+        for user in split.targets:
+            events = split.train.get(user, [])[-MAX_SEQUENCE:]
+            history = [item for _, item in events[:-1]]
+            ids = [item_index[item] for item in history if item in item_index]
+            if not ids:
+                rankings[user] = []
+                continue
+            logits = model(torch.tensor([ids], dtype=torch.long))[0, -1]
+            order = torch.argsort(logits, descending=True)[:k].tolist()
+            rankings[user] = [index_item[n] for n in order]
+    return rankings
