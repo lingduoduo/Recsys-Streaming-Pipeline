@@ -322,3 +322,79 @@ def test_training_is_reproducible_under_the_seed():
     second = nim.model_rankings(*nim.train_next_item(split, epochs=20, seed=7), split, k=3)
 
     assert first == second
+
+
+def _sim_like_frame():
+    """Two dozen users walking a shared item cycle, with a late target event each."""
+    rows = []
+    cycle = [f"m{n}" for n in range(8)]
+    ts = 1000
+    for u in range(24):
+        for step, item in enumerate(cycle):
+            rows.append((f"u{u}", item, ts + step, step % 4, 1, 0, None, 0))
+        rows.append((f"u{u}", cycle[0], ts + 500, 0, 1, 0, None, 0))
+    return _frame(rows)
+
+
+def test_run_writes_every_system_and_a_support_block(tmp_path):
+    (tmp_path / "data").mkdir()
+    _sim_like_frame().to_parquet(tmp_path / "data" / "part.parquet")
+    metrics_path = tmp_path / "metrics.json"
+
+    report = nim.run(
+        input_dir=str(tmp_path / "data"),
+        output_path=str(metrics_path),
+        quantile=0.9,
+        absolute_cutoff=None,
+        vectors_path=None,
+        epochs=5,
+        seed=nim.SEED,
+    )
+
+    import json
+    written = json.loads(metrics_path.read_text())
+    assert written == report
+    assert set(report["systems"]) == {
+        "most_popular", "repeat_last", "item2vec_neighbors", "next_item_transformer"}
+    for name, metrics in report["systems"].items():
+        assert set(metrics) == {
+            "hit_rate@5", "hit_rate@10", "hit_rate@20", "mrr@10", "ndcg@10"}, name
+    support = report["support"]
+    assert support["test_users"] > 0
+    assert support["catalog_size"] > 0
+    assert support["cutoff_ts"] > 0
+    assert set(support["dropped_users"]) >= {"fewer_than_two_positives", "no_pre_cutoff_history"}
+    assert 0.0 <= support["positive_rate"] <= 1.0
+    assert 0.0 <= support["repeat_rate"] <= 1.0
+
+
+def test_item2vec_baseline_is_empty_without_vectors(tmp_path):
+    """No embedding file is a normal state; the system reports zeros rather than failing."""
+    (tmp_path / "data").mkdir()
+    _sim_like_frame().to_parquet(tmp_path / "data" / "part.parquet")
+
+    report = nim.run(
+        input_dir=str(tmp_path / "data"),
+        output_path=str(tmp_path / "metrics.json"),
+        quantile=0.9,
+        absolute_cutoff=None,
+        vectors_path=None,
+        epochs=5,
+        seed=nim.SEED,
+    )
+
+    assert report["systems"]["item2vec_neighbors"]["hit_rate@20"] == 0.0
+
+
+def test_main_accepts_cli_arguments(tmp_path):
+    (tmp_path / "data").mkdir()
+    _sim_like_frame().to_parquet(tmp_path / "data" / "part.parquet")
+    metrics_path = tmp_path / "metrics.json"
+
+    nim.main([
+        "--input", str(tmp_path / "data"),
+        "--output", str(metrics_path),
+        "--epochs", "5",
+    ])
+
+    assert metrics_path.exists()

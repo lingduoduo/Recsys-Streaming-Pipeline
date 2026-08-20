@@ -9,9 +9,13 @@ Offline only: nothing here touches Spark, Redis, the serving path, or ONNX.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import math
+import os
 from collections import Counter
 from dataclasses import dataclass
+from typing import Sequence
 
 import pandas as pd
 
@@ -388,3 +392,88 @@ def model_rankings(model, item_index: dict[str, int], split: Split, k: int = TOP
             order = torch.argsort(logits, descending=True)[:k].tolist()
             rankings[user] = [index_item[n] for n in order]
     return rankings
+
+
+def run(
+    input_dir: str,
+    output_path: str,
+    quantile: float = DEFAULT_HOLDOUT_QUANTILE,
+    absolute_cutoff: int | None = None,
+    vectors_path: str | None = None,
+    epochs: int = EPOCHS,
+    seed: int = SEED,
+) -> dict:
+    """Build, split, score, and write metrics.json. Returns the same dict it writes."""
+    frame = pd.read_parquet(input_dir)
+    positives = load_positives(input_dir)
+    timelines = build_timelines(positives)
+    cutoff = resolve_cutoff(timelines, quantile=quantile, absolute=absolute_cutoff)
+    split = split_timelines(timelines, cutoff)
+
+    vectors = load_item_vectors(vectors_path) if vectors_path else {}
+    model, item_index = train_next_item(split, epochs=epochs, seed=seed)
+
+    systems = {
+        "most_popular": most_popular(split),
+        "repeat_last": repeat_last(split),
+        "item2vec_neighbors": item2vec_neighbors(split, vectors),
+        "next_item_transformer": model_rankings(model, item_index, split),
+    }
+    report = {
+        "systems": {
+            name: evaluate_system(rankings, split.targets)
+            for name, rankings in systems.items()
+        },
+        "support": {
+            "test_users": len(split.targets),
+            "dropped_users": split.dropped,
+            "catalog_size": len(item_index),
+            "positive_rate": len(positives) / len(frame) if len(frame) else 0.0,
+            "repeat_rate": repeat_rate(timelines),
+            "cutoff_ts": split.cutoff_ts,
+        },
+    }
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2, sort_keys=True)
+    return report
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Offline next-item prediction: a sequential model against three baselines.")
+    parser.add_argument(
+        "--input", default=os.getenv("NEXT_ITEM_INPUT_PATH", "/tmp/spark-recsys/training-samples"),
+        help="training_samples Parquet directory.")
+    parser.add_argument(
+        "--output", default=os.getenv("NEXT_ITEM_METRICS_PATH", "/tmp/spark-recsys/next-item/metrics.json"),
+        help="Where to write metrics.json.")
+    parser.add_argument(
+        "--holdout-quantile", type=float,
+        default=float(os.getenv("NEXT_ITEM_HOLDOUT_QUANTILE", DEFAULT_HOLDOUT_QUANTILE)),
+        help="Quantile of event timestamps to split on.")
+    parser.add_argument(
+        "--cutoff-ts", type=int,
+        default=int(os.getenv("NEXT_ITEM_CUTOFF_TS")) if os.getenv("NEXT_ITEM_CUTOFF_TS") else None,
+        help="Absolute epoch-second cutoff; overrides --holdout-quantile.")
+    parser.add_argument(
+        "--vectors", default=os.getenv("NEXT_ITEM_VECTORS_PATH"),
+        help="item_id:v1 v2 ... embedding file for the item2vec baseline.")
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--seed", type=int, default=SEED)
+    args = parser.parse_args(argv)
+
+    report = run(
+        input_dir=args.input, output_path=args.output, quantile=args.holdout_quantile,
+        absolute_cutoff=args.cutoff_ts, vectors_path=args.vectors,
+        epochs=args.epochs, seed=args.seed)
+
+    for name, metrics in sorted(report["systems"].items()):
+        line = " ".join(f"{key}={value:.4f}" for key, value in sorted(metrics.items()))
+        print(f"[next-item] {name:<22} {line}", flush=True)
+    print(f"[next-item] wrote {args.output}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
