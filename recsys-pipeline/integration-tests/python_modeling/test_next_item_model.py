@@ -81,3 +81,70 @@ def test_empty_input_raises_with_the_path(tmp_path):
 
     with pytest.raises(ValueError, match=str(tmp_path)):
         nim.load_positives(str(tmp_path))
+
+
+def test_absolute_cutoff_overrides_the_quantile():
+    timelines = {"u1": [(10, "a"), (20, "b"), (30, "c")]}
+
+    assert nim.resolve_cutoff(timelines, quantile=0.9, absolute=15) == 15
+
+
+def test_quantile_cutoff_uses_every_event_not_every_user():
+    timelines = {"u1": [(10, "a"), (20, "b")], "u2": [(30, "c"), (40, "d")]}
+
+    # Four events at 10/20/30/40; the 0.5 quantile sits at 25.
+    assert nim.resolve_cutoff(timelines, quantile=0.5) == 25
+
+
+def test_split_puts_every_training_event_before_every_target():
+    timelines = {
+        "u1": [(10, "a"), (20, "b"), (30, "target1")],
+        "u2": [(10, "c"), (40, "target2")],
+    }
+
+    split = nim.split_timelines(timelines, cutoff_ts=25)
+
+    assert split.train == {"u1": [(10, "a"), (20, "b")], "u2": [(10, "c")]}
+    assert split.targets == {"u1": "target1", "u2": "target2"}
+    latest_train = max(ts for events in split.train.values() for ts, _ in events)
+    assert latest_train < split.cutoff_ts
+
+
+def test_target_is_the_first_positive_at_or_after_the_cutoff():
+    timelines = {"u1": [(10, "a"), (25, "first"), (30, "second")]}
+
+    split = nim.split_timelines(timelines, cutoff_ts=25)
+
+    assert split.targets["u1"] == "first"
+
+
+def test_user_without_pre_cutoff_history_is_dropped_and_counted():
+    timelines = {"u1": [(10, "a"), (30, "t")], "cold": [(30, "x"), (40, "y")]}
+
+    split = nim.split_timelines(timelines, cutoff_ts=25)
+
+    assert "cold" not in split.targets
+    assert split.dropped["no_pre_cutoff_history"] == 1
+
+
+def test_user_with_a_single_positive_is_dropped_and_counted():
+    timelines = {"u1": [(10, "a"), (30, "t")], "thin": [(10, "only")]}
+
+    split = nim.split_timelines(timelines, cutoff_ts=25)
+
+    assert "thin" not in split.targets
+    assert split.dropped["fewer_than_two_positives"] == 1
+
+
+def test_single_distinct_timestamp_raises():
+    timelines = {"u1": [(100, "a"), (100, "b")], "u2": [(100, "c"), (100, "d")]}
+
+    with pytest.raises(ValueError, match="distinct"):
+        nim.resolve_cutoff(timelines, quantile=0.9)
+
+
+def test_no_surviving_test_users_raises():
+    timelines = {"u1": [(10, "a"), (20, "b")]}
+
+    with pytest.raises(ValueError, match="no test users"):
+        nim.split_timelines(timelines, cutoff_ts=100)

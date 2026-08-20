@@ -9,6 +9,8 @@ Offline only: nothing here touches Spark, Redis, the serving path, or ONNX.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pandas as pd
 
 SEED = 42
@@ -76,3 +78,73 @@ def repeat_rate(timelines: dict[str, list[tuple[int, str]]]) -> float:
                 repeats += 1
             seen.add(item)
     return repeats / total if total else 0.0
+
+
+DEFAULT_HOLDOUT_QUANTILE = 0.9
+
+
+@dataclass(frozen=True)
+class Split:
+    """One global time cutoff applied to every user.
+
+    `train` holds each user's pre-cutoff timeline, `targets` the single item they engaged
+    with first at or after the cutoff. Every system — baselines and model — sees exactly
+    this, so their numbers are comparable.
+    """
+
+    train: dict[str, list[tuple[int, str]]]
+    targets: dict[str, str]
+    cutoff_ts: int
+    dropped: dict[str, int]
+
+
+def resolve_cutoff(
+    timelines: dict[str, list[tuple[int, str]]],
+    quantile: float = DEFAULT_HOLDOUT_QUANTILE,
+    absolute: int | None = None,
+) -> int:
+    """The timestamp that separates training from held-out events.
+
+    A quantile of event timestamps, not a date. The movie-category sim writes its entire
+    run inside one UTC date — measured at 4 minutes 50 seconds across 99,415 rows — so a
+    date-partition holdout there selects everything or nothing. The engagement backfill
+    sim spans 21 days. A quantile works on both.
+    """
+    if absolute is not None:
+        return int(absolute)
+    stamps = [ts for events in timelines.values() for ts, _ in events]
+    if len(set(stamps)) < 2:
+        raise ValueError(
+            "Need at least 2 distinct event timestamps to form a time split; "
+            f"found {len(set(stamps))}. A single-instant dataset cannot be split in time."
+        )
+    return int(pd.Series(stamps).quantile(quantile))
+
+
+def split_timelines(timelines: dict[str, list[tuple[int, str]]], cutoff_ts: int) -> Split:
+    """Apply the cutoff, dropping users who cannot contribute a (history, next) pair."""
+    train: dict[str, list[tuple[int, str]]] = {}
+    targets: dict[str, str] = {}
+    dropped = {"fewer_than_two_positives": 0, "no_pre_cutoff_history": 0, "no_target": 0}
+
+    for user, events in timelines.items():
+        if len(events) < 2:
+            dropped["fewer_than_two_positives"] += 1
+            continue
+        history = [event for event in events if event[0] < cutoff_ts]
+        after = [item for ts, item in events if ts >= cutoff_ts]
+        if not history:
+            dropped["no_pre_cutoff_history"] += 1
+            continue
+        if not after:
+            dropped["no_target"] += 1
+            continue
+        train[user] = history
+        targets[user] = after[0]
+
+    if not targets:
+        raise ValueError(
+            f"Split at cutoff_ts={cutoff_ts} left no test users. "
+            f"Dropped: {dropped}. Lower the holdout quantile or use a longer-running dataset."
+        )
+    return Split(train=train, targets=targets, cutoff_ts=int(cutoff_ts), dropped=dropped)
