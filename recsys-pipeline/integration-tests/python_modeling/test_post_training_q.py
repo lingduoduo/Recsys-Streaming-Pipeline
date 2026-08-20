@@ -182,3 +182,37 @@ def test_max_next_q_ignores_actions_outside_the_next_action_space():
 
 def test_unvisited_state_action_scores_zero():
     assert tabular_q.score({}, "nowhere", "nothing") == 0.0
+
+
+import fqi
+
+
+def test_fqi_matches_the_tabular_arm_on_the_analytic_chain():
+    # Same closed-form values as the tabular test: Q(B)=10.0, Q(A)=9.0, Q(C)=0.5.
+    # One-hot features make the three state-actions linearly separable.
+    model = fqi.fit(CHAIN, gamma=0.9, iterations=40, epochs=300, hidden=16, lr=0.01)
+    assert model.score_one([0.0, 1.0, 0.0]) == pytest.approx(10.0, abs=1.0)
+    assert model.score_one([1.0, 0.0, 0.0]) == pytest.approx(9.0, abs=1.0)
+    assert model.score_one([0.0, 0.0, 1.0]) == pytest.approx(0.5, abs=1.0)
+
+
+def test_fqi_orders_the_chain_correctly():
+    model = fqi.fit(CHAIN, gamma=0.9, iterations=40, epochs=300, hidden=16, lr=0.01)
+    assert model.score_one([0.0, 1.0, 0.0]) > model.score_one([1.0, 0.0, 0.0]) \
+           > model.score_one([0.0, 0.0, 1.0])
+
+
+def test_fqi_is_deterministic_for_a_fixed_seed():
+    a = fqi.fit(CHAIN, gamma=0.9, iterations=5, epochs=20, hidden=8, lr=0.01, seed=7)
+    b = fqi.fit(CHAIN, gamma=0.9, iterations=5, epochs=20, hidden=8, lr=0.01, seed=7)
+    assert a.score_one([1.0, 0.0, 0.0]) == pytest.approx(b.score_one([1.0, 0.0, 0.0]), abs=1e-9)
+
+
+def test_fqi_scores_an_empty_batch_without_error():
+    model = fqi.fit(CHAIN, gamma=0.9, iterations=2, epochs=10, hidden=8, lr=0.01)
+    assert model.score_many([]) == []
+
+
+def test_fqi_rejects_an_empty_dataset():
+    with pytest.raises(ValueError, match="no transitions"):
+        fqi.fit([], gamma=0.9)
