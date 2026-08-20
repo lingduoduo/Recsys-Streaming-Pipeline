@@ -162,3 +162,30 @@ def test_unknown_fingerprint_is_still_rejected():
 
     with pytest.raises(event_avro.SchemaFingerprintError):
         event_avro.decode_event(corrupted)
+
+
+def test_reader_schema_overrides_the_default_shape():
+    """Fails if decode_event ignores an explicit reader schema.
+
+    The default reader is the current writer schema, so a v1 payload normally arrives carrying
+    the fields v2 added, set to null. A caller that wants the record in its original v1 shape —
+    replaying an archive against the contract that wrote it, say — can now ask for it.
+    """
+    v1 = event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0])
+    payload = event_avro.encode_event(
+        {
+            "event_id": "e-legacy",
+            "user_id": "u-1",
+            "item_id": "i-1",
+            "event_type": "click",
+            "timestamp_ms": 1718400000000,
+        },
+        v1,
+    )
+
+    default_shape = event_avro.decode_event(payload)
+    v1_shape = event_avro.decode_event(payload, reader_schema=v1)
+
+    assert "surface" in default_shape and default_shape["surface"] is None
+    assert "surface" not in v1_shape
+    assert v1_shape["event_id"] == "e-legacy"

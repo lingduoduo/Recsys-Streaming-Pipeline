@@ -67,7 +67,9 @@ object OnlineJoinerStreamingJob {
     val lateFeedbackJoin = new LateFeedbackJoin(
       archiveRoot,
       archive.stableQueryNamespace,
-      sys.env.getOrElse("FEEDBACK_JOIN_WAIT", "3 minutes"))
+      // 4 minutes, not 3: producers emit thumbs up to 180s after the impression, so a 3-minute
+      // window closed exactly at that maximum and dropped every thumb that landed on the boundary.
+      sys.env.getOrElse("FEEDBACK_JOIN_WAIT", "4 minutes"))
 
     // Both stages are batch stages so the gate can name its batch. The engine folds streaming
     // stages before batch stages, so moving dedupe here keeps the original order.

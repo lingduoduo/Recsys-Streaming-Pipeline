@@ -20,7 +20,7 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     rows("u2").getAs[Long]("clicks") shouldBe 0L
   }
 
-  "platformMetrics" should "break down CTR by the typed device column when present" in {
+  "deviceMetrics" should "break down CTR by the typed device column when present" in {
     val s = spark; import s.implicits._
     // u1 ios (1 click / 2), u2 web (2 clicks / 2, 1 order); overall CTR = 0.75
     // context_features is empty, matching what current producers actually emit.
@@ -31,8 +31,8 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
       ("web", Map.empty[String, String], 1, 0, "u2")
     ).toDF("device", "context_features", "clicked", "ordered", "user_id")
 
-    val rows = SegmentReportJob.platformMetrics(df, overallCtr = 0.75)
-      .collect().map(r => r.getAs[String]("platform") -> r).toMap
+    val rows = SegmentReportJob.deviceMetrics(df, overallCtr = 0.75)
+      .collect().map(r => r.getAs[String]("device") -> r).toMap
 
     rows("ios").getAs[Long]("impressions") shouldBe 2L
     rows("ios").getAs[Double]("ctr") shouldBe 0.5
@@ -51,8 +51,8 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
       ("ios", Map("platform" -> "web"), 0, 0, "u1")
     ).toDF("device", "context_features", "clicked", "ordered", "user_id")
 
-    val rows = SegmentReportJob.platformMetrics(df, overallCtr = 0.5)
-      .collect().map(r => r.getAs[String]("platform") -> r).toMap
+    val rows = SegmentReportJob.deviceMetrics(df, overallCtr = 0.5)
+      .collect().map(r => r.getAs[String]("device") -> r).toMap
 
     rows.keySet shouldBe Set("ios")
     rows("ios").getAs[Long]("impressions") shouldBe 2L
@@ -68,8 +68,8 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
       (Map("platform" -> "web"), 1, 0, "u2")
     ).toDF("context_features", "clicked", "ordered", "user_id")
 
-    val rows = SegmentReportJob.platformMetrics(df, overallCtr = 0.75)
-      .collect().map(r => r.getAs[String]("platform") -> r).toMap
+    val rows = SegmentReportJob.deviceMetrics(df, overallCtr = 0.75)
+      .collect().map(r => r.getAs[String]("device") -> r).toMap
 
     rows("ios").getAs[Long]("impressions") shouldBe 2L
     rows("ios").getAs[Double]("ctr") shouldBe 0.5
