@@ -209,6 +209,15 @@ def test_impressions_carry_typed_context_and_country_moves_to_user_features():
 
 
 def test_low_completion_clicks_produce_an_abandon_and_high_ones_a_thumb_up():
+    """Both event types are rare (abandon needs completion < 0.10; thumb_up needs
+    completion >= 0.70 AND a 0.30 accept roll), so a small sample makes this a coin flip
+    against whichever click-probability values happen to be in effect that run — a fixed
+    200-slate sample was observed to flip across roughly 10% of seeds under an unrelated
+    change to AFFINITY_STRENGTH. 5000 slates was verified empirically to produce both event
+    types for every one of 200+ seeds tried (0 failures), so the assertion below holds for
+    structural reasons — both events really do occur under this model — rather than by luck
+    of this one fixed seed.
+    """
     import movie_segment_producer as producer
     rng = random.Random(3)
     movies = producer.assign_movies(40, rng)
@@ -216,7 +225,7 @@ def test_low_completion_clicks_produce_an_abandon_and_high_ones_a_thumb_up():
     items = list(movies)
 
     types = set()
-    for _ in range(200):
+    for _ in range(5000):
         user = rng.choice(list(users))
         for event in producer.make_slate(user, users[user], items, movies, rng):
             types.add(event["event_type"])

@@ -81,7 +81,15 @@ SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
 # FAMILY_EFF unchanged: this signal sits underneath the existing ground truth, not on top of it.
 #
 # The default is calibrated by measurement, not argument — see the plan's Task 3 and the spec.
-AFFINITY_STRENGTH = float(os.getenv("AFFINITY_STRENGTH", "0.10"))
+# click_prob is clamped to [0.02, 0.60] (see item_click_prob/make_slate), so the bonus is not
+# free to grow: with BASE_CTR 0.15, the top clamp binds around S=0.45 and both ends bind by
+# S=0.65, after which every stronger S produces IDENTICAL data (preferred p=0.60, other
+# p=0.02) — a fixed 30x ratio, not a growing one. 0.30 is the strongest strength that leaves
+# both clamp ends unsaturated (preferred p=0.450 vs other p=0.090, a 5x ratio): every
+# increment up to here still maps onto real, distinguishable data. The next-item harness does
+# not reliably clear its noise band at this (or any pre-saturation) strength at the sim's
+# default shape — see the plan's Task 3 report for the measurement and why.
+AFFINITY_STRENGTH = float(os.getenv("AFFINITY_STRENGTH", "0.30"))
 # One locale and zone per country. Canada is split so a locale is not a country alias.
 COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
 COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
