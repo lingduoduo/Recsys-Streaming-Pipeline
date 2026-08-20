@@ -1,7 +1,7 @@
 # Joint User-Item Affinity in the Movie-Category Sim — Design
 
 **Date:** 2026-08-20
-**Status:** draft
+**Status:** approved
 **Depends on:** [2026-08-20-next-item-prediction-design.md](2026-08-20-next-item-prediction-design.md)
 
 ## Problem
