@@ -113,7 +113,10 @@ def fit_reward_model(events: list[dict]) -> RewardModel:
 
 
 def candidates_of(event: dict) -> list[dict]:
-    return event.get("actionSpace") or []
+    # `or []` would raise on a Parquet-loaded event: pandas returns nested lists as ndarrays,
+    # whose truth value is ambiguous for 2+ elements. Test explicitly for None instead.
+    raw = event.get("actionSpace")
+    return [] if raw is None else list(raw)
 
 
 def _ctr(c: dict) -> float:
