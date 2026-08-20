@@ -308,3 +308,25 @@ def test_main_writes_a_scored_parquet_the_ope_harness_can_read(tmp_path):
     reloaded = ope_support.load_from_parquet(destination)
     assert "model:fqiQ" in ope_eval_report.policy_names(reloaded)
     assert result["n_transitions"] > 0
+
+
+def test_score_events_assigns_correct_per_candidate_q_values_not_constant_or_misaligned():
+    events = _replay_fixture()
+    names = ope_eval_report.feature_names(events)
+    transitions = replay_dataset.build_transitions(events, names)
+    q = tabular_q.fit(transitions, gamma=0.9, sweeps=50)
+    model = fqi.fit(transitions, gamma=0.9, iterations=3, epochs=20, hidden=8)
+    scored = post_train_q.score_events(events, names, q, model)
+
+    event = scored[0]
+    state = replay_dataset.state_key(event["state"])
+    candidates = {c["item"]: c for c in event["actionSpace"]}
+    m1, m2 = candidates["m1"], candidates["m2"]
+
+    for candidate in (m1, m2):
+        expected_fqi = model.score_one(ope_eval_report._vec(candidate, names))
+        assert candidate["modelPredictions"]["fqiQ"] == pytest.approx(expected_fqi, abs=1e-6)
+        expected_tab = tabular_q.score(q, state, candidate["item"])
+        assert candidate["modelPredictions"]["tabQ"] == pytest.approx(expected_tab, abs=1e-6)
+
+    assert m1["modelPredictions"]["fqiQ"] != pytest.approx(m2["modelPredictions"]["fqiQ"], abs=1e-6)
