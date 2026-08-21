@@ -215,3 +215,112 @@ def test_score_many_handles_an_empty_batch():
     pairs = [_pair([1.0, 0.0], [0.0, 1.0], 0.5, 0.5)]
     policy = dpo.fit(pairs, beta=1.0, epochs=5, hidden=4, lr=0.05)
     assert policy.score_many([]) == []
+
+
+import ope_support
+import post_train_dpo
+
+
+def _joined_fixture(n_slates=12):
+    """Replay events and slates that agree on requestId, with a genuine preference: m1 wins."""
+    events, slates = [], []
+    for n in range(n_slates):
+        rid = f"r{n}"
+        events.append(_event(rid, f"u{n}", "m1",
+                             [("m1", 0.8, 0.7), ("m2", 0.2, 0.3), ("m3", 0.1, 0.2)]))
+        slates.append(_slate(rid, f"u{n}",
+                             [("m1", 1, 0, 1.0), ("m2", 0, 0, 0.0), ("m3", 0, 0, 0.0)]))
+    return slates, events
+
+
+def test_split_pairs_uses_the_ope_held_out_hash():
+    slates, events = _joined_fixture()
+    pairs, _ = slate_pairs.build_pairs(slates, events)
+    train, held_out = post_train_dpo.split_pairs(pairs)
+    assert train and held_out
+    assert all(not ope_eval_report.is_test(p.request_id) for p in train)
+    assert all(ope_eval_report.is_test(p.request_id) for p in held_out)
+    assert len(train) + len(held_out) == len(pairs)
+
+
+def test_reference_accuracy_reports_what_the_logging_policy_already_knew():
+    slates, events = _joined_fixture()
+    pairs, _ = slate_pairs.build_pairs(slates, events)
+    # m1's predictionScore (0.7) beats both rejected items, so the reference is already perfect.
+    assert post_train_dpo.reference_pairwise_accuracy(pairs) == pytest.approx(1.0)
+
+
+def test_score_events_writes_the_dpo_key_onto_every_candidate():
+    slates, events = _joined_fixture()
+    names = ope_eval_report.feature_names(events)
+    pairs, _ = slate_pairs.build_pairs(slates, events, names)
+    policy = dpo.fit(pairs, beta=1.0, epochs=20, hidden=8)
+    scored = post_train_dpo.score_events(events, names, policy)
+    for event in scored:
+        for candidate in event["actionSpace"]:
+            assert ope_eval_report.DPO_PRED_KEY in candidate["modelPredictions"]
+
+
+def test_the_dpo_key_is_registered_as_policy_only():
+    """A policy's own score must never become a reward-model feature."""
+    assert ope_eval_report.DPO_PRED_KEY in ope_eval_report.POLICY_ONLY_PRED_KEYS
+    slates, events = _joined_fixture()
+    names_before = ope_eval_report.feature_names(events)
+    pairs, _ = slate_pairs.build_pairs(slates, events, names_before)
+    policy = dpo.fit(pairs, beta=1.0, epochs=20, hidden=8)
+    scored = post_train_dpo.score_events(events, names_before, policy)
+    assert ope_eval_report.feature_names(scored) == names_before
+    assert f"model:{ope_eval_report.DPO_PRED_KEY}" in ope_eval_report.policy_names(scored)
+
+
+def test_score_events_survives_a_null_model_predictions():
+    slates, events = _joined_fixture(n_slates=2)
+    events[0]["actionSpace"][0]["modelPredictions"] = None
+    names = ope_eval_report.feature_names(events)
+    pairs, _ = slate_pairs.build_pairs(slates, events, names)
+    policy = dpo.fit(pairs, beta=1.0, epochs=10, hidden=8)
+    scored = post_train_dpo.score_events(events, names, policy)
+    assert ope_eval_report.DPO_PRED_KEY in scored[0]["actionSpace"][0]["modelPredictions"]
+
+
+def test_main_writes_a_scored_parquet_the_ope_harness_can_read(tmp_path):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    slates, events = _joined_fixture()
+    replay_path = tmp_path / "replay.parquet"
+    slate_path = tmp_path / "slates.parquet"
+    pd.DataFrame(events).to_parquet(replay_path, index=False)
+    pd.DataFrame(slates).to_parquet(slate_path, index=False)
+    destination = tmp_path / "scored.parquet"
+
+    result = post_train_dpo.main([
+        "--parquet", str(replay_path),
+        "--slates", str(slate_path),
+        "--output-parquet", str(destination),
+        "--epochs", "20",
+    ])
+
+    assert destination.exists()
+    reloaded = ope_support.load_from_parquet(destination)
+    assert f"model:{ope_eval_report.DPO_PRED_KEY}" in ope_eval_report.policy_names(reloaded)
+    assert result["n_pairs"] > 0
+    assert result["n_dropped_pairs"] == 0
+
+
+def test_main_reports_dropped_pairs_rather_than_hiding_them(tmp_path):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    slates, events = _joined_fixture()
+    # A slate item with no replay row on either side of the pair.
+    slates[0]["items"].append({"position": 3, "item_id": "m9", "clicked": 0, "ordered": 0,
+                               "label": 0.0})
+    replay_path = tmp_path / "replay.parquet"
+    slate_path = tmp_path / "slates.parquet"
+    pd.DataFrame(events).to_parquet(replay_path, index=False)
+    pd.DataFrame(slates).to_parquet(slate_path, index=False)
+
+    result = post_train_dpo.main([
+        "--parquet", str(replay_path), "--slates", str(slate_path), "--epochs", "10",
+    ])
+
+    assert result["n_dropped_pairs"] == 1

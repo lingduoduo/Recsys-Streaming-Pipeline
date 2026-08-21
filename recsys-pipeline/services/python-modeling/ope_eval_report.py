@@ -41,7 +41,8 @@ BASE_FEATURES = ["coldStart", "impressions", "clicks"]
 # A new arm (DPO next) adds its key here in the same commit that starts writing it.
 TABULAR_Q_PRED_KEY = "tabQ"
 FQI_Q_PRED_KEY = "fqiQ"
-POLICY_ONLY_PRED_KEYS = (TABULAR_Q_PRED_KEY, FQI_Q_PRED_KEY)
+DPO_PRED_KEY = "dpoScore"
+POLICY_ONLY_PRED_KEYS = (TABULAR_Q_PRED_KEY, FQI_Q_PRED_KEY, DPO_PRED_KEY)
 
 
 def candidates_of(event: dict) -> list[dict]:
