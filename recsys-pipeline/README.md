@@ -1007,6 +1007,64 @@ mvn -q compile exec:java \
 Both intervals quantify *episode/event-sampling* uncertainty only — the OPE CIs are conditional
 on the fitted reward model, and the MDP CIs on the fixed dataset. Neither is a claim of A/B lift.
 
+#### Offline Q-learning post-training
+
+Fits two Q functions on the logged replay buffer — a tabular baseline and a neural Fitted Q
+Iteration model — and scores the replay so the off-policy evaluator can rank them against the
+existing baselines. Both are fit on the non-held-out split only, matching the reward model.
+
+```bash
+cd recsys-pipeline/services/python-modeling/post-training
+REDIS_HOST=localhost python3 post_train_q.py --output-parquet /tmp/scored_replay.parquet
+python3 ../ope_eval_report.py --parquet /tmp/scored_replay.parquet
+```
+
+The second command's table gains `model:tabQ` and `model:fqiQ` rows. The injected keys are scored
+as policies but deliberately excluded from the reward model's feature schema, so scoring a replay
+leaves every other policy's number untouched. The trainer prints each arm's held-out mean
+`|TD error|` on its own line — they are not comparable to each other — with the tabular one
+reported alongside its held-out Q-table coverage. This path is offline only: it does not write to
+Redis and does not affect live ranking.
+
+#### DPO post-training
+
+Fits a scorer on within-slate preference pairs — an engaged item against an exposed-but-not-engaged
+item from the same slate — anchored to the score the logging policy actually ranked by. Because the
+policy is a softmax over the slate's own candidates, DPO's partition functions cancel and the loss
+is the repository's BPR loss plus a reference margin.
+
+```bash
+cd recsys-pipeline/services/python-modeling/post-training
+python3 post_train_dpo.py --parquet /tmp/scored_replay.parquet \
+                          --slates <slate-parquet> --output-parquet /tmp/scored_dpo.parquet
+python3 ../ope_eval_report.py --parquet /tmp/scored_dpo.parquet
+```
+
+Pairs come from slates rather than from the replay action space because every slate item was
+actually shown; a replay candidate that was never displayed is not a rejected item. Features still
+come from the replay buffer, joined on `requestId`, so all three arms are scored on one schema.
+Pairs whose replay row is missing are dropped and counted — check the reported join yield and the
+`slate request_ids matched to a replay requestId` line before reading the accuracy numbers.
+
+**Unmet prerequisite — this arm produces nothing on today's data.** The slate log's `request_id` is
+minted by `movie_segment_producer.py` as `f"req_{uuid4().hex[:12]}"`, while the replay's
+`requestId` is minted independently by the Java serving path as `UUID.randomUUID().toString()`.
+Different generators, different formats: the values can never be equal, so the join matches 0 rows
+and the CLI exits naming the mismatch. Making it runnable requires the **serving path** to emit its
+own `requestId` into the Kafka event stream the slate log is built from — a serving-path change
+outside this offline track. Everything downstream of the join is exercised by synthetic fixtures
+only.
+
+Two things the accuracy comparison does **not** say. `predictionScore` is both the reference and an
+input feature of the fitted scorer, so beating the reference does not mean the policy learned
+something the logging policy did not know — only that the other logged features add signal on top
+of it. And the fitted scorer is a randomly-initialised MLP rather than a copy of the reference, so
+`--beta` is not a KL trust region back to a model the policy started at, as it is in DPO on language
+models; here it is only the sharpness of the sigmoid over the reference-adjusted margin. The
+algebra is DPO's; the trust-region reading is not.
+
+This path is offline only: it does not write to Redis and does not affect live ranking.
+
 ---
 
 ## Ports

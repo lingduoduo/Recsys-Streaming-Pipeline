@@ -139,6 +139,34 @@ then re-picks every event under logging, popularity, CTR, deterministic random, 
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events
 are normally written to `replay:recommendations` by later `POST /feedback` calls.
 
+`post-training/post_train_q.py` fits offline Q functions on the same replay buffer and injects
+their per-candidate predictions as `tabQ` and `fqiQ`, which the evaluator discovers automatically
+as `model:tabQ` and `model:fqiQ`. Those two keys are policy scores, not observations, so
+`feature_names()` excludes them from the reward model's schema (`POLICY_ONLY_PRED_KEYS`) while
+`policy_names()` keeps them: an estimator fit on the Q values it is then asked to grade would
+report lift for a policy that learned nothing.
+
+Caveats when reading those rows. The Direct Method estimator is single-step, so it cannot credit
+the long-horizon value that Q-learning exists to capture — the held-out mean `|TD error|` printed
+by the trainer is the complementary check. That residual is reported per algorithm and is not a
+head-to-head: the two arms fit different state representations. The tabular residual in particular
+must be read against the held-out Q-table coverage printed beside it, because an unseen
+`(state, action)` scores 0.0 and so flatters a sparse table. And the fitted Q is trained on the
+non-held-out split while policy values are computed over all events, the same footing as the
+reward model itself.
+
+`post-training/post_train_dpo.py` adds `model:dpoScore` from the same replay dump, fit on
+preference pairs drawn from the slate log. It does not run on today's data: the slate log's
+`request_id` and the replay's `requestId` are minted by different generators (Python producer
+versus Java serving path), so the join matches nothing and the CLI exits naming the mismatch —
+see the README's DPO block for what would unblock it. When it does run, read its held-out pairwise
+accuracy against the reference accuracy printed beside it, remembering that the reference
+(`predictionScore`) is also one of the fitted scorer's input features: beating it shows the other
+logged features add signal, not that the policy knows something the logging policy did not. Check
+the reported join yield and matched-request_id count first — pairs whose replay row is missing are
+dropped, and a low yield means the accuracy figures describe a small and possibly unrepresentative
+subset of the slate log.
+
 Run the Redis-backed evaluation from the repository root:
 
 ```bash

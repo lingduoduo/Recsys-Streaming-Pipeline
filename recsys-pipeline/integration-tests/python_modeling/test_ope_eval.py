@@ -263,3 +263,31 @@ def test_negative_bootstrap_samples_are_rejected():
     model = ope.fit_reward_model(events)
     with pytest.raises(ValueError, match="bootstrap samples must be nonnegative"):
         ope.bootstrap_intervals(events, model, ope.evaluate(events, model), samples=-1)
+
+
+def test_candidates_of_accepts_a_parquet_round_tripped_action_space(tmp_path):
+    """Parquet turns nested lists into ndarrays; `or []` on one raises ValueError."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    event = {
+        "requestId": "r1", "user": "u", "action": "m1", "reward": 1.0, "clicked": True,
+        "modelPredictions": {"relevance": 0.8},
+        "actionSpace": [
+            {"item": "m1", "coldStart": False, "impressions": 20, "clicks": 10,
+             "modelPredictions": {"relevance": 0.8}},
+            {"item": "m2", "coldStart": False, "impressions": 20, "clicks": 1,
+             "modelPredictions": {"relevance": 0.2}},
+        ],
+    }
+    path = tmp_path / "replay.parquet"
+    pd.DataFrame([event]).to_parquet(path, index=False)
+    reloaded = pd.read_parquet(path).to_dict(orient="records")[0]
+
+    candidates = ope.candidates_of(reloaded)
+
+    assert [c["item"] for c in candidates] == ["m1", "m2"]
+    assert ope.pick("ctr", reloaded)["item"] == "m1"
+
+
+def test_candidates_of_returns_empty_for_a_missing_action_space():
+    assert ope.candidates_of({"requestId": "r1"}) == []

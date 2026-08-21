@@ -26,20 +26,46 @@ from ranking_eval_report import auc
 # because they are not present per-candidate and would be dead weight at scoring time.
 BASE_FEATURES = ["coldStart", "impressions", "clicks"]
 
+# modelPredictions keys that are POLICY SCORES rather than serve-time observations: the offline
+# post-training trainer (post-training/post_train_q.py) writes its fitted Q back into every
+# candidate as `tabQ`/`fqiQ` so that `model:tabQ` and `model:fqiQ` become evaluable policies.
+# A score produced by a policy must never become an input feature of the reward model that
+# judges it. Were they features, the estimator would be fit on the very values it is then asked
+# to grade -- it can recover the reward from the policy's own output and report lift for a
+# policy that learned nothing (measured: +17.4% on a pure-noise fixture) -- and, because the
+# feature schema is shared, merely scoring a replay would shift every OTHER policy's number too.
+# They are excluded from feature_names() and retained in policy_names().
+#
+# The trainer imports these names rather than repeating the strings, so a rename cannot leave the
+# two sides disagreeing -- which would silently reintroduce the circularity with a green suite.
+# A new arm (DPO next) adds its key here in the same commit that starts writing it.
+TABULAR_Q_PRED_KEY = "tabQ"
+FQI_Q_PRED_KEY = "fqiQ"
+DPO_PRED_KEY = "dpoScore"
+POLICY_ONLY_PRED_KEYS = (TABULAR_Q_PRED_KEY, FQI_Q_PRED_KEY, DPO_PRED_KEY)
+
+
+def candidates_of(event: dict) -> list[dict]:
+    # `or []` would raise on a Parquet-loaded event: pandas returns nested lists as ndarrays,
+    # whose truth value is ambiguous for 2+ elements. Test explicitly for None instead.
+    raw = event.get("actionSpace")
+    return [] if raw is None else list(raw)
+
 
 def _model_pred_keys(events) -> list[str]:
     keys = set()
     for e in events:
         mp = e.get("modelPredictions") or {}
         keys.update(k for k, v in mp.items() if isinstance(v, (int, float)))
-        for c in e.get("actionSpace", []):
+        for c in candidates_of(e):
             cmp = c.get("modelPredictions") or {}
             keys.update(k for k, v in cmp.items() if isinstance(v, (int, float)))
     return sorted(keys)
 
 
 def feature_names(events) -> list[str]:
-    return BASE_FEATURES + _model_pred_keys(events)
+    return BASE_FEATURES + [k for k in _model_pred_keys(events)
+                            if k not in POLICY_ONLY_PRED_KEYS]
 
 
 def _vec(cand_like: dict, names: list[str]) -> list[float]:
@@ -59,7 +85,7 @@ def _taken_candidate(event: dict) -> dict:
     """The taken action's own actionSpace entry (which carries impressions/clicks);
     falls back to the event itself if the action is absent from the snapshot."""
     action = event.get("action")
-    for c in event.get("actionSpace", []):
+    for c in candidates_of(event):
         if c.get("item") == action:
             return c
     return event
@@ -110,10 +136,6 @@ def fit_reward_model(events: list[dict]) -> RewardModel:
         auc_value = None
     calibration = {"n_test": len(test), "mse": mse, "auc": auc_value}
     return RewardModel(names, mean, std, w, calibration)
-
-
-def candidates_of(event: dict) -> list[dict]:
-    return event.get("actionSpace") or []
 
 
 def _ctr(c: dict) -> float:
