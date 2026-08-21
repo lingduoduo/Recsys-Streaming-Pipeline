@@ -155,6 +155,13 @@ must be read against the held-out Q-table coverage printed beside it, because an
 non-held-out split while policy values are computed over all events, the same footing as the
 reward model itself.
 
+`post-training/post_train_dpo.py` adds `model:dpoScore` from the same replay dump, fit on
+preference pairs drawn from the slate log. Read its held-out pairwise accuracy against the
+reference accuracy printed beside it: the reference is the logged `predictionScore`, so a policy
+that fails to beat it has learned nothing the logging policy did not already know. Check the
+reported join yield first — pairs whose replay row is missing are dropped, and a low yield means
+the accuracy figures describe a small and possibly unrepresentative subset of the slate log.
+
 Run the Redis-backed evaluation from the repository root:
 
 ```bash

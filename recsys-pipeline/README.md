@@ -1026,6 +1026,28 @@ leaves every other policy's number untouched. The trainer prints each arm's held
 reported alongside its held-out Q-table coverage. This path is offline only: it does not write to
 Redis and does not affect live ranking.
 
+#### DPO post-training
+
+Fits a scorer on within-slate preference pairs — an engaged item against an exposed-but-not-engaged
+item from the same slate — anchored to the score the logging policy actually ranked by. Because the
+policy is a softmax over the slate's own candidates, DPO's partition functions cancel and the loss
+is the repository's BPR loss plus a reference margin.
+
+```bash
+cd recsys-pipeline/services/python-modeling/post-training
+python3 post_train_dpo.py --parquet /tmp/scored_replay.parquet \
+                          --slates <slate-parquet> --output-parquet /tmp/scored_dpo.parquet
+python3 ../ope_eval_report.py --parquet /tmp/scored_dpo.parquet
+```
+
+Pairs come from slates rather than from the replay action space because every slate item was
+actually shown; a replay candidate that was never displayed is not a rejected item. Features still
+come from the replay buffer, joined on `requestId`, so all three arms are scored on one schema.
+Pairs whose replay row is missing are dropped and counted — check the reported join yield before
+reading the accuracy numbers.
+
+This path is offline only: it does not write to Redis and does not affect live ranking.
+
 ---
 
 ## Ports
