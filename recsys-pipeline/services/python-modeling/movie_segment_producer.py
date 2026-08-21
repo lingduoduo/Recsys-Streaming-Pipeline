@@ -8,11 +8,14 @@ context path; engagement rides the behavior path:
   • per movie: a MovieUpdated-shaped record {item_id, title, genres, release_year, timestamp}
     → movielens_context → MovieLensContextCollectorStreamingJob → Redis movie:{id}:features.
   • behavior slates → recsys_events → OnlineJoinerStreamingJob → training_samples Parquet.
-    Each impressed item is clicked INDEPENDENTLY with a category-modulated probability, so
-    per-item CTR reflects its category (ground truth below). No category embedded in the events.
+    Each impressed item is clicked INDEPENDENTLY with a category- and user-modulated
+    probability, so per-item CTR reflects its category (ground truth below) and per-user
+    clicks skew toward that user's latent preferred family. No category or preference is
+    embedded in the events.
 
 Env: KAFKA_BOOTSTRAP_SERVERS, RECSYS_TOPIC (recsys_events), MOVIELENS_CONTEXT_TOPIC
-(movielens_context), NUM_ITEMS (400), NUM_USERS (200), NUM_SLATES (20000), SLATE_SIZE (5), SEED (17).
+(movielens_context), NUM_ITEMS (400), NUM_USERS (200), NUM_SLATES (20000), SLATE_SIZE (5),
+SEED (17), AFFINITY_STRENGTH (0.80).
 """
 from __future__ import annotations
 
@@ -73,6 +76,35 @@ SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
 # Additive per-slate click effect, so the surface is recoverable from the report.
 SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
                "detail_page": 0.01, "continue_watching": 0.03}
+
+# Per-user taste. Items in a user's preferred l1 family gain AFFINITY_STRENGTH; each of the
+# other five loses a fifth as much, so the six bonuses cancel for that user AND — because the
+# preferred family is drawn uniformly over users — the mean bonus for any given family is zero
+# across the population, up to a residual of at most S*(6*n_f - N)/(5*N) when NUM_USERS (N) is
+# not a multiple of 6 (see user_preferred_family). That identity is what keeps the by_l1 report
+# recovering FAMILY_EFF (unchanged to within that bound): this signal sits underneath the
+# existing ground truth, not on top of it.
+#
+# The default is calibrated by measurement, not argument — see the plan's Task 3 report.
+# click_prob is clamped to [0.02, 0.60] (see item_click_prob/make_slate). Saturation here is
+# ONE-SIDED, not symmetric: the top clamp binds first, starting around S=0.45, and only for
+# the ~1-in-6 (user, item) pairs that are a user's preferred family (measured against the real
+# 200-user x 400-item x 4-surface catalog: 16.1% of cells top-clamp at S=0.45, matching the 1/6
+# preferred share). Past that point every preferred-family click probability is pinned at 0.60
+# regardless of S; it is the NON-preferred tail that keeps moving as S grows further, via the
+# bottom clamp, which binds gradually rather than all at once (0.1% of cells at S=0.45, 2.6% at
+# S=0.65, 14.0% at S=0.80, 83.3% at S=1.50). So S=0.65 and S=0.80 do NOT produce identical
+# data — most non-preferred cells still differ between them. Two-sided saturation, where every
+# larger S really is identical data, only arrives around S>=1.5.
+#
+# AFFINITY_STRENGTH=0.80 is the smallest strength that clears the acceptance criterion (the
+# next-item harness beats most_popular's hit_rate@10 by >2 standard errors) on every one of 3
+# seeds (17/29/41) at both a low-noise n=800 shape and the sim's real n=200 default shape — see
+# the plan's Task 3 report for the full sweep. At 0.80, mean click probability across the real
+# catalog is 0.600 for preferred-family items (top-clamped) vs 0.060 for the rest (bottom
+# clamp partially bound) — roughly a 10x ratio: a strong, clearly non-degenerate taste signal,
+# not a lock (chance is 1/6).
+AFFINITY_STRENGTH = float(os.getenv("AFFINITY_STRENGTH", "0.80"))
 # One locale and zone per country. Canada is split so a locale is not a country alias.
 COUNTRY_LOCALE = {"us": "en-US", "ca": "en-CA", "gb": "en-GB", "de": "de-DE"}
 COUNTRY_TIMEZONE = {"us": "America/New_York", "ca": "America/Toronto",
@@ -154,6 +186,40 @@ def user_timezone(country: str) -> str:
     return COUNTRY_TIMEZONE.get(country, "America/New_York")
 
 
+def user_preferred_family(user: str) -> str:
+    """The l1 family this user favours: a pure function of the user id.
+
+    Deliberately NOT stored in the dict assign_users returns. That dict is copied into
+    user_features, which feeds governance_measurements.DEFAULT_DIMENSIONS — an allowlist whose
+    members are published as fairness groups — and a taste attribute does not belong there.
+    Deriving it here also keeps it latent by construction: a model must infer it from behaviour
+    rather than read it off a field, which is the whole point of the signal.
+
+    Round-robins over sorted(FAMILY_EFF) by user index, so for a population of N users, family
+    f's count of preferring users n_f is exactly equal across all six families only when
+    N % 6 == 0. Otherwise the across-population zero-mean identity in affinity_bonus's docstring
+    holds only up to a residual mean bonus of S*(6*n_f - N)/(5*N) for that family (S is
+    AFFINITY_STRENGTH) — bounded, not eliminated, at any N. At the sim's default N=200, two
+    families get n_f=34 and the rest n_f=33, so the residual is at most S*4/1000 =
+    0.004*S (see test_affinity_bonus_is_bounded_at_the_sim_default_population), small next
+    to the smallest true FAMILY_EFF gap of 0.010.
+    """
+    families = sorted(FAMILY_EFF)
+    return families[_user_index(user) % len(families)]
+
+
+def affinity_bonus(user: str, meta: dict) -> float:
+    """Click-probability bonus for showing `meta` to `user`.
+
+    +AFFINITY_STRENGTH for the user's preferred family, -AFFINITY_STRENGTH/5 for each of the
+    other five. Zero-mean per user by construction; zero-mean across users because
+    user_preferred_family cycles uniformly over the families.
+    """
+    others = len(FAMILY_EFF) - 1
+    return (AFFINITY_STRENGTH if l1(meta["genres"]) == user_preferred_family(user)
+            else -AFFINITY_STRENGTH / others)
+
+
 def click_completion(meta: dict, rng: random.Random) -> float:
     """Completion tracks the item's appeal: higher-CTR items get watched further."""
     center = min(0.95, item_click_prob(meta) * 3.0)
@@ -213,9 +279,10 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
         events.append(impression)
 
         # independent per-item click decision → per-item CTR reflects the item's category,
-        # shifted by the user's documented subscription effect and the surface it appeared on
+        # shifted by the user's documented subscription effect, the surface it appeared on,
+        # and the user's own taste for that item's genre family
         click_prob = min(0.6, max(0.02, item_click_prob(meta) + user_click_bias(user_meta)
-                                  + SURFACE_EFF[surface]))
+                                  + SURFACE_EFF[surface] + affinity_bonus(user, meta)))
         if rng.random() < click_prob:
             completion = click_completion(meta, rng)
             click = base(item, "click", now_ms + rng.randint(1, 20) * 1000, position)
