@@ -236,7 +236,8 @@ def _joined_fixture(n_slates=12):
 def test_split_pairs_uses_the_ope_held_out_hash():
     slates, events = _joined_fixture()
     pairs, _ = slate_pairs.build_pairs(slates, events)
-    train, held_out = post_train_dpo.split_pairs(pairs)
+    train, held_out, degenerate = post_train_dpo.split_pairs(pairs)
+    assert not degenerate
     assert train and held_out
     assert all(not ope_eval_report.is_test(p.request_id) for p in train)
     assert all(ope_eval_report.is_test(p.request_id) for p in held_out)
@@ -324,3 +325,155 @@ def test_main_reports_dropped_pairs_rather_than_hiding_them(tmp_path):
     ])
 
     assert result["n_dropped_pairs"] == 1
+
+
+# --- Regression tests for the final whole-branch review -------------------------------------
+
+
+def _uuid_style(n):
+    """The shape UUID.randomUUID().toString() produces in the Java serving path."""
+    return f"{n:08x}-1c4f-4b6e-9a2d-000000000000"
+
+
+def _mismatched_fixture(n_slates=6):
+    """The id namespaces this repository ACTUALLY produces on the two sides.
+
+    The slate log's request_id is minted by movie_segment_producer as f"req_{uuid4().hex[:12]}";
+    the replay's requestId is minted independently by HybridRecommendationService as
+    UUID.randomUUID().toString(). The values can never coincide.
+    """
+    events, slates = [], []
+    for n in range(n_slates):
+        events.append(_event(_uuid_style(n), f"u{n}", "m1",
+                             [("m1", 0.8, 0.7), ("m2", 0.2, 0.3)]))
+        slates.append(_slate(f"req_{n:012x}", f"u{n}",
+                             [("m1", 1, 0, 1.0), ("m2", 0, 0, 0.0)]))
+    return slates, events
+
+
+def _write_parquet_fixture(tmp_path, slates, events):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    replay_path = tmp_path / "replay.parquet"
+    slate_path = tmp_path / "slates.parquet"
+    pd.DataFrame(events).to_parquet(replay_path, index=False)
+    pd.DataFrame(slates).to_parquet(slate_path, index=False)
+    return replay_path, slate_path
+
+
+def test_mismatched_request_id_namespaces_yield_no_pairs_and_no_matches():
+    slates, events = _mismatched_fixture()
+    pairs, dropped, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    assert pairs == []
+    assert dropped == len(slates)
+    assert diagnostics.n_slate_request_ids == len(slates)
+    assert diagnostics.n_slate_request_ids_matched == 0
+
+
+def test_matched_request_id_count_is_nonzero_when_the_ids_agree():
+    slates, events = _joined_fixture()
+    _, _, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    assert diagnostics.n_slate_request_ids == 12
+    assert diagnostics.n_slate_request_ids_matched == 12
+
+
+def test_main_names_the_request_id_mismatch_when_nothing_joins(tmp_path):
+    slates, events = _mismatched_fixture()
+    replay_path, slate_path = _write_parquet_fixture(tmp_path, slates, events)
+
+    with pytest.raises(SystemExit) as excinfo:
+        post_train_dpo.main([
+            "--parquet", str(replay_path), "--slates", str(slate_path), "--epochs", "5",
+        ])
+
+    message = str(excinfo.value)
+    assert "6 candidate pairs dropped" in message
+    assert "0 of 6 slate request_ids" in message
+    assert "movie_segment_producer" in message
+    assert "HybridRecommendationService" in message
+    assert "serving path" in message.lower()
+
+
+def test_main_reports_the_matched_request_id_count_when_the_join_works(tmp_path, capsys):
+    slates, events = _joined_fixture()
+    replay_path, slate_path = _write_parquet_fixture(tmp_path, slates, events)
+
+    result = post_train_dpo.main([
+        "--parquet", str(replay_path), "--slates", str(slate_path), "--epochs", "10",
+    ])
+
+    assert result["n_slate_request_ids_matched"] == 12
+    assert result["n_slate_request_ids"] == 12
+    out = capsys.readouterr().out
+    assert "matched to a replay requestId: 12/12" in out
+    # The tie-handling caveat: a rounded reference ties more often than a continuous MLP output.
+    assert "rounded to" in out and "tie-handling artifact" in out
+
+
+def test_pair_sides_without_a_prediction_score_are_counted():
+    slates, events = _fixture()
+    for candidate in events[0]["actionSpace"]:
+        candidate["modelPredictions"].pop("predictionScore")
+    pairs, dropped, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    assert len(pairs) == 2 and dropped == 0
+    # Both sides of both pairs: the reference margin is identically zero, so this is plain BPR.
+    assert diagnostics.n_missing_reference_sides == 4
+    assert all(p.chosen_reference == 0.0 and p.rejected_reference == 0.0 for p in pairs)
+
+
+def test_a_null_model_predictions_counts_as_a_missing_reference():
+    slates, events = _fixture()
+    events[0]["actionSpace"][1]["modelPredictions"] = None
+    pairs, _, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    assert len(pairs) == 2
+    assert diagnostics.n_missing_reference_sides == 1
+
+
+def test_main_surfaces_and_warns_about_missing_reference_scores(tmp_path, capsys):
+    slates, events = _joined_fixture()
+    for event in events:
+        for candidate in event["actionSpace"]:
+            candidate["modelPredictions"].pop("predictionScore")
+    replay_path, slate_path = _write_parquet_fixture(tmp_path, slates, events)
+
+    result = post_train_dpo.main([
+        "--parquet", str(replay_path), "--slates", str(slate_path), "--epochs", "10",
+    ])
+
+    assert result["n_missing_reference_sides"] == result["n_pairs"] * 2
+    out = capsys.readouterr().out
+    assert "carried no predictionScore" in out
+    assert "BPR" in out
+
+
+def _all_held_out_fixture():
+    """Every requestId hashes into the held-out fifth, so the train split comes out empty."""
+    events, slates = [], []
+    for rid in ("r9", "r11", "r12", "r19"):
+        assert ope_eval_report.is_test(rid)
+        events.append(_event(rid, "u1", "m1", [("m1", 0.8, 0.7), ("m2", 0.2, 0.3)]))
+        slates.append(_slate(rid, "u1", [("m1", 1, 0, 1.0), ("m2", 0, 0, 0.0)]))
+    return slates, events
+
+
+def test_a_split_with_no_training_pairs_is_flagged_degenerate():
+    slates, events = _all_held_out_fixture()
+    pairs, _ = slate_pairs.build_pairs(slates, events)
+    train, held_out, degenerate = post_train_dpo.split_pairs(pairs)
+    assert degenerate is True
+    assert train == held_out == pairs
+
+
+def test_main_warns_that_a_degenerate_split_makes_the_accuracies_in_sample(tmp_path, capsys):
+    slates, events = _all_held_out_fixture()
+    replay_path, slate_path = _write_parquet_fixture(tmp_path, slates, events)
+
+    result = post_train_dpo.main([
+        "--parquet", str(replay_path), "--slates", str(slate_path), "--epochs", "10",
+    ])
+
+    assert result["degenerate_split"] is True
+    assert result["n_train"] == result["n_pairs"] == result["n_held_out"]
+    out = capsys.readouterr().out
+    assert "split degenerated" in out
+    assert "IN-SAMPLE" in out

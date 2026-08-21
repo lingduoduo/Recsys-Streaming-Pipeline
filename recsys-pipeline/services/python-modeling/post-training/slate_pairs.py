@@ -18,9 +18,10 @@ import ope_eval_report
 
 from replay_dataset import as_list
 
-#: modelPredictions key holding the per-candidate score the ranker actually ordered by.
-#: NOT the top-level banditScore: MovieLensServingSideEffects.candidateFeatures records that only
-#: for the selected item, so a pair's rejected item would have none.
+#: modelPredictions key holding the per-candidate exploitation score, before the diversity re-rank.
+#: `banditScore` -- the post-diversity final score -- is logged for every candidate too and is a
+#: defensible alternative reference; `predictionScore` is used because it is the ranking signal the
+#: model produced, unmixed with the diversity adjustment applied on top of it.
 REFERENCE_PRED_KEY = "predictionScore"
 
 
@@ -53,16 +54,38 @@ def is_chosen(item) -> bool:
     return label is not None and float(label) > 0.0
 
 
+@dataclass(frozen=True)
+class JoinDiagnostics:
+    """Whether the slate-to-replay join worked at all, and whether the reference survived it.
+
+    `n_slate_request_ids_matched` is the number that says instantly whether the join is working:
+    slate request_ids that appear anywhere in the replay index. Zero means the two sides are in
+    different id namespaces, not that the data is merely sparse.
+    """
+
+    n_slate_request_ids: int
+    n_slate_request_ids_matched: int
+    n_missing_reference_sides: int
+
+
 def replay_index(events, names) -> dict:
-    """(requestId, item) -> (feature vector, reference score) for every logged candidate."""
+    """(requestId, item) -> (feature vector, reference score, reference present) per candidate.
+
+    The third element matters: an absent `predictionScore` -- or a null `modelPredictions`, which
+    is what Parquet yields for an absent nested struct -- reads as 0.0 here, which silently zeroes
+    the reference margin and degrades the DPO loss to plain BPR. Recording presence lets that be
+    counted and warned about instead of disappearing into a default.
+    """
     index = {}
     for event in events:
         request_id = str(event.get("requestId", ""))
         for candidate in ope_eval_report.candidates_of(event):
             predictions = candidate.get("modelPredictions") or {}
+            reference = predictions.get(REFERENCE_PRED_KEY)
             index[(request_id, str(candidate.get("item")))] = (
                 ope_eval_report._vec(candidate, names),
-                float(predictions.get(REFERENCE_PRED_KEY, 0.0) or 0.0),
+                float(reference or 0.0),
+                reference is not None,
             )
     return index
 
@@ -70,17 +93,32 @@ def replay_index(events, names) -> dict:
 def build_pairs(slates, events, names=None) -> tuple[list[PreferencePair], int]:
     """Cross every chosen item with every rejected item WITHIN each slate.
 
-    Returns (pairs, dropped). `dropped` counts pairs discarded because one side had no replay row
-    to supply features. A low join yield is a finding worth reporting, never something to swallow.
+    Returns (pairs, dropped); `build_pairs_with_diagnostics` returns the join diagnostics too.
+    """
+    pairs, dropped, _ = build_pairs_with_diagnostics(slates, events, names)
+    return pairs, dropped
+
+
+def build_pairs_with_diagnostics(slates, events, names=None):
+    """`build_pairs`, plus the numbers that say whether the join worked.
+
+    Returns (pairs, dropped, JoinDiagnostics). `dropped` counts pairs discarded because one side
+    had no replay row to supply features. A low join yield is a finding worth reporting, never
+    something to swallow -- and a zero yield is usually a namespace mismatch rather than sparsity,
+    which is what the matched-request_id count exposes.
     """
     if names is None:
         names = ope_eval_report.feature_names(events)
     index = replay_index(events, names)
+    indexed_request_ids = {key[0] for key in index}
 
     pairs: list[PreferencePair] = []
     dropped = 0
+    missing_reference_sides = 0
+    slate_request_ids = set()
     for slate in slates:
         request_id = str(slate.get("request_id", ""))
+        slate_request_ids.add(request_id)
         user = str(slate.get("user_id", ""))
         items = as_list(slate.get("items"))
         chosen = [item for item in items if is_chosen(item)]
@@ -92,8 +130,9 @@ def build_pairs(slates, events, names=None) -> tuple[list[PreferencePair], int]:
                 if win_key not in index or lose_key not in index:
                     dropped += 1
                     continue
-                win_features, win_reference = index[win_key]
-                lose_features, lose_reference = index[lose_key]
+                win_features, win_reference, win_has_reference = index[win_key]
+                lose_features, lose_reference, lose_has_reference = index[lose_key]
+                missing_reference_sides += (not win_has_reference) + (not lose_has_reference)
                 pairs.append(PreferencePair(
                     request_id=request_id,
                     user=user,
@@ -104,4 +143,9 @@ def build_pairs(slates, events, names=None) -> tuple[list[PreferencePair], int]:
                     chosen_reference=win_reference,
                     rejected_reference=lose_reference,
                 ))
-    return pairs, dropped
+    diagnostics = JoinDiagnostics(
+        n_slate_request_ids=len(slate_request_ids),
+        n_slate_request_ids_matched=len(slate_request_ids & indexed_request_ids),
+        n_missing_reference_sides=missing_reference_sides,
+    )
+    return pairs, dropped, diagnostics
