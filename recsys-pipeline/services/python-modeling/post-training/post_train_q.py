@@ -84,7 +84,11 @@ def fqi_td_residual(model, transitions, gamma: float):
 
 
 def score_events(events, names, q, model):
-    """Write tabQ and fqiQ into every candidate's modelPredictions, in place."""
+    """Write the two policy-score keys into every candidate's modelPredictions, in place.
+
+    Every key written here must be registered in ope_eval_report.POLICY_ONLY_PRED_KEYS, or the
+    reward model will be fit on the scores it is then used to grade.
+    """
     rows, targets = [], []
     for event in events:
         state = replay_dataset.state_key(event.get("state"))
@@ -99,8 +103,11 @@ def score_events(events, names, q, model):
         predictions = candidate.get("modelPredictions")
         if predictions is None:
             predictions = candidate["modelPredictions"] = {}
-        predictions["tabQ"] = tabular_q.score(q, state, str(candidate.get("item")))
-        predictions["fqiQ"] = float(q_value)
+        # Key names come from ope_eval_report so the producer and the schema-exclusion list cannot
+        # drift apart; see POLICY_ONLY_PRED_KEYS there for why that matters.
+        predictions[ope_eval_report.TABULAR_Q_PRED_KEY] = tabular_q.score(
+            q, state, str(candidate.get("item")))
+        predictions[ope_eval_report.FQI_Q_PRED_KEY] = float(q_value)
     return events
 
 

@@ -481,3 +481,40 @@ def test_main_returns_held_out_q_table_coverage(tmp_path):
 
     assert "tabular_held_out_coverage" in result
     assert 0.0 <= result["tabular_held_out_coverage"] <= 1.0
+
+
+def test_every_key_score_events_writes_is_registered_as_policy_only():
+    """A score a policy produces must never become a reward-model feature.
+
+    This guards the class of bug rather than the two current keys: when a later arm (DPO) starts
+    writing its own score into modelPredictions and forgets to register it, the reward model
+    silently regains a feature derived from the policy it grades, and the OPE table goes circular
+    again with every existing test still green.
+    """
+    events = _replay_fixture()
+    names = ope_eval_report.feature_names(events)
+    before = [
+        set(candidate.get("modelPredictions") or {})
+        for event in events
+        for candidate in event["actionSpace"]
+    ]
+    transitions = replay_dataset.build_transitions(events, names)
+    q = tabular_q.fit(transitions, gamma=0.9, sweeps=50)
+    model = fqi.fit(transitions, gamma=0.9, iterations=3, epochs=20, hidden=8)
+
+    scored = post_train_q.score_events(events, names, q, model)
+
+    added = set()
+    after = [
+        set(candidate.get("modelPredictions") or {})
+        for event in scored
+        for candidate in event["actionSpace"]
+    ]
+    for old, new in zip(before, after):
+        added |= new - old
+    assert added, "score_events wrote no new keys — the test fixture is not exercising it"
+    unregistered = added - set(ope_eval_report.POLICY_ONLY_PRED_KEYS)
+    assert not unregistered, (
+        f"score_events writes {sorted(unregistered)}, which ope_eval_report.feature_names() would "
+        f"hand to the reward model as input features"
+    )
