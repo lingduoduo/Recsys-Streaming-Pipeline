@@ -196,8 +196,10 @@ def main(argv=None) -> dict:
     print(f"held-out pairwise accuracy: "
           f"policy={_format(summary['policy_pairwise_accuracy'])} "
           f"reference={_format(summary['reference_pairwise_accuracy'])}")
-    print("note: the reference is the logged predictionScore. A policy that does not beat it has "
-          "learned nothing the logging policy did not already know. The reference is rounded to "
+    print("note: the reference is the logged predictionScore, which is ALSO one of the scorer's "
+          "input features — so beating it shows the other logged features add signal on top of "
+          "it, not that the policy knows something the logging policy did not. The reference is "
+          "rounded to "
           "three decimals at serve time, so it ties far more often than a continuous MLP output "
           "ever will, and ties count as a loss for both sides — a small policy win may be a "
           "tie-handling artifact rather than a real improvement.")

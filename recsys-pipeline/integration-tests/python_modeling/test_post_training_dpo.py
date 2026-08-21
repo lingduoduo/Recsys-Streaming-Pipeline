@@ -408,6 +408,8 @@ def test_main_reports_the_matched_request_id_count_when_the_join_works(tmp_path,
     assert "matched to a replay requestId: 12/12" in out
     # The tie-handling caveat: a rounded reference ties more often than a continuous MLP output.
     assert "rounded to" in out and "tie-handling artifact" in out
+    # And the reference is not independent of the policy: it is one of the policy's own features.
+    assert "ALSO one of the scorer's input features" in out
 
 
 def test_pair_sides_without_a_prediction_score_are_counted():
