@@ -72,12 +72,45 @@ the replay row supplies the feature vector, using the identical `ope_eval_report
 schema every other arm uses. Pairs whose replay row is missing are dropped and **counted**; that
 count is reported, never swallowed.
 
-**Reference scores.** `f_ref` is `modelPredictions["predictionScore"]` — the per-candidate score the
-ranker actually ordered by. It cannot be the top-level `banditScore`: `candidateFeatures` in
-`MovieLensServingSideEffects` logs only `item`, `modelPredictions`, `coldStart`, `impressions`, and
-`clicks` per candidate, so `banditScore` exists solely for the selected item and the rejected item
-of a pair would have none. `predictionScore` is clamped to `[0, 1]` at serve time, so the reference
-margin lies in `[-1, 1]`.
+> **BLOCKING PREREQUISITE — the `requestId` join does not work today.** This spec originally
+> asserted the two sources are joinable on `requestId`. They are not. Both sides carry the *field*;
+> the *values* come from two independent generators and can never be equal:
+>
+> | Side | Minted by | Format |
+> |---|---|---|
+> | Slate log `request_id` | `services/python-modeling/movie_segment_producer.py:246` (`make_slate`) | `f"req_{uuid.uuid4().hex[:12]}"` |
+> | Replay `requestId` | `HybridRecommendationService.java:250` (serving path) | `UUID.randomUUID().toString()` |
+>
+> So `build_pairs` yields **0 pairs on any data this repository actually produces**. What would
+> satisfy the prerequisite: the serving path emitting its own `requestId` into the Kafka event
+> stream the slate log is built from, so the collector's slates carry the serving id rather than a
+> producer-minted one. That is a serving-path change, out of scope for the whole post-training
+> track. Until it lands, this component is correct but has no reachable input, and the CLI's
+> "slate request_ids matched to a replay requestId" count reports `0/N` and exits naming the cause.
+
+**Reference scores.** `f_ref` is `modelPredictions["predictionScore"]` — the per-candidate score
+the ranker ordered by before the diversity re-rank (`ScoredCandidate.preDiversityScore()`).
+`predictionScore` is clamped to `[0, 1]` at serve time, so the reference margin lies in `[-1, 1]`.
+
+`banditScore` is a **defensible alternative**, not an impossible one: it is inside *every*
+candidate's `modelPredictions` (`HybridRecommendationService.java:607`), not only the selected
+item's. (An earlier draft of this spec claimed otherwise; that claim was false.) The real
+distinction is what each one means: `predictionScore` is the exploitation blend the model produced,
+while `banditScore` is the post-diversity **final** score the slate was actually ordered by. This
+component anchors on `predictionScore` so the reference is the model's own ranking signal, unmixed
+with the diversity adjustment layered on top of it. Anchoring on `banditScore` instead would make
+`f_ref` the true serving order, at the cost of teaching the policy to reproduce the diversity
+re-rank as well.
+
+**`predictionScore` is simultaneously the reference AND an input feature of `f_θ`.** It is
+deliberately *not* in `POLICY_ONLY_PRED_KEYS` — unlike `tabQ`/`fqiQ`/`dpoScore`, it is a genuine
+serve-time observation and excluding it would throw away the strongest logged signal. The
+consequence must be stated plainly: "policy accuracy versus reference accuracy" does **not** measure
+independent knowledge. `f_θ` can read the reference straight off its own input vector, so the
+comparison is "can an MLP with access to `predictionScore` (and everything else logged) rank better
+than `predictionScore` alone", not "has the policy learned something the logging policy did not
+know". A policy win is evidence that the other features add signal on top of the reference, nothing
+more.
 
 ## Policy
 
@@ -93,14 +126,27 @@ space, which is unverified. It remains the natural component 3.
 `β` defaults to `1.0`, exposed as a CLI flag. Scores live in roughly `[0, 1]`, so the margin is
 small and a large `β` saturates the sigmoid immediately.
 
+**What `β` is not here.** In DPO proper, `π_θ` is *initialised from* `π_ref` (the SFT checkpoint),
+and `β` weights a KL trust region that keeps the fitted policy near the model it started at. Neither
+holds in this component: `f_θ` is a randomly-initialised MLP and `f_ref` is a logged score from a
+different function class entirely, so there is no `π_θ = π_ref` at initialisation and no trust
+region back to a starting point. The *algebra* implemented here is DPO's — a reference-anchored
+pairwise loss whose partition functions cancel — but the trust-region interpretation of `β` does not
+transfer. Read `β` as nothing more than the sharpness of the sigmoid over the reference-adjusted
+margin.
+
 ## Evaluation
 
 Two metrics, for the same reason component 1 used two.
 
 **Held-out pairwise accuracy** — the fraction of held-out pairs where `f_θ(w) > f_θ(l)`. This is
 DPO's native measure, needs no reward model, and is honest on its own terms. Report the reference
-policy's own pairwise accuracy alongside it: if `f_ref` already separates the pairs, the fitted
-policy has learned nothing the logging policy did not already know.
+policy's own pairwise accuracy alongside it — but read that comparison with two caveats. First,
+`predictionScore` is also an input feature of `f_θ` (see *Reference scores*), so this is not a test
+of independent knowledge. Second, ties count as a loss for both sides, and the reference is rounded
+to three decimals at serve time (`HybridRecommendationService.round`), so it ties far more often
+than a continuous MLP output ever will; a small policy win may be a tie-handling artifact rather
+than a real improvement.
 
 **Off-policy value** — `dpoScore` is written into each candidate's `modelPredictions`, making
 `model:dpoScore` an evaluable policy in the existing harness alongside `model:tabQ`, `model:fqiQ`,
@@ -169,9 +215,17 @@ policy's number.
   the same wall component 1 hit, and worse here because DPO needs *both*, correlated by
   `requestId`. Tests must therefore build synthetic fixtures for both sides, and the real-data run
   must be reported as outstanding rather than quietly skipped.
-- **Join yield is unknown.** If the replay buffer and the slate Parquet are produced by different
-  paths with different retention, the join could drop most pairs. Reporting the dropped count is
-  the guard; a low yield is a finding, not a failure to hide.
+- **BLOCKING: the `requestId` join yields nothing today.** Not a risk of low yield — a certainty of
+  zero yield. The slate log's `request_id` and the replay's `requestId` come from two independent
+  generators (see the prerequisite box under *Data*), so no pair can ever be built from data this
+  repository currently produces. The component is unrunnable on real data until the serving path
+  emits its requestId into the Kafka event stream. Everything downstream of `build_pairs` —
+  the loss, the trainer, the accuracies, `model:dpoScore` — is exercised only by synthetic fixtures
+  whose two sides were constructed to agree.
+- **Join yield is unknown even after that.** If the replay buffer and the slate Parquet are
+  produced by different paths with different retention, the join could still drop most pairs.
+  Reporting the dropped count and the matched-request_id count is the guard; a low yield is a
+  finding, not a failure to hide.
 - **`predictionScore` includes an exploration bonus**, which for the Thompson algorithm is a random
   draw. Using it as `f_ref` means the reference is stochastic for Thompson-logged data.
   `estimatedReward` is the deterministic alternative. Starting with `predictionScore` because it is
