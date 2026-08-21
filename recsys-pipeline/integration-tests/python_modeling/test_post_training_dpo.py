@@ -139,3 +139,79 @@ def test_build_pairs_handles_a_parquet_round_tripped_slate(tmp_path):
 
     assert len(pairs) == 2
     assert dropped == 0
+
+
+import math
+
+import torch
+
+import dpo
+
+
+def _pair(chosen_features, rejected_features, chosen_reference, rejected_reference,
+          request_id="r1", chosen_item="w", rejected_item="l"):
+    return slate_pairs.PreferencePair(
+        request_id=request_id,
+        user="u",
+        chosen_item=chosen_item,
+        rejected_item=rejected_item,
+        chosen_features=list(chosen_features),
+        rejected_features=list(rejected_features),
+        chosen_reference=chosen_reference,
+        rejected_reference=rejected_reference,
+    )
+
+
+def test_a_policy_matching_the_reference_scores_exactly_log_two():
+    """Zero reference-adjusted margin => -log sigmoid(0) = log 2. Analytic, no tolerance needed."""
+    scores_w = torch.tensor([0.7])
+    scores_l = torch.tensor([0.3])
+    loss = dpo.dpo_loss(scores_w, scores_l, torch.tensor([0.7]), torch.tensor([0.3]), beta=1.0)
+    assert loss.item() == pytest.approx(math.log(2.0), abs=1e-6)
+
+
+def test_a_constant_reference_makes_the_loss_exactly_bpr():
+    """When the reference scores both sides equally the margin vanishes and this IS BPR at beta=1."""
+    scores_w = torch.tensor([0.9, 0.4])
+    scores_l = torch.tensor([0.2, 0.6])
+    equal_reference = torch.tensor([0.5, 0.5])
+    loss = dpo.dpo_loss(scores_w, scores_l, equal_reference, equal_reference, beta=1.0)
+    bpr = -torch.nn.functional.logsigmoid(scores_w - scores_l).mean()
+    assert loss.item() == pytest.approx(bpr.item(), abs=1e-9)
+
+
+def test_beating_the_reference_margin_costs_less_than_matching_it():
+    reference_w, reference_l = torch.tensor([0.6]), torch.tensor([0.4])
+    matching = dpo.dpo_loss(torch.tensor([0.6]), torch.tensor([0.4]), reference_w, reference_l, 1.0)
+    beating = dpo.dpo_loss(torch.tensor([0.9]), torch.tensor([0.1]), reference_w, reference_l, 1.0)
+    assert beating.item() < matching.item()
+
+
+def test_fit_learns_to_rank_the_chosen_item_above_the_rejected_one():
+    # One-hot features make the two sides separable; the reference gives no help (equal scores).
+    pairs = [_pair([1.0, 0.0], [0.0, 1.0], 0.5, 0.5) for _ in range(8)]
+    policy = dpo.fit(pairs, beta=1.0, epochs=400, hidden=8, lr=0.05)
+    assert policy.score_one([1.0, 0.0]) > policy.score_one([0.0, 1.0])
+
+
+def test_fit_is_deterministic_for_a_fixed_seed():
+    pairs = [_pair([1.0, 0.0], [0.0, 1.0], 0.5, 0.5) for _ in range(4)]
+    a = dpo.fit(pairs, beta=1.0, epochs=20, hidden=8, lr=0.05, seed=11)
+    b = dpo.fit(pairs, beta=1.0, epochs=20, hidden=8, lr=0.05, seed=11)
+    assert a.score_one([1.0, 0.0]) == pytest.approx(b.score_one([1.0, 0.0]), abs=1e-9)
+
+
+def test_fit_rejects_an_empty_pair_list():
+    with pytest.raises(ValueError, match="no preference pairs"):
+        dpo.fit([], beta=1.0)
+
+
+def test_pairwise_accuracy_counts_strict_wins():
+    assert dpo.pairwise_accuracy([1.0, 0.0, 0.5], [0.0, 1.0, 0.5]) == pytest.approx(1 / 3)
+    assert dpo.pairwise_accuracy([], []) is None
+
+
+def test_score_many_handles_an_empty_batch():
+    pairs = [_pair([1.0, 0.0], [0.0, 1.0], 0.5, 0.5)]
+    policy = dpo.fit(pairs, beta=1.0, epochs=5, hidden=4, lr=0.05)
+    assert policy.score_many([]) == []
