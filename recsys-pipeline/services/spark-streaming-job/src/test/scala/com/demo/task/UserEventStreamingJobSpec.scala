@@ -181,6 +181,26 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       .select("kind", "item_id").as[(String, String)].collect() shouldBe Array(("click", "m1"))
   }
 
+  "UserEventStreamingJob" should "keep an Avro-encoded search all the way through the gate" in {
+    val s = spark; import s.implicits._
+    val record = new org.apache.avro.generic.GenericData.Record(com.demo.event.EventAvroCodec.schema)
+    record.put("event_id", "search-wire")
+    record.put("user_id", "u1")
+    record.put("event_type", "search")
+    record.put("timestamp_ms", 1784764801000L)
+    record.put("query_id", "q1")
+    record.put("query_text", "space opera")
+    val rawKafka = Seq(
+      (com.demo.event.EventAvroCodec.encode(record), "recsys_events", 1, 10L,
+        new java.sql.Timestamp(1784764801000L))
+    ).toDF("value", "topic", "partition", "offset", "timestamp")
+
+    val decoded = com.demo.event.DecodedEventBatch.decode(rawKafka).valid
+
+    UserEventStreamingJob.behavioralEvents(decoded, "10 minutes")
+      .select("event_id").as[String].collect() should contain only "search-wire"
+  }
+
   "UserEventStreamingJob.itemClickCounts" should "count clicks per item" in {
     val s = spark; import s.implicits._
     val batch = Seq("i1", "i1", "i2").toDF("item_id")
