@@ -139,8 +139,13 @@ path and are amended or deleted with it:
    criterion. Pinning the two pure functions the removed terms feed into tests the same property
    and runs anywhere.
 2. The Java and Python suites pass with only the four amendments listed above.
-3. `grep -ri "onnx\|deepLearning"` over `services/java-retrieval-service/src/main`,
-   `services/java-retrieval-service/pom.xml`, and `services/python-modeling` returns nothing.
+3. Over `services/java-retrieval-service/src/main`, `services/java-retrieval-service/pom.xml`,
+   and `services/python-modeling`, a `grep -ri` finds no reference to `movielens_pipeline`,
+   `deep-learning-weight` / `RECSYS_DEEP_LEARNING_WEIGHT`, `TwoTowerPredictionService`, or the
+   two-tower ONNX env vars (`ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`,
+   `ONNX_RANKING_PATH`). A bare `grep -ri "onnx\|deepLearning"` is **not** the
+   criterion and must not be: `DeepLearningPredictionService`, `ModelReloadController` and the three
+   `/predict` endpoints survive, and they legitimately name ONNX in code, config and docs.
 4. `run-retrain.sh` completes without its removed steps.
 5. No remaining reference to the deleted files in `README.md` or `docs/`.
 
