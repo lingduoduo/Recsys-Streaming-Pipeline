@@ -34,8 +34,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SuppressWarnings({"unchecked", "null"})
@@ -81,21 +79,15 @@ class HybridRecommendationServiceTest {
         properties.setCatalog(catalog);
 
         FeatureCache featureCache = new FeatureCache(properties);
-        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
-        when(predictionService.predict(any(), any())).thenReturn(Optional.empty());
-        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
-        when(twoTowerPredictionService.isEnabled()).thenReturn(false);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         HybridRecommendationService service = new HybridRecommendationService(
             redis,
             properties,
-            predictionService,
             new OnlineLearningService(redis, properties, featureCache),
             featureCache,
             List.of(new MovieLensUserHistoryQueryHydrator(
                 userId -> new UserMovieHistory(List.of("watched"), List.of("rated"))
             )),
-            twoTowerPredictionService,
             new RecommendationMeasurementService(meterRegistry, properties, featureCache)
         );
 
@@ -109,8 +101,6 @@ class HybridRecommendationServiceTest {
         for (String stage : List.of("hydration", "redis_fetch", "scoring", "selection", "side_effects")) {
             assertEquals(1L, meterRegistry.find("recommendation.stage.latency").tag("stage", stage).timer().count());
         }
-        // deep-learning-weight defaults to 0.0, so the ONNX model must not run.
-        verify(predictionService, never()).predictBatch(any(), any());
     }
 
     @Test
@@ -121,12 +111,10 @@ class HybridRecommendationServiceTest {
         catalog.put("watched", movie("drama"));
         properties.setCatalog(catalog);
         FeatureCache featureCache = new FeatureCache(properties);
-        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
-        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
         HybridRecommendationService service = new HybridRecommendationService(
-            redis, properties, predictionService,
+            redis, properties,
             new OnlineLearningService(redis, properties, featureCache),
-            featureCache, List.of(), twoTowerPredictionService);
+            featureCache, List.of());
 
         HybridRecommendationService.TasteProfile profile = service.deriveTasteProfile(
             List.of("watched"), List.of(), MovieLensUserFeatures.forUser("u1"), List.of());
@@ -142,12 +130,10 @@ class HybridRecommendationServiceTest {
         catalog.put("watched", movie("sci-fi"));
         properties.setCatalog(catalog);
         FeatureCache featureCache = new FeatureCache(properties);
-        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
-        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
         HybridRecommendationService service = new HybridRecommendationService(
-            redis, properties, predictionService,
+            redis, properties,
             new OnlineLearningService(redis, properties, featureCache),
-            featureCache, List.of(), twoTowerPredictionService);
+            featureCache, List.of());
         MovieLensUserFeatures features = new MovieLensUserFeatures("u1", List.of("sci-fi"), 0.0, 0, List.of())
             .withBehaviorPreferences(Map.of("sci-fi", 0.2, "drama", 0.3), Map.of("space", 0.4));
 
@@ -214,14 +200,10 @@ class HybridRecommendationServiceTest {
         catalog.put("sci-fi", movie("sci-fi"));
         properties.setCatalog(catalog);
         FeatureCache featureCache = new FeatureCache(properties);
-        DeepLearningPredictionService predictionService = mock(DeepLearningPredictionService.class);
-        when(predictionService.predict(any(), any())).thenReturn(Optional.empty());
-        TwoTowerPredictionService twoTowerPredictionService = mock(TwoTowerPredictionService.class);
-        when(twoTowerPredictionService.isEnabled()).thenReturn(false);
         HybridRecommendationService service = new HybridRecommendationService(
-            redis, properties, predictionService,
+            redis, properties,
             new OnlineLearningService(redis, properties, featureCache), featureCache,
-            List.of(new UserBehaviorProfileQueryHydrator(profileClient)), twoTowerPredictionService);
+            List.of(new UserBehaviorProfileQueryHydrator(profileClient)));
 
         return service.recommend("u1", 2);
     }

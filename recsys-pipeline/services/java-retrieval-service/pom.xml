@@ -18,7 +18,6 @@
 
   <properties>
     <java.version>17</java.version>
-    <onnxruntime.version>1.18.0</onnxruntime.version>
   </properties>
 
   <dependencies>
@@ -45,11 +44,6 @@
     <dependency>
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-core</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.microsoft.onnxruntime</groupId>
-      <artifactId>onnxruntime</artifactId>
-      <version>${onnxruntime.version}</version>
     </dependency>
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>

@@ -1,17 +1,13 @@
 package com.demo.retrieval.controller;
 
-import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.model.FeedbackRequest;
 import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.service.HybridRecommendationService;
-import com.demo.retrieval.service.ModelIndexOutOfRangeException;
-import com.demo.retrieval.model.ModelPrediction;
 import com.demo.retrieval.model.RecommendationResult;
 import com.demo.retrieval.model.UserBehaviorProfile;
 import com.demo.retrieval.service.clients.UserProfileClient;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,20 +47,17 @@ public class RecommendationController {
 
     private final StringRedisTemplate redis;
     private final HybridRecommendationService recommendationService;
-    private final DeepLearningPredictionService predictionService;
     private final RecommendationMeasurementService measurementService;
     private final UserProfileClient userProfileClient;
 
     public RecommendationController(
         StringRedisTemplate redis,
         HybridRecommendationService recommendationService,
-        DeepLearningPredictionService predictionService,
         RecommendationMeasurementService measurementService,
         UserProfileClient userProfileClient
     ) {
         this.redis = redis;
         this.recommendationService = recommendationService;
-        this.predictionService = predictionService;
         this.measurementService = measurementService;
         this.userProfileClient = userProfileClient;
     }
@@ -136,58 +129,6 @@ public class RecommendationController {
         }
     }
 
-    @GetMapping("/predict/{user}/{item}")
-    public Map<String, Object> predict(
-        @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user,
-        @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String item
-    ) {
-        long started = System.nanoTime();
-        boolean error = true;
-        boolean timeout = false;
-        try {
-            Map<String, Object> response = predictionService.predict(user, item)
-                .map(this::predictionPayload)
-                .orElseGet(() -> Map.of(
-                    "user", user,
-                    "item", item,
-                    "error", "unknown_user_or_item",
-                    "metadata", predictionService.metadata()
-                ));
-            error = false;
-            return response;
-        } catch (RuntimeException | Error e) {
-            timeout = isTimeout(e);
-            throw e;
-        } finally {
-            measurementService.recordRequest("predict", Duration.ofNanos(System.nanoTime() - started), error, timeout);
-        }
-    }
-
-    @GetMapping("/predict/id")
-    public Map<String, Object> predictById(
-        @RequestParam @Min(0) long userId,
-        @RequestParam @Min(0) long itemId
-    ) {
-        long started = System.nanoTime();
-        boolean error = true;
-        boolean timeout = false;
-        try {
-            Map<String, Object> response = predictionPayload(predictionService.predict(userId, itemId));
-            error = false;
-            return response;
-        } catch (RuntimeException | Error e) {
-            timeout = isTimeout(e);
-            throw e;
-        } finally {
-            measurementService.recordRequest("predict", Duration.ofNanos(System.nanoTime() - started), error, timeout);
-        }
-    }
-
-    @GetMapping("/predict/metadata")
-    public Map<String, Object> predictionMetadata() {
-        return predictionService.metadata();
-    }
-
     @GetMapping("/users/{user}/profile")
     public ResponseEntity<UserBehaviorProfile> profile(
         @PathVariable @Pattern(regexp = "[a-zA-Z0-9_:-]{1,64}") String user
@@ -242,31 +183,10 @@ public class RecommendationController {
         return Map.of("error", "Invalid input: id must be 1-64 alphanumeric characters");
     }
 
-    @ExceptionHandler(ModelIndexOutOfRangeException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Map<String, String> handleModelIndexOutOfRange(ModelIndexOutOfRangeException e) {
-        return Map.of("error", e.getMessage());
-    }
-
     @ExceptionHandler(ProfileNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleProfileNotFound(ProfileNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
             .body(Map.of("error", "profile_not_found", "user_id", e.userId));
-    }
-
-    private Map<String, Object> predictionPayload(ModelPrediction prediction) {
-        Map<String, Object> payload = new java.util.LinkedHashMap<>();
-        payload.put("model", prediction.model());
-        if (prediction.user() != null) {
-            payload.put("user", prediction.user());
-        }
-        if (prediction.item() != null) {
-            payload.put("item", prediction.item());
-        }
-        payload.put("userId", prediction.userId());
-        payload.put("itemId", prediction.itemId());
-        payload.put("score", prediction.score());
-        return payload;
     }
 
     private static boolean isTimeout(Throwable error) {

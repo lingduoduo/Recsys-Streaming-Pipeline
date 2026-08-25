@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Three-layer feature storage:
- *   Offline  — full model artifacts on the filesystem (loaded at startup by DeepLearningPredictionService).
+ *   Offline  — model artifacts produced by the batch training jobs.
  *   Redis    — real-time online features written by streaming jobs (embeddings, bandit counters, user history).
  *   In-memory — this class: Caffeine caches for the hottest Redis reads so the per-request round-trip count
  *               drops from O(N×features) to O(1) after the first population within each TTL window.

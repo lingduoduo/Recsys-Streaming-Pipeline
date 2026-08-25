@@ -10,7 +10,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 @SuppressWarnings({"unchecked", "null"})
 class BanditExplorationTest {
@@ -18,13 +17,10 @@ class BanditExplorationTest {
     private HybridRecommendationService service(RecommendationProperties properties) {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         FeatureCache featureCache = new FeatureCache(properties);
-        DeepLearningPredictionService dl = mock(DeepLearningPredictionService.class);
-        TwoTowerPredictionService twoTower = mock(TwoTowerPredictionService.class);
-        when(twoTower.isEnabled()).thenReturn(false);
         return new HybridRecommendationService(
-            redis, properties, dl,
+            redis, properties,
             new OnlineLearningService(redis, properties, featureCache),
-            featureCache, List.of(), twoTower);
+            featureCache, List.of());
     }
 
     @Test

@@ -3,10 +3,7 @@ package com.demo.retrieval.controller;
 import com.demo.retrieval.model.FeedbackRequest;
 import com.demo.retrieval.measurement.MeasurementSnapshot;
 import com.demo.retrieval.measurement.RecommendationMeasurementService;
-import com.demo.retrieval.service.DeepLearningPredictionService;
 import com.demo.retrieval.service.HybridRecommendationService;
-import com.demo.retrieval.service.ModelIndexOutOfRangeException;
-import com.demo.retrieval.model.ModelPrediction;
 import com.demo.retrieval.model.RecommendationResult;
 import com.demo.retrieval.model.UserBehaviorProfile;
 import com.demo.retrieval.service.clients.UserProfileClient;
@@ -47,9 +44,6 @@ class RecommendationControllerTest {
 
     @MockBean
     private HybridRecommendationService recommendationService;
-
-    @MockBean
-    private DeepLearningPredictionService predictionService;
 
     @MockBean
     private RecommendationMeasurementService measurementService;
@@ -182,67 +176,6 @@ class RecommendationControllerTest {
 
         mockMvc.perform(get("/recommend/u1?limit=999"))
             .andExpect(status().isOk());
-    }
-
-    @Test
-    void predictReturnsModelScoreForKnownLookupIds() throws Exception {
-        when(predictionService.predict("user_employee_01", "action_benefits")).thenReturn(
-            java.util.Optional.of(new ModelPrediction(
-                "user_employee_01",
-                "action_benefits",
-                0L,
-                0L,
-                0.42,
-                "mlp_embedding"
-            ))
-        );
-
-        mockMvc.perform(get("/predict/user_employee_01/action_benefits"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.model").value("mlp_embedding"))
-            .andExpect(jsonPath("$.user").value("user_employee_01"))
-            .andExpect(jsonPath("$.item").value("action_benefits"))
-            .andExpect(jsonPath("$.userId").value(0))
-            .andExpect(jsonPath("$.itemId").value(0))
-            .andExpect(jsonPath("$.score").value(0.42));
-    }
-
-    @Test
-    void predictReturnsUnknownErrorForMissingLookupIds() throws Exception {
-        when(predictionService.predict("missing", "action_benefits")).thenReturn(java.util.Optional.empty());
-        when(predictionService.metadata()).thenReturn(Map.of("model", "mlp_embedding", "users", 32, "items", 12));
-
-        mockMvc.perform(get("/predict/missing/action_benefits"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.error").value("unknown_user_or_item"))
-            .andExpect(jsonPath("$.metadata.users").value(32));
-    }
-
-    @Test
-    void predictByIdReturnsModelScore() throws Exception {
-        when(predictionService.predict(0L, 1L)).thenReturn(
-            new ModelPrediction(null, null, 0L, 1L, 0.61, "mlp_embedding")
-        );
-
-        mockMvc.perform(get("/predict/id?userId=0&itemId=1"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.model").value("mlp_embedding"))
-            .andExpect(jsonPath("$.userId").value(0))
-            .andExpect(jsonPath("$.itemId").value(1))
-            .andExpect(jsonPath("$.score").value(0.61));
-    }
-
-    @Test
-    void predictByIdReturnsBadRequestForIndexOutsideModelVocabulary() throws Exception {
-        when(predictionService.predict(0L, 42L)).thenThrow(new ModelIndexOutOfRangeException(
-            "Model indices out of range: userId must be 0..31 and itemId must be 0..11"
-        ));
-
-        mockMvc.perform(get("/predict/id?userId=0&itemId=42"))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error").value(
-                "Model indices out of range: userId must be 0..31 and itemId must be 0..11"
-            ));
     }
 
     @Test
@@ -385,19 +318,15 @@ class RecommendationControllerTest {
     }
 
     @Test
-    void recordsLatencyForPredictEmbeddingAndProfileEndpoints() throws Exception {
+    void recordsLatencyForEmbeddingAndProfileEndpoints() throws Exception {
         ValueOperations<String, String> ops = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
         when(ops.get("i2vEmb:i1")).thenReturn("0.1 0.2");
-        when(predictionService.predict("u1", "i1")).thenReturn(Optional.empty());
-        when(predictionService.metadata()).thenReturn(Map.of("model", "test"));
         when(userProfileClient.getProfile("u1")).thenReturn(Optional.of(profile("u1")));
 
-        mockMvc.perform(get("/predict/u1/i1")).andExpect(status().isOk());
         mockMvc.perform(get("/users/u1/profile")).andExpect(status().isOk());
         mockMvc.perform(get("/embedding/i1")).andExpect(status().isOk());
 
-        verify(measurementService).recordRequest(eq("predict"), any(Duration.class), eq(false), eq(false));
         verify(measurementService).recordRequest(eq("profile"), any(Duration.class), eq(false), eq(false));
         verify(measurementService).recordRequest(eq("embedding"), any(Duration.class), eq(false), eq(false));
     }
