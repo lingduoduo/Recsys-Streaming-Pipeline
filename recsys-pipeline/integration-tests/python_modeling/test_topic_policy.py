@@ -28,7 +28,7 @@ PRIMARY = TopicPolicy(
     1.10,
     "delete",
     "recsys-event",
-    "af86abe880fe4bb3",
+    "afbfcef03d048f09",
 )
 BACKFILL = TopicPolicy(
     "recsys_events.backfill",
@@ -42,7 +42,7 @@ BACKFILL = TopicPolicy(
     1.10,
     "delete",
     "recsys-event",
-    "af86abe880fe4bb3",
+    "afbfcef03d048f09",
 )
 
 

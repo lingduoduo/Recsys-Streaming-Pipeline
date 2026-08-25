@@ -92,18 +92,23 @@ def test_decode_rejects_trailing_bytes_after_a_valid_record():
         event_avro.decode_event(payload + b"\x00")
 
 
-def test_v2_is_the_default_writer_schema():
-    """Fails if producers still encode v1 after the bump."""
+def test_v3_is_the_default_writer_schema():
+    """Fails if new records are written with a schema before v3."""
     schema = event_avro.load_schema()
     names = [field["name"] for field in schema["fields"]]
 
-    assert names[-4:] == ["surface", "locale", "timezone", "device"]
-    assert event_avro.schema_fingerprint(schema) == 0xAF86ABE880FE4BB3
+    assert names[-6:] == [
+        "query_id", "query_text", "result_set_id", "referrer", "view_kind", "view_duration_ms",
+    ]
+    assert {event_avro.schema_fingerprint(known) for known in event_avro.load_catalog().values()} == {
+        event_avro.schema_fingerprint(event_avro.load_schema(path))
+        for path in (*event_avro.LEGACY_SCHEMA_PATHS, event_avro.DEFAULT_SCHEMA_PATH)
+    }
 
 
-def test_v1_payload_decodes_into_the_v2_shape():
-    """Fails if a v1 record dead-letters instead of resolving through the catalog."""
-    v1 = event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0])
+def test_v2_payload_decodes_into_the_v3_shape():
+    """Fails if a v2 record dead-letters or misses v3 defaults after resolution."""
+    v2 = event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[1])
     payload = event_avro.encode_event(
         {
             "event_id": "e-legacy",
@@ -112,7 +117,7 @@ def test_v1_payload_decodes_into_the_v2_shape():
             "event_type": "click",
             "timestamp_ms": 1718400000000,
         },
-        v1,
+        v2,
     )
 
     decoded = event_avro.decode_event(payload)
@@ -122,12 +127,19 @@ def test_v1_payload_decodes_into_the_v2_shape():
     assert decoded["locale"] is None
     assert decoded["timezone"] is None
     assert decoded["device"] is None
+    assert decoded["query_id"] is None
+    assert decoded["query_text"] is None
+    assert decoded["result_set_id"] is None
+    assert decoded["referrer"] is None
+    assert decoded["view_kind"] is None
+    assert decoded["view_duration_ms"] is None
 
 
-def test_v2_round_trips_the_new_context_fields():
+def test_v3_round_trips_the_behavior_context_fields():
+    """Fails if any typed behavioral context field is lost on the Avro round trip."""
     payload = event_avro.encode_event(
         {
-            "event_id": "e-v2",
+            "event_id": "e-v3",
             "user_id": "u-1",
             "item_id": "i-1",
             "event_type": "impression",
@@ -136,6 +148,12 @@ def test_v2_round_trips_the_new_context_fields():
             "locale": "en-US",
             "timezone": "America/New_York",
             "device": "ios",
+            "query_id": "q-1",
+            "query_text": "space opera",
+            "result_set_id": "rs-1",
+            "referrer": "home_feed",
+            "view_kind": "detail",
+            "view_duration_ms": 1420,
         }
     )
 
@@ -145,6 +163,34 @@ def test_v2_round_trips_the_new_context_fields():
     assert decoded["locale"] == "en-US"
     assert decoded["timezone"] == "America/New_York"
     assert decoded["device"] == "ios"
+    assert decoded["query_id"] == "q-1"
+    assert decoded["query_text"] == "space opera"
+    assert decoded["result_set_id"] == "rs-1"
+    assert decoded["referrer"] == "home_feed"
+    assert decoded["view_kind"] == "detail"
+    assert decoded["view_duration_ms"] == 1420
+
+
+def test_search_without_item_round_trips_in_v3():
+    """Fails if search events are still treated as item-bearing behavior."""
+    event = {
+        "event_id": "search-1", "user_id": "u1", "item_id": None,
+        "event_type": "search", "timestamp_ms": 1000,
+        "query_id": "q1", "query_text": "space opera",
+    }
+
+    assert event_avro.decode_event(event_avro.encode_event(event))["query_id"] == "q1"
+
+
+def test_item_bearing_behavior_requires_item():
+    """Fails if click events without an item are accepted for encoding."""
+    event = {
+        "event_id": "click-1", "user_id": "u1", "item_id": None,
+        "event_type": "click", "timestamp_ms": 1000,
+    }
+
+    with pytest.raises(event_avro.EventValidationError, match="item_id"):
+        event_avro.encode_event(event)
 
 
 def test_unknown_fingerprint_is_still_rejected():

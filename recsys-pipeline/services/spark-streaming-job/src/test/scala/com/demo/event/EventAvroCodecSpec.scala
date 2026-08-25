@@ -22,6 +22,9 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
     finally stream.close()
   }
 
+  private def parseResource(path: String): Schema =
+    new Schema.Parser().parse(new String(readResource(path), StandardCharsets.UTF_8))
+
   private val requiredStringFields = Seq(
     "event_id" -> "e-cross-language",
     "user_id" -> "u-cross-language",
@@ -50,7 +53,7 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
   }
 
   it should "keep its checked-in schemas semantically identical to the canonical schemas" in {
-    Seq("recsys-event-v1.avsc", "recsys-event-v2.avsc").foreach { fileName =>
+    Seq("recsys-event-v1.avsc", "recsys-event-v2.avsc", "recsys-event-v3.avsc").foreach { fileName =>
       val resourceSchema = new Schema.Parser().parse(
         new String(readResource(s"/schemas/$fileName"), StandardCharsets.UTF_8)
       )
@@ -66,7 +69,7 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
     }
   }
 
-  it should "decode a v1 payload into the v2 reader shape" in {
+  it should "decode a v1 payload into the v3 reader shape" in {
     val v1Schema = {
       val input = getClass.getResourceAsStream("/schemas/recsys-event-v1.avsc")
       try new Schema.Parser().parse(input) finally input.close()
@@ -95,10 +98,49 @@ class EventAvroCodecSpec extends AnyFlatSpec with Matchers with OptionValues {
     }
   }
 
-  it should "expose v2 as the writer schema" in {
+  it should "expose v3 as the writer schema" in {
     val names = EventAvroCodec.schema.getFields.asScala.map(_.name).toSeq
-    names.takeRight(4) shouldBe Seq("surface", "locale", "timezone", "device")
-    EventAvroCodec.fingerprint shouldBe 0xAF86ABE880FE4BB3L
+    names.takeRight(6) shouldBe Seq(
+      "query_id", "query_text", "result_set_id", "referrer", "view_kind", "view_duration_ms")
+    EventAvroCodec.fingerprint shouldBe SchemaNormalization.parsingFingerprint64(
+      parseResource("/schemas/recsys-event-v3.avsc"))
+  }
+
+  it should "catalog every accepted writer schema" in {
+    EventAvroCodec.catalog.keySet shouldBe Seq(
+      "/schemas/recsys-event-v1.avsc",
+      "/schemas/recsys-event-v2.avsc",
+      "/schemas/recsys-event-v3.avsc"
+    ).map(resource => SchemaNormalization.parsingFingerprint64(parseResource(resource))).toSet
+  }
+
+  it should "accept a search event that carries no item" in {
+    val record = new GenericData.Record(EventAvroCodec.schema)
+    record.put("event_id", "search-ok")
+    record.put("user_id", "u-1")
+    record.put("event_type", "search")
+    record.put("timestamp_ms", timestampMs)
+    record.put("query_id", "q-1")
+
+    val decoded = EventAvroCodec.decode(EventAvroCodec.encode(record)).toOption.value
+
+    decoded.get("item_id") shouldBe null
+    decoded.get("query_id").toString shouldBe "q-1"
+  }
+
+  it should "reject an item-bearing action that carries no item" in {
+    val record = new GenericData.Record(EventAvroCodec.schema)
+    record.put("event_id", "click-missing-item")
+    record.put("user_id", "u-1")
+    record.put("event_type", "click")
+    record.put("timestamp_ms", timestampMs)
+
+    val exception = intercept[EventAvroCodec.RequiredFieldException] {
+      EventAvroCodec.encode(record)
+    }
+
+    exception.failure.code shouldBe "required_field"
+    exception.failure.detail should include("item_id")
   }
 
   it should "return invalid_marker for a malformed single-object header" in {

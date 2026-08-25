@@ -51,7 +51,7 @@ def test_kafka_value_serializer_emits_avro_single_object():
 
     payload = mod.serialize_event(mod.make_click_event(["u"], ["i"]))
 
-    assert payload[:10] == b"\xc3\x01\xb3\x4b\xfe\x80\xe8\xab\x86\xaf"
+    assert payload[:10] == b"\xc3\x01\x09\x8f\x04\x3d\xf0\xce\xbf\xaf"
     assert event_avro.decode_event(payload)["event_type"] == "click"
 
 
