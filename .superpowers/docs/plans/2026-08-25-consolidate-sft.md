@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Leave the repository with one supervised ranker — Spark's `CtrRankingModelTrainingJob` — by deleting the PyTorch training pipeline and the Java ONNX serving path that would otherwise have no producer, without changing any score the service computes.
+**Goal:** Leave the repository with one supervised ranker — Spark's `CtrRankingModelTrainingJob` — by deleting the PyTorch training pipeline and its orphaned two-tower Java ranking path, without changing any score the service computes. The independent `/predict` ONNX API is preserved.
 
-**Architecture:** This is a deletion refactor. Behaviour is pinned first by characterization tests, then the producer (Python) and the consumer (Java) are removed, then documentation is swept. The Java removal is deliberately one atomic task because the build does not compile between deleting a service and removing its injection site.
+**Architecture:** This is a deletion refactor. Behaviour is pinned first by characterization tests, then the producer (Python) and its `TwoTowerPredictionService` consumer are removed, then documentation is swept. `DeepLearningPredictionService`, `ModelReloadController`, the `/predict` endpoints, their resources and tests, and the ONNX runtime dependency remain because they form a separate live API.
 
 **Tech Stack:** Java 17 + Maven + JUnit 5 (retrieval service), Python 3 + pytest (modeling), Scala + sbt (Spark jobs — untouched).
 
-**Spec:** `.superpowers/docs/specs/2026-08-21-consolidate-sft-design.md`
+**Spec:** `.superpowers/docs/specs/2026-08-25-consolidate-sft-design.md`
 
 ## Global Constraints
 
@@ -31,12 +31,12 @@
 | `integration-tests/python_modeling/test_movielens_pipeline.py` | **Delete** (Task 2) |
 | `sampledata/movielens_{ranking,user_tower,item_tower}.onnx` | **Delete** (Task 2) |
 | `scripts/run-retrain.sh` | Remove steps 5 and 6 (Task 2) |
-| `.../service/DeepLearningPredictionService.java`, `TwoTowerPredictionService.java`, `.../controller/ModelReloadController.java` + tests | **Delete** (Task 3) |
+| `.../service/TwoTowerPredictionService.java` + test | **Delete** (Task 3) |
 | `.../service/HybridRecommendationService.java` | Remove dl plumbing (Task 3) |
 | `.../service/RecommendationConstants.java` | Drop two parameters (Task 3) |
 | `.../service/scorers/MovieLensOutcomeScorer.java` | Drop dl terms and `ScoringInput.dlScore` (Task 3) |
 | `.../config/RecommendationProperties.java`, `src/main/resources/application.yml` | Drop `deepLearningWeight` (Task 3) |
-| `services/java-retrieval-service/pom.xml` | Drop the onnxruntime dependency (Task 3) |
+| `.../service/DeepLearningPredictionService.java`, `.../controller/ModelReloadController.java`, resources, tests, and `pom.xml` | **Keep** for the independent `/predict` API |
 | `integration-tests/test_application_config.py` | Drop the `deep-learning-weight` assertion (Task 3) |
 | `README.md`, `docs/recommendation_architecture/Data_Pipeline.md`, `docs/recommendation_flows/6_Predicting_Scoring.md` | Documentation sweep (Task 4) |
 
@@ -230,13 +230,14 @@ CtrRankingModelTrainingJob is the supervised ranker from here."
 
 ---
 
-### Task 3: Remove the Java ONNX serving path
+### Task 3: Remove the Java two-tower ranking path
 
-This is one task because the build does not compile between deleting a service and removing its injection site. Do not split it.
+This is one task because the build does not compile between deleting `TwoTowerPredictionService` and removing its injection and scoring call sites. Do not split it. The similarly named `DeepLearningPredictionService` is not part of this path and must remain.
 
 **Files:**
-- Delete: `.../service/DeepLearningPredictionService.java`, `.../service/TwoTowerPredictionService.java`, `.../controller/ModelReloadController.java`, and every test of those three
-- Modify: `.../service/HybridRecommendationService.java`, `.../service/RecommendationConstants.java`, `.../service/scorers/MovieLensOutcomeScorer.java`, `.../config/RecommendationProperties.java`, `src/main/resources/application.yml`, `pom.xml`
+- Delete: `.../service/TwoTowerPredictionService.java` and its test
+- Modify: `.../service/HybridRecommendationService.java`, `.../service/RecommendationConstants.java`, `.../service/scorers/MovieLensOutcomeScorer.java`, `.../config/RecommendationProperties.java`, `src/main/resources/application.yml`
+- Keep byte-identical: `DeepLearningPredictionService`, `ModelReloadController`, their resources and tests, and the `onnxruntime` dependency
 - Modify: `.../service/RecommendationConstantsTest.java`, `.../service/HybridRecommendationServiceTest.java`, `recsys-pipeline/integration-tests/test_application_config.py`
 
 **Interfaces:**
@@ -249,17 +250,17 @@ This is one task because the build does not compile between deleting a service a
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/services/java-retrieval-service
 grep -rn "DeepLearningPredictionService\|TwoTowerPredictionService\|ModelReloadController\|deepLearningWeight\|dlScore\|deepLearningScore\|onnx\|Onnx\|ONNX" src/ pom.xml
 ```
-Record the full list in your report. The spec warns that `ModelReloadController` may be referenced by an actuator-endpoint test or a config allow-list beyond the three known references — this grep is how you find out. Work from this list, not from memory.
+Record the full list in your report. Use it to distinguish the ranking path from the independent `/predict` API; do not delete a reference merely because it mentions ONNX.
 
-- [ ] **Step 2: Delete the three classes and their tests**
+- [ ] **Step 2: Delete the two-tower class and its test**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
-git rm recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/DeepLearningPredictionService.java \
-       recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/TwoTowerPredictionService.java \
-       recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/controller/ModelReloadController.java
+git rm recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/TwoTowerPredictionService.java \
+       recsys-pipeline/services/java-retrieval-service/src/test/java/com/demo/retrieval/service/TwoTowerPredictionServiceTest.java
 ```
-Then `git rm` each test file the Step 1 grep attributed to those three classes (`TwoTowerPredictionServiceTest.java` is one; there may be others).
+
+Confirm `DeepLearningPredictionService`, `ModelReloadController`, their tests/resources, and the three `/predict` endpoints still exist.
 
 - [ ] **Step 3: Drop the two parameters from `blendOfflineScore`**
 
@@ -304,13 +305,13 @@ In `.../service/scorers/MovieLensOutcomeScorer.java`:
 
 - [ ] **Step 5: Remove the plumbing from `HybridRecommendationService`**
 
-Delete the `deepLearningEnabled` / `dlScoresRaw` / `dlScores` block at lines 212-226 and the two constructor-injected fields for the deleted services. At line 235, the `dlScores.getOrDefault(item, 0.0)` argument to the per-candidate scoring call goes away along with the corresponding parameter. Delete `predictions.put("deepLearningScore", round(candidate.dlScore()));` from `modelPredictions`, and the `dlScore` component from the `ScoredCandidate` record and every construction site. Follow the compiler: run Step 7 repeatedly and fix what it names.
+Delete the `deepLearningEnabled` / `dlScoresRaw` / `dlScores` block and both ranking-path constructor injections (`TwoTowerPredictionService` and `DeepLearningPredictionService`) from `HybridRecommendationService`. At the per-candidate scoring call, the `dlScores.getOrDefault(item, 0.0)` argument goes away along with the corresponding parameter. Delete `predictions.put("deepLearningScore", round(candidate.dlScore()));` from `modelPredictions`, and the `dlScore` component from the `ScoredCandidate` record and every construction site. Keep the separate `DeepLearningPredictionService` bean and its injection into `RecommendationController`, which serves the `/predict` endpoints. Follow the compiler: run Step 7 repeatedly and fix what it names.
 
-- [ ] **Step 6: Remove the configuration and the dependency**
+- [ ] **Step 6: Remove the ranking configuration**
 
 - `.../config/RecommendationProperties.java`: delete the `deepLearningWeight` field and its getter and setter (lines 244, 314-319).
 - `src/main/resources/application.yml`: delete the `deep-learning-weight` line.
-- `pom.xml`: delete the `com.microsoft.onnxruntime` dependency block (lines 50-53) and the `<onnxruntime.version>` property (line 21).
+- Keep the `com.microsoft.onnxruntime` dependency and version property; `DeepLearningPredictionService` still requires them.
 
 - [ ] **Step 7: Compile, then fix the two dl-specific tests**
 
@@ -358,11 +359,11 @@ Expected: the Java suite passes. The Python suite shows the same two pre-existin
 
 ```bash
 git add -A recsys-pipeline/services/java-retrieval-service recsys-pipeline/integration-tests/test_application_config.py
-git commit -m "refactor: remove the orphaned ONNX serving path
+git commit -m "refactor: remove the orphaned two-tower ranking path
 
 Deleting the PyTorch producer left this path with no model to load, and it
-was already unreachable: deepLearningWeight defaults to 0.0 and no script
-sets ONNX_MODEL_PATH. The surviving weights are deliberately not
+was already unreachable because deepLearningWeight defaults to 0.0. The
+independent /predict ONNX API remains. The surviving weights are deliberately not
 renormalized -- every removed term contributed exactly zero, so leaving them
 preserves output exactly. The characterization tests pin that."
 ```
@@ -391,7 +392,7 @@ Work from this list. Known sites: `README.md` lines 6, 79, 264-265, 930 and the 
 For every hit, remove the claim or replace it with what is now true. Specifically:
 - The pipeline diagram at `README.md:79` shows `run-retrain.sh ──► retrain embeddings + model ──► POST /actuator/model-reload  (hot-swap)`. The hot-swap arrow is gone; the retrain script now only refreshes embeddings.
 - `README.md:264-265` lists the Python two-tower step and the model hot-reload step. Both are gone; renumber the surrounding list.
-- The scoring table in `6_Predicting_Scoring.md` lists **Offline** (`DeepLearningPredictionService`) and **Two-tower** (`TwoTowerPredictionService`) rows. Delete both rows and remove `deepLearningWeight × onnxScore` from the `offlineScore` formula shown beneath it.
+- The scoring table in `6_Predicting_Scoring.md` lists the ranking-time **Two-tower** (`TwoTowerPredictionService`) row. Delete that row and remove `deepLearningWeight × onnxScore` from the `offlineScore` formula shown beneath it. Keep standalone `/predict` documentation for `DeepLearningPredictionService`.
 - The retrieval-service configuration table in `README.md` documents `recsys.bandit.deep-learning-weight` / `RECSYS_DEEP_LEARNING_WEIGHT`. Delete that row.
 - Where a doc describes `CtrRankingModelTrainingJob` as "offline only", leave it — that remains true.
 
@@ -401,9 +402,9 @@ Do not add new claims about the Spark job being served. It is not.
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
-grep -rn -i "movielens_pipeline\|model-reload\|onnx" README.md docs/ services/java-retrieval-service/src/main services/java-retrieval-service/pom.xml services/python-modeling | grep -v node_modules
+grep -rn -i "movielens_pipeline\|deep-learning-weight\|RECSYS_DEEP_LEARNING_WEIGHT\|TwoTowerPredictionService\|ONNX_USER_TOWER_PATH\|ONNX_ITEM_TOWER_PATH\|ONNX_RANKING_PATH" README.md docs/ services/java-retrieval-service/src/main services/java-retrieval-service/pom.xml services/python-modeling | grep -v node_modules
 ```
-Expected: no output. Any hit is either a doc you missed or code that should have been deleted in Task 3.
+Expected: no output. Generic ONNX, `model-reload`, `DeepLearningPredictionService`, and `ModelReloadController` references are expected because the independent `/predict` API survives.
 
 - [ ] **Step 4: Re-run both suites one final time**
 
@@ -423,18 +424,18 @@ Run `git diff --stat master...HEAD | tail -3` and record the total lines removed
 
 ```bash
 git add recsys-pipeline/README.md recsys-pipeline/docs
-git commit -m "docs: drop the ONNX serving path and PyTorch pipeline from the docs"
+git commit -m "docs: remove the two-tower ranking path and PyTorch pipeline"
 ```
 
 ---
 
 ## Self-Review Notes
 
-**Spec coverage.** Producer deletion → Task 2. Orphaned-consumer deletion including the pom dependency → Task 3. Documentation → Task 4. The no-renormalization rule → Task 3 Steps 3-4 and the Global Constraints. Success criterion 1 (characterization) → Task 1, verified again in Task 3 Step 7. Criterion 2 (suites pass with four amendments) → Task 3 Steps 7-9. Criterion 3 (greps clean) → Task 4 Step 3. Criterion 4 (`run-retrain.sh`) → Task 2 Step 4. Criterion 5 (no doc references) → Task 4 Step 3. Risk "ModelReloadController may have unknown references" → Task 3 Step 1 searches rather than assumes.
+**Spec coverage.** Producer deletion → Task 2. Orphaned two-tower consumer deletion while preserving the independent `/predict` API → Task 3. Documentation → Task 4. The no-renormalization rule → Task 3 Steps 3-4 and the Global Constraints. Success criterion 1 (characterization) → Task 1, verified again in Task 3 Step 7. Criterion 2 (suites pass with four amendments) → Task 3 Steps 7-9. Criterion 3 (scoped greps clean) → Task 4 Step 3. Criterion 4 (`run-retrain.sh`) → Task 2 Step 4. Criterion 5 (no stale doc references) → Task 4 Step 3.
 
 **Ordering.** Task 1 must precede Tasks 2-3 or there is nothing pinning behaviour. Tasks 2 and 3 are independent of each other. Task 4 requires both.
 
-**Why Task 3 is not split.** Deleting `DeepLearningPredictionService` while `HybridRecommendationService` still injects it leaves the module uncompilable, so no intermediate commit would be green. The task is large by necessity, not by preference.
+**Why Task 3 is not split.** Deleting `TwoTowerPredictionService` while `HybridRecommendationService` still injects it leaves the module uncompilable, so its deletion and ranking-plumbing removal are atomic.
 
 **Known imprecision in the spec, already corrected there.** The spec initially claimed both removal sites are inert "because `deepLearningWeight` is 0.0". Only `blendOfflineScore` is. `MovieLensOutcomeScorer` is not gated by that weight and is inert only because `dlScore` is always `0.0` at runtime. Both the Global Constraints and Task 1 Step 2's comment state the distinction.
 
