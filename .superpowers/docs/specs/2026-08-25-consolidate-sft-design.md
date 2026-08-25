@@ -29,17 +29,22 @@ Three facts establish that last claim, each verified against the code:
    `twoTowerItemEmb:*`; that prefix appears nowhere outside `movielens_pipeline.py`. The serving path
    reads `i2vEmb` / `uEmb` (`application.yml:35-41`), written by the Spark Item2Vec and
    UserEmbedding jobs.
-3. **Nothing imports it.** No Python module imports `movielens_pipeline`, and `ONNX_MODEL_PATH` —
-   the env var `DeepLearningPredictionService` needs — is set by no script.
+3. **Nothing imports it.** No Python module imports `movielens_pipeline`. `DeepLearningPredictionService`
+   reads `ONNX_MODEL_PATH`, and that variable is set by no script — but the service falls back to a
+   checked-in classpath resource (`mlp_embedding_model.onnx`), unrelated to anything
+   `movielens_pipeline.py` exports, and keeps serving a live `/predict` API off of it. This fact does
+   not make `DeepLearningPredictionService` unreachable; it only confirms that `movielens_pipeline.py`'s
+   own two-tower/ranking ONNX exports have no fallback and no consumer at all.
 
 ## Decision
 
 `CtrRankingModelTrainingJob` becomes the single supervised-ranker stage. The PyTorch training
-pipeline is deleted, and so is the Java ONNX serving path that would otherwise be left with no
-producer.
+pipeline is deleted, and so is the part of the Java ONNX serving path that depended on it —
+`TwoTowerPredictionService`, the only consumer of `movielens_pipeline.py`'s exports.
 
-Deleting the producer while keeping the consumer would leave *more* orphaned code than we started
-with, which is why the serving path goes in the same change.
+`DeepLearningPredictionService` turned out not to depend on `movielens_pipeline.py` at all: it
+loads a separately checked-in classpath resource and backs its own `/predict` API, not the deleted
+pipeline's output. It and `ModelReloadController` are kept, byte-identical.
 
 ## Scope
 
@@ -53,16 +58,24 @@ with, which is why the serving path goes in the same change.
 
 ### Deleted — orphaned consumer
 
-- `DeepLearningPredictionService.java`, `TwoTowerPredictionService.java`,
-  `ModelReloadController.java`, and their tests
+- `TwoTowerPredictionService.java` and its test — the only consumer of `movielens_pipeline.py`'s
+  two-tower/ranking ONNX exports, and genuinely orphaned once they are gone
 - `deepLearningWeight` from `RecommendationProperties` and `application.yml`
 - the `dlScore` plumbing in `HybridRecommendationService:212-235`
 - `deepLearningScore` from `modelPredictions`
 - the `deepLearningWeight` / `deepLearningScore` parameters of
   `RecommendationConstants.blendOfflineScore`
 - `EXPLOITATION_DL_WEIGHT` and the `0.75 * clamp(dlScore)` logit term in `MovieLensOutcomeScorer`
-- the `com.microsoft.onnxruntime` dependency and its `onnxruntime.version` property from
-  `services/java-retrieval-service/pom.xml` — with both ONNX services gone, nothing links against it
+
+### Kept — not orphaned
+
+`DeepLearningPredictionService.java`, `ModelReloadController.java`, and their tests survive: the
+service never depended on `movielens_pipeline.py`'s exports — it loads a separately checked-in
+classpath resource (`mlp_embedding_model.onnx`, `mlp_embedding_lookups.json`) — and it backs a
+standalone, live `/predict` API. `ModelPrediction`, `ModelIndexOutOfRangeException`, and the three
+`RecommendationController` `/predict` endpoints all stay, as does the `com.microsoft.onnxruntime`
+dependency in `services/java-retrieval-service/pom.xml`, which `DeepLearningPredictionService`
+still links against.
 
 ### Deleted — documentation
 

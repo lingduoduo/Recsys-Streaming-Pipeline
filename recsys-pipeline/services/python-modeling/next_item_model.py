@@ -277,7 +277,7 @@ LEARNING_RATE = 1e-3
 def _torch():
     """Import torch on demand with an actionable message when it is absent.
 
-    Only movielens_pipeline.py depends on torch today and it is a very large install, so
+    Only this module and post-training/ depend on torch today and it is a very large install, so
     it stays out of requirements.txt and the producers keep working without it.
     """
     try:
