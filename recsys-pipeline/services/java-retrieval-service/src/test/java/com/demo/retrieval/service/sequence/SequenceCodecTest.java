@@ -87,7 +87,7 @@ class SequenceCodecTest {
         assertTrue(fixture.contains("\"keyPrefix\": \"" + SequenceSchemaConstants.KEY_PREFIX + "\""));
         assertTrue(fixture.contains("\"countField\": \"" + SequenceSchemaConstants.COL_COUNT + "\""));
         assertTrue(fixture.contains(
-            "\"kinds\": [\"" + SequenceSchemaConstants.KIND_RATING + "\", \"" + SequenceSchemaConstants.KIND_CLICK + "\"]"));
+            "\"kinds\": [\"" + SequenceSchemaConstants.KIND_RATING + "\", \"" + SequenceSchemaConstants.KIND_CLICK + "\", \"" + SequenceSchemaConstants.KIND_BEHAVIOR + "\"]"));
     }
 
     @Test
