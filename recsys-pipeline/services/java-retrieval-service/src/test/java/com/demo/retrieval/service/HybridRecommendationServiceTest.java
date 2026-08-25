@@ -208,6 +208,88 @@ class HybridRecommendationServiceTest {
         return service.recommend("u1", 2);
     }
 
+    /**
+     * Call-site characterization. The two pure-function characterization tests
+     * (RecommendationConstantsTest, MovieLensOutcomeScorerTest) build their own inputs and call the
+     * functions directly, so neither pins how HybridRecommendationService fills in the positional
+     * components of ScoringInput (11 bare values) and ScoredCandidate (18). Deleting or transposing
+     * a component there compiles and passes every other test. This drives the full recommend(...)
+     * path with a fully-controlled input and pins the resulting diagnostics numbers, which are
+     * reachable only through those two constructors.
+     *
+     * <p>Inputs are chosen so the three offline signals are mutually distinct — relevance
+     * cos([1,0],[0.28,0.96]) = 0.28, a partial genre/tag content match, popularity 5/100 = 0.05 — so a
+     * transposition changes the result rather than swapping equal values.
+     */
+    @Test
+    void recommendPinsDiagnosticScoresThroughTheScoringCallSite() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
+        ListOperations<String, String> lists = mock(ListOperations.class);
+        SetOperations<String, String> sets = mock(SetOperations.class);
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        ZSetOperations<String, String> sortedSets = mock(ZSetOperations.class);
+        when(redis.opsForHash()).thenReturn(hashes);
+        when(redis.opsForList()).thenReturn(lists);
+        when(redis.opsForSet()).thenReturn(sets);
+        when(redis.opsForValue()).thenReturn(values);
+        when(redis.opsForZSet()).thenReturn(sortedSets);
+        when(sets.size(any())).thenReturn(1L);
+        when(values.get("uEmb:u1")).thenReturn("1.0 0.0");
+
+        when(sortedSets.reverseRangeWithScores(eq("global:item_popularity"), eq(0L), anyLong()))
+            .thenReturn(new LinkedHashSet<>(List.of(
+                ZSetOperations.TypedTuple.of("seen", 100.0),
+                ZSetOperations.TypedTuple.of("m1", 5.0)
+            )));
+        when(values.multiGet(any())).thenAnswer(invocation -> {
+            List<String> keys = invocation.getArgument(0);
+            return keys.stream().map(key -> {
+                if (key.startsWith("i2vEmb:")) {
+                    return "0.28 0.96";
+                }
+                if (key.startsWith("uEmb:")) {
+                    return "1.0 0.0";
+                }
+                return "0";
+            }).toList();
+        });
+
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getCandidateGeneration().setColdStartPoolSize(1);
+        MovieProfile candidate = new MovieProfile();
+        candidate.setGenres(List.of("drama"));
+        candidate.setTags(List.of("space"));
+        Map<String, MovieProfile> catalog = new LinkedHashMap<>();
+        catalog.put("seen", movie("drama"));
+        catalog.put("m1", candidate);
+        properties.setCatalog(catalog);
+
+        FeatureCache featureCache = new FeatureCache(properties);
+        HybridRecommendationService service = new HybridRecommendationService(
+            redis,
+            properties,
+            new OnlineLearningService(redis, properties, featureCache),
+            featureCache,
+            List.of(new MovieLensUserHistoryQueryHydrator(
+                userId -> new UserMovieHistory(List.of("seen"), List.of())
+            )),
+            new RecommendationMeasurementService(new SimpleMeterRegistry(), properties, featureCache)
+        );
+
+        RecommendationResult result = service.recommend("u1", 1);
+
+        assertEquals(List.of("m1"), result.recommendations());
+        Map<String, Object> row = result.candidateDiagnostics().get(0);
+        assertEquals("m1", row.get("item"));
+        assertEquals(0.28, row.get("relevanceScore"));
+        assertEquals(0.7, row.get("contentScore"));
+        assertEquals(0.596, row.get("estimatedReward"));
+        assertEquals(0.616, row.get("weightedOutcomeScore"));
+        assertEquals(0.841, row.get("predictionScore"));
+        assertEquals(0.617, row.get("rewardModelScore"));
+    }
+
     private static MovieProfile movie(String genre) {
         MovieProfile profile = new MovieProfile();
         profile.setGenres(List.of(genre));
