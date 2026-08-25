@@ -16,9 +16,9 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       redisPoolMaxTotal = 1,
       sequenceConfig = com.demo.sequence.SequenceJobConfig(90, 500, None))
 
-    sinks should have length 2
+    sinks should have length 3
     all(sinks) shouldBe a[DurableSink]
-    sinks.map(_.asInstanceOf[DurableSink].sinkIdentity).distinct should have length 2
+    sinks.map(_.asInstanceOf[DurableSink].sinkIdentity).distinct should have length 3
   }
 
   "UserEventStreamingJob.parseEvents" should "normalize decoded canonical columns and ignore Kafka lineage" in {
@@ -53,7 +53,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
     implicit val sqlCtx = s.sqlContext
     val input = MemoryStream[(String, String, String, String, Long)]
     val decoded = input.toDS().toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
-    val deduped = UserEventStreamingJob.dedupedClicks(decoded, "10 minutes")
+    val deduped = UserEventStreamingJob.behavioralEvents(decoded, "10 minutes")
     val q = deduped.writeStream.format("memory").queryName("ue_out").outputMode("append").start()
     try {
       val e = ("e1", "u1", "i1", "click", 1718400000000L)
@@ -71,7 +71,114 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       ("e1", "u1", "i1", "click", 1718400000000L)
     ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
 
-    UserEventStreamingJob.dedupedClicks(decoded, "10 minutes").count() shouldBe 1L
+    UserEventStreamingJob.behavioralEvents(decoded, "10 minutes").count() shouldBe 1L
+  }
+
+
+  /** The behavioral subset plus one non-behavioral feedback action, as decoded canonical rows. */
+  private def behaviorFixture = {
+    val s = spark; import s.implicits._
+    Seq(
+      ("search-ok",  Some("u1"), None: Option[String], "search",      1000L, Some("q1"), Some("space opera"), None: Option[String]),
+      ("search-bad", Some("u1"), None: Option[String], "search",      1001L, Some("q1"), Some("   "),         None: Option[String]),
+      ("result-bad", Some("u1"), Some("m1"),           "result_view", 1002L, Some("q1"), None: Option[String], None: Option[String]),
+      ("detail-ok",  Some("u1"), Some("m1"),           "detail_view", 1003L, None: Option[String], None: Option[String], None: Option[String]),
+      ("click-ok",   Some("u1"), Some("m1"),           "click",       1004L, None: Option[String], None: Option[String], None: Option[String]),
+      ("click-bad",  Some("u1"), None: Option[String], "click",       1005L, None: Option[String], None: Option[String], None: Option[String]),
+      ("thumb-up",   Some("u1"), Some("m1"),           "thumb_up",    1006L, None: Option[String], None: Option[String], None: Option[String])
+    ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms",
+           "query_id", "query_text", "result_set_id")
+  }
+
+  "UserEventStreamingJob.behavioralEvents" should "keep only structurally usable behavioral actions" in {
+    val s = spark; import s.implicits._
+
+    val kept = UserEventStreamingJob.behavioralEvents(behaviorFixture, "10 minutes")
+      .select("event_id").as[String].collect()
+
+    kept should contain theSameElementsAs Seq("search-ok", "detail-ok", "click-ok")
+  }
+
+  "UserEventStreamingJob.normalize" should "name why each behavioral event was rejected" in {
+    val s = spark; import s.implicits._
+
+    val reasons = UserEventStreamingJob.normalize(behaviorFixture).tagged
+      .select("event_id", "rejection_reason").as[(String, Option[String])].collect().toMap
+
+    reasons shouldBe Map(
+      "search-ok"  -> None,
+      "search-bad" -> Some("missing_search_query"),
+      "result-bad" -> Some("missing_result_identity"),
+      "detail-ok"  -> None,
+      "click-ok"   -> None,
+      "click-bad"  -> Some("missing_behavior_item")
+    )
+  }
+
+  it should "ignore a non-behavioral feedback action rather than reject it" in {
+    val s = spark; import s.implicits._
+
+    UserEventStreamingJob.normalize(behaviorFixture).tagged
+      .select("event_id").as[String].collect() should not contain "thumb-up"
+  }
+
+  it should "still reject a behavioral event with no user, event id, or timestamp" in {
+    val s = spark; import s.implicits._
+    val decoded = Seq(
+      (Some("e1"), None: Option[String], Some("m1"), "click", Some(1000L)),
+      (None: Option[String], Some("u1"), Some("m1"), "click", Some(1001L)),
+      (Some("e3"), Some("u1"), Some("m1"), "click", None: Option[Long])
+    ).toDF("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
+
+    UserEventStreamingJob.normalize(decoded).kept.count() shouldBe 0L
+  }
+
+  "buildBehaviorSequenceEvents" should "project every behavioral action into one sequence kind" in {
+    val s = spark; import s.implicits._
+    val batch = Seq(
+      ("u1", None: Option[String], "search",      1784764801000L),
+      ("u1", Some("m1"),           "result_view", 1784764802000L),
+      ("u1", Some("m1"),           "detail_view", 1784764803000L),
+      ("u1", Some("m1"),           "click",       1784764804000L)
+    ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
+
+    val rows = UserEventStreamingJob.buildBehaviorSequenceEvents(batch).orderBy("ts")
+      .select("kind", "item_id", "action").as[(String, String, String)].collect()
+
+    rows shouldBe Array(
+      ("behavior", "", "search"),
+      ("behavior", "m1", "result_view"),
+      ("behavior", "m1", "detail_view"),
+      ("behavior", "m1", "click")
+    )
+  }
+
+  it should "encode a behavior chunk in timestamp order with the search sentinel in place" in {
+    val s = spark; import s.implicits._
+    val batch = Seq(
+      ("u1", Some("m1"),           "click",  1784764804000L),
+      ("u1", None: Option[String], "search", 1784764801000L)
+    ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
+
+    val chunk = com.demo.sequence.SequenceEncoder
+      .toColumnChunks(UserEventStreamingJob.buildBehaviorSequenceEvents(batch)).collect()
+
+    chunk.length shouldBe 1
+    chunk.head.getAs[String]("kind") shouldBe "behavior"
+    chunk.head.getAs[String]("action") shouldBe "search,click"
+    chunk.head.getAs[String]("item_id") shouldBe ",m1"
+  }
+
+  it should "write a click into both the behavior and the legacy click projection" in {
+    val s = spark; import s.implicits._
+    val batch = Seq(
+      ("u1", Some("m1"),           "click",  1784764804000L),
+      ("u1", None: Option[String], "search", 1784764801000L)
+    ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
+
+    UserEventStreamingJob.buildBehaviorSequenceEvents(batch).count() shouldBe 2L
+    UserEventStreamingJob.buildClickSequenceEvents(batch)
+      .select("kind", "item_id").as[(String, String)].collect() shouldBe Array(("click", "m1"))
   }
 
   "UserEventStreamingJob.itemClickCounts" should "count clicks per item" in {
@@ -82,7 +189,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
     counts shouldBe Map("i1" -> 2L, "i2" -> 1L)
   }
 
-  "buildSequenceEvents" should "project click events into sequence-store shape" in {
+  "buildClickSequenceEvents" should "project click events into sequence-store shape" in {
     val sparkSession = spark
     import sparkSession.implicits._
 
@@ -91,7 +198,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
       ("u1", "m2", "click", 1784764802000L)
     ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
 
-    val rows = UserEventStreamingJob.buildSequenceEvents(batch).orderBy("ts").collect()
+    val rows = UserEventStreamingJob.buildClickSequenceEvents(batch).orderBy("ts").collect()
 
     rows.length shouldBe 2
     rows.head.getAs[String]("user_id") shouldBe "u1"
@@ -113,7 +220,7 @@ class UserEventStreamingJobSpec extends AnyFlatSpec with Matchers with SparkTest
     ).toDF("user_id", "item_id", "event_type", "timestamp_ms")
 
     val chunks = com.demo.sequence.SequenceEncoder
-      .toColumnChunks(UserEventStreamingJob.buildSequenceEvents(batch))
+      .toColumnChunks(UserEventStreamingJob.buildClickSequenceEvents(batch))
       .orderBy("bucket")
       .collect()
 

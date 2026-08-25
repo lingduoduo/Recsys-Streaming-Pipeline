@@ -50,7 +50,8 @@ class SequenceSchemaSpec extends AnyFlatSpec with Matchers with SparkTestSupport
     fixture should include(s""""keyPrefix": "seq"""")
     fixture should include(s""""countField": "${SequenceSchema.ColCount}"""")
     fixture should include(
-      s""""kinds": ["${SequenceSchema.KindRating}", "${SequenceSchema.KindClick}"]"""
+      s""""kinds": ["${SequenceSchema.KindRating}", "${SequenceSchema.KindClick}", """ +
+        s""""${SequenceSchema.KindBehavior}"]"""
     )
   }
 }
