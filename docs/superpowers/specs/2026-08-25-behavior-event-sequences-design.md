@@ -10,7 +10,7 @@ The canonical event contract exposes an unrestricted `event_type`, but has no ty
 
 ## Compatibility Strategy
 
-The canonical Avro record gains nullable fields with defaults, preserving compatibility with existing producers and tolerant consumers. `item_id` changes from required `string` to `["null", "string"]` with a null default because searches are user actions without an item. Existing item-dependent consumers already gate null item IDs; the generalized user-event consumer replaces its global item gate with action-specific validation.
+Create `recsys-event-v3.avsc` as the canonical writer schema and retain v1 and v2 in decoder catalogs. V3 gains nullable fields with defaults, preserving old payload decoding and compatibility with tolerant consumers. `item_id` changes from required `string` to `["null", "string"]` with a null default because searches are user actions without an item. Existing item-dependent consumers already gate null item IDs; the generalized user-event consumer replaces its global item gate with action-specific validation. New writers validate required identity per action instead of globally requiring `item_id`.
 
 - `query_id`: stable identity for a search or its result set.
 - `query_text`: raw query text for the initial foundation; downstream privacy controls may normalize or redact it.
@@ -87,7 +87,7 @@ Implementation follows test-driven development:
 
 ## Rollout
 
-1. Deploy the additive schema and tolerant consumers.
+1. Deploy the v3 schema and tolerant consumers while retaining v1/v2 decoder catalog entries.
 2. Deploy the generalized streaming writer; continue legacy click writes.
 3. Deploy the serving hydrator in `off` mode.
 4. Enable `shadow`, compare behavior and legacy histories, then enable `on` after validation.
