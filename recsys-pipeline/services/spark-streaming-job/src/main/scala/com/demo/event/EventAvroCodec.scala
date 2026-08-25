@@ -12,7 +12,13 @@ import scala.util.{Failure, Success, Try}
 object EventAvroCodec {
   val Magic: Array[Byte] = Array(0xc3.toByte, 0x01.toByte)
 
-  private val RequiredFields = Seq("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
+  private val RequiredFields = Seq("event_id", "user_id", "event_type", "timestamp_ms")
+
+  /** Actions that are *about* an item. A search names a query, not a movie, so requiring
+    * an item of it would force producers to invent one. */
+  val ItemRequiredActions: Set[String] = Set(
+    "impression", "exposure", "result_view", "detail_view", "click",
+    "order", "purchase", "rating", "thumb_up", "thumb_down", "abandon")
 
   private def parse(resource: String): Schema = {
     val input = Option(getClass.getResourceAsStream(resource))
@@ -22,13 +28,16 @@ object EventAvroCodec {
   }
 
   /** The schema new records are written with. */
-  lazy val schema: Schema = parse("/schemas/recsys-event-v2.avsc")
+  lazy val schema: Schema = parse("/schemas/recsys-event-v3.avsc")
 
   /** Every writer schema this decoder accepts, keyed by fingerprint. A record written
     * before a bump is still valid; resolving it against `schema` is what keeps it out
     * of the dead-letter archive. */
   lazy val catalog: Map[Long, Schema] =
-    Seq("/schemas/recsys-event-v1.avsc", "/schemas/recsys-event-v2.avsc")
+    Seq(
+      "/schemas/recsys-event-v1.avsc",
+      "/schemas/recsys-event-v2.avsc",
+      "/schemas/recsys-event-v3.avsc")
       .map(parse)
       .map(parsed => SchemaNormalization.parsingFingerprint64(parsed) -> parsed)
       .toMap
@@ -103,7 +112,13 @@ object EventAvroCodec {
 
   private def missingRequiredField(record: GenericRecord): Option[String] =
     if (record == null) Some("record")
-    else RequiredFields.find(field => record.get(field) == null)
+    else {
+      val required =
+        if (ItemRequiredActions.contains(String.valueOf(record.get("event_type")))) {
+          RequiredFields :+ "item_id"
+        } else RequiredFields
+      required.find(field => record.get(field) == null)
+    }
 
   private def errorDetail(error: Throwable): String =
     Option(error.getMessage).getOrElse(error.getClass.getSimpleName)

@@ -13,10 +13,17 @@ import fastavro
 
 
 MAGIC = b"\xc3\x01"
-REQUIRED_FIELDS = ("event_id", "user_id", "item_id", "event_type", "timestamp_ms")
+REQUIRED_FIELDS = ("event_id", "user_id", "event_type", "timestamp_ms")
+ITEM_REQUIRED_ACTIONS = frozenset({
+    "impression", "exposure", "result_view", "detail_view", "click",
+    "order", "purchase", "rating", "thumb_up", "thumb_down", "abandon",
+})
 _SCHEMA_DIR = Path(__file__).resolve().parents[2] / "schemas"
-DEFAULT_SCHEMA_PATH = _SCHEMA_DIR / "recsys-event-v2.avsc"
-LEGACY_SCHEMA_PATHS: tuple[Path, ...] = (_SCHEMA_DIR / "recsys-event-v1.avsc",)
+DEFAULT_SCHEMA_PATH = _SCHEMA_DIR / "recsys-event-v3.avsc"
+LEGACY_SCHEMA_PATHS: tuple[Path, ...] = (
+    _SCHEMA_DIR / "recsys-event-v1.avsc",
+    _SCHEMA_DIR / "recsys-event-v2.avsc",
+)
 
 
 class SchemaFingerprintError(ValueError):
@@ -70,7 +77,16 @@ def load_catalog() -> Mapping[int, dict]:
 
 
 def validate_required(event: Mapping[str, object]) -> None:
-    for field in REQUIRED_FIELDS:
+    """Reject an event missing a field its action cannot be interpreted without.
+
+    Identity and timing are required of every event. ``item_id`` is required only of
+    actions that are *about* an item: a search names a query, not a movie, so demanding
+    an item of it would force producers to invent one.
+    """
+    required = REQUIRED_FIELDS
+    if event.get("event_type") in ITEM_REQUIRED_ACTIONS:
+        required = (*required, "item_id")
+    for field in required:
         if field not in event or event[field] is None:
             raise EventValidationError(f"missing required field {field}")
 
@@ -101,8 +117,9 @@ def decode_event(
 
     `catalog` overrides which writer schemas are accepted. `reader_schema` overrides the shape
     the record is read into; it defaults to the current writer schema, so a v1 payload arrives
-    with the fields v2 added set to null. A caller supplying its own catalog usually wants the
-    default reader, but it can now say otherwise instead of being silently overruled.
+    with the fields later versions added set to null. A caller supplying its own catalog
+    usually wants the default reader, but it can now say otherwise instead of being
+    silently overruled.
     """
     if len(payload) < 10 or payload[:2] != MAGIC:
         raise EventValidationError("invalid Avro single-object marker")

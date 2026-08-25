@@ -954,7 +954,7 @@ def test_archive_accepts_every_catalogued_fingerprint(tmp_path):
     from archive_replay import _validate_archive_fingerprints
 
     catalog = event_avro.load_catalog()
-    assert len(catalog) == 2, "the catalog should hold v1 and v2"
+    assert len(catalog) == 3, "the catalog should hold v1, v2, and v3"
 
     v1_fingerprint = event_avro.schema_fingerprint(
         event_avro.load_schema(event_avro.LEGACY_SCHEMA_PATHS[0]))

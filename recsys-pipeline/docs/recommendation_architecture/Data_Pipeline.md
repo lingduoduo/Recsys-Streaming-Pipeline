@@ -55,7 +55,7 @@ Feature data is split across three tiers by access pattern and update frequency.
 | Tier | Contents | Updated by |
 |------|----------|------------|
 | **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Model and lookups bundled at build time, swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild; Parquet training samples written by the Spark streaming jobs on every micro-batch |
-| **Redis** | User click history, global item popularity, per-user columnar rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
+| **Redis** | User click history, global item popularity, per-user columnar behavior/rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
 | **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
 
 The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
@@ -130,8 +130,24 @@ Adjust topic-policy inputs and validate storage before treating any higher workl
 
 Producers emit Avro single-object messages: marker `c3 01`, followed by the eight-byte
 little-endian CRC-64-AVRO parsing fingerprint, then the record. The shared schema is
-`schemas/recsys-event-v2.avsc`; its current fingerprint is `af86abe880fe4bb3`. Required fields
-are `event_id`, `user_id`, `item_id`, `event_type`, and `timestamp_ms`.
+`schemas/recsys-event-v3.avsc`; its current fingerprint is `afbfcef03d048f09`. `event_id`,
+`user_id`, `event_type`, and `timestamp_ms` are required of every event. `item_id` is required
+only of actions that are *about* an item, because a search names a query rather than a movie:
+
+| Action | Required beyond the four global fields |
+|---|---|
+| `search` | `query_id`, non-blank `query_text` — no `item_id` |
+| `result_view` | `query_id`, `result_set_id`, `item_id` |
+| `detail_view` | `item_id` |
+| `click` | `item_id` (query fields optional) |
+| `impression`, `exposure`, `order`, `purchase`, `rating`, `thumb_up`, `thumb_down`, `abandon` | `item_id` |
+
+V3 added six nullable behavioral context fields — `query_id`, `query_text`, `result_set_id`,
+`referrer`, `view_kind`, `view_duration_ms` — and relaxed `item_id` to `["null", "string"]`.
+
+> **Privacy:** `query_text` is raw user input. It travels on the canonical event so validation
+> can reject an empty search, and it is never written to the sequence store, to a log line, or to
+> any derived dataset. Do not add it to one.
 
 Schema changes must be backwards-compatible additions with Avro defaults. Do not rename, remove,
 or change the type of existing fields. The Spark reader accepts only fingerprints registered in its
@@ -140,10 +156,11 @@ the fingerprints in that local catalog, not only the current writer schema. Ther
 compatible producer/consumer schema change together and
 do not replay an archive under an unregistered schema.
 
-Both decoders also register the current schema's predecessor, `recsys-event-v1.avsc`, which has no
-`surface`, `locale`, `timezone`, or `device` fields. A record written under that schema still
-decodes: Avro schema resolution reads it against the current reader schema, so those four fields
-come back null rather than the record dead-lettering.
+Both decoders also register every predecessor — `recsys-event-v1.avsc` and `recsys-event-v2.avsc`
+— as accepted legacy writers. V1 has none of the context fields; v2 has `surface`, `locale`,
+`timezone`, and `device` but none of the six behavioral ones. A record written under either still
+decodes: Avro schema resolution reads it against the current reader schema, so the fields it
+predates come back null rather than the record dead-lettering.
 
 Malformed records are archived separately at `RECSYS_EVENT_DEAD_LETTER_PATH` with Kafka topic,
 partition, offset, timestamp, optional headers, `raw_value`, `schema_fingerprint`, `error_code`,
@@ -510,7 +527,7 @@ Environment variables:
 |---|---|---|
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
 | `KAFKA_TOPIC` | `recsys_events` | Kafka topic to publish to |
-| `PRODUCER_MODE` | `clickstream` | `clickstream` emits single click events keyed by `user_id`; `behavior` emits full impression/click/order slates keyed by `request_id` |
+| `PRODUCER_MODE` | `clickstream` | `clickstream` emits single click events keyed by `user_id`; `behavior` emits full impression/click/order slates keyed by `request_id`; `search` emits one search-to-click journey (search, result views, detail view, click) sharing a `query_id` and `result_set_id` |
 | `EVENTS_PER_SECOND` | `1` | Target publish rate; the event loop corrects for send latency |
 | `NUM_USERS` | `5` | Synthetic user pool size |
 | `NUM_ITEMS` | `10` | Synthetic item pool size |
@@ -596,20 +613,36 @@ diagnostic.
 
 ### `UserEventStreamingJob`
 
-Consumes click events from Kafka and writes global item popularity to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused across micro-batches) rather than a new TCP connection per partition.
+Consumes behavioral events from Kafka and writes global item popularity and per-user behavior
+sequences to Redis. Connection pooling uses a per-executor `JedisPool` (one pool per JVM, reused
+across micro-batches) rather than a new TCP connection per partition.
 
 For each micro-batch, it:
 
-1. Filters to click events, then aggregates per-item click counts in a single pass.
-2. Atomically pairs one `ZINCRBY` per unique item with a stable query/sink/batch Lua-ledger entry,
+1. Keeps the four behavioral actions — `search`, `result_view`, `detail_view`, `click` — and gates
+   each on the fields it cannot be read without. Every other event type is *ignored*, not rejected,
+   so recommendation feedback stays valid and uncounted.
+2. Deduplicates on `event_id` within the watermark.
+3. Aggregates per-item click counts in a single pass. Popularity stays click-only: a search or a
+   result view is not evidence that an item is popular.
+4. Atomically pairs one `ZINCRBY` per unique item with a stable query/sink/batch Lua-ledger entry,
    so a partial micro-batch retry cannot increment an acknowledged item twice.
+5. Writes the batch to **two** sequences — see the dual-write migration below.
 
 Redis keys written:
 
 | Key | Type | Contents | TTL |
 |---|---|---|---|
 | `global:item_popularity` | sorted set | Global click counts | none |
-| `seq:{id}:click:{day}` | hash | Per-user click sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
+| `seq:{id}:behavior:{day}` | hash | Per-user unified behavior sequence — see [Columnar sequence store](#columnar-sequence-store) | `SEQ_LOOKBACK_DAYS` days |
+| `seq:{id}:click:{day}` | hash | Per-user click sequence, still written for the length of the migration | `SEQ_LOOKBACK_DAYS` days |
+
+**Dual-write migration.** The job writes the new `behavior` sequence and the legacy `click`
+sequence from the same batch, through two separate `SequenceBusinessSink` instances so their
+commit ledgers stay independent and neither can mark the other's batch complete. The legacy sink
+keeps its original `sequence:user-event` identity — renaming it would orphan its ledger and
+re-append a replayed batch as duplicate click history. Retire the `click` sequence only once every
+reader has moved to `behavior`.
 
 Job-specific environment variables (plus the [common set](#common-environment-variables)):
 
@@ -636,6 +669,9 @@ Start the behavior-mode producer:
 
 ```bash
 PRODUCER_MODE=behavior KAFKA_TOPIC=behavior_logs python services/python-modeling/producer.py
+
+# One deterministic search journey per tick, for exercising the behavior sequence end to end.
+PRODUCER_MODE=search python services/python-modeling/producer.py
 ```
 
 Start the joiner job:
@@ -787,7 +823,7 @@ a warning that counts are unavailable rather than failing the query.
 | Site | Reasons |
 |---|---|
 | `OnlineJoinerStreamingJob` | `null_request_id`, `null_user_id`, `null_item_id`, `null_event_type`, `null_timestamp` |
-| `UserEventStreamingJob` | `null_user_id`, `null_item_id` |
+| `UserEventStreamingJob` | `null_user_id`, `null_event_id`, `null_timestamp`, `missing_search_query`, `missing_result_identity`, `missing_behavior_item` |
 | `ExperienceCollectorStreamingJob` | `null_request_id`, `null_user_id`, `null_item_id` |
 | `Recall`/`Ranking`/`RelevanceSampleStreamingJob` | `null_user_id`, `null_item_id` |
 | `MovieLensContextCollectorStreamingJob` | `unclassifiable_shape` |
@@ -898,12 +934,12 @@ docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features'
 
 ### Columnar sequence store
 
-A per-user, time-partitioned history of rating and click events, shared by the
+A per-user, time-partitioned history of behavioral, rating, and click events, shared by the
 streaming producers and a one-shot backfill. It is the successor to the legacy
 `recentlyRatedMovieIds` CSV blob on `user:{id}:features`; the serving side chooses
 between the two at request time (see **Serving** below).
 
-**Partition key:** `seq:{userId}:{kind}:{bucket}`, where `kind ∈ {rating, click}`
+**Partition key:** `seq:{userId}:{kind}:{bucket}`, where `kind ∈ {rating, click, behavior}`
 and `bucket` is a UTC day stamp `YYYYMMDD`. Each key is one Redis HASH whose fields
 are positionally aligned — row *i* is element *i* of every field:
 
@@ -920,6 +956,11 @@ are positionally aligned — row *i* is element *i* of every field:
 `genres` uses `|` within a row because genre strings already contain commas; `n` is
 the guard a reader uses to detect and truncate a torn write.
 
+In the `behavior` kind, `action` is the behavioral action name and a **search row carries an empty
+`item_id`** — the columns are aligned by position, so a search that has no item still needs a slot.
+The canonical event itself keeps `item_id = null`; the empty string exists only inside the
+sequence row, and serving omits it.
+
 Descriptive values have those two separators stripped before packing, which is cosmetic. Identity
 values do not: `user_id` is part of the Redis key and `item_id` is what a recommendation resolves
 to, so stripping would silently merge `a,b` into the unrelated id `ab`. Events whose `user_id` or
@@ -933,8 +974,8 @@ test asserts the two agree).
 **Writers:**
 
 - **Streaming (append).** `MovieLensContextCollectorStreamingJob` (rating events)
-  and `UserEventStreamingJob` (click events) call `SequenceSinks.write` each
-  micro-batch. Append mode reads the existing bucket and concatenates, capping each
+  and `UserEventStreamingJob` (behavior events, plus the legacy click sequence) call
+  `SequenceSinks.write` each micro-batch. Append mode reads the existing bucket and concatenates, capping each
   bucket at `SEQ_MAX_ROWS_PER_BUCKET`. Redis infrastructure errors fail the batch so
   Spark retries from the checkpoint; per-row data errors are skipped and logged.
 - **Backfill (overwrite).** `SequenceBackfillJob` seeds the store from the
@@ -982,6 +1023,16 @@ chunks of `bucketFetchChunk` keys. The source is selected by `recsys.sequence.mo
 `off` serves the legacy CSV blob only, `shadow` reads both and serves legacy while
 logging the diff, `on` serves the sequence store and falls back to legacy only on
 error.
+
+`BehaviorSequencesQueryHydrator` reads the `behavior` kind through the same switch and the same
+`lookbackDays`, bounded at 100 items. It keeps the item-bearing actions — `result_view`,
+`detail_view`, `click` — discards the empty search sentinel, and merges the result ahead of the
+query's existing `watchedMovieIds`, stable-deduplicated and truncated. `off` reads nothing at all;
+`shadow` reads and logs but still serves legacy history; a failed read leaves legacy history
+untouched. Roll the behavior sequence out `off` → `shadow` → `on`, and note that the switch is
+shared with the rating hydrator: moving it moves both.
+
+Unified replay and simulation over the behavior sequence are follow-ups; neither exists yet.
 
 | Config property | Default |
 |---|---|

@@ -123,6 +123,60 @@ def make_behavior_slate(users, items):
     return events
 
 
+SEARCH_TERMS = ("space opera", "heist thriller", "quiet drama", "animated adventure")
+
+
+def make_search_journey(users, items):
+    """One user's search, the results they saw, the one they opened, and the click.
+
+    Every event shares a query id so the whole journey rejoins downstream, and the views
+    onward share a result-set id naming the slate they came from. The leading result is
+    the detail/click target rather than a random one, so the shape of the trace is a
+    property of the generator and not of the RNG.
+    """
+    now_ms = int(time.time() * 1000)
+    user = random.choice(users)
+    session_id = f"sess_{uuid.uuid4().hex[:8]}"
+    query_id = f"q_{uuid.uuid4().hex[:12]}"
+    result_set_id = f"rs_{uuid.uuid4().hex[:12]}"
+    result_items = items[:SLATE_SIZE]
+    country = user_country(user)
+
+    def event(event_type, item_id, offset_ms, **extra):
+        return {
+            "event_id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "user_id": user,
+            "item_id": item_id,
+            "event_type": event_type,
+            "timestamp_ms": now_ms + offset_ms,
+            "query_id": query_id,
+            "surface": "search_results",
+            "locale": COUNTRY_LOCALE[country],
+            "timezone": COUNTRY_TIMEZONE[country],
+            **extra,
+        }
+
+    events = [event("search", None, 0, query_text=random.choice(SEARCH_TERMS))]
+    for position, item in enumerate(result_items):
+        events.append(event(
+            "result_view", item, 1_000 + position,
+            position=position, result_set_id=result_set_id,
+            referrer="search_results", view_kind="result",
+        ))
+    target = result_items[0]
+    events.append(event(
+        "detail_view", target, 2_000,
+        position=0, result_set_id=result_set_id,
+        referrer="search_results", view_kind="detail", view_duration_ms=4_000,
+    ))
+    events.append(event(
+        "click", target, 3_000,
+        position=0, result_set_id=result_set_id, referrer="detail_page",
+    ))
+    return events
+
+
 def serialize_event(event: Mapping[str, object]) -> bytes:
     return encode_event(event)
 
@@ -194,6 +248,8 @@ def main():
 
             if PRODUCER_MODE == "behavior":
                 events = make_behavior_slate(users, items)
+            elif PRODUCER_MODE == "search":
+                events = make_search_journey(users, items)
             else:
                 events = [make_click_event(users, items)]
 

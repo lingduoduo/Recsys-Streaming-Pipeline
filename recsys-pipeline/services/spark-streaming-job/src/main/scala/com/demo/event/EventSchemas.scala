@@ -18,7 +18,13 @@ object EventSchemas {
     StructField("item_id", StringType, nullable = true),
     StructField("event_type", StringType, nullable = true),
     StructField("timestamp_ms", LongType, nullable = true),
-    StructField("timestamp", LongType, nullable = true)
+    StructField("timestamp", LongType, nullable = true),
+    StructField("query_id", StringType, nullable = true),
+    StructField("query_text", StringType, nullable = true),
+    StructField("result_set_id", StringType, nullable = true),
+    StructField("referrer", StringType, nullable = true),
+    StructField("view_kind", StringType, nullable = true),
+    StructField("view_duration_ms", LongType, nullable = true)
   )
 
   /** UserEventStreamingJob view: adds event_id. Order matches the original schema. */

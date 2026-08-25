@@ -9,8 +9,9 @@ import java.time.{Instant, ZoneOffset}
 /** Names and shapes for the columnar sequence store. No I/O, no DataFrames beyond
   * `bucketColumn`, so every other component can depend on this without pulling in Redis. */
 object SequenceSchema {
-  val KindRating = "rating"
-  val KindClick  = "click"
+  val KindRating   = "rating"
+  val KindClick    = "click"
+  val KindBehavior = "behavior"
 
   val ColItemId      = "item_id"
   val ColTs          = "ts"

@@ -30,7 +30,7 @@ class DecodedEventBatchSpec extends AnyFlatSpec with Matchers with SparkTestSupp
   }
 
   /** Hand-encodes a payload with the v1 writer schema (not `EventAvroCodec.schema`, which is
-    * v2), so it carries the v1 fingerprint on the wire rather than whatever the codec's current
+    * v3), so it carries the v1 fingerprint on the wire rather than whatever the codec's current
     * default happens to be. */
   private def encodedV1Event(eventId: String): Array[Byte] = {
     val v1Schema = {

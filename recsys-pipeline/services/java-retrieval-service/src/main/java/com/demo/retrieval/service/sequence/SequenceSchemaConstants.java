@@ -16,6 +16,7 @@ public final class SequenceSchemaConstants {
 
     public static final String KIND_RATING = "rating";
     public static final String KIND_CLICK = "click";
+    public static final String KIND_BEHAVIOR = "behavior";
 
     public static final String COL_ITEM_ID = "item_id";
     public static final String COL_TS = "ts";

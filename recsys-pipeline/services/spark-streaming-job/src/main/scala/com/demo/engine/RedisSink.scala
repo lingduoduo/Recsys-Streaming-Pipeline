@@ -3,6 +3,7 @@ package com.demo.engine
 import java.util
 
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.functions.col
 import redis.clients.jedis.Pipeline
 
 import scala.collection.JavaConverters._
@@ -265,7 +266,15 @@ class RedisPopularitySink(
 
   override val sinkIdentity: String = s"redis-popularity:$popularityKey"
 
-  private def counts(batch: DataFrame): DataFrame = batch.groupBy("item_id").count()
+  /** Per-item click counts for one micro-batch.
+    *
+    * The batch now carries the whole behavior stream, so the click filter lives here: a
+    * search or a result view is not evidence that an item is popular, and a search row
+    * carries no item to count in the first place. */
+  private[engine] def counts(batch: DataFrame): DataFrame =
+    batch
+      .filter(col("event_type") === "click" && col("item_id").isNotNull)
+      .groupBy("item_id").count()
 
   override def write(batch: DataFrame, batchId: Long): Unit = {
     val h = host; val pt = port; val mx = poolMax; val key = popularityKey

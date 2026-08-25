@@ -51,7 +51,7 @@ def test_kafka_value_serializer_emits_avro_single_object():
 
     payload = mod.serialize_event(mod.make_click_event(["u"], ["i"]))
 
-    assert payload[:10] == b"\xc3\x01\xb3\x4b\xfe\x80\xe8\xab\x86\xaf"
+    assert payload[:10] == b"\xc3\x01\x09\x8f\x04\x3d\xf0\xce\xbf\xaf"
     assert event_avro.decode_event(payload)["event_type"] == "click"
 
 
@@ -327,3 +327,42 @@ def test_max_events_drains_pending_feedback_before_returning(monkeypatch):
     assert sent_types.count("click") == 2, f"expected both clicks sent, got {sent_types}"
     assert sent_types.count("order") == 2, f"expected both orders sent, got {sent_types}"
     assert len(recorder.sent) == 10, "nothing popped from the schedule may be lost"
+
+
+def test_search_journey_preserves_shared_identity_and_order():
+    """Fails if the journey loses its search-to-click ordering or its shared identities."""
+    mod = load_producer_module()
+
+    events = mod.make_search_journey(["user_1"], ["movie_1", "movie_2"])
+
+    assert [e["event_type"] for e in events] == [
+        "search", "result_view", "result_view", "detail_view", "click"
+    ]
+    assert events[0]["item_id"] is None
+    assert {e["query_id"] for e in events} == {events[0]["query_id"]}
+    assert {e["result_set_id"] for e in events[1:]} == {events[1]["result_set_id"]}
+    assert [e["timestamp_ms"] for e in events] == sorted(e["timestamp_ms"] for e in events)
+
+
+def test_search_journey_events_all_encode_as_canonical_events():
+    """Fails if any journey event would be rejected by the v3 writer contract."""
+    mod = load_producer_module()
+
+    events = mod.make_search_journey(["user_1"], ["movie_1", "movie_2"])
+
+    assert [event_avro.decode_event(mod.serialize_event(e))["event_type"] for e in events] == [
+        "search", "result_view", "result_view", "detail_view", "click"
+    ]
+
+
+def test_search_journey_targets_the_first_result_deterministically():
+    """Fails if the detail view and click drift off the leading result."""
+    mod = load_producer_module()
+
+    events = mod.make_search_journey(["user_1"], ["movie_1", "movie_2"])
+    detail_view, click = events[3], events[4]
+
+    assert [e["item_id"] for e in events[1:3]] == ["movie_1", "movie_2"]
+    assert [e["position"] for e in events[1:3]] == [0, 1]
+    assert detail_view["item_id"] == click["item_id"] == "movie_1"
+    assert len({e["session_id"] for e in events}) == 1

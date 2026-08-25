@@ -4,7 +4,7 @@ import com.demo.engine.{BatchStage, DurableSink, EngineConfig, ExecutionEngine, 
 import com.demo.event.{DecodedEventBatch, EventParsing, FieldGate, Gated}
 import com.demo.sequence.{SequenceBusinessSink, SequenceEncoder, SequenceJobConfig, SequenceSchema, SequenceWriteMode}
 import com.demo.util.{DropMetrics, Env, Reporter, SparkSessions}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 object UserEventStreamingJob {
@@ -16,11 +16,42 @@ object UserEventStreamingJob {
   lazy val spark: SparkSession =
     SparkSessions.create("UserEventStreamingJob", defaultShufflePartitions = 4)
 
-  // Decoding guarantees timestamp_ms; business filtering remains local to this consumer.
+  /** The actions this job records as one user behavior sequence. */
+  val BehavioralActions: Seq[String] = Seq("search", "result_view", "detail_view", "click")
+
+  private def isBlank(field: String): Column = coalesce(trim(col(field)), lit("")) === ""
+
+  /** The v3 context fields the behavioral gate reads, projected as nulls when the decoded
+    * frame has no column for them at all. Resolving a missing column is an analysis error,
+    * not a null, so without this a frame narrower than the current contract would fail the
+    * whole query rather than simply failing the gate the way an absent value does. */
+  private def withBehaviorContext(df: DataFrame): DataFrame =
+    Seq("query_id", "query_text", "result_set_id").foldLeft(df) { (acc, field) =>
+      if (acc.columns.contains(field)) acc else acc.withColumn(field, lit(null).cast("string"))
+    }
+
+  /** Keep the behavioral subset and gate each action on the fields it cannot be read without.
+    *
+    * Non-behavioral actions — recommendation feedback and the rest of `recsys_events` — are
+    * filtered out ahead of the gate rather than rejected by it, so they stay uncounted rather
+    * than showing up as this job's drops. Within the subset the identity rules come first, so
+    * a row with no user is reported as `null_user_id` and not as whatever its action lacked.
+    *
+    * `item_id` is action-specific now that the contract admits itemless searches: demanding
+    * one globally, as this gate used to, would drop every search on the floor.
+    */
   def normalize(df: DataFrame): Gated =
-    FieldGate(df, Seq(
-      "null_user_id" -> col("user_id").isNull,
-      "null_item_id" -> col("item_id").isNull
+    FieldGate(withBehaviorContext(df).filter(col("event_type").isin(BehavioralActions: _*)), Seq(
+      "null_user_id"  -> col("user_id").isNull,
+      "null_event_id" -> col("event_id").isNull,
+      "null_timestamp" -> col("timestamp_ms").isNull,
+      "missing_search_query" ->
+        (col("event_type") === "search" && (col("query_id").isNull || isBlank("query_text"))),
+      "missing_result_identity" ->
+        (col("event_type") === "result_view" &&
+          (col("query_id").isNull || col("result_set_id").isNull)),
+      "missing_behavior_item" ->
+        (col("event_type").isin("result_view", "detail_view", "click") && isBlank("item_id"))
     ))
 
   /** Select the canonical Avro event view and gate unusable business identifiers. */
@@ -30,25 +61,41 @@ object UserEventStreamingJob {
   /** Per-item click counts for one micro-batch (columns: item_id, count). */
   def itemClickCounts(batch: DataFrame): DataFrame = batch.groupBy("item_id").count()
 
-  /** Projects click events into the sequence-store event shape. `timestamp_ms` is already
-    * milliseconds. rating/genres/release_year are null for clicks but still emitted so the
-    * chunk schema is identical across kinds. */
-  def buildSequenceEvents(batch: DataFrame): DataFrame =
+  /** Projects one behavioral row into the sequence-store event shape.
+    *
+    * `timestamp_ms` is already milliseconds. rating/genres/release_year are null for every
+    * behavioral action but still emitted so the chunk schema is identical across kinds.
+    */
+  private def sequenceRows(batch: DataFrame, kind: String, itemId: Column): DataFrame =
     batch
-      .filter(col("user_id").isNotNull && col("item_id").isNotNull && col("timestamp_ms").isNotNull)
+      .filter(col("user_id").isNotNull && col("timestamp_ms").isNotNull)
       .select(
         col("user_id"),
-        lit(SequenceSchema.KindClick).as("kind"),
-        col("item_id"),
+        lit(kind).as("kind"),
+        itemId.as("item_id"),
         col("timestamp_ms").cast("long").as("ts"),
-        lit("click").as("action"),
+        col("event_type").as("action"),
         lit(null).cast("double").as("rating"),
         lit(null).cast("array<string>").as("genres"),
         lit(null).cast("int").as("release_year")
       )
 
-  /** Parse → watermark-dedup on event_id → keep clicks. event_time derived from millis. */
-  def dedupedClicks(
+  /** The unified behavior sequence: every gated action, in one kind, one row each.
+    *
+    * A search has no item, but the columnar sequence store keeps its columns aligned by
+    * position, so the row carries an empty item as a sentinel. Serving omits it; the
+    * canonical event itself keeps `item_id = null`. */
+  def buildBehaviorSequenceEvents(batch: DataFrame): DataFrame =
+    sequenceRows(batch, SequenceSchema.KindBehavior, coalesce(col("item_id"), lit("")))
+
+  /** The legacy click-only sequence, written alongside `behavior` for the length of the
+    * migration so readers that have not moved over keep seeing what they saw before. */
+  def buildClickSequenceEvents(batch: DataFrame): DataFrame =
+    sequenceRows(batch.filter(col("event_type") === "click" && col("item_id").isNotNull),
+      SequenceSchema.KindClick, col("item_id"))
+
+  /** Parse → behavioral gate → watermark-dedup on event_id. event_time derived from millis. */
+  def behavioralEvents(
       raw: DataFrame,
       watermarkDelay: String,
       batchId: Long = -1L,
@@ -58,7 +105,6 @@ object UserEventStreamingJob {
     // timestamp_millis keeps full precision and involves no zone; the old
     // to_timestamp(from_unixtime(...)) round trip collapsed a DST fall-back hour onto one instant.
     EventParsing.dedupeWithinWatermark(valid, timestamp_millis(col("timestamp_ms")), watermarkDelay)
-      .filter(col("event_type") === "click")
   }
 
   def businessSinks(
@@ -78,7 +124,20 @@ object UserEventStreamingJob {
       redisPoolMaxTotal,
       redisPipelineSize,
       SequenceWriteMode.Append,
-      (batch: DataFrame) => SequenceEncoder.toColumnChunks(buildSequenceEvents(batch)),
+      (batch: DataFrame) => SequenceEncoder.toColumnChunks(buildBehaviorSequenceEvents(batch)),
+      "sequence:user-behavior"),
+    // A separate instance, so the two sequences keep independent commit ledgers and neither
+    // can mark the other's batch complete. The legacy sink keeps the identity it has always
+    // had: renaming it would orphan its ledger and re-append a replayed batch as duplicate
+    // click history.
+    new SequenceBusinessSink(
+      sequenceConfig,
+      redisHost,
+      redisPort,
+      redisPoolMaxTotal,
+      redisPipelineSize,
+      SequenceWriteMode.Append,
+      (batch: DataFrame) => SequenceEncoder.toColumnChunks(buildClickSequenceEvents(batch)),
       "sequence:user-event"))
 
   def main(args: Array[String]): Unit = {
@@ -116,14 +175,14 @@ object UserEventStreamingJob {
     )
     // A batch stage rather than a streaming stage so the gate can name its batch.
     val streamingStages: Seq[Stage] = Seq.empty
-    val clickStage: Seq[BatchStage] =
-      Seq((df: DataFrame, id: Long) => dedupedClicks(df, cfg.watermarkDelay, id))
+    val behaviorStage: Seq[BatchStage] =
+      Seq((df: DataFrame, id: Long) => behavioralEvents(df, cfg.watermarkDelay, id))
     val sinks: Seq[Sink] = businessSinks(
       redisHost, redisPort, redisPoolMaxTotal, sequenceConfig, redisPipelineSize,
       ledgerRetentionBatches)
 
     ExecutionEngine.run(
       spark, cfg, KafkaSource, DecodedEventBatch.decode _, archive,
-      streamingStages, clickStage, sinks)
+      streamingStages, behaviorStage, sinks)
   }
 }
