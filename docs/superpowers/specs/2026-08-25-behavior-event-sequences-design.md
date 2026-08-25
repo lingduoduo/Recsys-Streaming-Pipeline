@@ -10,7 +10,7 @@ The canonical event contract exposes an unrestricted `event_type`, but has no ty
 
 ## Compatibility Strategy
 
-The canonical Avro record gains nullable fields with defaults, preserving compatibility with existing producers and consumers:
+The canonical Avro record gains nullable fields with defaults, preserving compatibility with existing producers and tolerant consumers. `item_id` changes from required `string` to `["null", "string"]` with a null default because searches are user actions without an item. Existing item-dependent consumers already gate null item IDs; the generalized user-event consumer replaces its global item gate with action-specific validation.
 
 - `query_id`: stable identity for a search or its result set.
 - `query_text`: raw query text for the initial foundation; downstream privacy controls may normalize or redact it.
@@ -40,7 +40,7 @@ Invalid behavioral events are excluded from business sinks and reported through 
 
 Each behavior row uses the existing ordered columnar representation:
 
-- `item_id`: actual item ID for item-bearing actions; an empty sentinel for search actions because the current sequence schema requires aligned item columns.
+- `item_id`: actual item ID for item-bearing actions; an empty sentinel only inside the sequence row for search actions because the current sequence schema requires aligned columns. The canonical search event itself keeps `item_id = null`.
 - `ts`: canonical event timestamp in milliseconds.
 - `action`: behavioral action name.
 - Existing rating, genres, and release-year columns remain null.
@@ -100,4 +100,3 @@ Implementation follows test-driven development:
 - A closed-loop behavior simulator with evolving latent state.
 - Query normalization, privacy classification, retention, and redaction beyond the raw optional field introduced here.
 - A dedicated temporal representation model rather than mapping behavior into legacy recent-item history.
-
