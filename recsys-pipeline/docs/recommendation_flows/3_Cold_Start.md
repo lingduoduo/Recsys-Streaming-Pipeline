@@ -50,7 +50,6 @@ The retrieval service is a natural starting point for a cold-start RL project: i
 
 1. ✅ **Baseline** *(implemented)*
    - Content-based retrieval from genres, tags, popularity, and embeddings
-   - Offline ONNX MLP score (`DeepLearningPredictionService`) blended via `deep-learning-weight`
    - Online reward model (`OnlineLearningService`) updated from the feedback stream
    - UCB/Thompson bandit exploration for low-exposure and cold-start items
    - Replay buffer storing `(user, context, candidates, action, reward, timestamp)`

@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -84,8 +83,6 @@ public class HybridRecommendationService {
 
     private final StringRedisTemplate redis;
     private final RecommendationProperties properties;
-    private final DeepLearningPredictionService predictionService;
-    private final TwoTowerPredictionService twoTowerPredictionService;
     private final OnlineLearningService onlineLearningService;
     private final FeatureCache featureCache;
     private final List<QueryHydrator<ScoredMoviesQuery>> queryHydrators;
@@ -100,32 +97,26 @@ public class HybridRecommendationService {
     public HybridRecommendationService(
         StringRedisTemplate redis,
         RecommendationProperties properties,
-        DeepLearningPredictionService predictionService,
         OnlineLearningService onlineLearningService,
         FeatureCache featureCache,
-        List<QueryHydrator<ScoredMoviesQuery>> queryHydrators,
-        TwoTowerPredictionService twoTowerPredictionService
+        List<QueryHydrator<ScoredMoviesQuery>> queryHydrators
     ) {
         this(
-            redis, properties, predictionService, onlineLearningService, featureCache, queryHydrators,
-            twoTowerPredictionService, RecommendationMeasurementService.noOp());
+            redis, properties, onlineLearningService, featureCache, queryHydrators,
+            RecommendationMeasurementService.noOp());
     }
 
     @Autowired
     public HybridRecommendationService(
         StringRedisTemplate redis,
         RecommendationProperties properties,
-        DeepLearningPredictionService predictionService,
         OnlineLearningService onlineLearningService,
         FeatureCache featureCache,
         List<QueryHydrator<ScoredMoviesQuery>> queryHydrators,
-        TwoTowerPredictionService twoTowerPredictionService,
         RecommendationMeasurementService measurementService
     ) {
         this.redis = redis;
         this.properties = properties;
-        this.predictionService = predictionService;
-        this.twoTowerPredictionService = twoTowerPredictionService;
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
@@ -209,21 +200,6 @@ public class HybridRecommendationService {
         List<ScoredCandidate> scored = measurementService.timeStage("scoring", () -> {
             double[] userVector = resolveUserVector(user, recent, rated);
             Map<String, Double> relevanceScores = batchRelevanceScores(userVector, redisFetch.eligibleList());
-            boolean deepLearningEnabled = properties.getBandit().getDeepLearningWeight() > 0.0;
-            Map<String, Double> dlScoresRaw = deepLearningEnabled
-                ? predictionService.predictBatch(user, redisFetch.eligibleList())
-                : Map.of();
-            if (deepLearningEnabled && twoTowerPredictionService.isEnabled()) {
-                Map<String, Double> twoTowerScores = twoTowerPredictionService.predictBatch(user, redisFetch.eligibleList());
-                if (!twoTowerScores.isEmpty()) {
-                    Map<String, Double> merged = new HashMap<>();
-                    dlScoresRaw.forEach((item, score) -> merged.put(item, RecommendationConstants.clamp(score)));
-                    twoTowerScores.forEach((item, score) ->
-                        merged.merge(item, RecommendationConstants.clamp(score), Math::max));
-                    dlScoresRaw = Map.copyOf(merged);
-                }
-            }
-            final Map<String, Double> dlScores = dlScoresRaw;
             return movieLensOutcomeScorer.applyDiversity(redisFetch.eligibleList().stream()
                 .map(item -> {
                     long[] c = redisFetch.counters().getOrDefault(item, new long[]{0L, 0L});
@@ -232,7 +208,7 @@ public class HybridRecommendationService {
                         redisFetch.genrePreferences(), redisFetch.tagPreferences(),
                         redisFetch.popularityMap().getOrDefault(item, 0.0),
                         redisFetch.maxPopularity(), redisFetch.totalImpressions(), c[0], c[1],
-                        dlScores.getOrDefault(item, 0.0), redisFetch.qValues().get(item), tabularRl);
+                        redisFetch.qValues().get(item), tabularRl);
                 })
                 .toList());
         });
@@ -297,7 +273,6 @@ public class HybridRecommendationService {
                 row.put("estimatedReward", round(candidate.estimatedReward()));
                 row.put("relevanceScore", round(candidate.relevanceScore()));
                 row.put("contentScore", round(candidate.contentScore()));
-                row.put("dlScore", round(candidate.dlScore()));
                 row.put("qValue", round(candidate.qValue()));
                 row.put("rewardModelScore", round(candidate.onlineScore()));
                 row.put("weightedOutcomeScore", round(candidate.weightedOutcomeScore()));
@@ -455,7 +430,6 @@ public class HybridRecommendationService {
         long totalImpressions,
         long impressions,
         long clicks,
-        double dlScore,
         Double qValue,
         boolean tabularRl
     ) {
@@ -468,8 +442,7 @@ public class HybridRecommendationService {
         double offlineScore = RecommendationConstants.blendOfflineScore(
             properties.getBandit().getRelevanceWeight(), normalizeScore(relevance),
             properties.getBandit().getContentWeight(), content,
-            properties.getBandit().getPopularityWeight(), popularity,
-            properties.getBandit().getDeepLearningWeight(), dlScore);
+            properties.getBandit().getPopularityWeight(), popularity);
         double onlineScore = onlineLearningService.score(itemId, movieProfile, offlineScore);
         double onlineWeight = clamp(properties.getRewardModel().getWeight());
         double learnedPrior = (offlineScore * (1.0 - onlineWeight)) + (onlineScore * onlineWeight);
@@ -487,7 +460,6 @@ public class HybridRecommendationService {
             baseRankingScore,
             armScore.explorationBonus(),
             novelty,
-            dlScore,
             qValue == null ? 0.0 : qValue,
             impressions,
             clicks
@@ -510,7 +482,6 @@ public class HybridRecommendationService {
             novelty,
             impressions,
             clicks,
-            dlScore,
             qValue == null ? 0.0 : qValue,
             scoring.weightedOutcomeScore(),
             scoring.predictionScore(),
@@ -594,7 +565,6 @@ public class HybridRecommendationService {
 
     private Map<String, Object> modelPredictions(ScoredCandidate candidate) {
         Map<String, Object> predictions = new LinkedHashMap<>();
-        predictions.put("deepLearningScore", round(candidate.dlScore()));
         predictions.put("qValue", round(candidate.qValue()));
         predictions.put("rewardModelScore", round(candidate.onlineScore()));
         predictions.put("estimatedReward", round(candidate.estimatedReward()));
@@ -1162,7 +1132,6 @@ public class HybridRecommendationService {
         double noveltyScore,
         long impressions,
         long clicks,
-        double dlScore,
         double qValue,
         double weightedOutcomeScore,
         double predictionScore,
@@ -1195,7 +1164,6 @@ public class HybridRecommendationService {
                 noveltyScore,
                 impressions,
                 clicks,
-                dlScore,
                 qValue,
                 weightedOutcomeScore,
                 predictionScore,

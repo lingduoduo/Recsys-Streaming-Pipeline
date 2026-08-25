@@ -40,31 +40,26 @@ public final class RecommendationConstants {
     }
 
     /**
-     * Blend the four offline components into a proper convex combination in {@code [0, 1]}.
+     * Blend the three offline components into a proper convex combination in {@code [0, 1]}.
      *
-     * <p>The configured weights do not necessarily sum to 1.0 (the defaults sum to 1.15), so a raw
-     * weighted sum can exceed 1.0 and be silently clipped downstream, flattening the top of the
-     * score range. Normalizing by the weight sum keeps the configured ratios while guaranteeing the
-     * result stays in range. The deep-learning score is clamped here because its ONNX source
-     * ({@code ln.onnx}) has no bounded output activation, unlike the other three components which
-     * are already normalized by their callers.
+     * <p>The configured weights do not necessarily sum to 1.0, so a raw weighted sum can exceed 1.0
+     * and be silently clipped downstream, flattening the top of the score range. Normalizing by the
+     * weight sum keeps the configured ratios while guaranteeing the result stays in range.
      *
      * @return the normalized offline score, or {@link #SCORE_LOWER_BOUND} when all weights are zero.
      */
     public static double blendOfflineScore(
         double relevanceWeight, double relevance,
         double contentWeight, double content,
-        double popularityWeight, double popularity,
-        double deepLearningWeight, double deepLearningScore
+        double popularityWeight, double popularity
     ) {
-        double weightSum = relevanceWeight + contentWeight + popularityWeight + deepLearningWeight;
+        double weightSum = relevanceWeight + contentWeight + popularityWeight;
         if (weightSum <= 0.0) {
             return SCORE_LOWER_BOUND;
         }
         double weighted = (relevanceWeight * clamp(relevance))
             + (contentWeight * clamp(content))
-            + (popularityWeight * clamp(popularity))
-            + (deepLearningWeight * clamp(deepLearningScore));
+            + (popularityWeight * clamp(popularity));
         return clamp(weighted / weightSum);
     }
 }

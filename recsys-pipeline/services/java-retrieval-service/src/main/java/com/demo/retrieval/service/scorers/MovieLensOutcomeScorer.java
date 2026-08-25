@@ -11,10 +11,12 @@ public class MovieLensOutcomeScorer {
     private static final double DIVERSITY_FLOOR = 0.55;
     private static final double NO_DIVERSITY_MULTIPLIER = 1.0;
 
-    // Exploitation blend applied to the ranking score in score() (weights sum to 1.0).
+    // Exploitation blend applied to the ranking score in score() (weights sum to 0.85).
+    // They summed to 1.0 only on paper: the fourth term was a deep-learning score that was always
+    // 0.0 at runtime, so the reachable maximum has always been 0.85. The remaining weights are
+    // deliberately NOT renormalized -- renormalizing would change every score in the service.
     static final double EXPLOITATION_BANDIT_WEIGHT = 0.55;
     static final double EXPLOITATION_OUTCOME_WEIGHT = 0.25;
-    static final double EXPLOITATION_DL_WEIGHT = 0.15;
     static final double EXPLOITATION_Q_WEIGHT = 0.05;
 
     // Estimated-reward blend in score() (weights sum to 1.0).
@@ -35,7 +37,6 @@ public class MovieLensOutcomeScorer {
         double weightedOutcome = weightedOutcome(probabilities);
         double exploitation = EXPLOITATION_BANDIT_WEIGHT * input.banditRankingScore()
             + EXPLOITATION_OUTCOME_WEIGHT * weightedOutcome
-            + EXPLOITATION_DL_WEIGHT * clamp(input.dlScore())
             + EXPLOITATION_Q_WEIGHT * clamp(input.qValue());
         double predictionScore = clamp(exploitation + input.explorationBonus());
         double estimatedReward = clamp(ESTIMATED_REWARD_POSTERIOR_WEIGHT * input.posteriorMean()
@@ -83,7 +84,6 @@ public class MovieLensOutcomeScorer {
             + 1.20 * clamp(input.relevance())
             + 0.85 * clamp(input.content())
             + 0.65 * clamp(input.popularity())
-            + 0.75 * clamp(input.dlScore())
             + 0.55 * smoothedCtr
             + 0.20 * novelty;
 
@@ -149,7 +149,6 @@ public class MovieLensOutcomeScorer {
         double banditRankingScore,
         double explorationBonus,
         double noveltyScore,
-        double dlScore,
         double qValue,
         long impressions,
         long clicks

@@ -3,7 +3,7 @@
 `recsys-pipeline` is a recommendation-system playground organized around three pipelines:
 
 - **Data pipeline** — Spark Structured Streaming jobs that ingest Kafka click and behavior events, join impressions with feedback into feature+label training samples, train Item2Vec and ALS embeddings from historical ratings, and keep per-user history and global item popularity fresh in Redis.
-- **Model prediction pipeline** — A Spring Boot retrieval service that loads pre-trained ONNX models and embedding configs at startup, combines offline embedding scores with an online reward model, and serves ranked recommendations through a REST API.
+- **Model prediction pipeline** — A Spring Boot retrieval service that loads a pre-trained ONNX model and embedding configs at startup, combines offline embedding scores with an online reward model, and serves ranked recommendations through a REST API.
 - **Experiment pipeline** — A bandit-based evaluation layer (UCB, Thompson Sampling, Q-learning, SARSA) that tracks per-algorithm click-through and reward metrics, maintains a replay buffer for offline analysis, and supports hot-swapping model artifacts without redeployment.
 
 ## Service Layout
@@ -13,8 +13,8 @@ All independently runnable application code lives under `services/`:
 | Service | Build tool | Responsibility |
 |---|---|---|
 | `services/spark-streaming-job` | sbt | Streaming ingestion, feature joins, offline embedding training, and candidate pre-computation |
-| `services/java-retrieval-service` | Maven | Loads ONNX models and embedding configs at startup, scores candidates, runs bandit evaluation (UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST |
-| `services/python-modeling` | pip / pytest | Synthetic event producer, MovieLens two-tower training, ONNX model export, and evaluation utilities |
+| `services/java-retrieval-service` | Maven | Loads an ONNX model and embedding configs at startup, scores candidates, runs bandit evaluation (UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST |
+| `services/python-modeling` | pip / pytest | Synthetic event producer, replay export, post-training policy scripts, and evaluation utilities |
 
 Infrastructure, shared sample data, and orchestration scripts remain at the `recsys-pipeline` root.
 
@@ -33,7 +33,7 @@ For each incoming request, the retrieval service executes nine steps in order:
 3. **Generate cold-start candidates** — adds extra candidates from the configured catalog for users or items with no exposure history (see [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md)).
 4. **Filter** — `CandidateFilter` drops seen, blocked, muted, and otherwise ineligible candidates (see [4_Filtering.md](docs/recommendation_flows/4_Filtering.md)).
 5. **Hydrate candidates** — `CandidateHydrator` enriches surviving candidates with engagement counts, in-network signals, MinHash Jaccard similarity, and visibility flags (see [5_Candidate_Hydration.md](docs/recommendation_flows/5_Candidate_Hydration.md)).
-6. **Score** — combines all three scoring stages: offline ONNX score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md)).
+6. **Score** — combines all three scoring stages: offline embedding score, online reward-model estimate, and bandit arm score (see [6_Predicting_Scoring.md](docs/recommendation_flows/6_Predicting_Scoring.md)).
 7. **Randomize** — shuffles the top scoring pool slightly to avoid deterministic repetition (see [7_Shuffling.md](docs/recommendation_flows/7_Shuffling.md)).
 8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](docs/recommendation_flows/8_Store_Context.md)).
 9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](docs/recommendation_flows/9_Track_Metrics.md)).
@@ -53,9 +53,7 @@ real-time job path (producer + streaming jobs), and the offline embedding-traini
 ### Model Prediction Pipeline
 
 ```text
-movielens_pipeline.py ──► two-tower retrieval + transformer ranking ──► sampledata/*.onnx
-
-sampledata/*.onnx ──────────────────────────────────────────────┐
+mlp_embedding_model.onnx (bundled classpath resource) ──────────┐
 Redis: embeddings, user history, candidate lists ───────────────┼──► java-retrieval-service  (FeatureCache / Caffeine)
 Redis: reward stats, bandit counters ───────────────────────────┘          │
                                                                             ├──► GET  /recommend/{user}
@@ -76,7 +74,7 @@ POST /feedback ──► online reward update ──► Redis reward-model:{item
                └──► Redis replay:recommendations  (replay buffer)
                              │
                              ▼
-                    run-retrain.sh ──► retrain embeddings + model ──► POST /actuator/model-reload  (hot-swap)
+                    run-retrain.sh ──► retrain embeddings
 
 GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learning vs SARSA)
 ```
@@ -88,13 +86,13 @@ Feature data is split across three tiers by access pattern and update frequency.
 
 | Tier | Contents | Updated by |
 |------|----------|------------|
-| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), two-tower ONNX models (`movielens_user_tower.onnx`, `movielens_item_tower.onnx`, `movielens_ranking.onnx`), Parquet training samples partitioned by date | Training jobs; swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild |
-| **Redis** | User click history, global item popularity, per-user columnar rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`, `twoTowerItemEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
+| **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Model and lookups bundled at build time, swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild; Parquet training samples written by the Spark streaming jobs on every micro-batch |
+| **Redis** | User click history, global item popularity, per-user columnar rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
 | **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
 
 The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
 
-**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the MLP model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default). To enable the two-tower scoring path, set `ONNX_USER_TOWER_PATH`, `ONNX_ITEM_TOWER_PATH`, and `ONNX_RANKING_PATH` to the three ONNX files exported by `movielens_pipeline.py`.
+**Disk model hot-swap** — set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` to replace the MLP model artifacts on the filesystem without rebuilding the JAR. The service falls back to classpath resources when the env vars are unset (the development and test default).
 
 ---
 
@@ -220,32 +218,6 @@ curl http://localhost:8080/users/user_1/profile
 curl http://localhost:8080/metrics
 ```
 
-**Standalone alternative** — run the Python two-stage pipeline (two-tower retrieval + transformer ranking) without Spark or the Java service:
-
-```bash
-pip install torch onnx onnxruntime numpy
-python services/python-modeling/movielens_pipeline.py
-```
-
-The first run trains and exports the three ONNX models; later runs reuse them. Optional flags:
-
-```bash
-python services/python-modeling/movielens_pipeline.py --user alice --top-k 5
-python services/python-modeling/movielens_pipeline.py --user alice --user bob
-python services/python-modeling/movielens_pipeline.py --force-train --model-dir /tmp/movielens-models
-
-# Train from a real ratings CSV instead of the built-in synthetic catalog:
-python services/python-modeling/movielens_pipeline.py \
-    --ratings-csv sampledata/ratings.csv \
-    --force-train
-
-# Train, then write item embeddings to Redis (enables TwoTowerPredictionService):
-python services/python-modeling/movielens_pipeline.py \
-    --ratings-csv sampledata/ratings.csv \
-    --save-embeddings-to-redis \
-    --redis-host localhost
-```
-
 Run the cross-service integration tests:
 
 ```bash
@@ -256,21 +228,18 @@ pytest -q
 
 ## Automated Retraining
 
-The `run-retrain.sh` script runs a full retraining pass and hot-reloads the ONNX model into the running Java service. It chains five stages:
+The `run-retrain.sh` script runs a full embedding-retraining pass. It chains four stages:
 
 1. **Replay export** — reads `replay:recommendations` from Redis and writes `sampledata/replay_training.csv`
-2. **Spark ALS** — regenerates ALS item/user embeddings and writes them to Redis
-3. **Spark UserEmbedding** — regenerates weighted-average user vectors in Redis
-4. **Python two-tower** — fine-tunes the two-tower model on the merged dataset and writes item embeddings to Redis under the `twoTowerItemEmb:*` prefix
-5. **Model hot-reload** — calls `POST /actuator/model-reload` to swap the ONNX model in the running Java service without restart
+2. **Spark Item2Vec** — regenerates item embeddings (file + Redis)
+3. **Spark ALS** — regenerates ALS item/user embeddings and writes them to Redis
+4. **Spark UserEmbedding** — regenerates weighted-average user vectors in Redis
 
 ### Run it
 
 ```bash
-./scripts/run-retrain.sh                       # all five stages
-./scripts/run-retrain.sh --skip-spark          # Python + reload only
-./scripts/run-retrain.sh --skip-python         # Spark + reload only
-./scripts/run-retrain.sh --skip-reload         # train without hot-reload (offline mode)
+./scripts/run-retrain.sh                       # all four stages
+./scripts/run-retrain.sh --skip-spark          # replay export only
 DRY_RUN=1 ./scripts/run-retrain.sh             # print each step; execute nothing
 ```
 
@@ -298,9 +267,7 @@ To add the entry manually instead:
 |----------|---------|-------------|
 | `REDIS_HOST` | `localhost` | Redis server hostname |
 | `REDIS_PORT` | `6379` | Redis server port |
-| `RECSYS_SERVICE_URL` | `http://localhost:8080` | Java retrieval service URL |
 | `RATINGS_CSV` | `sampledata/ratings.csv` | Base training data |
-| `MODEL_DIR` | `sampledata` | ONNX output directory |
 | `DRY_RUN` | `0` | Set to `1` to print steps without executing |
 
 ### Replay Buffer Export
@@ -344,11 +311,6 @@ classpath resources. When unset, falls back to classpath (the development and te
 |---|---|---|
 | `ONNX_MODEL_PATH` | *(classpath)* | `mlp_embedding_model.onnx` — `DeepLearningPredictionService` |
 | `ONNX_LOOKUPS_PATH` | *(classpath)* | `mlp_embedding_lookups.json` |
-| `ONNX_USER_TOWER_PATH` | *(unset)* | `movielens_user_tower.onnx`, exported by `movielens_pipeline.py` |
-| `ONNX_ITEM_TOWER_PATH` | *(unset)* | `movielens_item_tower.onnx` |
-| `ONNX_RANKING_PATH` | *(unset)* | `movielens_ranking.onnx` (transformer re-ranker) |
-
-`TwoTowerPredictionService` stays disabled unless all three tower paths are set.
 
 ### In-memory cache (FeatureCache)
 
@@ -382,7 +344,6 @@ Each property is overridden at runtime by the env var in the same row.
 | `recsys.bandit.relevance-weight` | `RECSYS_RELEVANCE_WEIGHT` | `0.6` |
 | `recsys.bandit.content-weight` | `RECSYS_CONTENT_WEIGHT` | `0.25` |
 | `recsys.bandit.popularity-weight` | `RECSYS_POPULARITY_WEIGHT` | `0.15` |
-| `recsys.bandit.deep-learning-weight` | `RECSYS_DEEP_LEARNING_WEIGHT` | `0.0` |
 | `recsys.bandit.q-learning-alpha` | `RECSYS_Q_LEARNING_ALPHA` | `0.1` |
 | `recsys.bandit.q-learning-gamma` | `RECSYS_Q_LEARNING_GAMMA` | `0.9` |
 | `recsys.bandit.q-learning-epsilon` | `RECSYS_Q_LEARNING_EPSILON` | `0.1` |
@@ -602,8 +563,8 @@ commands.
 | Service | Command (from repo root) | Covers |
 |---|---|---|
 | Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
-| Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, behavioral-profile fixture contract, two-tower, catalog loader, model reload; real-Redis tests skip when Docker is unavailable |
-| Python | `cd recsys-pipeline && pytest -q` | Producers, MovieLens pipeline, replay export, the simulation harnesses, and the analysis reports (query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
+| Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, behavioral-profile fixture contract, catalog loader, model reload; real-Redis tests skip when Docker is unavailable |
+| Python | `cd recsys-pipeline && pytest -q` | Producers, replay export, the simulation harnesses, and the analysis reports (query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
 
 The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform
 (no Kafka/Redis needed). Some Python integration tests shell out to `"$SPARK_HOME/bin/spark-submit"`
@@ -648,9 +609,10 @@ Java Retrieval Service (Spring Boot :8080)
     GET /recommend/{user}   ·   POST /feedback → reward update (→ Redis)
     │
     ├── HybridRecommendationService    embedding cosine + content overlap + popularity + bandit
-    ├── OnlineLearningService          Redis reward stats · UCB / Thompson / Q-learning / SARSA
-    ├── DeepLearningPredictionService  mlp_embedding_model.onnx (classpath; blend weight 0.0 by default, opt-in)
-    └── TwoTowerPredictionService      movielens_*_tower.onnx (opt-in: set ONNX_*_TOWER_PATH)
+    └── OnlineLearningService          Redis reward stats · UCB / Thompson / Q-learning / SARSA
+
+    GET /predict/{user}/{item}, /predict/id, /predict/metadata   (standalone; not part of /recommend)
+    └── DeepLearningPredictionService  mlp_embedding_model.onnx (classpath; opt-in disk override via ONNX_MODEL_PATH)
 
 Offline modeling (Spark — manually triggered)          writes embeddings → Redis (read by the serving path above)
 ──────────────────────────────────────────────
@@ -658,11 +620,6 @@ ratings.csv
     ├── Item2VecTrainingJob        → Redis i2vEmb:{movieId} (optional) + sampledata/item_embedding.txt
     ├── AlsEmbeddingTrainingJob    → Redis alsItemEmb:{movieId}, alsUserEmb:{userId}
     └── UserEmbeddingTrainingJob   → Redis uEmb:{userId}   (needs item_embedding.txt)
-
-ratings.csv (+ replay CSV)
-    └── movielens_pipeline.py      train_two_tower() + train_ranking()
-            → sampledata/movielens_{user,item}_tower.onnx, movielens_ranking.onnx
-            → Redis embeddings (--save-embeddings-to-redis)
 
 Training-data pipeline (Spark streaming)               second consumer of recsys_events (above)
 ────────────────────────────────────────
@@ -687,7 +644,6 @@ Kafka: training_samples
 | `spark-streaming-job` · `OnlineJoinerStreamingJob` | Scala / Spark | Data | Joins `recsys_events` into feature+label training samples |
 | `spark-streaming-job` · `ExperienceCollectorStreamingJob` | Scala / Spark | Data | Reconstructs request-level slates (`training_experiences`) |
 | `spark-streaming-job` · Item2Vec / ALS / UserEmbedding jobs | Scala / Spark | Modeling | Train item/user embeddings from rating sequences |
-| `services/python-modeling/movielens_pipeline.py` | Python | Modeling | Two-tower training + ONNX export |
 | `services/java-retrieval-service` | Java / Spring Boot | Experiment | REST API serving hybrid recommendations + bandit RL |
 
 The platform runs as **three pipelines**. The workflow immediately below is the one canonical
@@ -920,15 +876,13 @@ the remaining diagnostics use the paths shown.
 
 ---
 
-## Optional reference: modeling pipeline — Spark embeddings + Python two-tower → ONNX
+## Optional reference: modeling pipeline — Spark embeddings
 
-This optional reference trains embeddings offline and produces the ONNX model the retrieval
-service serves. Both halves are documented above rather than repeated here:
+This optional reference trains embeddings offline for the retrieval service. Documented above
+rather than repeated here:
 
-- **Offline embeddings** (Item2Vec, ALS, user vectors) and the standalone two-tower/ONNX export —
-  [Quick Start Step 1](#step-1--offline-embeddings).
-- **Replay export, full retrain, and the `POST /actuator/model-reload` hot-swap** —
-  [Automated Retraining](#automated-retraining).
+- **Offline embeddings** (Item2Vec, ALS, user vectors) — [Quick Start Step 1](#step-1--offline-embeddings).
+- **Replay export and embedding retrain** — [Automated Retraining](#automated-retraining).
 
 ---
 

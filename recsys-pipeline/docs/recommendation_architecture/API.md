@@ -33,7 +33,6 @@ curl 'http://localhost:8080/recommend/user_1?limit=6'
       "estimatedReward": 0.71,
       "relevanceScore": 0.62,
       "contentScore": 0.67,
-      "dlScore": 0.74,
       "rewardModelScore": 0.58,
       "explorationBonus": 0.19,
       "banditScore": 0.78,

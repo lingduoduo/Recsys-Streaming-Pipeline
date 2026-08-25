@@ -31,12 +31,11 @@ class MovieLensOutcomeScorerTest {
 
     @Test
     void convexBlendWeightsSumToOne() {
-        assertEquals(1.0,
+        assertEquals(0.85,
             MovieLensOutcomeScorer.EXPLOITATION_BANDIT_WEIGHT
             + MovieLensOutcomeScorer.EXPLOITATION_OUTCOME_WEIGHT
-            + MovieLensOutcomeScorer.EXPLOITATION_DL_WEIGHT
             + MovieLensOutcomeScorer.EXPLOITATION_Q_WEIGHT, 1e-9,
-            "exploitation blend must stay convex");
+            "exploitation blend must stay at the reachable maximum it has always had");
         assertEquals(1.0,
             MovieLensOutcomeScorer.ESTIMATED_REWARD_POSTERIOR_WEIGHT
             + MovieLensOutcomeScorer.ESTIMATED_REWARD_OUTCOME_WEIGHT, 1e-9,
@@ -48,6 +47,33 @@ class MovieLensOutcomeScorerTest {
             + MovieLensOutcomeScorer.OUTCOME_WATCH_WEIGHT
             + MovieLensOutcomeScorer.OUTCOME_NOVEL_DISCOVERY_WEIGHT, 1e-9,
             "positive-outcome weights must stay convex");
+    }
+
+    // ---- Characterization: pinned before the deep-learning terms were removed -----------------
+    // This class was never gated by deepLearningWeight -- it applied a hardcoded 0.15 to
+    // input.dlScore() directly, and was inert only because dlScore was always 0.0 at runtime. The
+    // input below was pinned at that value, the only one that ever occurred, so both numbers below
+    // are the same ones the scorer produced before the deep-learning terms were removed.
+    @Test
+    void scoringCharacterized() {
+        MovieLensOutcomeScorer scorer = new MovieLensOutcomeScorer();
+        ScoringResult result = scorer.score(
+            new ScoringInput(
+                "m1",
+                0.70,   // relevance
+                0.50,   // content
+                0.40,   // popularity
+                0.30,   // posteriorMean
+                0.60,   // banditRankingScore
+                0.05,   // explorationBonus
+                0.20,   // noveltyScore
+                0.10,   // qValue
+                40L,    // impressions
+                8L      // clicks
+            ));
+
+        assertEquals(0.5182932849671755, result.predictionScore(), 1e-9);
+        assertEquals(0.38161059895404564, result.estimatedReward(), 1e-9);
     }
 
     private static ScoringInput input(
@@ -67,7 +93,6 @@ class MovieLensOutcomeScorerTest {
             0.5,
             0.1,
             novelty,
-            0.0,
             0.0,
             impressions,
             clicks

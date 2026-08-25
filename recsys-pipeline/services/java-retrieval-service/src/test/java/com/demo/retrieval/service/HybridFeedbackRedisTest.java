@@ -18,16 +18,12 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -78,18 +74,12 @@ class HybridFeedbackRedisTest {
         properties.getBandit().setAlgorithm("q-learning");
         properties.setCatalog(new LinkedHashMap<>());
         FeatureCache featureCache = new FeatureCache(properties);
-        DeepLearningPredictionService dl = mock(DeepLearningPredictionService.class);
-        when(dl.predictBatch(any(), any())).thenReturn(Map.of());
-        when(dl.predict(any(), any())).thenReturn(Optional.empty());
-        TwoTowerPredictionService twoTower = mock(TwoTowerPredictionService.class);
-        when(twoTower.isEnabled()).thenReturn(false);
         return new HybridRecommendationService(
-            redis, properties, dl,
+            redis, properties,
             new OnlineLearningService(redis, properties, featureCache),
             featureCache,
             List.of(new MovieLensUserHistoryQueryHydrator(
-                userId -> new UserMovieHistory(List.of(), List.of()))),
-            twoTower);
+                userId -> new UserMovieHistory(List.of(), List.of()))));
     }
 
     private double qValue(String item) {

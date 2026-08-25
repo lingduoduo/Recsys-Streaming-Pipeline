@@ -16,8 +16,6 @@ derby.log
 recsys-pipeline/sampledata/embedding.txt
 recsys-pipeline/sampledata/user_embedding.txt
 recsys-pipeline/sampledata/als/
-recsys-pipeline/sampledata/movielens_*.onnx
-recsys-pipeline/sampledata/movielens_*.onnx.data
 recsys-pipeline/__pycache__/
 recsys-pipeline/**/__pycache__/
 recsys-pipeline/**/*.pyc
