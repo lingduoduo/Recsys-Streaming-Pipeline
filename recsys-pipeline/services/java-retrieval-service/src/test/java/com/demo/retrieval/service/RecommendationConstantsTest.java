@@ -57,4 +57,31 @@ class RecommendationConstantsTest {
         assertEquals(1.0, RecommendationConstants.clamp(2.0));
         assertTrue(RecommendationConstants.clamp(0.42) == 0.42);
     }
+
+    // ---- Characterization: pinned before the deep-learning path is removed --------------------
+    // The expected value is written as explicit arithmetic over the SURVIVING weights only, so
+    // this assertion is unchanged when the two deep-learning parameters are dropped. If the number
+    // still matches after the removal, no score moved.
+    @Test
+    void offlineBlendCharacterizedAtTheProductionDeepLearningWeight() {
+        double expected = (0.6 * 0.8 + 0.25 * 0.5 + 0.15 * 0.4) / (0.6 + 0.25 + 0.15);
+        double actual = RecommendationConstants.blendOfflineScore(
+            0.6, 0.8,
+            0.25, 0.5,
+            0.15, 0.4,
+            0.0, 0.9   // deep-learning weight 0.0 is the production default
+        );
+        assertEquals(expected, actual, 1e-12);
+    }
+
+    // At the production weight the deep-learning SCORE cannot matter at all, whatever it is.
+    // This is the property that makes dropping the parameter pair safe.
+    @Test
+    void offlineBlendIgnoresTheDeepLearningScoreEntirelyAtWeightZero() {
+        double withScore = RecommendationConstants.blendOfflineScore(
+            0.6, 0.8, 0.25, 0.5, 0.15, 0.4, 0.0, 0.9);
+        double withoutScore = RecommendationConstants.blendOfflineScore(
+            0.6, 0.8, 0.25, 0.5, 0.15, 0.4, 0.0, 0.0);
+        assertEquals(withScore, withoutScore, 0.0);
+    }
 }

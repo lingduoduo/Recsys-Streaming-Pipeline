@@ -50,6 +50,35 @@ class MovieLensOutcomeScorerTest {
             "positive-outcome weights must stay convex");
     }
 
+    // ---- Characterization: pinned before the deep-learning terms are removed ------------------
+    // Unlike blendOfflineScore, this class is NOT gated by deepLearningWeight -- it applies a
+    // hardcoded 0.15 to input.dlScore() directly. It is inert only because dlScore is always 0.0
+    // at runtime (the deepLearningEnabled gate stops predictBatch from ever running). So the
+    // input below uses dlScore = 0.0, the only value that actually occurs, and pins the result.
+    // Removing the dl terms must leave both numbers untouched.
+    @Test
+    void scoringCharacterizedAtTheOnlyDeepLearningScoreThatOccurs() {
+        MovieLensOutcomeScorer scorer = new MovieLensOutcomeScorer();
+        ScoringResult result = scorer.score(
+            new ScoringInput(
+                "m1",
+                0.70,   // relevance
+                0.50,   // content
+                0.40,   // popularity
+                0.30,   // posteriorMean
+                0.60,   // banditRankingScore
+                0.05,   // explorationBonus
+                0.20,   // noveltyScore
+                0.0,    // dlScore -- the only value the gate permits
+                0.10,   // qValue
+                40L,    // impressions
+                8L      // clicks
+            ));
+
+        assertEquals(0.5182932849671755, result.predictionScore(), 1e-9);
+        assertEquals(0.38161059895404564, result.estimatedReward(), 1e-9);
+    }
+
     private static ScoringInput input(
         double relevance,
         double content,
