@@ -42,9 +42,11 @@ ONNX.
 All paths share the same `offlineScore` and `learnedPrior` base. The final `banditScore` diverges by algorithm:
 
 ```
-offlineScore  = relevanceWeight × cosine(userEmb, itemEmb)
-              + contentWeight   × genreTagOverlap
-              + popularityWeight × normalizedPopularity
+weightSum     = relevanceWeight + contentWeight + popularityWeight
+
+offlineScore  = ( relevanceWeight   × cosine(userEmb, itemEmb)
+                + contentWeight     × genreTagOverlap
+                + popularityWeight  × normalizedPopularity ) ÷ weightSum
 
 learnedPrior  = offlineScore × (1 − onlineWeight) + onlineScore × onlineWeight
 
@@ -65,7 +67,7 @@ All four algorithms consume the same `learnedPrior` — a blend of `offlineScore
 - **`q-learning`** — stores tabular Q-values in Redis under `q-learning:q:{stateKey}` and updates from feedback with `Q(s,a) += alpha * (reward + gamma * max_a Q(s',a) - Q(s,a))`.
 - **`sarsa`** — stores tabular Q-values under `sarsa:q:{stateKey}` and updates with the on-policy target `reward + gamma * Q(s', a')`, where `a'` is selected by the same epsilon-greedy policy used for serving.
 
-The `relevanceWeight` / `contentWeight` / `popularityWeight` weights do not need to sum to `1.0`; scores are clamped to `[0, 1]` at each stage.
+The `relevanceWeight` / `contentWeight` / `popularityWeight` weights do not need to sum to `1.0` — `offlineScore` divides by `weightSum`, so any positive weights yield a normalized blend; scores are clamped to `[0, 1]` at each stage.
 
 Switch algorithms by setting `RECSYS_BANDIT_ALGORITHM` to `ucb`, `thompson`, `q-learning`, or `sarsa`.
 
