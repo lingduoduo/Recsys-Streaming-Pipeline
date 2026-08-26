@@ -29,7 +29,7 @@ public class SequenceConfig {
     ) {
         return new BehaviorSequencesQueryHydrator(
             sequenceClient,
-            properties.getSequence().getMode(),
+            properties.getSequence().getBehaviorMode(),
             properties.getSequence().getLookbackDays(),
             MAX_BEHAVIOR_ITEMS
         );

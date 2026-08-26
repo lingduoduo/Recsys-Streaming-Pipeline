@@ -41,7 +41,7 @@ signal. In `on` sequence mode, a sequence-store read error falls back to the leg
 | `UserDemographicsQueryHydrator` | `demographics` | `MovieLensFeatureClient` (`user:{id}:features`) |
 | `UserMovieFeaturesQueryHydrator` | Base `MovieLensUserFeatures` fields | `MovieLensFeatureClient` (`user:{id}:features`) |
 | `RatingSequencesQueryHydrator` | Action (50), retrieval (100), and scoring (20) sequence views | `recentlyRatedMovieIds` in `user:{id}:features`, or `seq:{id}:rating:{day}` according to `recsys.sequence.mode` |
-| `BehaviorSequencesQueryHydrator` | `watchedMovieIds`, with recent engagement (`detail_view`, `click`) merged in front; runs last | `seq:{id}:behavior:{day}` according to `recsys.sequence.mode`; `off` reads nothing |
+| `BehaviorSequencesQueryHydrator` | `watchedMovieIds`, with recent engagement (`detail_view`, `click`) merged in front; runs last | `seq:{id}:behavior:{day}` according to `recsys.sequence.behavior-mode`; `off` reads nothing |
 | `ServedHistoryQueryHydrator` | `servedMovieIds` | `ServedHistoryClient` (`user:{id}:served_history`) |
 | `PastRequestTimestampsQueryHydrator` | `pastRequestTimestamps` | `PastRequestTimestampsClient` (`user:{id}:request_history`) |
 | `CachedMoviesQueryHydrator` | `cachedMovieIds`, `hasCachedMovies` (true at 100+ IDs) | `CachedMoviesClient` (`user:{id}:cached_movies`) |

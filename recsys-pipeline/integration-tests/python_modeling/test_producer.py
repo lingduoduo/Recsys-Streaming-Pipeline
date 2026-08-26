@@ -355,6 +355,16 @@ def test_search_journey_events_all_encode_as_canonical_events():
     ]
 
 
+def test_search_journey_shares_one_request_id_across_the_slate():
+    """Fails if the journey is unroutable: OnlineJoinerStreamingJob gates null_request_id first."""
+    mod = load_producer_module()
+
+    events = mod.make_search_journey(["user_1"], ["movie_1", "movie_2"])
+
+    assert all(e.get("request_id") for e in events)
+    assert len({e["request_id"] for e in events}) == 1
+
+
 def test_search_journey_targets_the_first_result_deterministically():
     """Fails if the detail view and click drift off the leading result."""
     mod = load_producer_module()

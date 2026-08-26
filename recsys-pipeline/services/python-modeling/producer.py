@@ -137,6 +137,10 @@ def make_search_journey(users, items):
     now_ms = int(time.time() * 1000)
     user = random.choice(users)
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
+    # A journey is a slate: it needs a request_id both to key its events onto one Kafka
+    # partition and to clear OnlineJoinerStreamingJob's first gate, which drops null_request_id
+    # before anything else and would otherwise count every search event as a drop.
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
     query_id = f"q_{uuid.uuid4().hex[:12]}"
     result_set_id = f"rs_{uuid.uuid4().hex[:12]}"
     result_items = items[:SLATE_SIZE]
@@ -145,6 +149,7 @@ def make_search_journey(users, items):
     def event(event_type, item_id, offset_ms, **extra):
         return {
             "event_id": str(uuid.uuid4()),
+            "request_id": request_id,
             "session_id": session_id,
             "user_id": user,
             "item_id": item_id,

@@ -19,6 +19,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SequenceConfigTest {
 
+    /** Any read at all is a failure of the flag under test, so make one impossible to miss. */
+    private static final SequenceClient THROWING = new SequenceClient() {
+        @Override
+        public SequenceSlice read(String userId, String kind, Set<String> columns, int maxRows, Duration lookback) {
+            throw new AssertionError("behavior hydration must not read while its own mode is off");
+        }
+    };
+
     private static final SequenceClient EMPTY = new SequenceClient() {
         @Override
         public SequenceSlice read(String userId, String kind, Set<String> columns, int maxRows, Duration lookback) {
@@ -52,6 +60,21 @@ class SequenceConfigTest {
 
         assertTrue(new SequenceConfig()
             .behaviorSequencesQueryHydrator(EMPTY, properties) instanceof BehaviorSequencesQueryHydrator);
-        assertEquals("off", properties.getSequence().getMode());
+        assertEquals("off", properties.getSequence().getBehaviorMode());
+    }
+
+    /**
+     * Advancing the pre-existing rating rollout must not switch behavior hydration on behind it.
+     * The two read different sequences into different fields and carry different risk.
+     */
+    @Test
+    void theRatingRolloutDoesNotDragBehaviorHydrationAlongWithIt() {
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getSequence().setMode("on");
+
+        assertEquals("off", properties.getSequence().getBehaviorMode());
+        assertEquals(List.of(),
+            new SequenceConfig().behaviorSequencesQueryHydrator(THROWING, properties)
+                .hydrate(ScoredMoviesQuery.forUser("u1")).watchedMovieIds());
     }
 }

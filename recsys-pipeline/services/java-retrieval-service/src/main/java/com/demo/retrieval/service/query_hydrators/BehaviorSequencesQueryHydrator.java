@@ -46,6 +46,17 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
      */
     private static final Set<String> ENGAGEMENT_ACTIONS = Set.of("detail_view", "click");
 
+    /**
+     * How many sequence rows to read per item wanted.
+     *
+     * The behavior sequence interleaves four actions and only two of them are engagement, so a
+     * read of exactly {@code maxItems} rows comes back holding a fraction of {@code maxItems}
+     * items. One search journey is a search, its result views, a detail view and a click — a
+     * little over four rows per engagement item — so this reads four times the budget and still
+     * lets the item bound, not the row bound, decide what is returned.
+     */
+    public static final int ROW_OVERSCAN = 4;
+
     private static final Logger log = LoggerFactory.getLogger(BehaviorSequencesQueryHydrator.class);
     private static final Set<String> READ_COLUMNS = Set.of(
         SequenceSchemaConstants.COL_ITEM_ID,
@@ -142,7 +153,8 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
      */
     private List<String> readBehaviorItems(String userId) {
         SequenceSlice slice = sequenceClient.read(
-            userId, SequenceSchemaConstants.KIND_BEHAVIOR, READ_COLUMNS, maxItems, lookback);
+            userId, SequenceSchemaConstants.KIND_BEHAVIOR, READ_COLUMNS,
+            maxItems * ROW_OVERSCAN, lookback);
         List<String> itemIds = slice.itemIds();
         List<String> actions = slice.column(SequenceSchemaConstants.COL_ACTION);
 

@@ -422,8 +422,14 @@ public class RecommendationProperties {
     }
 
     public static class Sequence {
-        /** off | shadow | on */
+        /** off | shadow | on — the rating sequence rollout. */
         private String mode = "off";
+        /**
+         * off | shadow | on — the behavior sequence rollout, deliberately separate from
+         * {@code mode}. The two read different sequences into different query fields and carry
+         * different risk, so advancing one must not silently advance the other.
+         */
+        private String behaviorMode = "off";
         private int lookbackDays = 90;
         private int bucketFetchChunk = 7;
 
@@ -433,6 +439,14 @@ public class RecommendationProperties {
 
         public void setMode(String mode) {
             this.mode = mode;
+        }
+
+        public String getBehaviorMode() {
+            return behaviorMode;
+        }
+
+        public void setBehaviorMode(String behaviorMode) {
+            this.behaviorMode = behaviorMode;
         }
 
         public int getLookbackDays() {
