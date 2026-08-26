@@ -1025,9 +1025,18 @@ logging the diff, `on` serves the sequence store and falls back to legacy only o
 error.
 
 `BehaviorSequencesQueryHydrator` reads the `behavior` kind through the same switch and the same
-`lookbackDays`, bounded at 100 items. It keeps the item-bearing actions — `result_view`,
-`detail_view`, `click` — discards the empty search sentinel, and merges the result ahead of the
-query's existing `watchedMovieIds`, stable-deduplicated and truncated. `off` reads nothing at all;
+`lookbackDays`. It keeps the **engagement** actions — `detail_view` and `click` — discards the
+empty search sentinel, and merges the result ahead of the query's existing `watchedMovieIds`,
+stable-deduplicated. `result_view` is deliberately excluded: `watchedMovieIds` is a hard
+exclusion set in `PreviouslySeenMoviesFilter`, so counting "appeared in a search slate" as
+"watched" would permanently suppress every item a search ever surfaced. Impression suppression
+has its own home in `ImpressionBloomFilterQueryHydrator`.
+
+The 100-item bound applies to the **behavior contribution**, not to the merged list: bounding the
+total would let a burst of recent clicks evict the legacy watched history and put genuinely
+watched movies back into recommendations. The hydrator runs last in the chain (it is `Ordered`),
+because `MovieLensUserHistoryQueryHydrator` replaces watched and rated history wholesale rather
+than merging into it. `off` reads nothing at all;
 `shadow` reads and logs but still serves legacy history; a failed read leaves legacy history
 untouched. Roll the behavior sequence out `off` → `shadow` → `on`, and note that the switch is
 shared with the rating hydrator: moving it moves both.

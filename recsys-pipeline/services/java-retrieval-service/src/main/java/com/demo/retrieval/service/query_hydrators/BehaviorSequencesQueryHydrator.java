@@ -4,6 +4,7 @@ import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.sequence.SequenceClient;
 import com.demo.retrieval.service.sequence.SequenceSchemaConstants;
 import com.demo.retrieval.service.sequence.SequenceSlice;
+import org.springframework.core.Ordered;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,14 +29,22 @@ import java.util.Set;
  *   shadow — read and log the comparison, still serve legacy
  *   on     — behavior history first, then legacy, de-duplicated and bounded
  */
-public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
+public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMoviesQuery>, Ordered {
 
     public static final String MODE_OFF = "off";
     public static final String MODE_SHADOW = "shadow";
     public static final String MODE_ON = "on";
 
-    /** Actions that name an item the user engaged with. A search names a query, not a movie. */
-    private static final Set<String> ITEM_BEARING_ACTIONS = Set.of("result_view", "detail_view", "click");
+    /**
+     * Actions that count as watch history.
+     *
+     * A search names a query rather than a movie, so it is out. So is {@code result_view}, which
+     * is an impression: {@code watchedMovieIds} is a hard exclusion set in
+     * {@code PreviouslySeenMoviesFilter}, so treating "appeared in a slate" as "watched" would
+     * permanently suppress every item a search ever surfaced. Impression suppression already has
+     * its own home in {@code ImpressionBloomFilterQueryHydrator}.
+     */
+    private static final Set<String> ENGAGEMENT_ACTIONS = Set.of("detail_view", "click");
 
     private static final Logger log = LoggerFactory.getLogger(BehaviorSequencesQueryHydrator.class);
     private static final Set<String> READ_COLUMNS = Set.of(
@@ -67,6 +76,20 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
         }
         log.warn("Unrecognized recsys.sequence.mode '{}', treating as '{}'", mode, MODE_OFF);
         return MODE_OFF;
+    }
+
+    /**
+     * Last in the hydration chain.
+     *
+     * {@code MovieLensUserHistoryQueryHydrator.update} *replaces* {@code watchedMovieIds} rather
+     * than merging into it, so a behavior merge performed before it runs is silently discarded.
+     * Ordering otherwise falls out of Spring's registration order, which is not something to
+     * leave a feature's correctness resting on. Declared on the class rather than on the
+     * {@code @Bean} method so the guarantee travels with the object.
+     */
+    @Override
+    public int getOrder() {
+        return Ordered.LOWEST_PRECEDENCE;
     }
 
     @Override
@@ -111,7 +134,7 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
     }
 
     /**
-     * The item ids of item-bearing actions, newest first.
+     * The item ids of engagement actions, newest first.
      *
      * The item and action columns are positionally aligned, so a slice whose columns disagree
      * in length is read only as far as the shorter one rather than throwing on the first row
@@ -126,18 +149,25 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
         List<String> out = new ArrayList<>(Math.min(itemIds.size(), actions.size()));
         for (int i = 0; i < itemIds.size() && i < actions.size(); i++) {
             String itemId = itemIds.get(i);
-            if (itemId != null && !itemId.isBlank() && ITEM_BEARING_ACTIONS.contains(actions.get(i))) {
+            if (itemId != null && !itemId.isBlank() && ENGAGEMENT_ACTIONS.contains(actions.get(i))) {
                 out.add(itemId);
             }
         }
         return out;
     }
 
-    /** Behavior first, then whatever legacy history the query already carried. */
+    /**
+     * Behavior first, then whatever legacy history the query already carried.
+     *
+     * {@code maxItems} bounds the behavior contribution, not the merged total. Bounding the total
+     * would let a burst of recent clicks evict the legacy watched history entirely — and since
+     * this list is an exclusion set, evicting it puts genuinely watched movies back into the
+     * recommendations they were being kept out of.
+     */
     private List<String> merge(List<String> behavior, List<String> legacy) {
-        LinkedHashSet<String> merged = new LinkedHashSet<>(behavior);
+        LinkedHashSet<String> merged = new LinkedHashSet<>(
+            behavior.size() > maxItems ? behavior.subList(0, maxItems) : behavior);
         merged.addAll(legacy);
-        List<String> out = new ArrayList<>(merged);
-        return List.copyOf(out.size() > maxItems ? out.subList(0, maxItems) : out);
+        return List.copyOf(merged);
     }
 }
