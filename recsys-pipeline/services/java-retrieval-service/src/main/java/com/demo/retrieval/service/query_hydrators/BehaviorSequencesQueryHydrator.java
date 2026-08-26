@@ -46,6 +46,17 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
      */
     private static final Set<String> ENGAGEMENT_ACTIONS = Set.of("detail_view", "click");
 
+    /**
+     * How many sequence rows to read per item wanted.
+     *
+     * The behavior sequence interleaves four actions and only two of them are engagement, so a
+     * read of exactly {@code maxItems} rows comes back holding a fraction of {@code maxItems}
+     * items. One search journey is a search, its result views, a detail view and a click — a
+     * little over four rows per engagement item — so this reads four times the budget and still
+     * lets the item bound, not the row bound, decide what is returned.
+     */
+    public static final int ROW_OVERSCAN = 4;
+
     private static final Logger log = LoggerFactory.getLogger(BehaviorSequencesQueryHydrator.class);
     private static final Set<String> READ_COLUMNS = Set.of(
         SequenceSchemaConstants.COL_ITEM_ID,
@@ -74,7 +85,7 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
         if (MODE_OFF.equals(normalized) || MODE_SHADOW.equals(normalized) || MODE_ON.equals(normalized)) {
             return normalized;
         }
-        log.warn("Unrecognized recsys.sequence.mode '{}', treating as '{}'", mode, MODE_OFF);
+        log.warn("Unrecognized recsys.sequence.behavior-mode '{}', treating as '{}'", mode, MODE_OFF);
         return MODE_OFF;
     }
 
@@ -100,8 +111,11 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
             try {
                 List<String> fromStore = readBehaviorItems(query.userId());
                 if (MODE_SHADOW.equals(mode)) {
-                    log.info("behavior-shadow user={} legacyLen={} storeLen={}",
-                        query.userId(), watched.size(), fromStore.size());
+                    ShadowDiff diff = shadowDiff(fromStore, query.watchedMovieIds());
+                    log.info("behavior-shadow user={} legacyLen={} behaviorLen={} newItems={} "
+                            + "overlap={} mergedLen={}",
+                        query.userId(), diff.legacyLen(), diff.behaviorLen(), diff.newItems(),
+                        diff.overlap(), diff.mergedLen());
                 } else {
                     watched = merge(fromStore, query.watchedMovieIds());
                 }
@@ -142,7 +156,8 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
      */
     private List<String> readBehaviorItems(String userId) {
         SequenceSlice slice = sequenceClient.read(
-            userId, SequenceSchemaConstants.KIND_BEHAVIOR, READ_COLUMNS, maxItems, lookback);
+            userId, SequenceSchemaConstants.KIND_BEHAVIOR, READ_COLUMNS,
+            maxItems * ROW_OVERSCAN, lookback);
         List<String> itemIds = slice.itemIds();
         List<String> actions = slice.column(SequenceSchemaConstants.COL_ACTION);
 
@@ -154,6 +169,31 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
             }
         }
         return out;
+    }
+
+    /**
+     * What flipping this hydrator to {@code on} would change, for one user.
+     *
+     * The rollout is "enable shadow, compare, then enable on", and a pair of lengths cannot
+     * answer that: behavior history is merged *in front of* legacy rather than replacing it, so
+     * what an operator needs is how much genuinely new history would be prepended and how much
+     * the two sources already agree on. Split out from the log call so it can be asserted
+     * directly rather than through a captured log line.
+     */
+    public record ShadowDiff(int legacyLen, int behaviorLen, int newItems, int overlap, int mergedLen) {
+    }
+
+    ShadowDiff shadowDiff(List<String> behavior, List<String> legacy) {
+        List<String> merged = merge(behavior, legacy);
+        Set<String> legacyItems = Set.copyOf(legacy);
+        int overlap = 0;
+        for (String item : new LinkedHashSet<>(behavior)) {
+            if (legacyItems.contains(item)) {
+                overlap++;
+            }
+        }
+        return new ShadowDiff(
+            legacy.size(), behavior.size(), merged.size() - legacy.size(), overlap, merged.size());
     }
 
     /**

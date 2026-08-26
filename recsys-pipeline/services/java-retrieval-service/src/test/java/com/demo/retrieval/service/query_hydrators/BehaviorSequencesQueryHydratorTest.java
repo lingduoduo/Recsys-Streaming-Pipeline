@@ -39,15 +39,16 @@ class BehaviorSequencesQueryHydratorTest {
             this.requestedKind = kind;
             this.requestedMaxRows = maxRows;
             this.requestedLookback = lookback;
+            int rows = Math.min(maxRows, itemIds.size());
             List<String> timestamps = new ArrayList<>();
-            for (int i = 0; i < itemIds.size(); i++) {
+            for (int i = 0; i < rows; i++) {
                 timestamps.add(String.valueOf(1_000_000L - i));
             }
             Map<String, List<String>> columnMap = new LinkedHashMap<>();
-            columnMap.put(SequenceSchemaConstants.COL_ITEM_ID, itemIds);
+            columnMap.put(SequenceSchemaConstants.COL_ITEM_ID, itemIds.subList(0, rows));
             columnMap.put(SequenceSchemaConstants.COL_TS, timestamps);
-            columnMap.put(SequenceSchemaConstants.COL_ACTION, actions);
-            return new SequenceSlice(columnMap, itemIds.size());
+            columnMap.put(SequenceSchemaConstants.COL_ACTION, actions.subList(0, rows));
+            return new SequenceSlice(columnMap, rows);
         }
     }
 
@@ -111,7 +112,7 @@ class BehaviorSequencesQueryHydratorTest {
                 SequenceSchemaConstants.COL_ACTION),
             client.requestedColumns);
         assertEquals(Duration.ofDays(30), client.requestedLookback);
-        assertEquals(100, client.requestedMaxRows);
+        assertEquals(100 * BehaviorSequencesQueryHydrator.ROW_OVERSCAN, client.requestedMaxRows);
     }
 
     @Test
@@ -161,6 +162,68 @@ class BehaviorSequencesQueryHydratorTest {
 
         assertEquals(List.of("b1", "b2", "legacy1", "legacy2"),
             hydrator.hydrate(queryWithWatched("legacy1", "legacy2")).watchedMovieIds());
+    }
+
+    @Test
+    void overscansTheReadSoSearchRowsDoNotStarveTheItemBudget() {
+        // Only 2 of the 4 behavioral actions count as engagement, so asking for exactly maxItems
+        // rows would return a fraction of maxItems items whenever the window holds searches.
+        RecordingSequenceClient client = behaviorClient();
+
+        new BehaviorSequencesQueryHydrator(client, "on", 90, 25).hydrate(queryWithWatched());
+
+        assertEquals(25 * BehaviorSequencesQueryHydrator.ROW_OVERSCAN, client.requestedMaxRows);
+    }
+
+    @Test
+    void fillsTheItemBudgetFromASearchHeavyWindow() {
+        List<String> itemIds = new ArrayList<>();
+        List<String> actions = new ArrayList<>();
+        for (int journey = 0; journey < 20; journey++) {
+            itemIds.add("");
+            actions.add("search");
+            itemIds.add("m" + journey);
+            actions.add("result_view");
+            itemIds.add("m" + journey);
+            actions.add("click");
+        }
+        BehaviorSequencesQueryHydrator hydrator = new BehaviorSequencesQueryHydrator(
+            new RecordingSequenceClient(itemIds, actions), "on", 90, 20);
+
+        assertEquals(20, hydrator.hydrate(queryWithWatched()).watchedMovieIds().size());
+    }
+
+    @Test
+    void shadowModeReportsWhatFlippingToOnWouldActuallyChange() {
+        // The rollout plan is "enable shadow, compare, then enable on". Two lengths cannot answer
+        // that question; the operator needs to know how much new history would be prepended.
+        RecordingSequenceClient client = new RecordingSequenceClient(
+            List.of("new1", "already", "new2"),
+            List.of("click", "click", "detail_view"));
+        BehaviorSequencesQueryHydrator hydrator =
+            new BehaviorSequencesQueryHydrator(client, "shadow", 90, 100);
+
+        BehaviorSequencesQueryHydrator.ShadowDiff diff =
+            hydrator.shadowDiff(List.of("new1", "already", "new2"), List.of("already", "legacy"));
+
+        assertEquals(2, diff.legacyLen());
+        assertEquals(3, diff.behaviorLen());
+        assertEquals(2, diff.newItems());
+        assertEquals(1, diff.overlap());
+        assertEquals(4, diff.mergedLen());
+    }
+
+    @Test
+    void shadowDiffReportsNoChangeWhenBehaviorAddsNothingNew() {
+        BehaviorSequencesQueryHydrator hydrator =
+            new BehaviorSequencesQueryHydrator(behaviorClient(), "shadow", 90, 100);
+
+        BehaviorSequencesQueryHydrator.ShadowDiff diff =
+            hydrator.shadowDiff(List.of("a", "b"), List.of("a", "b", "c"));
+
+        assertEquals(0, diff.newItems());
+        assertEquals(2, diff.overlap());
+        assertEquals(3, diff.mergedLen());
     }
 
     @Test

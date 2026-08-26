@@ -527,7 +527,7 @@ Environment variables:
 |---|---|---|
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker address |
 | `KAFKA_TOPIC` | `recsys_events` | Kafka topic to publish to |
-| `PRODUCER_MODE` | `clickstream` | `clickstream` emits single click events keyed by `user_id`; `behavior` emits full impression/click/order slates keyed by `request_id`; `search` emits one search-to-click journey (search, result views, detail view, click) sharing a `query_id` and `result_set_id` |
+| `PRODUCER_MODE` | `clickstream` | `clickstream` emits single click events keyed by `user_id`; `behavior` emits full impression/click/order slates keyed by `request_id`; `search` emits one search-to-click journey (search, result views, detail view, click) sharing a `request_id`, `query_id`, and `result_set_id` |
 | `EVENTS_PER_SECOND` | `1` | Target publish rate; the event loop corrects for send latency |
 | `NUM_USERS` | `5` | Synthetic user pool size |
 | `NUM_ITEMS` | `10` | Synthetic item pool size |
@@ -1024,8 +1024,10 @@ chunks of `bucketFetchChunk` keys. The source is selected by `recsys.sequence.mo
 logging the diff, `on` serves the sequence store and falls back to legacy only on
 error.
 
-`BehaviorSequencesQueryHydrator` reads the `behavior` kind through the same switch and the same
-`lookbackDays`. It keeps the **engagement** actions — `detail_view` and `click` — discards the
+`BehaviorSequencesQueryHydrator` reads the `behavior` kind under its **own** switch,
+`recsys.sequence.behavior-mode`, sharing only `lookbackDays`. The two rollouts read different
+sequences into different query fields and carry different risk, so advancing the rating rollout
+does not drag behavior hydration along with it. It keeps the **engagement** actions — `detail_view` and `click` — discards the
 empty search sentinel, and merges the result ahead of the query's existing `watchedMovieIds`,
 stable-deduplicated. `result_view` is deliberately excluded: `watchedMovieIds` is a hard
 exclusion set in `PreviouslySeenMoviesFilter`, so counting "appeared in a search slate" as
@@ -1036,8 +1038,13 @@ The 100-item bound applies to the **behavior contribution**, not to the merged l
 total would let a burst of recent clicks evict the legacy watched history and put genuinely
 watched movies back into recommendations. The hydrator runs last in the chain (it is `Ordered`),
 because `MovieLensUserHistoryQueryHydrator` replaces watched and rated history wholesale rather
-than merging into it. `off` reads nothing at all;
-`shadow` reads and logs but still serves legacy history; a failed read leaves legacy history
+than merging into it.
+
+The read asks for four rows per item wanted: only two of the four behavioral actions are
+engagement, so a read of exactly the item budget would come back holding a fraction of it. `off` reads nothing at all;
+`shadow` reads and logs what flipping to `on` would change — legacy length, behavior length, how
+many items are genuinely new, how many the two sources already agree on, and the merged length —
+while still serving legacy history; a failed read leaves legacy history
 untouched. Roll the behavior sequence out `off` → `shadow` → `on`, and note that the switch is
 shared with the rating hydrator: moving it moves both.
 
