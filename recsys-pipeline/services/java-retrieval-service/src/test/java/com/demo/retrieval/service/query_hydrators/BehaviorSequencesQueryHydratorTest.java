@@ -129,11 +129,38 @@ class BehaviorSequencesQueryHydratorTest {
     void onModeIgnoresActionsThatCarryNoItemIntent() {
         RecordingSequenceClient client = new RecordingSequenceClient(
             List.of("m1", "m2", "m3"),
-            List.of("result_view", "impression", "abandon"));
+            List.of("detail_view", "impression", "abandon"));
         BehaviorSequencesQueryHydrator hydrator =
             new BehaviorSequencesQueryHydrator(client, "on", 90, 100);
 
         assertEquals(List.of("m1"), hydrator.hydrate(queryWithWatched()).watchedMovieIds());
+    }
+
+    @Test
+    void aResultViewIsNotWatchHistory() {
+        // watchedMovieIds is a hard exclusion set in PreviouslySeenMoviesFilter. An item the
+        // user merely saw in a search slate must not become permanently unrecommendable.
+        RecordingSequenceClient client = new RecordingSequenceClient(
+            List.of("seen-only", "opened", "clicked"),
+            List.of("result_view", "detail_view", "click"));
+        BehaviorSequencesQueryHydrator hydrator =
+            new BehaviorSequencesQueryHydrator(client, "on", 90, 100);
+
+        assertEquals(List.of("opened", "clicked"),
+            hydrator.hydrate(queryWithWatched()).watchedMovieIds());
+    }
+
+    @Test
+    void behaviorNeverEvictsLegacyWatchedHistory() {
+        // Truncating behavior ++ legacy to maxItems would let a burst of recent clicks push
+        // genuinely watched movies out of the exclusion set and back into recommendations.
+        RecordingSequenceClient client = new RecordingSequenceClient(
+            List.of("b1", "b2", "b3"), List.of("click", "click", "click"));
+        BehaviorSequencesQueryHydrator hydrator =
+            new BehaviorSequencesQueryHydrator(client, "on", 90, 2);
+
+        assertEquals(List.of("b1", "b2", "legacy1", "legacy2"),
+            hydrator.hydrate(queryWithWatched("legacy1", "legacy2")).watchedMovieIds());
     }
 
     @Test
@@ -145,13 +172,14 @@ class BehaviorSequencesQueryHydratorTest {
     }
 
     @Test
-    void onModeTruncatesToTheConfiguredMaximum() {
+    void onModeBoundsTheBehaviorContributionToTheConfiguredMaximum() {
         RecordingSequenceClient client = new RecordingSequenceClient(
             List.of("m1", "m2", "m3"), List.of("click", "click", "click"));
         BehaviorSequencesQueryHydrator hydrator =
             new BehaviorSequencesQueryHydrator(client, "on", 90, 2);
 
-        assertEquals(List.of("m1", "m2"), hydrator.hydrate(queryWithWatched("legacy")).watchedMovieIds());
+        assertEquals(List.of("m1", "m2", "legacy"),
+            hydrator.hydrate(queryWithWatched("legacy")).watchedMovieIds());
     }
 
     @Test
