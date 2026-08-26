@@ -1042,7 +1042,9 @@ than merging into it.
 
 The read asks for four rows per item wanted: only two of the four behavioral actions are
 engagement, so a read of exactly the item budget would come back holding a fraction of it. `off` reads nothing at all;
-`shadow` reads and logs but still serves legacy history; a failed read leaves legacy history
+`shadow` reads and logs what flipping to `on` would change — legacy length, behavior length, how
+many items are genuinely new, how many the two sources already agree on, and the merged length —
+while still serving legacy history; a failed read leaves legacy history
 untouched. Roll the behavior sequence out `off` → `shadow` → `on`, and note that the switch is
 shared with the rating hydrator: moving it moves both.
 

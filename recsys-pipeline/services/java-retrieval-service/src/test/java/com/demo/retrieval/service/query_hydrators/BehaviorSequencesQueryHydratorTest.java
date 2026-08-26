@@ -194,6 +194,39 @@ class BehaviorSequencesQueryHydratorTest {
     }
 
     @Test
+    void shadowModeReportsWhatFlippingToOnWouldActuallyChange() {
+        // The rollout plan is "enable shadow, compare, then enable on". Two lengths cannot answer
+        // that question; the operator needs to know how much new history would be prepended.
+        RecordingSequenceClient client = new RecordingSequenceClient(
+            List.of("new1", "already", "new2"),
+            List.of("click", "click", "detail_view"));
+        BehaviorSequencesQueryHydrator hydrator =
+            new BehaviorSequencesQueryHydrator(client, "shadow", 90, 100);
+
+        BehaviorSequencesQueryHydrator.ShadowDiff diff =
+            hydrator.shadowDiff(List.of("new1", "already", "new2"), List.of("already", "legacy"));
+
+        assertEquals(2, diff.legacyLen());
+        assertEquals(3, diff.behaviorLen());
+        assertEquals(2, diff.newItems());
+        assertEquals(1, diff.overlap());
+        assertEquals(4, diff.mergedLen());
+    }
+
+    @Test
+    void shadowDiffReportsNoChangeWhenBehaviorAddsNothingNew() {
+        BehaviorSequencesQueryHydrator hydrator =
+            new BehaviorSequencesQueryHydrator(behaviorClient(), "shadow", 90, 100);
+
+        BehaviorSequencesQueryHydrator.ShadowDiff diff =
+            hydrator.shadowDiff(List.of("a", "b"), List.of("a", "b", "c"));
+
+        assertEquals(0, diff.newItems());
+        assertEquals(2, diff.overlap());
+        assertEquals(3, diff.mergedLen());
+    }
+
+    @Test
     void aFailedReadRetainsLegacyHistory() {
         BehaviorSequencesQueryHydrator hydrator =
             new BehaviorSequencesQueryHydrator(new FailingSequenceClient(), "on", 90, 100);

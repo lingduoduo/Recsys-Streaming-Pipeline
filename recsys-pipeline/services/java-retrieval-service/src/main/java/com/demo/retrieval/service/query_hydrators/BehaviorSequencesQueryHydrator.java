@@ -85,7 +85,7 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
         if (MODE_OFF.equals(normalized) || MODE_SHADOW.equals(normalized) || MODE_ON.equals(normalized)) {
             return normalized;
         }
-        log.warn("Unrecognized recsys.sequence.mode '{}', treating as '{}'", mode, MODE_OFF);
+        log.warn("Unrecognized recsys.sequence.behavior-mode '{}', treating as '{}'", mode, MODE_OFF);
         return MODE_OFF;
     }
 
@@ -111,8 +111,11 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
             try {
                 List<String> fromStore = readBehaviorItems(query.userId());
                 if (MODE_SHADOW.equals(mode)) {
-                    log.info("behavior-shadow user={} legacyLen={} storeLen={}",
-                        query.userId(), watched.size(), fromStore.size());
+                    ShadowDiff diff = shadowDiff(fromStore, query.watchedMovieIds());
+                    log.info("behavior-shadow user={} legacyLen={} behaviorLen={} newItems={} "
+                            + "overlap={} mergedLen={}",
+                        query.userId(), diff.legacyLen(), diff.behaviorLen(), diff.newItems(),
+                        diff.overlap(), diff.mergedLen());
                 } else {
                     watched = merge(fromStore, query.watchedMovieIds());
                 }
@@ -166,6 +169,31 @@ public class BehaviorSequencesQueryHydrator implements QueryHydrator<ScoredMovie
             }
         }
         return out;
+    }
+
+    /**
+     * What flipping this hydrator to {@code on} would change, for one user.
+     *
+     * The rollout is "enable shadow, compare, then enable on", and a pair of lengths cannot
+     * answer that: behavior history is merged *in front of* legacy rather than replacing it, so
+     * what an operator needs is how much genuinely new history would be prepended and how much
+     * the two sources already agree on. Split out from the log call so it can be asserted
+     * directly rather than through a captured log line.
+     */
+    public record ShadowDiff(int legacyLen, int behaviorLen, int newItems, int overlap, int mergedLen) {
+    }
+
+    ShadowDiff shadowDiff(List<String> behavior, List<String> legacy) {
+        List<String> merged = merge(behavior, legacy);
+        Set<String> legacyItems = Set.copyOf(legacy);
+        int overlap = 0;
+        for (String item : new LinkedHashSet<>(behavior)) {
+            if (legacyItems.contains(item)) {
+                overlap++;
+            }
+        }
+        return new ShadowDiff(
+            legacy.size(), behavior.size(), merged.size() - legacy.size(), overlap, merged.size());
     }
 
     /**
