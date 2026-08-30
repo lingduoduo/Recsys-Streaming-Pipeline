@@ -1051,14 +1051,31 @@ Roll the behavior sequence out `off` → `shadow` → `on`:
 | `shadow` | yes | legacy watched history | logs what `on` would change — legacy length, behavior length, how many items are genuinely new, how many the two sources already agree on, and the merged length |
 | `on` | yes | behavior merged ahead of legacy | a failed read leaves legacy history untouched |
 
-> **Flipping this to `on` redefines the RL state key.** `watchedMovieIds` is the first choice of
-> seed items in `deriveTasteProfile`, whose genre/tag output is exactly what `TabularStateKey`
-> hashes online and what `replay_dataset.state_key` recomputes offline. Adding behavior history
-> therefore moves users into different state buckets, so Q values learned before the flip are
-> keyed on the old definition and a replay log spanning the flip mixes two. Re-fit the tabular Q
-> table and FQI after enabling it, and do not evaluate across the boundary. DPO is unaffected:
-> `slate_pairs` compares candidates *within* one logged slate, holding user, context, and time
-> constant, so the state definition cancels out.
+> **Flipping this to `on` is a state-schema change, not a feature addition.** Treat the two
+> settings as two versions of the RL state space:
+>
+> | `behavior-mode` | State schema | What seeds `deriveTasteProfile` |
+> |---|---|---|
+> | `off` | **v1** | legacy `watchedMovieIds` from `user:{id}:recent`, falling through to `cachedMovieIds` → the action/retrieval/scoring sequences → `ratedMovieIds` when it is empty |
+> | `on` | **v2** | behavior engagement (`detail_view`, `click`) merged ahead of that legacy history, falling through the same chain only if *both* are empty |
+>
+> `deriveTasteProfile` takes the **first non-empty** of that chain, so this is not one more weak
+> feature blended into a score. For a user whose `user:{id}:recent` is empty today, the
+> authoritative seed switches outright from `cachedMovieIds` to behavior history — the definition
+> of a state changes discontinuously rather than drifting.
+>
+> That matters because the genre/tag output is exactly what `TabularStateKey` hashes online and
+> what `replay_dataset.state_key` recomputes offline. Q values learned under v1 are keyed on v1
+> buckets, and **a replay dataset spanning the flip is syntactically homogeneous while actually
+> mixing two state spaces** — no column distinguishes the rows, because the schema version is not
+> persisted on logged events today. Nothing will detect it for you.
+>
+> Sequence the rollout as **enable → rebuild replay / re-fit tabular Q and FQI → evaluate only on
+> post-flip data.** Do not evaluate across the boundary, and if this ever needs to be enforced
+> rather than remembered, stamp the schema version on the logged event and filter on it.
+>
+> DPO is unaffected: `slate_pairs` compares candidates *within* one logged slate, holding user,
+> context, and time constant, so the state definition cancels out.
 
 Unified replay and simulation over the behavior sequence are follow-ups; neither exists yet.
 
