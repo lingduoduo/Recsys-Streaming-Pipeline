@@ -30,6 +30,9 @@ recsys:
   sequence:
     # off = legacy CSV blobs only; shadow = read both and log the diff; on = serve the store
     mode: ${RECSYS_SEQUENCE_MODE:off}
+    # The behavior sequence rolls out on its own switch: it feeds watchedMovieIds, which is an
+    # exclusion set, so it must not ride along with the rating rollout above.
+    behavior-mode: ${RECSYS_SEQUENCE_BEHAVIOR_MODE:off}
     lookback-days: ${RECSYS_SEQUENCE_LOOKBACK_DAYS:90}
     bucket-fetch-chunk: ${RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK:7}
   embeddings:
