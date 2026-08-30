@@ -1051,6 +1051,15 @@ Roll the behavior sequence out `off` → `shadow` → `on`:
 | `shadow` | yes | legacy watched history | logs what `on` would change — legacy length, behavior length, how many items are genuinely new, how many the two sources already agree on, and the merged length |
 | `on` | yes | behavior merged ahead of legacy | a failed read leaves legacy history untouched |
 
+> **Flipping this to `on` redefines the RL state key.** `watchedMovieIds` is the first choice of
+> seed items in `deriveTasteProfile`, whose genre/tag output is exactly what `TabularStateKey`
+> hashes online and what `replay_dataset.state_key` recomputes offline. Adding behavior history
+> therefore moves users into different state buckets, so Q values learned before the flip are
+> keyed on the old definition and a replay log spanning the flip mixes two. Re-fit the tabular Q
+> table and FQI after enabling it, and do not evaluate across the boundary. DPO is unaffected:
+> `slate_pairs` compares candidates *within* one logged slate, holding user, context, and time
+> constant, so the state definition cancels out.
+
 Unified replay and simulation over the behavior sequence are follow-ups; neither exists yet.
 
 | Config property | Env var | Default |
