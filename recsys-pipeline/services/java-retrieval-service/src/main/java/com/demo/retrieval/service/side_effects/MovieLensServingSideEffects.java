@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import com.demo.retrieval.service.grpo.GrpoImpressionPublisher;
 import com.demo.retrieval.service.replay.ReplayEvent;
 
 import java.time.Duration;
@@ -31,11 +32,15 @@ public class MovieLensServingSideEffects {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Duration pendingTtl;
+    private final GrpoImpressionPublisher grpoPublisher;
 
-    public MovieLensServingSideEffects(StringRedisTemplate redis, ObjectMapper objectMapper, Duration pendingTtl) {
+    public MovieLensServingSideEffects(
+        StringRedisTemplate redis, ObjectMapper objectMapper, Duration pendingTtl, GrpoImpressionPublisher grpoPublisher
+    ) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.pendingTtl = pendingTtl;
+        this.grpoPublisher = grpoPublisher;
     }
 
     public void recordServed(ServingSideEffectRequest request) {
@@ -74,6 +79,8 @@ public class MovieLensServingSideEffects {
                 return null;
             }
         });
+
+        grpoPublisher.publish(request, now);
     }
 
     public static String pendingReplayKey(String userId, String movieId) {

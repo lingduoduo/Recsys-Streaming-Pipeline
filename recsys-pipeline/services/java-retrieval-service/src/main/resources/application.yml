@@ -35,6 +35,13 @@ recsys:
     behavior-mode: ${RECSYS_SEQUENCE_BEHAVIOR_MODE:off}
     lookback-days: ${RECSYS_SEQUENCE_LOOKBACK_DAYS:90}
     bucket-fetch-chunk: ${RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK:7}
+  grpo:
+    # off = not computed; shadow = computed and logged at weight 0.0; on = enters the blend
+    mode: ${RECSYS_GRPO_MODE:off}
+    # Serving publishes its own impressions to behavior_logs, carrying pi_old and the feature
+    # vector. This is what gives the Kafka stream and the Redis replay buffer one requestId
+    # namespace; offline DPO cannot join without it.
+    emit-events: ${RECSYS_GRPO_EMIT_EVENTS:false}
   embeddings:
     # Item2Vec (offline): i2vEmb  — set ITEM_EMBEDDING_PREFIX=i2vEmb
     # ALS      (offline): alsItemEmb — set ITEM_EMBEDDING_PREFIX=alsItemEmb
