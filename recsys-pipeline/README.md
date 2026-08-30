@@ -377,6 +377,28 @@ behavior source. Both take `off` | `shadow` | `on`, and advancing one does not a
 | `recsys.sequence.lookback-days` | `RECSYS_SEQUENCE_LOOKBACK_DAYS` | `90` |
 | `recsys.sequence.bucket-fetch-chunk` | `RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK` | `7` |
 
+**GRPO** — the online policy trained continuously off the slate stream. Roll out `off` → `shadow`
+→ `on`; `emit-events` is a separate switch (see
+[Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#grpopolicystreamingjob) for
+the rollout order and why `emit-events` gates more than serving).
+
+| Property | Env var | Default |
+|---|---|---|
+| `recsys.grpo.mode` | `RECSYS_GRPO_MODE` | `off` (`off` \| `shadow` \| `on`) |
+| `recsys.grpo.emit-events` | `RECSYS_GRPO_EMIT_EVENTS` | `false` |
+
+The training job (`GrpoPolicyStreamingJob`, `services/spark-streaming-job`) reads its own env vars,
+not `recsys` properties:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `GRPO_INPUT_TOPIC` | `training_experiences` | Slate stream the job consumes |
+| `GRPO_TEMPERATURE` | `1.0` | Softmax temperature |
+| `GRPO_CLIP_EPSILON` | `0.2` | PPO clip range |
+| `GRPO_KL_BETA` | `0.02` | Weight on the KL to the logged serving policy |
+| `GRPO_LEARNING_RATE` | `0.01` | SGD step size |
+| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Below 2, clipping never engages |
+
 **Reward model**
 
 | Property | Env var | Default |
