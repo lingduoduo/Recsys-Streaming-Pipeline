@@ -19,6 +19,11 @@ import java.util.UUID;
  *
  * The requestId here is serving's own, which is the point: it is what makes the Kafka stream and
  * the Redis replay buffer share an id namespace for the first time.
+ *
+ * This does not emit surface, device, locale, timezone (top-level fields) or the richer
+ * user_features {tier, country} that Python producers emit. ServingSideEffectRequest does not
+ * carry them, and fabricating placeholder values would corrupt training rows. Downstream consumers
+ * that segment on these fields will see serving-sourced traffic as an unsegmented null bucket.
  */
 public final class GrpoImpressionEvents {
 
