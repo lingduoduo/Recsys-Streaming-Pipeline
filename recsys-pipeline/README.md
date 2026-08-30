@@ -116,9 +116,19 @@ docker compose up -d
 ```
 
 ### Dashboard
+
+The dashboard renders a committed JSON snapshot, so it needs neither Redis nor Spark running:
+
 ```
 cd recsys-pipeline/frontend
 npm run dev
+```
+
+To check that snapshot against the measurement contract first — the same validation `npm run
+build` and the sim scripts run:
+
+```
+cd recsys-pipeline/frontend && npm run validate:data
 ```
 
 
@@ -177,6 +187,14 @@ The service loads `mlp_embedding_model.onnx` from the classpath at startup. To u
 pip install -r services/python-modeling/requirements.txt
 python services/python-modeling/producer.py
 ```
+
+`PRODUCER_MODE` selects what it emits, all onto `recsys_events`:
+
+| Mode | Emits |
+|---|---|
+| `clickstream` (default) | one click event per tick |
+| `behavior` | a full impression/click/order slate, keyed by `request_id` |
+| `search` | one search-to-click journey — search, result views, detail view, click — sharing a `request_id`, `query_id`, and `result_set_id` |
 
 ### Step 4 — Run the streaming job
 
@@ -348,6 +366,17 @@ Each property is overridden at runtime by the env var in the same row.
 | `recsys.bandit.q-learning-gamma` | `RECSYS_Q_LEARNING_GAMMA` | `0.9` |
 | `recsys.bandit.q-learning-epsilon` | `RECSYS_Q_LEARNING_EPSILON` | `0.1` |
 
+**Sequence** — the columnar sequence store's serving side. The two `mode` properties are separate
+rollouts: `recsys.sequence.mode` selects the rating source, `recsys.sequence.behavior-mode` the
+behavior source. Both take `off` | `shadow` | `on`, and advancing one does not advance the other.
+
+| Property | Env var | Default |
+|---|---|---|
+| `recsys.sequence.mode` | `RECSYS_SEQUENCE_MODE` | `off` |
+| `recsys.sequence.behavior-mode` | `RECSYS_SEQUENCE_BEHAVIOR_MODE` | `off` |
+| `recsys.sequence.lookback-days` | `RECSYS_SEQUENCE_LOOKBACK_DAYS` | `90` |
+| `recsys.sequence.bucket-fetch-chunk` | `RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK` | `7` |
+
 **Reward model**
 
 | Property | Env var | Default |
@@ -500,6 +529,8 @@ are the only measures that need whole ranked slates.
 |----------|---------|---------|-------------|
 | `RECSYS_LATENCY_BUCKETS_MS` | `5,10,25,50,100,250,500,1000,2500` | retrieval service | Latency histogram boundaries |
 | `RECSYS_SAFETY_POLICY_VERSION` | `catalog-filter-v1` | retrieval service | Version stamped on live safety accounting |
+| `RECSYS_THROUGHPUT_WINDOW_SECONDS` | `60` | retrieval service | Rolling window each endpoint's requests-per-second is averaged over (`ThroughputWindow`) |
+| `RECSYS_PERCENTILE_WINDOW_SECONDS` | `300` | retrieval service | How long a latency sample stays in the rolling percentile distribution before expiring (Micrometer `distributionStatisticExpiry`) |
 | `RECSYS_FAIRNESS_MIN_SUPPORT` | `100` | declared only | Minimum impressions before a fairness group is published |
 | `RECSYS_FRESHNESS_WINDOW_DAYS` | `30` | declared only | Age below which an item counts as fresh |
 | `RECSYS_LONG_TAIL_PERCENTILE` | `0.80` | declared only | Popularity percentile below which exposure is long-tail |

@@ -1041,20 +1041,50 @@ because `MovieLensUserHistoryQueryHydrator` replaces watched and rated history w
 than merging into it.
 
 The read asks for four rows per item wanted: only two of the four behavioral actions are
-engagement, so a read of exactly the item budget would come back holding a fraction of it. `off` reads nothing at all;
-`shadow` reads and logs what flipping to `on` would change — legacy length, behavior length, how
-many items are genuinely new, how many the two sources already agree on, and the merged length —
-while still serving legacy history; a failed read leaves legacy history
-untouched. Roll the behavior sequence out `off` → `shadow` → `on`, and note that the switch is
-shared with the rating hydrator: moving it moves both.
+engagement, so a read of exactly the item budget would come back holding a fraction of it.
+
+Roll the behavior sequence out `off` → `shadow` → `on`:
+
+| Mode | Reads the store | Serves | Notes |
+|---|---|---|---|
+| `off` | no | legacy watched history | the default; the hydrator is inert |
+| `shadow` | yes | legacy watched history | logs what `on` would change — legacy length, behavior length, how many items are genuinely new, how many the two sources already agree on, and the merged length |
+| `on` | yes | behavior merged ahead of legacy | a failed read leaves legacy history untouched |
+
+> **Flipping this to `on` is a state-schema change, not a feature addition.** Treat the two
+> settings as two versions of the RL state space:
+>
+> | `behavior-mode` | State schema | What seeds `deriveTasteProfile` |
+> |---|---|---|
+> | `off` | **v1** | legacy `watchedMovieIds` from `user:{id}:recent`, falling through to `cachedMovieIds` → the action/retrieval/scoring sequences → `ratedMovieIds` when it is empty |
+> | `on` | **v2** | behavior engagement (`detail_view`, `click`) merged ahead of that legacy history, falling through the same chain only if *both* are empty |
+>
+> `deriveTasteProfile` takes the **first non-empty** of that chain, so this is not one more weak
+> feature blended into a score. For a user whose `user:{id}:recent` is empty today, the
+> authoritative seed switches outright from `cachedMovieIds` to behavior history — the definition
+> of a state changes discontinuously rather than drifting.
+>
+> That matters because the genre/tag output is exactly what `TabularStateKey` hashes online and
+> what `replay_dataset.state_key` recomputes offline. Q values learned under v1 are keyed on v1
+> buckets, and **a replay dataset spanning the flip is syntactically homogeneous while actually
+> mixing two state spaces** — no column distinguishes the rows, because the schema version is not
+> persisted on logged events today. Nothing will detect it for you.
+>
+> Sequence the rollout as **enable → rebuild replay / re-fit tabular Q and FQI → evaluate only on
+> post-flip data.** Do not evaluate across the boundary, and if this ever needs to be enforced
+> rather than remembered, stamp the schema version on the logged event and filter on it.
+>
+> DPO is unaffected: `slate_pairs` compares candidates *within* one logged slate, holding user,
+> context, and time constant, so the state definition cancels out.
 
 Unified replay and simulation over the behavior sequence are follow-ups; neither exists yet.
 
-| Config property | Default |
-|---|---|
-| `recsys.sequence.mode` | `off` (`off` \| `shadow` \| `on`) |
-| `recsys.sequence.lookback-days` | `90` |
-| `recsys.sequence.bucket-fetch-chunk` | `7` |
+| Config property | Env var | Default |
+|---|---|---|
+| `recsys.sequence.mode` | `RECSYS_SEQUENCE_MODE` | `off` (`off` \| `shadow` \| `on`) — rating sequence |
+| `recsys.sequence.behavior-mode` | `RECSYS_SEQUENCE_BEHAVIOR_MODE` | `off` (`off` \| `shadow` \| `on`) — behavior sequence |
+| `recsys.sequence.lookback-days` | `RECSYS_SEQUENCE_LOOKBACK_DAYS` | `90` (shared by both) |
+| `recsys.sequence.bucket-fetch-chunk` | `RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK` | `7` |
 
 ## Offline Path
 
