@@ -25,10 +25,8 @@ class FailureTally {
   }
 
   /** The failure count for this stage attempt, forgetting it in the same step. */
-  def drain(stageId: Int, attempt: Int): Int = {
-    val previous = counts.remove((stageId, attempt))
-    if (previous == null) 0 else previous
-  }
+  def drain(stageId: Int, attempt: Int): Int =
+    Option(counts.remove((stageId, attempt))).getOrElse(0)
 
   /** Keys currently held. Exists so a test can prove `drain` releases state. */
   def size: Int = counts.size()
