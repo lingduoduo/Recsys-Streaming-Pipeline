@@ -16,4 +16,138 @@ class SparkSessionsSpec extends AnyFlatSpec with Matchers {
   "SparkSessions.defaultTimeZone" should "be UTC so formatting does not vary by deploy host" in {
     SparkSessions.defaultTimeZone shouldBe "UTC"
   }
+
+  "shufflePartitionsFor" should "keep the local default for every local master form" in {
+    // local[*] is the default master and the only thing that executes today. 200 partitions on a
+    // laptop is hundreds of tiny tasks and more scheduling overhead than work.
+    SparkSessions.shufflePartitionsFor("local", 8) shouldBe 8
+    SparkSessions.shufflePartitionsFor("local[1]", 8) shouldBe 8
+    SparkSessions.shufflePartitionsFor("local[*]", 8) shouldBe 8
+    SparkSessions.shufflePartitionsFor("local[4]", 4) shouldBe 4
+  }
+
+  it should "raise the default on every cluster master" in {
+    SparkSessions.shufflePartitionsFor("yarn", 8) shouldBe SparkSessions.ClusterShufflePartitions
+    SparkSessions.shufflePartitionsFor("k8s://https://host:6443", 8) shouldBe SparkSessions.ClusterShufflePartitions
+    SparkSessions.shufflePartitionsFor("spark://host:7077", 8) shouldBe SparkSessions.ClusterShufflePartitions
+    SparkSessions.shufflePartitionsFor("mesos://host:5050", 8) shouldBe SparkSessions.ClusterShufflePartitions
+  }
+
+  it should "treat an unrecognised master as a cluster" in {
+    // Guessing "local" for something unknown funnels a real cluster's shuffles through 8
+    // partitions, which is the failure this exists to prevent. Guessing "cluster" only costs a
+    // laptop some scheduling overhead.
+    SparkSessions.shufflePartitionsFor("something-new", 8) shouldBe SparkSessions.ClusterShufflePartitions
+  }
+
+  it should "not mistake a master merely containing the word local" in {
+    SparkSessions.shufflePartitionsFor("spark://localhost:7077", 8) shouldBe SparkSessions.ClusterShufflePartitions
+  }
+
+  // eventLogSettings is the enabled/directory decision that `create` wires into the session
+  // builder. It is tested here directly, rather than through a session built by `create`, because
+  // `create` calls `getOrCreate`: any test that asserts on a *returned* session's config would pass
+  // or fail depending on whichever suite in this JVM happened to build the session first -- see the
+  // comment on `SparkSessions.defaultTimeZone` above. This is also where SPARK_EVENT_LOG_ENABLED's
+  // case- and whitespace-sensitivity is pinned down: the only moment anyone sets that variable is
+  // mid-incident, which is the worst possible time for it to silently no-op.
+  "eventLogSettings" should "enable logging for a lowercase true" in {
+    SparkSessions.eventLogSettings(Map("SPARK_EVENT_LOG_ENABLED" -> "true")) shouldBe
+      Some("/tmp/spark-events")
+  }
+
+  it should "enable logging for an uppercase TRUE" in {
+    SparkSessions.eventLogSettings(Map("SPARK_EVENT_LOG_ENABLED" -> "TRUE")) shouldBe
+      Some("/tmp/spark-events")
+  }
+
+  it should "enable logging for true with surrounding whitespace" in {
+    SparkSessions.eventLogSettings(Map("SPARK_EVENT_LOG_ENABLED" -> " true ")) shouldBe
+      Some("/tmp/spark-events")
+  }
+
+  it should "stay off for false" in {
+    SparkSessions.eventLogSettings(Map("SPARK_EVENT_LOG_ENABLED" -> "false")) shouldBe None
+  }
+
+  it should "stay off when unset" in {
+    SparkSessions.eventLogSettings(Map.empty) shouldBe None
+  }
+
+  it should "use SPARK_EVENT_LOG_DIR when enabled and set" in {
+    SparkSessions.eventLogSettings(
+      Map("SPARK_EVENT_LOG_ENABLED" -> "true", "SPARK_EVENT_LOG_DIR" -> "/var/log/spark-events")
+    ) shouldBe Some("/var/log/spark-events")
+  }
+
+  "ensureEventLogDir" should "create a missing directory and return it" in {
+    val dir = java.nio.file.Files.createTempDirectory("evlog-test").resolve("nested").toString
+    SparkSessions.ensureEventLogDir(dir) shouldBe Some(dir)
+    java.nio.file.Files.isDirectory(java.nio.file.Paths.get(dir)) shouldBe true
+  }
+
+  it should "accept a directory that already exists" in {
+    val dir = java.nio.file.Files.createTempDirectory("evlog-existing").toString
+    SparkSessions.ensureEventLogDir(dir) shouldBe Some(dir)
+  }
+
+  it should "return None rather than throwing when the directory cannot be created" in {
+    // Spark throws at session creation if spark.eventLog.dir does not exist -- it does not create
+    // it. Letting that propagate would turn an observability feature into an outage: every job
+    // would fail to start. A logging feature must never be the reason a job cannot run.
+    val file = java.nio.file.Files.createTempFile("evlog-not-a-dir", ".txt")
+    SparkSessions.ensureEventLogDir(file.resolve("under-a-file").toString) shouldBe None
+  }
+
+  it should "pass a remote URI through untouched rather than creating a junk local directory" in {
+    // A plain java.nio.file.Paths.get("hdfs://host/path") happily creates a local directory
+    // literally named "hdfs:" in the working directory and still reports success -- Spark, not
+    // this code, is the thing that knows how to resolve a remote event-log location.
+    SparkSessions.ensureEventLogDir("hdfs://namenode:8020/logs") shouldBe
+      Some("hdfs://namenode:8020/logs")
+    java.nio.file.Files.exists(java.nio.file.Paths.get("hdfs:")) shouldBe false
+  }
+
+  it should "pass an s3a URI through untouched" in {
+    SparkSessions.ensureEventLogDir("s3a://bucket/logs") shouldBe Some("s3a://bucket/logs")
+    java.nio.file.Files.exists(java.nio.file.Paths.get("s3a:")) shouldBe false
+  }
+
+  it should "still create a plain local path, unaffected by the remote-URI check" in {
+    val dir = java.nio.file.Files.createTempDirectory("evlog-plain").resolve("nested").toString
+    SparkSessions.ensureEventLogDir(dir) shouldBe Some(dir)
+    java.nio.file.Files.isDirectory(java.nio.file.Paths.get(dir)) shouldBe true
+  }
+
+  it should "treat a colon-bearing relative path as local, not as a URI scheme" in {
+    // new java.net.URI("foo:bar").getScheme returns "foo" -- URI parsing keys off "letters then a
+    // colon at the very start of the string", not off "://". A relative directory that happens to
+    // be named with a colon (an odd but real local name) would otherwise be waved through as
+    // "remote" and never get created, which is exactly the startup crash this function exists to
+    // prevent. This is a regression test: it fails against a scheme-based check.
+    val name = s"evlog-colon-regression-${java.util.UUID.randomUUID()}:tail"
+    val path = java.nio.file.Paths.get(name)
+    try {
+      SparkSessions.ensureEventLogDir(name) shouldBe Some(name)
+      java.nio.file.Files.isDirectory(path) shouldBe true
+    } finally {
+      java.nio.file.Files.deleteIfExists(path)
+    }
+  }
+
+  it should "treat a Windows-drive-letter-shaped relative path as local, not as a URI scheme" in {
+    // new java.net.URI("C:/foo").getScheme returns "C". This is the same misparse as above, aimed
+    // at the classic drive-letter shape rather than an arbitrary word before the colon. This is a
+    // regression test: it fails against a scheme-based check.
+    val prefix = s"evlog-drive-regression-${java.util.UUID.randomUUID()}"
+    val name = s"$prefix:/tail"
+    val childPath = java.nio.file.Paths.get(s"$prefix:", "tail")
+    try {
+      SparkSessions.ensureEventLogDir(name) shouldBe Some(name)
+      java.nio.file.Files.isDirectory(childPath) shouldBe true
+    } finally {
+      java.nio.file.Files.deleteIfExists(childPath)
+      java.nio.file.Files.deleteIfExists(childPath.getParent)
+    }
+  }
 }
