@@ -88,7 +88,7 @@ A `SparkListener` implementing `onStageCompleted`, reading `stageCompleted.stage
 One line, in the idiom `DropMetrics` established:
 
 ```
-[spill-metrics] job=SessionReportJob stage=4 attempt=0 tasks=8 spillMem=1.2G spillDisk=840M shuffleWrite=2.1G shuffleRead=2.1G failedTasks=0
+[spill-metrics] job=SessionReportJob stage=4 attempt=0 tasks=8 spillMem=1.2G spillDisk=840.0M shuffleWrite=2.1G shuffleRead=2.1G failedTasks=0
 ```
 
 ### Counting failures and retries

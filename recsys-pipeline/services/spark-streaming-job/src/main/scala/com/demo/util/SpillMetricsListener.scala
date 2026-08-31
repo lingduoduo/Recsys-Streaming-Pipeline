@@ -53,10 +53,15 @@ object SpillMetricsListener {
   private val registered: java.util.Set[SparkSession] =
     java.util.Collections.newSetFromMap(new java.util.WeakHashMap[SparkSession, java.lang.Boolean]())
 
-  /** Attach one listener per session. Idempotent: a job that opens two queries must not
-    * double-register and double-log every stage. */
-  def register(spark: SparkSession, jobName: String): Unit =
+  /** Attach one listener per session, returning whether this call was the one that attached it.
+    * Idempotent: a job that opens two queries must not double-register and double-log every stage.
+    * The return value lets a test prove that idempotency directly, without the log-capture
+    * infrastructure this repo does not have. */
+  def register(spark: SparkSession, jobName: String): Boolean =
     registered.synchronized {
-      if (registered.add(spark)) spark.sparkContext.addSparkListener(new SpillMetricsListener(jobName))
+      if (registered.add(spark)) {
+        spark.sparkContext.addSparkListener(new SpillMetricsListener(jobName))
+        true
+      } else false
     }
 }

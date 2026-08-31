@@ -29,15 +29,12 @@ class SpillMetricsSpec extends AnyFlatSpec with Matchers {
   }
 
   "format" should "name the job, stage, attempt and every cost" in {
+    // Exact match, not `include`: a loose per-field `include` check let the design spec's example
+    // line drift from the code's actual formatting (840M vs the real 840.0M) through four reviews.
     val line = SpillMetrics.format(cost(spillMem = 1288490188L, spillDisk = 880803840L))
-    line should include("[spill-metrics]")
-    line should include("job=SessionReportJob")
-    line should include("stage=4")
-    line should include("attempt=0")
-    line should include("tasks=8")
-    line should include("spillMem=1.2G")
-    line should include("spillDisk=840.0M")
-    line should include("failedTasks=0")
+    line shouldBe
+      "[spill-metrics] job=SessionReportJob stage=4 attempt=0 tasks=8 spillMem=1.2G " +
+        "spillDisk=840.0M shuffleWrite=2.0G shuffleRead=2.0G failedTasks=0"
   }
 
   "worthInfo" should "stay quiet for a clean stage" in {
