@@ -35,6 +35,24 @@ object GrpoSlates {
     try Some(parts.map(_.toDouble)) catch { case _: NumberFormatException => None }
   }
 
+  /** KNOWN SCALING LIMITATION: this collects the whole micro-batch to the driver.
+    *
+    * The design spec calls for summing the per-slate gradient contributions with `treeAggregate`
+    * "so the driver never collects per-slate vectors". That is not what happens: `collect()` here
+    * pulls every surviving slate's feature matrix into driver memory, and
+    * `GrpoPolicyStreamingJob.applyBatch` then folds over them there. With MAX_OFFSETS_PER_TRIGGER
+    * at its 5000 default and a ten-item slate of ten doubles, a batch is on the order of a few MB,
+    * so the driver holds it comfortably — but the ceiling is the driver's heap, not the cluster's,
+    * and raising the trigger size is the operation that hits it.
+    *
+    * Deliberately not migrated. Doing it properly means returning a distributed collection instead
+    * of a Seq, which forces the gate counts onto Spark accumulators (they only settle after an
+    * action), turns `applyBatch` from a pure Array function into one that broadcasts the weights
+    * and launches a job per inner epoch, and rewrites both this file's spec and
+    * GrpoPolicyStreamingJobSpec, which construct `Seq[GrpoGroup]` directly and today need no Spark
+    * session to test the learning rule at all. That is a larger change than the scaling headroom
+    * currently justifies; revisit it when a batch actually outgrows the driver.
+    */
   def toGroups(slates: DataFrame, cfg: GrpoJobConfig): (Seq[GrpoGroup], GateCounts) = {
     var tooSmall = 0L
     var zeroVariance = 0L
