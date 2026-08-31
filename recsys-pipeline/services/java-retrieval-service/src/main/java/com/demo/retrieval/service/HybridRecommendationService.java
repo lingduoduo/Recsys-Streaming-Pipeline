@@ -3,7 +3,6 @@ package com.demo.retrieval.service;
 import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.kafka.config.KafkaConfig;
 import com.demo.retrieval.kafka.core.KafkaProducer;
-import com.demo.retrieval.kafka.core.KafkaTopics;
 import com.demo.retrieval.kafka.core.KafkaUtils;
 import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.model.FeedbackRequest;
@@ -20,6 +19,7 @@ import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
 import com.demo.retrieval.service.grpo.GrpoImpressionPublisher;
+import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
 import com.demo.retrieval.service.retrieval.MovieCandidate;
 import com.demo.retrieval.service.replay.ReplayEvent;
@@ -127,10 +127,24 @@ public class HybridRecommendationService {
         this.queryHydrators = List.copyOf(queryHydrators);
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
-            new GrpoImpressionPublisher(objectMapper, createGrpoSender(properties), properties.getGrpo().isEmitEvents()));
+            new GrpoImpressionPublisher(objectMapper, createGrpoSender(properties), properties.getGrpo().isEmitEvents()),
+            new GrpoPolicyScorer(redis, properties));
         this.catalogContentScoring = new CatalogContentScoring(properties);
         this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
         this.measurementService = measurementService;
+    }
+
+    /**
+     * The topic serving publishes its impression events to.
+     *
+     * Read from ONLINE_JOINER_INPUT_TOPIC — the same variable OnlineJoinerStreamingJob subscribes
+     * with, and the same default — because these events are only worth emitting if that job
+     * consumes them. Naming a topic of our own here (the previous behaviour) meant the two agreed
+     * only when both happened to be left at their defaults, and the sim scripts, which point the
+     * joiner at a per-run topic, are exactly the case where they do not.
+     */
+    static String grpoOutputTopic() {
+        return System.getenv().getOrDefault("ONLINE_JOINER_INPUT_TOPIC", "recsys_events");
     }
 
     // No KafkaConfig bean is reachable from here — this service has never published to Kafka
@@ -143,9 +157,11 @@ public class HybridRecommendationService {
         }
         try {
             String bootstrapServers = System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
-            KafkaConfig base = KafkaUtils.kafkaConfig(bootstrapServers, KafkaTopics.BEHAVIOR_LOGS, null);
+            String topic = grpoOutputTopic();
+            KafkaConfig base = KafkaUtils.kafkaConfig(bootstrapServers, topic, null);
             KafkaProducer producer = new KafkaProducer(KafkaUtils.producerConfig(base));
-            return (key, payload) -> producer.send(KafkaTopics.BEHAVIOR_LOGS, payload);
+            log.info("GRPO impression events will be published to topic {}", topic);
+            return (key, payload) -> producer.send(topic, payload);
         } catch (Exception e) {
             log.warn("Failed to construct GRPO Kafka producer; GRPO impression events will not be published", e);
             return null;
