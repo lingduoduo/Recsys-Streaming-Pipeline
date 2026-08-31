@@ -26,6 +26,10 @@ producer.py (behavior, request_id key)  ──► Kafka: recsys_events ──►
 
 (default topic = recsys_events for producer + both jobs; set KAFKA_TOPIC / ONLINE_JOINER_INPUT_TOPIC to split the two streams)
 
+java-retrieval-service (own impressions, only when recsys.grpo.emit-events=true)
+                                        ──► Kafka: $ONLINE_JOINER_INPUT_TOPIC ──► OnlineJoinerStreamingJob
+(serving reads the SAME ONLINE_JOINER_INPUT_TOPIC the joiner subscribes with; give both the same value or nothing consumes the events)
+
 Kafka: training_samples     ──► ExperienceCollectorStreamingJob  ──► Kafka: training_experiences
 Kafka: training_experiences ──► RecommendationResponseStatsJob   ──► Kafka: recommendation_metrics
 Kafka: training_experiences ──► GrpoPolicyStreamingJob           ──► Redis grpo:policy:weights
@@ -964,15 +968,38 @@ was already left unclaimed. **`shadow` is safe to leave on indefinitely** — it
 hardcoded 0.0 in `GrpoPolicyScorer`, not a tunable that could drift, so nothing about a served
 recommendation changes while it runs.
 
+In `shadow`, every slate produces one INFO line from `GrpoPolicyScorer` in the retrieval service:
+
+```
+GRPO shadow slate requestId=<id> slateSize=<n> pairwiseConcordance=<0.0..1.0>
+```
+
+`pairwiseConcordance` is the fraction of served position pairs the GRPO score orders the same way
+serving did — 1.0 means the policy would have produced the served slate exactly, 0.0 that it would
+have reversed it. Ties count as disagreement. This is the measure the flip criterion reads: watch
+it across many slates before promoting `shadow` to `on`. Nothing is logged in `off` (no Redis read
+happens at all), in `on` (where the score already steers the order it would be graded against), for
+single-item slates, or when no usable weight vector is in Redis yet.
+
+A weight vector that has diverged to NaN or infinity is treated as absent on both sides:
+`GrpoPolicyStreamingJob` refuses to write one (it logs at ERROR and keeps the last good weights —
+the key has no TTL, so a single NaN would otherwise be permanent), and `GrpoPolicyScorer` ignores
+one it reads back.
+
 `recsys.grpo.emit-events` (`RECSYS_GRPO_EMIT_EVENTS`, default `false`) is a second, independent
 switch that an operator cannot infer from the rollout mode above:
 
 - **It is the prerequisite for the whole training chain.** Only when it is `true` does serving
-  publish its own impressions (carrying `prediction_score` and the packed `grpo_x` feature vector
-  under `item_features`) into the same event flow `OnlineJoinerStreamingJob` and
-  `ExperienceCollectorStreamingJob` already process. With it `false`, `training_experiences` never
-  carries a `grpo_x` field, every slate is gated out as `bad_feature_version`, and
-  `GrpoPolicyStreamingJob` trains on nothing regardless of `recsys.grpo.mode`.
+  publish its own impressions, carrying `prediction_score` and the packed `grpo_x` feature vector
+  under `item_features`. Those events land on the topic `ONLINE_JOINER_INPUT_TOPIC` names
+  (default `recsys_events`) — **the retrieval service and `OnlineJoinerStreamingJob` must be given
+  the same value for that variable**, or serving publishes into a topic the joiner is not
+  subscribed to and nothing downstream sees the events. Nothing detects the mismatch: both sides
+  run cleanly and `training_experiences` simply never gains a `grpo_x` field. The sim scripts,
+  which point the joiner at a per-run `recsys_events_${RUN_ID}`, are the case to watch.
+  With `emit-events` `false`, `training_experiences` never carries a `grpo_x` field either, every
+  slate is gated out as `bad_feature_version`, and `GrpoPolicyStreamingJob` trains on nothing
+  regardless of `recsys.grpo.mode`.
 - **It independently unblocks the offline DPO arm.** Serving's own impression events are the only
   ones stamped with serving's own `requestId`, which is also the id serving's replay buffer writes
   are keyed on. Today the Kafka slate log and the Redis replay buffer mint `requestId`s from

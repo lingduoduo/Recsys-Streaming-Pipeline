@@ -118,7 +118,9 @@ feedback window closes, so rewards are attached before the slate is ever publish
 ## Component 1 — Serving emits its own impressions (Java)
 
 `MovieLensServingSideEffects` gains a Kafka publish alongside its existing Redis replay write,
-through the existing `KafkaProducer`, to `KafkaTopics.BEHAVIOR_LOGS`.
+through the existing `KafkaProducer`, to the topic `ONLINE_JOINER_INPUT_TOPIC` names (default
+`recsys_events`) — the same variable `OnlineJoinerStreamingJob` subscribes with, so the two sides
+align by configuration rather than by coincidence.
 
 The event matches the Python producer's shape exactly, field for field, because
 `OnlineJoinerStreamingJob.parseEvents` enforces non-null `request_id` / `user_id` / `item_id` and

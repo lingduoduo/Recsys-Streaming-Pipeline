@@ -380,12 +380,15 @@ behavior source. Both take `off` | `shadow` | `on`, and advancing one does not a
 **GRPO** — the online policy trained continuously off the slate stream. Roll out `off` → `shadow`
 → `on`; `emit-events` is a separate switch (see
 [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#grpopolicystreamingjob) for
-the rollout order and why `emit-events` gates more than serving).
+the rollout order and why `emit-events` gates more than serving). In `shadow`, each slate logs one
+INFO line carrying its `requestId`, slate size, and `pairwiseConcordance` — how often the GRPO
+order agrees with the served order, which is what the flip to `on` should be judged on.
 
 | Property | Env var | Default |
 |---|---|---|
 | `recsys.grpo.mode` | `RECSYS_GRPO_MODE` | `off` (`off` \| `shadow` \| `on`) |
 | `recsys.grpo.emit-events` | `RECSYS_GRPO_EMIT_EVENTS` | `false` |
+| — | `ONLINE_JOINER_INPUT_TOPIC` | `recsys_events` — the topic serving publishes impressions to when `emit-events` is on. **Must match what `OnlineJoinerStreamingJob` is given**, or nothing consumes them and no error says so. |
 
 The training job (`GrpoPolicyStreamingJob`, `services/spark-streaming-job`) reads its own env vars,
 not `recsys` properties:
