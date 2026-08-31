@@ -397,7 +397,7 @@ not `recsys` properties:
 | `GRPO_CLIP_EPSILON` | `0.2` | PPO clip range |
 | `GRPO_KL_BETA` | `0.02` | Weight on the KL to the logged serving policy |
 | `GRPO_LEARNING_RATE` | `0.01` | SGD step size |
-| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Below 2, clipping never engages |
+| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Values below 2 are silently raised to 2 (the config floors it, no log line) — at 1 step the ratio is identically 1 and clipping never engages |
 
 **Reward model**
 

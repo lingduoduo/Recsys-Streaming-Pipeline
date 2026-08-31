@@ -955,7 +955,7 @@ Job-specific environment variables (plus the [common set](#common-environment-va
 | `GRPO_CLIP_EPSILON` | `0.2` | PPO clip range |
 | `GRPO_KL_BETA` | `0.02` | Weight on the KL to the logged serving policy |
 | `GRPO_LEARNING_RATE` | `0.01` | SGD step size |
-| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Below 2, the ratio is identically 1 on every step and clipping never engages |
+| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Values below 2 are silently raised to 2 (`GrpoJobConfig` floors it, no log line) — at 1 step, the policy still equals its pre-batch snapshot when the importance ratio is formed, so the ratio is identically 1 and the clip branch is unreachable |
 | `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/grpo-policy` | |
 
 Rollout is `recsys.grpo.mode` (`RECSYS_GRPO_MODE`, serving side): `off` computes nothing, `shadow`
@@ -978,7 +978,7 @@ switch that an operator cannot infer from the rollout mode above:
   are keyed on. Today the Kafka slate log and the Redis replay buffer mint `requestId`s from
   different generators, so `post-training/slate_pairs.py`'s join between the slate log and the
   replay index returns zero rows. Turning `emit-events` on gives the two one shared id namespace for the first
-  time — a prerequisite `dpo_preprocess.py` needs regardless of whether `recsys.grpo.mode` is ever
+  time — a prerequisite `post_train_dpo.py` needs regardless of whether `recsys.grpo.mode` is ever
   turned on.
 
 ### Columnar sequence store
