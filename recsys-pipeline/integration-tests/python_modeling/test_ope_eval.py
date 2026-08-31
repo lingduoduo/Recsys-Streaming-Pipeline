@@ -291,3 +291,17 @@ def test_candidates_of_accepts_a_parquet_round_tripped_action_space(tmp_path):
 
 def test_candidates_of_returns_empty_for_a_missing_action_space():
     assert ope.candidates_of({"requestId": "r1"}) == []
+
+
+def test_grpo_score_is_excluded_from_reward_model_features():
+    """A model:* score fed to the reward model that grades it makes the policy grade itself.
+
+    This is not hypothetical here: feature_names() builds the reward model's inputs from every
+    modelPredictions key that is not registered as policy-only.
+    """
+    import ope_eval_report
+
+    assert ope_eval_report.GRPO_PRED_KEY in ope_eval_report.POLICY_ONLY_PRED_KEYS
+
+    event = {"modelPredictions": {"predictionScore": 0.4, ope_eval_report.GRPO_PRED_KEY: 0.9}}
+    assert ope_eval_report.GRPO_PRED_KEY not in ope_eval_report.feature_names([event])

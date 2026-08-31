@@ -29,6 +29,7 @@ public class RecommendationProperties {
     private ReplayBuffer replayBuffer = new ReplayBuffer();
     private RewardModel rewardModel = new RewardModel();
     private Sequence sequence = new Sequence();
+    private Grpo grpo = new Grpo();
     @Valid
     private Measurements measurements = new Measurements();
     private Map<String, MovieProfile> catalog = new LinkedHashMap<>();
@@ -91,6 +92,14 @@ public class RecommendationProperties {
 
     public void setSequence(Sequence sequence) {
         this.sequence = sequence;
+    }
+
+    public Grpo getGrpo() {
+        return grpo;
+    }
+
+    public void setGrpo(Grpo grpo) {
+        this.grpo = grpo;
     }
 
     public Measurements getMeasurements() {
@@ -463,6 +472,33 @@ public class RecommendationProperties {
 
         public void setBucketFetchChunk(int bucketFetchChunk) {
             this.bucketFetchChunk = bucketFetchChunk;
+        }
+    }
+
+    public static class Grpo {
+        /** off | shadow | on — the GRPO policy rollout, mirroring the sequence switches. */
+        private String mode = "off";
+        /**
+         * Whether serving publishes its own impression events to Kafka. Off by default: it is the
+         * first time this service writes to the event stream, and it is a training-data feature,
+         * not a serving one.
+         */
+        private boolean emitEvents = false;
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
+
+        public boolean isEmitEvents() {
+            return emitEvents;
+        }
+
+        public void setEmitEvents(boolean emitEvents) {
+            this.emitEvents = emitEvents;
         }
     }
 

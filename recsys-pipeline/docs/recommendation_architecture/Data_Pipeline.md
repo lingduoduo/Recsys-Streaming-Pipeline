@@ -26,8 +26,13 @@ producer.py (behavior, request_id key)  ──► Kafka: recsys_events ──►
 
 (default topic = recsys_events for producer + both jobs; set KAFKA_TOPIC / ONLINE_JOINER_INPUT_TOPIC to split the two streams)
 
+java-retrieval-service (own impressions, only when recsys.grpo.emit-events=true)
+                                        ──► Kafka: $ONLINE_JOINER_INPUT_TOPIC ──► OnlineJoinerStreamingJob
+(serving reads the SAME ONLINE_JOINER_INPUT_TOPIC the joiner subscribes with; give both the same value or nothing consumes the events)
+
 Kafka: training_samples     ──► ExperienceCollectorStreamingJob  ──► Kafka: training_experiences
 Kafka: training_experiences ──► RecommendationResponseStatsJob   ──► Kafka: recommendation_metrics
+Kafka: training_experiences ──► GrpoPolicyStreamingJob           ──► Redis grpo:policy:weights
 Kafka: movielens_context    ──► MovieLensContextCollectorStreamingJob ──► Redis user context (serving hydration)
                                                                         └──► Redis movie context (training/report enrichment)
 
@@ -459,6 +464,7 @@ Persona thresholds can be overridden with `USER_PROFILE_GENRE_ENTHUSIAST_THRESHO
 | `com.demo.task` | Runnable entry points for streaming ingestion and offline embedding and CTR/ranking model training | `UserEventStreamingJob`, `Item2VecTrainingJob`, `UserEmbeddingTrainingJob`, `AlsEmbeddingTrainingJob`, `CtrRankingModelTrainingJob` |
 | `com.demo.recommend` | Offline candidate pre-computation from trained embeddings | `EmbeddingCandidateGenerationJob` |
 | `com.demo.sequence` | Columnar per-user rating/click sequence store: schema, encoder, Redis/Parquet sinks, one-shot backfill | `SequenceSchema`, `SequenceEncoder`, `SequenceRedisSink`, `SequenceParquetSink`, `SequenceBackfillJob` |
+| `com.demo.grpo` | Online GRPO policy trained continuously off the slate stream | `GrpoPolicyStreamingJob`, `GrpoJobConfig`, `GrpoMath`, `GrpoSlates`, `GrpoWeightStore` |
 | `com.demo.sink` | External write helpers | `RedisWriter` |
 | `com.demo.util` | Shared Spark session and environment utilities | `Env`, `SparkSessions` |
 
@@ -931,6 +937,76 @@ Confirm that movie feature hashes exist in Redis:
 ```bash
 docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features'
 ```
+
+### `GrpoPolicyStreamingJob`
+
+Consumes slates from `training_experiences` and continuously trains the online GRPO policy:
+each micro-batch is one minibatch of PPO-clipped gradient steps, and the updated weight vector is
+written back to the `grpo:policy:weights` Redis hash that `GrpoPolicyScorer` (serving) reads.
+
+```bash
+SPARK_MAIN_CLASS=com.demo.grpo.GrpoPolicyStreamingJob \
+GRPO_INPUT_TOPIC=training_experiences \
+./run-streaming-job.sh
+```
+
+Job-specific environment variables (plus the [common set](#common-environment-variables)):
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `GRPO_INPUT_TOPIC` | `training_experiences` | Slate stream the job consumes |
+| `GRPO_TEMPERATURE` | `1.0` | Softmax temperature |
+| `GRPO_CLIP_EPSILON` | `0.2` | PPO clip range |
+| `GRPO_KL_BETA` | `0.02` | Weight on the KL to the logged serving policy |
+| `GRPO_LEARNING_RATE` | `0.01` | SGD step size |
+| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Values below 2 are silently raised to 2 (`GrpoJobConfig` floors it, no log line) — at 1 step, the policy still equals its pre-batch snapshot when the importance ratio is formed, so the ratio is identically 1 and the clip branch is unreachable |
+| `SPARK_CHECKPOINT_LOCATION` | `/tmp/spark-recsys/grpo-policy` | |
+
+Rollout is `recsys.grpo.mode` (`RECSYS_GRPO_MODE`, serving side): `off` computes nothing, `shadow`
+computes and logs the score at blend weight 0.0, `on` claims 0.10 of the exploitation weight that
+was already left unclaimed. **`shadow` is safe to leave on indefinitely** — its blend weight is a
+hardcoded 0.0 in `GrpoPolicyScorer`, not a tunable that could drift, so nothing about a served
+recommendation changes while it runs.
+
+In `shadow`, every slate produces one INFO line from `GrpoPolicyScorer` in the retrieval service:
+
+```
+GRPO shadow slate requestId=<id> slateSize=<n> pairwiseConcordance=<0.0..1.0>
+```
+
+`pairwiseConcordance` is the fraction of served position pairs the GRPO score orders the same way
+serving did — 1.0 means the policy would have produced the served slate exactly, 0.0 that it would
+have reversed it. Ties count as disagreement. This is the measure the flip criterion reads: watch
+it across many slates before promoting `shadow` to `on`. Nothing is logged in `off` (no Redis read
+happens at all), in `on` (where the score already steers the order it would be graded against), for
+single-item slates, or when no usable weight vector is in Redis yet.
+
+A weight vector that has diverged to NaN or infinity is treated as absent on both sides:
+`GrpoPolicyStreamingJob` refuses to write one (it logs at ERROR and keeps the last good weights —
+the key has no TTL, so a single NaN would otherwise be permanent), and `GrpoPolicyScorer` ignores
+one it reads back.
+
+`recsys.grpo.emit-events` (`RECSYS_GRPO_EMIT_EVENTS`, default `false`) is a second, independent
+switch that an operator cannot infer from the rollout mode above:
+
+- **It is the prerequisite for the whole training chain.** Only when it is `true` does serving
+  publish its own impressions, carrying `prediction_score` and the packed `grpo_x` feature vector
+  under `item_features`. Those events land on the topic `ONLINE_JOINER_INPUT_TOPIC` names
+  (default `recsys_events`) — **the retrieval service and `OnlineJoinerStreamingJob` must be given
+  the same value for that variable**, or serving publishes into a topic the joiner is not
+  subscribed to and nothing downstream sees the events. Nothing detects the mismatch: both sides
+  run cleanly and `training_experiences` simply never gains a `grpo_x` field. The sim scripts,
+  which point the joiner at a per-run `recsys_events_${RUN_ID}`, are the case to watch.
+  With `emit-events` `false`, `training_experiences` never carries a `grpo_x` field either, every
+  slate is gated out as `bad_feature_version`, and `GrpoPolicyStreamingJob` trains on nothing
+  regardless of `recsys.grpo.mode`.
+- **It independently unblocks the offline DPO arm.** Serving's own impression events are the only
+  ones stamped with serving's own `requestId`, which is also the id serving's replay buffer writes
+  are keyed on. Today the Kafka slate log and the Redis replay buffer mint `requestId`s from
+  different generators, so `post-training/slate_pairs.py`'s join between the slate log and the
+  replay index returns zero rows. Turning `emit-events` on gives the two one shared id namespace for the first
+  time — a prerequisite `post_train_dpo.py` needs regardless of whether `recsys.grpo.mode` is ever
+  turned on.
 
 ### Columnar sequence store
 

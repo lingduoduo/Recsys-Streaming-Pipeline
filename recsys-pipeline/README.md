@@ -377,6 +377,31 @@ behavior source. Both take `off` | `shadow` | `on`, and advancing one does not a
 | `recsys.sequence.lookback-days` | `RECSYS_SEQUENCE_LOOKBACK_DAYS` | `90` |
 | `recsys.sequence.bucket-fetch-chunk` | `RECSYS_SEQUENCE_BUCKET_FETCH_CHUNK` | `7` |
 
+**GRPO** — the online policy trained continuously off the slate stream. Roll out `off` → `shadow`
+→ `on`; `emit-events` is a separate switch (see
+[Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#grpopolicystreamingjob) for
+the rollout order and why `emit-events` gates more than serving). In `shadow`, each slate logs one
+INFO line carrying its `requestId`, slate size, and `pairwiseConcordance` — how often the GRPO
+order agrees with the served order, which is what the flip to `on` should be judged on.
+
+| Property | Env var | Default |
+|---|---|---|
+| `recsys.grpo.mode` | `RECSYS_GRPO_MODE` | `off` (`off` \| `shadow` \| `on`) |
+| `recsys.grpo.emit-events` | `RECSYS_GRPO_EMIT_EVENTS` | `false` |
+| — | `ONLINE_JOINER_INPUT_TOPIC` | `recsys_events` — the topic serving publishes impressions to when `emit-events` is on. **Must match what `OnlineJoinerStreamingJob` is given**, or nothing consumes them and no error says so. |
+
+The training job (`GrpoPolicyStreamingJob`, `services/spark-streaming-job`) reads its own env vars,
+not `recsys` properties:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `GRPO_INPUT_TOPIC` | `training_experiences` | Slate stream the job consumes |
+| `GRPO_TEMPERATURE` | `1.0` | Softmax temperature |
+| `GRPO_CLIP_EPSILON` | `0.2` | PPO clip range |
+| `GRPO_KL_BETA` | `0.02` | Weight on the KL to the logged serving policy |
+| `GRPO_LEARNING_RATE` | `0.01` | SGD step size |
+| `GRPO_INNER_EPOCHS` | `4` | Gradient steps per micro-batch. Values below 2 are silently raised to 2 (the config floors it, no log line) — at 1 step the ratio is identically 1 and clipping never engages |
+
 **Reward model**
 
 | Property | Env var | Default |

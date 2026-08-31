@@ -42,7 +42,10 @@ BASE_FEATURES = ["coldStart", "impressions", "clicks"]
 TABULAR_Q_PRED_KEY = "tabQ"
 FQI_Q_PRED_KEY = "fqiQ"
 DPO_PRED_KEY = "dpoScore"
-POLICY_ONLY_PRED_KEYS = (TABULAR_Q_PRED_KEY, FQI_Q_PRED_KEY, DPO_PRED_KEY)
+#: The online GRPO policy's score, written by GrpoPolicyScorer in the serving path.
+GRPO_PRED_KEY = "grpoScore"
+
+POLICY_ONLY_PRED_KEYS = (TABULAR_Q_PRED_KEY, FQI_Q_PRED_KEY, DPO_PRED_KEY, GRPO_PRED_KEY)
 
 
 def candidates_of(event: dict) -> list[dict]:

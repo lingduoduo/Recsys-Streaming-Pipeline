@@ -9,6 +9,8 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import com.demo.retrieval.service.grpo.GrpoImpressionPublisher;
+import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.replay.ReplayEvent;
 
 import java.time.Duration;
@@ -31,11 +33,18 @@ public class MovieLensServingSideEffects {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Duration pendingTtl;
+    private final GrpoImpressionPublisher grpoPublisher;
+    private final GrpoPolicyScorer grpoScorer;
 
-    public MovieLensServingSideEffects(StringRedisTemplate redis, ObjectMapper objectMapper, Duration pendingTtl) {
+    public MovieLensServingSideEffects(
+        StringRedisTemplate redis, ObjectMapper objectMapper, Duration pendingTtl,
+        GrpoImpressionPublisher grpoPublisher, GrpoPolicyScorer grpoScorer
+    ) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.pendingTtl = pendingTtl;
+        this.grpoPublisher = grpoPublisher;
+        this.grpoScorer = grpoScorer;
     }
 
     public void recordServed(ServingSideEffectRequest request) {
@@ -74,6 +83,11 @@ public class MovieLensServingSideEffects {
                 return null;
             }
         });
+
+        grpoPublisher.publish(request, now);
+        // Here rather than during scoring because this is where slate position is known: the GRPO
+        // feature vector is position-dependent, and no earlier stage has assigned one.
+        grpoScorer.recordShadowSlate(request);
     }
 
     public static String pendingReplayKey(String userId, String movieId) {
