@@ -1,6 +1,8 @@
 package com.demo.retrieval.service.side_effects;
 
+import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.service.grpo.GrpoImpressionPublisher;
+import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +35,11 @@ class MovieLensServingSideEffectsTest {
     private HashOperations<String, Object, Object> hashOps;
     private MovieLensServingSideEffects sideEffects;
 
+    /** The default rollout state: the scorer must be inert, so these tests exercise nothing of it. */
+    private static GrpoPolicyScorer offScorer() {
+        return new GrpoPolicyScorer(mock(StringRedisTemplate.class), new RecommendationProperties());
+    }
+
     @BeforeEach
     void setUp() {
         redis = mock(StringRedisTemplate.class);
@@ -48,7 +55,8 @@ class MovieLensServingSideEffectsTest {
             return List.of();
         });
         sideEffects = new MovieLensServingSideEffects(redis, new ObjectMapper(), Duration.ofHours(1),
-            new GrpoImpressionPublisher(new ObjectMapper(), null, false));
+            new GrpoImpressionPublisher(new ObjectMapper(), null, false),
+            offScorer());
     }
 
     @Test
