@@ -122,4 +122,36 @@ class GrpoPolicyStreamingJobSpec extends AnyFlatSpec with Matchers {
 
     r1.weights.zip(r2.weights).foreach { case (a, b) => a shouldBe b +- 1e-9 }
   }
+
+  "stepBatch" should "pass a finite update through unchanged" in {
+    val current = GrpoWeightStore.initial(cfg)
+    val stepped = GrpoPolicyStreamingJob.stepBatch(current, Seq(group(Array(1.0, 0.0, 0.0))), cfg, 1L)
+    stepped.map(_.weights.toSeq) shouldBe
+      Some(GrpoPolicyStreamingJob.applyBatch(current, Seq(group(Array(1.0, 0.0, 0.0))), cfg, 1L).weights.toSeq)
+  }
+
+  it should "refuse a diverged update rather than persist it" in {
+    // The weights key has no TTL: one NaN written to it is permanent, every later batch reads it
+    // back, and serving scores NaN until someone deletes the key by hand. A NaN feature is the
+    // shortest route to a non-finite gradient; the point under test is the refusal, not the cause.
+    val poisoned = GrpoGroup(
+      slateId = "s1",
+      x = Array(Array.fill(cfg.dim)(Double.NaN), Array.fill(cfg.dim)(0.1)),
+      logged = Array(0.5, 0.5),
+      rewards = Array(1.0, 0.0))
+    GrpoPolicyStreamingJob.stepBatch(GrpoWeightStore.initial(cfg), Seq(poisoned), cfg, 1L) shouldBe None
+  }
+
+  it should "leave the caller holding the last good weights when a batch diverges" in {
+    val lastGood = GrpoPolicyStreamingJob.applyBatch(
+      GrpoWeightStore.initial(cfg), Seq(group(Array(1.0, 0.0))), cfg, 1L)
+    val infinite = GrpoGroup(
+      slateId = "s2",
+      x = Array(Array.fill(cfg.dim)(Double.PositiveInfinity), Array.fill(cfg.dim)(0.1)),
+      logged = Array(0.5, 0.5),
+      rewards = Array(1.0, 0.0))
+    GrpoPolicyStreamingJob.stepBatch(lastGood, Seq(infinite), cfg, 2L) shouldBe None
+    // applyBatch clones, so the rejected batch cannot have touched what the job still holds.
+    lastGood.weights.forall(java.lang.Double.isFinite) shouldBe true
+  }
 }

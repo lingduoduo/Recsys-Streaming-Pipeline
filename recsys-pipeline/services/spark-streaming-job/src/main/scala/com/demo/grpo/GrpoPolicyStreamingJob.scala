@@ -56,6 +56,19 @@ object GrpoPolicyStreamingJob {
     GrpoWeights(w, cfg.featureVersion, batchId, current.slatesApplied + groups.size)
   }
 
+  /** One batch's update, or None if it diverged.
+    *
+    * The weights key has no TTL, so a single NaN written to it is permanent: nothing expires it,
+    * every later batch reads NaN back into `w` and every arithmetic result stays NaN, and the
+    * serving side would score NaN forever. Divergence is the one failure this job cannot recover
+    * from on its own, so a non-finite result is discarded and the last good weights stay live.
+    */
+  def stepBatch(current: GrpoWeights, groups: Seq[GrpoGroup], cfg: GrpoJobConfig,
+                batchId: Long): Option[GrpoWeights] = {
+    val updated = applyBatch(current, groups, cfg, batchId)
+    if (updated.weights.forall(java.lang.Double.isFinite)) Some(updated) else None
+  }
+
   def main(args: Array[String]): Unit = {
     val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     val inputTopic = sys.env.getOrElse("GRPO_INPUT_TOPIC", "training_experiences")
@@ -92,12 +105,20 @@ object GrpoPolicyStreamingJob {
         val (groups, counts) = GrpoSlates.toGroups(slates, cfg)
         log.info(DropMetrics.format(JobName, batchId, counts.kept, counts.reasons))
 
-        weights = applyBatch(weights, groups, cfg, batchId)
-        val jedis = pool.getResource
-        // jedis.hset returns the field-count Long; discard it so the lambda's inferred type stays
-        // (DataFrame, Long) => Unit, which is the only overload foreachBatch accepts.
-        try { jedis.hset(cfg.weightsKey, GrpoWeightStore.encode(weights, System.currentTimeMillis())); () }
-        finally jedis.close()
+        stepBatch(weights, groups, cfg, batchId) match {
+          case None =>
+            log.error(
+              s"$JobName batch $batchId produced non-finite weights; keeping batch " +
+                s"${weights.batchId}'s weights and skipping the Redis write. Lower " +
+                "GRPO_LEARNING_RATE or raise GRPO_KL_BETA before restarting.")
+          case Some(updated) =>
+            weights = updated
+            val jedis = pool.getResource
+            // jedis.hset returns the field-count Long; discard it so the lambda's inferred type
+            // stays (DataFrame, Long) => Unit, which is the only overload foreachBatch accepts.
+            try { jedis.hset(cfg.weightsKey, GrpoWeightStore.encode(weights, System.currentTimeMillis())); () }
+            finally jedis.close()
+        }
       }
       .option("checkpointLocation", checkpointLocation)
       .trigger(Trigger.ProcessingTime(triggerInterval))
