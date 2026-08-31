@@ -14,13 +14,25 @@ import java.util.concurrent.ConcurrentHashMap
   *
   * Spark delivers listener events on a single dispatch thread, but a ConcurrentHashMap costs
   * nothing here and removes the question.
+  *
+  * A `SparkListenerTaskEnd` can still arrive after its stage's `SparkListenerStageCompleted` --
+  * stage cancellation, speculative kills, and zombie tasksets after a `FetchFailed` all do this.
+  * `recordFailure` would otherwise recreate a key that `drain` has already removed and that nothing
+  * will ever drain again, growing forever in a job designed to run forever. `maxTracked` caps the
+  * number of distinct stage attempts tracked at once: once at the cap, a late failure for a stage
+  * attempt not already present is dropped rather than starting a new entry that leaks.
   */
-class FailureTally {
+class FailureTally(maxTracked: Int = FailureTally.DefaultMaxTracked) {
 
   private val counts = new ConcurrentHashMap[(Int, Int), Int]()
 
   def recordFailure(stageId: Int, attempt: Int): Unit = {
-    counts.merge((stageId, attempt), 1, (a: Int, b: Int) => a + b)
+    val key = (stageId, attempt)
+    // Only refuse a *new* key at capacity -- a key already being tracked must still be free to
+    // accumulate further failures.
+    if (counts.containsKey(key) || counts.size() < maxTracked) {
+      counts.merge(key, 1, (a: Int, b: Int) => a + b)
+    }
     ()
   }
 
@@ -30,4 +42,11 @@ class FailureTally {
 
   /** Keys currently held. Exists so a test can prove `drain` releases state. */
   def size: Int = counts.size()
+}
+
+object FailureTally {
+
+  /** Generous relative to any real job's concurrent stage count, so it never engages in practice --
+    * it exists only to bound the damage from the late-event leak described above. */
+  val DefaultMaxTracked: Int = 10000
 }

@@ -42,4 +42,19 @@ class FailureTallySpec extends AnyFlatSpec with Matchers {
     tally.drain(1, 0) shouldBe 1
     tally.drain(1, 0) shouldBe 0
   }
+
+  it should "not grow without bound when a TaskEnd arrives after its stage already drained" in {
+    // Stage cancellation, speculative kills, and zombie tasksets after a FetchFailed can all
+    // deliver a TaskEnd after onStageCompleted has already drained that stage attempt. Each one
+    // used to recreate the key with nothing left to ever drain it again -- exactly the leak a
+    // long-running streaming query would hit. maxTracked is set small here so the cap engages
+    // within a handful of stages instead of ten thousand.
+    val tally = new FailureTally(maxTracked = 3)
+    (0 until 20).foreach { stageId =>
+      tally.recordFailure(stageId, 0)
+      tally.drain(stageId, 0)
+      tally.recordFailure(stageId, 0) // the late TaskEnd, arriving after the stage was drained
+    }
+    tally.size should be <= 3
+  }
 }
