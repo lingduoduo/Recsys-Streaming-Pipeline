@@ -62,17 +62,19 @@ object SparkSessions {
     * every job at startup, turning an observability feature into an outage. So a directory that
     * cannot be created disables event logging with a warning instead.
     *
-    * A `dir` carrying a URI scheme (`hdfs://...`, `s3a://...`) names a location Spark resolves
+    * A `dir` carrying a URI authority (`hdfs://...`, `s3a://...`) names a location Spark resolves
     * itself, not a local path -- creating it here would leave a junk directory literally named
     * e.g. `hdfs:` in the working directory and still report success. Those are passed through
     * untouched and left for Spark to resolve.
+    *
+    * Detected by the `://` separator, not by `java.net.URI(dir).getScheme`: URI parsing reads any
+    * leading `word:` as a scheme, so it misreads an ordinary local path with a colon in it --
+    * `foo:bar`, or a Windows drive letter like `C:/foo` -- as remote, skipping directory creation
+    * for a path that was never remote and turning this back into the startup crash it exists to
+    * prevent. `://` is the actual authority separator and cannot fire on either of those.
     */
   def ensureEventLogDir(dir: String): Option[String] = {
-    val hasUriScheme =
-      try Option(new java.net.URI(dir).getScheme).isDefined
-      catch { case scala.util.control.NonFatal(_) => false }
-
-    if (hasUriScheme) Some(dir)
+    if (dir.contains("://")) Some(dir)
     else
       try {
         Files.createDirectories(Paths.get(dir))

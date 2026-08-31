@@ -103,13 +103,51 @@ class SparkSessionsSpec extends AnyFlatSpec with Matchers {
     // A plain java.nio.file.Paths.get("hdfs://host/path") happily creates a local directory
     // literally named "hdfs:" in the working directory and still reports success -- Spark, not
     // this code, is the thing that knows how to resolve a remote event-log location.
-    SparkSessions.ensureEventLogDir("hdfs://namenode/spark-events") shouldBe
-      Some("hdfs://namenode/spark-events")
+    SparkSessions.ensureEventLogDir("hdfs://namenode:8020/logs") shouldBe
+      Some("hdfs://namenode:8020/logs")
     java.nio.file.Files.exists(java.nio.file.Paths.get("hdfs:")) shouldBe false
   }
 
   it should "pass an s3a URI through untouched" in {
-    SparkSessions.ensureEventLogDir("s3a://bucket/spark-events") shouldBe
-      Some("s3a://bucket/spark-events")
+    SparkSessions.ensureEventLogDir("s3a://bucket/logs") shouldBe Some("s3a://bucket/logs")
+    java.nio.file.Files.exists(java.nio.file.Paths.get("s3a:")) shouldBe false
+  }
+
+  it should "still create a plain local path, unaffected by the remote-URI check" in {
+    val dir = java.nio.file.Files.createTempDirectory("evlog-plain").resolve("nested").toString
+    SparkSessions.ensureEventLogDir(dir) shouldBe Some(dir)
+    java.nio.file.Files.isDirectory(java.nio.file.Paths.get(dir)) shouldBe true
+  }
+
+  it should "treat a colon-bearing relative path as local, not as a URI scheme" in {
+    // new java.net.URI("foo:bar").getScheme returns "foo" -- URI parsing keys off "letters then a
+    // colon at the very start of the string", not off "://". A relative directory that happens to
+    // be named with a colon (an odd but real local name) would otherwise be waved through as
+    // "remote" and never get created, which is exactly the startup crash this function exists to
+    // prevent. This is a regression test: it fails against a scheme-based check.
+    val name = s"evlog-colon-regression-${java.util.UUID.randomUUID()}:tail"
+    val path = java.nio.file.Paths.get(name)
+    try {
+      SparkSessions.ensureEventLogDir(name) shouldBe Some(name)
+      java.nio.file.Files.isDirectory(path) shouldBe true
+    } finally {
+      java.nio.file.Files.deleteIfExists(path)
+    }
+  }
+
+  it should "treat a Windows-drive-letter-shaped relative path as local, not as a URI scheme" in {
+    // new java.net.URI("C:/foo").getScheme returns "C". This is the same misparse as above, aimed
+    // at the classic drive-letter shape rather than an arbitrary word before the colon. This is a
+    // regression test: it fails against a scheme-based check.
+    val prefix = s"evlog-drive-regression-${java.util.UUID.randomUUID()}"
+    val name = s"$prefix:/tail"
+    val childPath = java.nio.file.Paths.get(s"$prefix:", "tail")
+    try {
+      SparkSessions.ensureEventLogDir(name) shouldBe Some(name)
+      java.nio.file.Files.isDirectory(childPath) shouldBe true
+    } finally {
+      java.nio.file.Files.deleteIfExists(childPath)
+      java.nio.file.Files.deleteIfExists(childPath.getParent)
+    }
   }
 }
