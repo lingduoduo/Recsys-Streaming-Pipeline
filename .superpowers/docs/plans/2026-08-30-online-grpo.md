@@ -707,6 +707,16 @@ Expected: FAIL — `GrpoMath` is not a member of `com.demo.grpo`.
 
 - [ ] **Step 3: Write the implementation**
 
+> **The committed source is authoritative, not this block.**
+> The `surrogateScale` line below was wrong when this plan was written: it read
+> `-adv(i) * ratio / pi.length`, which carries a spurious extra factor of `pi_i` because the
+> accumulator multiplies by `pi(i) / temperature` further down. The finite-difference test in
+> Step 1 caught it during implementation (0.0469 computed against 0.1301 correct — a 3x error
+> that would have trained a subtly wrong objective while every metric looked healthy), and a
+> reviewer re-derived the correction independently. It is fixed inline below, but read
+> `recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoMath.scala`
+> rather than transcribing from here.
+
 ```scala
 package com.demo.grpo
 
@@ -813,7 +823,10 @@ object GrpoMath {
       // unless the unclipped branch is the smaller one, which is when min() selects it.
       val unclippedSelected = !clippedActive ||
         (ratio * adv(i)) < (math.max(1.0 - cfg.clipEpsilon, math.min(1.0 + cfg.clipEpsilon, ratio)) * adv(i))
-      val surrogateScale = if (unclippedSelected) -adv(i) * ratio / pi.length else 0.0
+      // d(-1/N * ratio_i * adv_i)/dpi_i = -(1/N) * adv_i / piSnap_i -- NOT -(1/N) * adv_i * ratio_i,
+      // which would carry a spurious extra factor of pi_i once multiplied through below.
+      val surrogateScale =
+        if (unclippedSelected) -adv(i) / (math.max(piSnap(i), AdvantageFloor) * pi.length) else 0.0
       val klScale = cfg.klBeta * (math.log(math.max(pi(i), AdvantageFloor) /
         math.max(piOld(i), AdvantageFloor)) + 1.0)
       val scale = (surrogateScale + klScale) * pi(i) / cfg.temperature
