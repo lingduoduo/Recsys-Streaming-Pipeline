@@ -38,22 +38,51 @@ object SparkSessions {
     if (master == "local" || master.startsWith("local[")) localDefault
     else ClusterShufflePartitions
 
+  /** Whether event logging is enabled, and if so, which directory to use.
+    *
+    * Pure, and deliberately split out of `create`: `create` calls `getOrCreate`, so a test that
+    * builds a session and asserts on its config is unreliable -- it may get back whatever session
+    * another suite already built in this JVM. Isolating the enabled/directory decision here is
+    * what makes it testable at all.
+    *
+    * The env var is matched case-insensitively and trimmed: the only moment anyone sets
+    * `SPARK_EVENT_LOG_ENABLED` is mid-incident while diagnosing a failure, and a diagnostic switch
+    * that silently no-ops on `TRUE` or `" true "` is worse than useless then.
+    */
+  def eventLogSettings(env: Map[String, String]): Option[String] =
+    if (env.get("SPARK_EVENT_LOG_ENABLED").exists(_.trim.equalsIgnoreCase("true")))
+      Some(env.getOrElse("SPARK_EVENT_LOG_DIR", "/tmp/spark-events"))
+    else
+      None
+
   /** Make sure Spark's event-log directory exists, returning it only if it is usable.
     *
     * Spark throws at session creation when `spark.eventLog.dir` is missing -- it does not create
     * the directory. Propagating that would mean enabling event logging on a fresh machine breaks
     * every job at startup, turning an observability feature into an outage. So a directory that
     * cannot be created disables event logging with a warning instead.
+    *
+    * A `dir` carrying a URI scheme (`hdfs://...`, `s3a://...`) names a location Spark resolves
+    * itself, not a local path -- creating it here would leave a junk directory literally named
+    * e.g. `hdfs:` in the working directory and still report success. Those are passed through
+    * untouched and left for Spark to resolve.
     */
-  def ensureEventLogDir(dir: String): Option[String] =
-    try {
-      Files.createDirectories(Paths.get(dir))
-      Some(dir)
-    } catch {
-      case scala.util.control.NonFatal(e) =>
-        log.warn(s"event log dir '$dir' is unusable, event logging stays off: ${e.getMessage}")
-        None
-    }
+  def ensureEventLogDir(dir: String): Option[String] = {
+    val hasUriScheme =
+      try Option(new java.net.URI(dir).getScheme).isDefined
+      catch { case scala.util.control.NonFatal(_) => false }
+
+    if (hasUriScheme) Some(dir)
+    else
+      try {
+        Files.createDirectories(Paths.get(dir))
+        Some(dir)
+      } catch {
+        case scala.util.control.NonFatal(e) =>
+          log.warn(s"event log dir '$dir' is unusable, event logging stays off: ${e.getMessage}")
+          None
+      }
+  }
 
   def create(defaultAppName: String, defaultShufflePartitions: Int = 8): SparkSession = {
     val appName = sys.env.getOrElse("SPARK_APP_NAME", defaultAppName)
@@ -73,10 +102,10 @@ object SparkSessions {
       )
     adaptiveConfigs.foreach { case (k, v) => builder.config(k, sys.env.getOrElse(envKeyFor(k), v)) }
 
-    if (sys.env.get("SPARK_EVENT_LOG_ENABLED").contains("true")) {
-      ensureEventLogDir(sys.env.getOrElse("SPARK_EVENT_LOG_DIR", "/tmp/spark-events")).foreach { dir =>
+    eventLogSettings(sys.env).foreach { dir =>
+      ensureEventLogDir(dir).foreach { resolved =>
         builder.config("spark.eventLog.enabled", "true")
-        builder.config("spark.eventLog.dir", dir)
+        builder.config("spark.eventLog.dir", resolved)
       }
     }
 
