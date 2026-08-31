@@ -24,7 +24,7 @@ import java.util.Optional;
  * recommendations exactly as they were, never fail a request.
  *
  * Constructed directly by MovieLensServingSideEffects' owner rather than injected, matching
- * GrpoImpressionPublisher: both are serving-path side effects, not collaborators anything else
+ * GrpoEventPublisher: both are serving-path side effects, not collaborators anything else
  * resolves from the context.
  */
 public class GrpoPolicyScorer {
@@ -129,7 +129,7 @@ public class GrpoPolicyScorer {
             log.info("GRPO shadow slate requestId={} slateSize={} pairwiseConcordance={}",
                 request.requestId(), slateSize, pairwiseConcordance(scores));
         } catch (Exception e) {
-            // Same contract as GrpoImpressionPublisher.publish: shadow observability must never
+            // Same contract as GrpoEventPublisher.publish: shadow observability must never
             // turn into a failed recommendation.
             log.warn("Failed to log GRPO shadow slate for request {}", request.requestId(), e);
         }
