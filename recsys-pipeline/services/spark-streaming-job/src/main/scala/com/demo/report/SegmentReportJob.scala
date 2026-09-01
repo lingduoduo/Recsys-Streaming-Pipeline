@@ -2,7 +2,7 @@ package com.demo.report
 
 import com.demo.engine.RedisPool
 import com.demo.util.{Env, SegmentFeatures, SparkSessions}
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
@@ -136,8 +136,7 @@ object SegmentReportJob {
       .orderBy(col("ctr").desc)
 
   /** Pure: one already-fetched Redis hash → one demographics row. Single source of truth for
-    * the per-row derivation, shared by the driver-side Map path (`demographicsDf`, kept for
-    * `fetchDemographics` callers) and the executor-side `fetchDemographicsDf` below. */
+    * the per-row derivation, used by the executor-side `fetchDemographicsDf` below. */
   def demographicsRow(id: String, h: Map[String, String]): Row =
     Row(id, h.get("gender").orNull, h.get("occupation").orNull,
       SegmentFeatures.deriveAgeBand(h.getOrElse("age", "")),
@@ -150,28 +149,10 @@ object SegmentReportJob {
   def demographicsRowOrNone(id: String, h: java.util.Map[String, String]): Option[Row] =
     if (h == null || h.isEmpty) None else Some(demographicsRow(id, h.asScala.toMap))
 
-  /** Build the demographics DataFrame from the Redis `user:{id}:features` hashes. */
-  def demographicsDf(spark: SparkSession, features: Map[String, Map[String, String]]): DataFrame = {
-    val rows = features.toSeq.map { case (id, h) => demographicsRow(id, h) }
-    spark.createDataFrame(rows.asJava, DemographicsSchema)
-  }
-
-  /** Driver-side Redis HGETALL of `user:{id}:features`; missing keys omitted. */
-  def fetchDemographics(ids: Array[String], host: String, port: Int, poolMax: Int): Map[String, Map[String, String]] = {
-    if (ids.isEmpty) return Map.empty
-    val jedis = RedisPool.get(host, port, poolMax).getResource
-    try {
-      ids.flatMap { id =>
-        val h = jedis.hgetAll(s"user:$id:features")
-        if (h == null || h.isEmpty) None else Some(id -> h.asScala.toMap)
-      }.toMap
-    } finally jedis.close()
-  }
-
   private val RedisPipelineBatchSize = 500
 
-  /** Executor-side, pipelined replacement for the driver-side `fetchDemographics` +
-    * `demographicsDf` pair used by `main`: reads `user:{id}:features` in parallel across
+  /** Executor-side, pipelined replacement for the driver-side fetch-then-collect pair
+    * previously used by `main`: reads `user:{id}:features` in parallel across
     * partitions, one pooled Jedis connection per partition (`RedisPool` — one JedisPool per
     * executor JVM), batching HGETALLs through `jedis.pipelined()` so N users cost O(partitions)
     * round trips instead of N sequential ones on the driver. Missing/empty hashes are omitted,

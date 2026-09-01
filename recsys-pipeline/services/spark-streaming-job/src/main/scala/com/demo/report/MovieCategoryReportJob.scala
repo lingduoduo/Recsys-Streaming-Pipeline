@@ -2,7 +2,7 @@ package com.demo.report
 
 import com.demo.engine.RedisPool
 import com.demo.util.{Env, MovieCategories, SparkSessions}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
@@ -88,8 +88,7 @@ object MovieCategoryReportJob {
       .orderBy(col("ctr").desc)
 
   /** Pure: one already-fetched Redis hash → one (item_id, l1, l2, l3) row. Single source of
-    * truth for the per-row derivation, shared by the driver-side Map path (`categoriesDf`, kept
-    * for `fetchMovieFeatures` callers) and the executor-side `fetchMovieFeaturesDf` below. */
+    * truth for the per-row derivation, used by the executor-side `fetchMovieFeaturesDf` below. */
   def categoryRow(id: String, h: Map[String, String]): org.apache.spark.sql.Row = {
     val genres = h.getOrElse("genres", "")
     val year = h.getOrElse("releaseYear", "")
@@ -102,28 +101,10 @@ object MovieCategoryReportJob {
   def categoryRowOrNone(id: String, h: java.util.Map[String, String]): Option[org.apache.spark.sql.Row] =
     if (h == null || h.isEmpty) None else Some(categoryRow(id, h.asScala.toMap))
 
-  /** Build (item_id, l1, l2, l3) rows from the Redis `movie:{id}:features` hashes. */
-  def categoriesDf(spark: SparkSession, features: Map[String, Map[String, String]]): DataFrame = {
-    val rows = features.toSeq.map { case (id, h) => categoryRow(id, h) }
-    spark.createDataFrame(rows.asJava, CategorySchema)
-  }
-
-  /** Driver-side Redis HGETALL of `movie:{id}:features`; missing keys omitted. */
-  def fetchMovieFeatures(ids: Array[String], host: String, port: Int, poolMax: Int): Map[String, Map[String, String]] = {
-    if (ids.isEmpty) return Map.empty
-    val jedis = RedisPool.get(host, port, poolMax).getResource
-    try {
-      ids.flatMap { id =>
-        val h = jedis.hgetAll(s"movie:$id:features")
-        if (h == null || h.isEmpty) None else Some(id -> h.asScala.toMap)
-      }.toMap
-    } finally jedis.close()
-  }
-
   private val RedisPipelineBatchSize = 500
 
-  /** Executor-side, pipelined replacement for the driver-side `fetchMovieFeatures` +
-    * `categoriesDf` pair used by `main`: reads `movie:{id}:features` in parallel across
+  /** Executor-side, pipelined replacement for the driver-side fetch-then-collect pair
+    * previously used by `main`: reads `movie:{id}:features` in parallel across
     * partitions, one pooled Jedis connection per partition (`RedisPool` — one JedisPool per
     * executor JVM), batching HGETALLs through `jedis.pipelined()` so N items cost O(partitions)
     * round trips instead of N sequential ones on the driver. Missing/empty hashes are omitted,

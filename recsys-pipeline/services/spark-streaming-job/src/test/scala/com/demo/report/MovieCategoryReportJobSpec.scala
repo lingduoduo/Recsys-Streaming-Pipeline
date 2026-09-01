@@ -27,20 +27,6 @@ class MovieCategoryReportJobSpec extends AnyFlatSpec with Matchers with SparkTes
     rows("item_2").getAs[Long]("clicks") shouldBe 0L
   }
 
-  "categoriesDf" should "map Redis feature hashes to l1/l2/l3 rows" in {
-    val features = Map(
-      "item_1" -> Map("genres" -> "Sci-Fi,Action", "releaseYear" -> "1999"),
-      "item_2" -> Map("genres" -> "Comedy")  // no year -> unknown decade
-    )
-    val rows = MovieCategoryReportJob.categoriesDf(spark, features)
-      .collect().map(r => r.getAs[String]("item_id") -> r).toMap
-
-    rows("item_1").getAs[String]("l1") shouldBe "SciFi&Fantasy"
-    rows("item_1").getAs[String]("l2") shouldBe "Sci-Fi"
-    rows("item_1").getAs[String]("l3") shouldBe "Sci-Fi·1990s"
-    rows("item_2").getAs[String]("l3") shouldBe "Comedy·unknown"
-  }
-
   "categoryMetrics" should "aggregate per category with ctr, order_rate, clicks_per_item and lift" in {
     val s = spark; import s.implicits._
     // two items in the same l2; overall CTR = 0.25 (3 clicks / 12 impressions)
@@ -59,10 +45,6 @@ class MovieCategoryReportJobSpec extends AnyFlatSpec with Matchers with SparkTes
     r.getAs[Double]("ctr") shouldBe 0.25
     r.getAs[Double]("clicks_per_item") shouldBe 1.5
     r.getAs[Double]("ctr_lift_pct") shouldBe 0.0  // equals overall
-  }
-
-  "fetchMovieFeatures" should "return empty map for no ids (no Redis call)" in {
-    MovieCategoryReportJob.fetchMovieFeatures(Array.empty, "localhost", 6379, 8) shouldBe Map.empty
   }
 
   "categoryRowOrNone" should "map a representative Redis hash to l1/l2/l3 identically to categoriesDf" in {

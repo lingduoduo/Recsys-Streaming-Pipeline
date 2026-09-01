@@ -80,29 +80,6 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     rows("web").getAs[Double]("order_rate") shouldBe 0.5
   }
 
-  "demographicsDf" should "derive age_band/geo and parse rating fields from Redis hashes" in {
-    val features = Map(
-      "u1" -> Map("age" -> "30", "gender" -> "F", "occupation" -> "student",
-        "zipCode" -> "90210", "avgRating" -> "4.5", "ratingCount" -> "12"),
-      "u2" -> Map("age" -> "60", "zipCode" -> "02139") // sparse: no gender/rating
-    )
-    val rows = SegmentReportJob.demographicsDf(spark, features)
-      .collect().map(r => r.getAs[String]("user_id") -> r).toMap
-
-    val u1 = rows("u1")
-    u1.getAs[String]("age_band") shouldBe "25-34"
-    u1.getAs[String]("geo") shouldBe "West"
-    u1.getAs[Double]("user_avg_rating") shouldBe 4.5
-    u1.getAs[Long]("user_rating_count") shouldBe 12L
-
-    val u2 = rows("u2")
-    u2.getAs[String]("age_band") shouldBe "55+"
-    u2.getAs[String]("geo") shouldBe "Northeast"
-    Option(u2.getAs[String]("gender")) shouldBe None
-    u2.getAs[Double]("user_avg_rating") shouldBe 0.0
-    u2.getAs[Long]("user_rating_count") shouldBe 0L
-  }
-
   "demographicMetrics" should "aggregate per dimension with a count-weighted avg_rating" in {
     val s = spark; import s.implicits._
     // both users in age_band 25-34; weighted avg = (4.0*10 + 5.0*30)/(10+30) = 4.75
@@ -123,10 +100,6 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
     r.getAs[Double]("ctr") shouldBe 0.25
     r.getAs[Double]("clicks_per_user") shouldBe 1.5
     r.getAs[Double]("avg_rating") shouldBe 4.75
-  }
-
-  "fetchDemographics" should "return empty map for no ids (no Redis call)" in {
-    SegmentReportJob.fetchDemographics(Array.empty, "localhost", 6379, 8) shouldBe Map.empty
   }
 
   "demographicsRowOrNone" should "derive age_band/geo and parse rating fields from a representative hash" in {
