@@ -3,9 +3,10 @@ package com.demo.process
 import com.demo.engine.RedisPool
 import com.demo.event.{EventParsing, FieldGate, Gated}
 import com.demo.util.{BatchMetricsListener, DropMetrics, Env, SparkSessions}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
 
 /** Derives per-impression **ranking records** from `training_samples`, enriched with the
@@ -24,26 +25,38 @@ object RankingSampleStreamingJob {
 
   private val JobName = "RankingSampleStreamingJob"
 
-  /** Reshape training samples into ranking rows, attaching embeddings from the given lookups. */
+  /** Reshape training samples into ranking rows, attaching embeddings from the given lookup
+    * DataFrames (schema: id, embedding — see `fetchEmbeddingsDf`).
+    *
+    * Must be LEFT joins: `fetchEmbeddingsDf` omits ids with a missing/empty Redis value, so an
+    * inner join here would silently drop every impression for a user/item Redis doesn't know
+    * about — exactly the rows least likely to be noticed. `*_embedding` is coalesced to an empty
+    * array because a genuinely missing embedding must still read as "no embedding", not null,
+    * matching what the old map-lookup's `getOrElse(Seq.empty)` already produced. */
   def buildRankingSamples(
       samples: DataFrame,
-      userEmb: Map[String, Seq[Double]],
-      itemEmb: Map[String, Seq[Double]]
+      userEmbeddings: DataFrame,
+      itemEmbeddings: DataFrame
   ): DataFrame = {
-    val uEmbUdf = udf((u: String) => userEmb.getOrElse(u, Seq.empty[Double]))
-    val iEmbUdf = udf((i: String) => itemEmb.getOrElse(i, Seq.empty[Double]))
-    samples.select(
-      col("user_id"),
-      coalesce(col("user_features"), typedLit(Map.empty[String, String])).as("user_features"),
-      uEmbUdf(col("user_id")).as("user_embedding"),
-      col("session_id"),
-      col("impression_ts").as("event_ts"),
-      col("item_id").as("recommended_movie_id"),
-      coalesce(col("item_features"), typedLit(Map.empty[String, String])).as("item_features"),
-      iEmbUdf(col("item_id")).as("item_embedding"),
-      (col("clicked") === 1).as("is_click"),
-      col("label").as("rating")  // implicit label: click -> 1.0, order -> 2.0, else 0.0
-    )
+    val users = userEmbeddings.withColumnRenamed("id", "user_id")
+      .withColumnRenamed("embedding", "user_embedding")
+    val items = itemEmbeddings.withColumnRenamed("id", "item_id")
+      .withColumnRenamed("embedding", "item_embedding")
+    samples
+      .join(users, Seq("user_id"), "left")
+      .join(items, Seq("item_id"), "left")
+      .select(
+        col("user_id"),
+        coalesce(col("user_features"), typedLit(Map.empty[String, String])).as("user_features"),
+        coalesce(col("user_embedding"), typedLit(Seq.empty[Double])).as("user_embedding"),
+        col("session_id"),
+        col("impression_ts").as("event_ts"),
+        col("item_id").as("recommended_movie_id"),
+        coalesce(col("item_features"), typedLit(Map.empty[String, String])).as("item_features"),
+        coalesce(col("item_embedding"), typedLit(Seq.empty[Double])).as("item_embedding"),
+        (col("clicked") === 1).as("is_click"),
+        col("label").as("rating")  // implicit label: click -> 1.0, order -> 2.0, else 0.0
+      )
   }
 
   def parseSamples(rawKafka: DataFrame): Gated =
@@ -54,19 +67,61 @@ object RankingSampleStreamingJob {
         "null_item_id" -> col("item_id").isNull
       ))
 
-  /** Driver-side Redis lookup of `prefix:id` embeddings (space-separated floats). Missing keys are
-    * omitted (buildRankingSamples then emits an empty vector for them). */
-  def fetchEmbeddings(ids: Array[String], prefix: String,
-                      host: String, port: Int, poolMax: Int): Map[String, Seq[Double]] = {
-    if (ids.isEmpty) return Map.empty
-    val jedis = RedisPool.get(host, port, poolMax).getResource
-    try {
-      ids.flatMap { id =>
-        Option(jedis.get(s"$prefix:$id")).filter(_.trim.nonEmpty).map { raw =>
-          id -> raw.trim.split("\\s+").flatMap(t => scala.util.Try(t.toDouble).toOption).toSeq
-        }
-      }.toMap
-    } finally jedis.close()
+  private val EmbeddingSchema: StructType =
+    StructType(Seq(
+      StructField("id", StringType),
+      StructField("embedding", ArrayType(DoubleType))
+    ))
+
+  /** Pure: one already-fetched Redis value (space-separated floats) -> one (id, embedding) row.
+    * Single source of truth for the per-row derivation, used by `fetchEmbeddingsDf` below.
+    * Non-numeric tokens are dropped rather than throwing, matching the driver-side path this
+    * replaces. */
+  def embeddingRow(id: String, raw: String): Row =
+    Row(id, raw.trim.split("\\s+").flatMap(t => scala.util.Try(t.toDouble).toOption).toSeq)
+
+  /** Pure: a raw (possibly null/blank) Redis value -> at most one row. "Missing keys omitted"
+    * lives here so it is testable without Redis. */
+  def embeddingRowOrNone(id: String, raw: String): Option[Row] =
+    if (raw == null || raw.trim.isEmpty) None else Some(embeddingRow(id, raw))
+
+  /** Executor-side, pipelined replacement for the driver-side fetch-then-collect pair previously
+    * used inside `foreachBatch`: that old path ran two collect()s plus one serial GET per id on
+    * the driver every micro-batch (once for users, once for items). This reads `prefix:{id}` in
+    * parallel across partitions, one pooled Jedis connection per partition (`RedisPool` — one
+    * JedisPool per executor JVM; REDIS_POOL_MAX_TOTAL should be at least the executor core count,
+    * since it now bounds per-executor concurrency rather than only a driver-side pool), batching
+    * GETs through `jedis.pipelined()` so N ids cost O(partitions) round trips instead of N
+    * sequential ones on the driver, on every batch. Missing ids are omitted; `buildRankingSamples`
+    * LEFT joins against this so such rows still emit with an empty embedding.
+    */
+  def fetchEmbeddingsDf(ids: DataFrame, prefix: String, host: String, port: Int, poolMax: Int,
+                        pipelineSize: Int): DataFrame = {
+    val rowRdd = ids.rdd.mapPartitions { partitionRows =>
+      val partitionIds = partitionRows.map(_.getString(0)).toList
+      if (partitionIds.isEmpty) Iterator.empty
+      else {
+        val jedis = RedisPool.get(host, port, poolMax).getResource
+        try {
+          // Eagerly build the full result before returning: mapPartitions hands Spark a lazy
+          // iterator, and closing `jedis` in `finally` would run before Spark ever consumes a
+          // lazy iterator, killing the connection mid-read. Materializing into `results` here
+          // means every Redis call happens inside this try, before close() runs — so it is safe
+          // to close right after.
+          val results = scala.collection.mutable.ArrayBuffer.empty[Row]
+          partitionIds.grouped(pipelineSize).foreach { chunk =>
+            val pipeline = jedis.pipelined()
+            val pending = chunk.map(id => id -> pipeline.get(s"$prefix:$id"))
+            pipeline.sync()
+            pending.foreach { case (id, response) =>
+              embeddingRowOrNone(id, response.get()).foreach(results += _)
+            }
+          }
+          results.iterator
+        } finally jedis.close()
+      }
+    }
+    ids.sparkSession.createDataFrame(rowRdd, EmbeddingSchema)
   }
 
   def main(args: Array[String]): Unit = {
@@ -82,6 +137,7 @@ object RankingSampleStreamingJob {
     val redisHost = sys.env.getOrElse("REDIS_HOST", "localhost")
     val redisPort = Env.int("REDIS_PORT", 6379)
     val redisPoolMax = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
+    val redisPipelineSize = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
     val userPrefix = sys.env.getOrElse("USER_EMBEDDING_PREFIX", "uEmb")
     val itemPrefix = sys.env.getOrElse("ITEM_EMBEDDING_PREFIX", "i2vEmb")
 
@@ -104,10 +160,10 @@ object RankingSampleStreamingJob {
         val tagged = gated.tagged.persist(StorageLevel.MEMORY_AND_DISK_SER)
         try {
         val batch = DropMetrics.report(gated.copy(tagged = tagged), JobName, batchId)
-        val users = batch.select("user_id").distinct().collect().flatMap(r => Option(r.getString(0)))
-        val items = batch.select("item_id").distinct().collect().flatMap(r => Option(r.getString(0)))
-        val userEmb = fetchEmbeddings(users, userPrefix, redisHost, redisPort, redisPoolMax)
-        val itemEmb = fetchEmbeddings(items, itemPrefix, redisHost, redisPort, redisPoolMax)
+        val users = batch.select("user_id").distinct()
+        val items = batch.select("item_id").distinct()
+        val userEmb = fetchEmbeddingsDf(users, userPrefix, redisHost, redisPort, redisPoolMax, redisPipelineSize)
+        val itemEmb = fetchEmbeddingsDf(items, itemPrefix, redisHost, redisPort, redisPoolMax, redisPipelineSize)
 
         val ranking = buildRankingSamples(batch, userEmb, itemEmb)
         ranking

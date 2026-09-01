@@ -120,7 +120,7 @@ class RelevanceSampleStreamingJobSpec extends AnyFlatSpec with Matchers with Bef
     val ids = Seq.empty[String].toDF("item_id")
 
     // Host is unreachable on purpose: an empty ids DataFrame must never open a Jedis connection.
-    val result = RelevanceSampleStreamingJob.fetchMovieFeaturesDf(ids, "unreachable-host.invalid", 1, 1)
+    val result = RelevanceSampleStreamingJob.fetchMovieFeaturesDf(ids, "unreachable-host.invalid", 1, 1, 500)
 
     result.columns.toSeq shouldBe Seq("item_id", "title", "genres", "release_year")
     result.isEmpty shouldBe true

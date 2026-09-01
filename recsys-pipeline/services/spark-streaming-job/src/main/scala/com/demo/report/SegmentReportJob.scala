@@ -154,9 +154,10 @@ object SegmentReportJob {
   /** Executor-side, pipelined replacement for the driver-side fetch-then-collect pair
     * previously used by `main`: reads `user:{id}:features` in parallel across
     * partitions, one pooled Jedis connection per partition (`RedisPool` — one JedisPool per
-    * executor JVM), batching HGETALLs through `jedis.pipelined()` so N users cost O(partitions)
-    * round trips instead of N sequential ones on the driver. Missing/empty hashes are omitted,
-    * exactly like the driver-side path.
+    * executor JVM; REDIS_POOL_MAX_TOTAL should be at least the executor core count, since it now
+    * bounds per-executor concurrency rather than only a driver-side pool), batching HGETALLs
+    * through `jedis.pipelined()` so N users cost O(partitions) round trips instead of N sequential
+    * ones on the driver. Missing/empty hashes are omitted, exactly like the driver-side path.
     */
   def fetchDemographicsDf(ids: DataFrame, host: String, port: Int, poolMax: Int): DataFrame = {
     val rowRdd = ids.rdd.mapPartitions { partitionRows =>

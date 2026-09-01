@@ -50,6 +50,7 @@ relevance/LTR analysis.
 
 - [ ] `buildRelevanceSamples` emits the 7 fields; `query` = user_id:session_id; title/genres/year
       from the lookups (null/empty when absent); `score` = label. (Unit-tested.)
-- [ ] `fetchMovieFeatures` HGETALLs `movie:{id}:features`; empty ids → no Redis call.
+- [ ] `fetchMovieFeaturesDf` HGETALLs `movie:{id}:features` executor-side, pipelined per
+      partition; empty ids → no Redis call.
 - [ ] Job consumes `training_samples`, writes JSON to `relevance_samples`.
 - [ ] `sbt test` green (existing specs unaffected).

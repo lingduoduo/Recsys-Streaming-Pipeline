@@ -88,17 +88,18 @@ object RelevanceSampleStreamingJob {
   def featuresRowOrNone(id: String, h: java.util.Map[String, String]): Option[Row] =
     if (h == null || h.isEmpty) None else Some(featuresRow(id, h.asScala.toMap))
 
-  private val RedisPipelineBatchSize = 500
-
   /** Executor-side, pipelined replacement for the driver-side fetch-then-collect pair previously
     * used inside `foreachBatch`: that old path ran a collect() plus one serial HGETALL per item on
     * the driver every micro-batch, forever. This reads `movie:{id}:features` in parallel across
     * partitions, one pooled Jedis connection per partition (`RedisPool` — one JedisPool per
-    * executor JVM), batching HGETALLs through `jedis.pipelined()` so N items cost O(partitions)
-    * round trips instead of N sequential ones on the driver, on every batch. Missing/empty hashes
-    * are omitted; `buildRelevanceSamples` LEFT joins against this so such items still emit a row.
+    * executor JVM; REDIS_POOL_MAX_TOTAL should be at least the executor core count, since it now
+    * bounds per-executor concurrency rather than only a driver-side pool), batching HGETALLs
+    * through `jedis.pipelined()` so N items cost O(partitions) round trips instead of N sequential
+    * ones on the driver, on every batch. Missing/empty hashes are omitted; `buildRelevanceSamples`
+    * LEFT joins against this so such items still emit a row.
     */
-  def fetchMovieFeaturesDf(ids: DataFrame, host: String, port: Int, poolMax: Int): DataFrame = {
+  def fetchMovieFeaturesDf(ids: DataFrame, host: String, port: Int, poolMax: Int,
+                            pipelineSize: Int): DataFrame = {
     val rowRdd = ids.rdd.mapPartitions { partitionRows =>
       val partitionIds = partitionRows.map(_.getString(0)).toList
       if (partitionIds.isEmpty) Iterator.empty
@@ -111,7 +112,7 @@ object RelevanceSampleStreamingJob {
           // means every Redis call happens inside this try, before close() runs — so it is safe
           // to close right after.
           val results = scala.collection.mutable.ArrayBuffer.empty[Row]
-          partitionIds.grouped(RedisPipelineBatchSize).foreach { chunk =>
+          partitionIds.grouped(pipelineSize).foreach { chunk =>
             val pipeline = jedis.pipelined()
             val pending = chunk.map(id => id -> pipeline.hgetAll(s"movie:$id:features"))
             pipeline.sync()
@@ -139,6 +140,7 @@ object RelevanceSampleStreamingJob {
     val redisHost = sys.env.getOrElse("REDIS_HOST", "localhost")
     val redisPort = Env.int("REDIS_PORT", 6379)
     val redisPoolMax = math.max(1, Env.int("REDIS_POOL_MAX_TOTAL", 8))
+    val redisPipelineSize = math.max(3, Env.int("REDIS_PIPELINE_SIZE", 500))
 
     val spark: SparkSession = SparkSessions.create("RelevanceSampleStreamingJob")
     BatchMetricsListener.register(spark)
@@ -160,7 +162,7 @@ object RelevanceSampleStreamingJob {
         try {
         val batch = DropMetrics.report(gated.copy(tagged = tagged), JobName, batchId)
         val ids = batch.select("item_id").distinct()
-        val features = fetchMovieFeaturesDf(ids, redisHost, redisPort, redisPoolMax)
+        val features = fetchMovieFeaturesDf(ids, redisHost, redisPort, redisPoolMax, redisPipelineSize)
 
         val relevance = buildRelevanceSamples(batch, features)
         relevance

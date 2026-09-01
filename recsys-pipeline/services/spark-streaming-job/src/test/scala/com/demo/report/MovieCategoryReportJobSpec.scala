@@ -47,7 +47,7 @@ class MovieCategoryReportJobSpec extends AnyFlatSpec with Matchers with SparkTes
     r.getAs[Double]("ctr_lift_pct") shouldBe 0.0  // equals overall
   }
 
-  "categoryRowOrNone" should "map a representative Redis hash to l1/l2/l3 identically to categoriesDf" in {
+  "categoryRowOrNone" should "map a representative Redis hash to l1/l2/l3 fields" in {
     val h: java.util.Map[String, String] = Map("genres" -> "Sci-Fi,Action", "releaseYear" -> "1999").asJava
 
     // categoryRowOrNone returns a plain, schema-less Row (it feeds an RDD that gets its schema
