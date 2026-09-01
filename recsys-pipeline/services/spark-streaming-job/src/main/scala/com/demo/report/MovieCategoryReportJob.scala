@@ -48,14 +48,14 @@ object MovieCategoryReportJob {
       val overallCtr = round4(df.agg(avg("clicked")).first().getDouble(0))
       println(s"overall CTR = $overallCtr  (impressions=${df.count()})\n")
 
-      val ids = df.select("item_id").distinct().collect().map(_.getString(0))
-      val features = fetchMovieFeatures(ids, redisHost, redisPort, redisPoolMaxTotal)
+      val ids = df.select("item_id").distinct()
+      val features = fetchMovieFeaturesDf(ids, redisHost, redisPort, redisPoolMaxTotal).cache()
       if (features.isEmpty) {
         println("no movie features in Redis — nothing to break down by; exiting")
         return
       }
 
-      val joined = perItemEngagement(df).join(categoriesDf(spark, features), "item_id")
+      val joined = perItemEngagement(df).join(features, "item_id")
       Levels.foreach { level =>
         val m = categoryMetrics(joined, level, overallCtr)
         println(s"=== engagement by $level (CTR desc; lift vs overall) ===")
@@ -87,14 +87,24 @@ object MovieCategoryReportJob {
         round((col("ctr") - lit(overallCtr)) / lit(overallCtr) * 100, 1))
       .orderBy(col("ctr").desc)
 
+  /** Pure: one already-fetched Redis hash → one (item_id, l1, l2, l3) row. Single source of
+    * truth for the per-row derivation, shared by the driver-side Map path (`categoriesDf`, kept
+    * for `fetchMovieFeatures` callers) and the executor-side `fetchMovieFeaturesDf` below. */
+  def categoryRow(id: String, h: Map[String, String]): org.apache.spark.sql.Row = {
+    val genres = h.getOrElse("genres", "")
+    val year = h.getOrElse("releaseYear", "")
+    org.apache.spark.sql.Row(id, MovieCategories.l1(genres), MovieCategories.l2(genres),
+      MovieCategories.l3(genres, year))
+  }
+
+  /** Pure: a raw (possibly null/empty) Redis hash → at most one row. "Missing keys omitted"
+    * lives here so it is testable without Redis, and is enforced identically by both fetch paths. */
+  def categoryRowOrNone(id: String, h: java.util.Map[String, String]): Option[org.apache.spark.sql.Row] =
+    if (h == null || h.isEmpty) None else Some(categoryRow(id, h.asScala.toMap))
+
   /** Build (item_id, l1, l2, l3) rows from the Redis `movie:{id}:features` hashes. */
   def categoriesDf(spark: SparkSession, features: Map[String, Map[String, String]]): DataFrame = {
-    val rows = features.toSeq.map { case (id, h) =>
-      val genres = h.getOrElse("genres", "")
-      val year = h.getOrElse("releaseYear", "")
-      org.apache.spark.sql.Row(id, MovieCategories.l1(genres), MovieCategories.l2(genres),
-        MovieCategories.l3(genres, year))
-    }
+    val rows = features.toSeq.map { case (id, h) => categoryRow(id, h) }
     spark.createDataFrame(rows.asJava, CategorySchema)
   }
 
@@ -108,6 +118,43 @@ object MovieCategoryReportJob {
         if (h == null || h.isEmpty) None else Some(id -> h.asScala.toMap)
       }.toMap
     } finally jedis.close()
+  }
+
+  private val RedisPipelineBatchSize = 500
+
+  /** Executor-side, pipelined replacement for the driver-side `fetchMovieFeatures` +
+    * `categoriesDf` pair used by `main`: reads `movie:{id}:features` in parallel across
+    * partitions, one pooled Jedis connection per partition (`RedisPool` — one JedisPool per
+    * executor JVM), batching HGETALLs through `jedis.pipelined()` so N items cost O(partitions)
+    * round trips instead of N sequential ones on the driver. Missing/empty hashes are omitted,
+    * exactly like the driver-side path.
+    */
+  def fetchMovieFeaturesDf(ids: DataFrame, host: String, port: Int, poolMax: Int): DataFrame = {
+    val rowRdd = ids.rdd.mapPartitions { partitionRows =>
+      val partitionIds = partitionRows.map(_.getString(0)).toList
+      if (partitionIds.isEmpty) Iterator.empty
+      else {
+        val jedis = RedisPool.get(host, port, poolMax).getResource
+        try {
+          // Eagerly build the full result before returning: mapPartitions hands Spark a lazy
+          // iterator, and closing `jedis` in `finally` would run before Spark ever consumes a
+          // lazy iterator, killing the connection mid-read. Materializing into `results` here
+          // means every Redis call happens inside this try, before close() runs — so it is safe
+          // to close right after.
+          val results = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.Row]
+          partitionIds.grouped(RedisPipelineBatchSize).foreach { chunk =>
+            val pipeline = jedis.pipelined()
+            val pending = chunk.map(id => id -> pipeline.hgetAll(s"movie:$id:features"))
+            pipeline.sync()
+            pending.foreach { case (id, response) =>
+              categoryRowOrNone(id, response.get()).foreach(results += _)
+            }
+          }
+          results.iterator
+        } finally jedis.close()
+      }
+    }
+    ids.sparkSession.createDataFrame(rowRdd, CategorySchema)
   }
 
   private def round4(v: Double): Double = math.round(v * 10000.0) / 10000.0

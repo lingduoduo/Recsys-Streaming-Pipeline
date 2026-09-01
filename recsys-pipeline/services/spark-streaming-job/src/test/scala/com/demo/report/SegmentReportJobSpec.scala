@@ -4,6 +4,8 @@ import com.demo.SparkTestSupport
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import scala.collection.JavaConverters._
+
 class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
   "perUserEngagement" should "count impressions and sum clicks/orders per user" in {
@@ -125,5 +127,60 @@ class SegmentReportJobSpec extends AnyFlatSpec with Matchers with SparkTestSuppo
 
   "fetchDemographics" should "return empty map for no ids (no Redis call)" in {
     SegmentReportJob.fetchDemographics(Array.empty, "localhost", 6379, 8) shouldBe Map.empty
+  }
+
+  "demographicsRowOrNone" should "derive age_band/geo and parse rating fields from a representative hash" in {
+    val h: java.util.Map[String, String] = Map(
+      "age" -> "30", "gender" -> "F", "occupation" -> "student",
+      "zipCode" -> "90210", "avgRating" -> "4.5", "ratingCount" -> "12"
+    ).asJava
+
+    // demographicsRowOrNone returns a plain, schema-less Row (it feeds an RDD that gets its
+    // schema from createDataFrame later), so fields are read positionally here — column order
+    // matches DemographicsSchema: user_id, gender, occupation, age_band, geo, user_avg_rating,
+    // user_rating_count.
+    val row = SegmentReportJob.demographicsRowOrNone("u1", h)
+    row shouldBe defined
+    row.get.getString(0) shouldBe "u1"
+    row.get.getString(1) shouldBe "F"
+    row.get.getString(2) shouldBe "student"
+    row.get.getString(3) shouldBe "25-34"
+    row.get.getString(4) shouldBe "West"
+    row.get.getDouble(5) shouldBe 4.5
+    row.get.getLong(6) shouldBe 12L
+  }
+
+  it should "null out gender and default age_band/rating fields when fields are absent or unparseable" in {
+    // gender absent, age absent (-> age_band "unknown"), avgRating unparseable (-> 0.0)
+    val h: java.util.Map[String, String] = Map(
+      "zipCode" -> "02139", "avgRating" -> "not-a-number"
+    ).asJava
+
+    val row = SegmentReportJob.demographicsRowOrNone("u2", h).get
+    Option(row.getString(1)) shouldBe None
+    row.getString(3) shouldBe "unknown"
+    row.getString(4) shouldBe "Northeast"
+    row.getDouble(5) shouldBe 0.0
+    row.getLong(6) shouldBe 0L
+  }
+
+  it should "return None for a null hash (missing key)" in {
+    SegmentReportJob.demographicsRowOrNone("missing", null) shouldBe None
+  }
+
+  it should "return None for an empty hash" in {
+    SegmentReportJob.demographicsRowOrNone("missing", new java.util.HashMap[String, String]()) shouldBe None
+  }
+
+  "fetchDemographicsDf" should "return an empty, correctly-shaped DataFrame without contacting Redis when there are no ids" in {
+    val s = spark; import s.implicits._
+    val ids = Seq.empty[String].toDF("user_id")
+
+    // Host is unreachable on purpose: an empty ids DataFrame must never open a Jedis connection.
+    val result = SegmentReportJob.fetchDemographicsDf(ids, "unreachable-host.invalid", 1, 1)
+
+    result.columns.toSeq shouldBe Seq(
+      "user_id", "gender", "occupation", "age_band", "geo", "user_avg_rating", "user_rating_count")
+    result.isEmpty shouldBe true
   }
 }
