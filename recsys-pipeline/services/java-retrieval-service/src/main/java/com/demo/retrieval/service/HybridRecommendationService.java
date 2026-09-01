@@ -18,6 +18,7 @@ import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
+import com.demo.retrieval.event.RecsysEventAvroCodec;
 import com.demo.retrieval.service.grpo.GrpoEventPublisher;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
@@ -127,7 +128,7 @@ public class HybridRecommendationService {
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
         this.grpoPublisher = new GrpoEventPublisher(
-            objectMapper, createGrpoSender(properties), properties.getGrpo().isEmitEvents());
+            new RecsysEventAvroCodec(), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
             this.grpoPublisher,

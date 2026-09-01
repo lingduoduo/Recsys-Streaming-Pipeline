@@ -13,9 +13,16 @@ import java.util.UUID;
  * OnlineJoinerStreamingJob.buildTrainingSamples derives label purely from event_type:
  * clicked = max(etype == "click"), ordered = max(etype in ("order","purchase")), and
  * label = ordered ? 2.0 : clicked ? 1.0 : 0.0. A click is therefore the only feedback signal that
- * moves the label, so this emits one event on a click and nothing otherwise. Rating, dwell and
- * completion rate feed measurement elsewhere; adding them here would be enrichment nobody asked
- * for and the joiner does not read them off feedback events anyway.
+ * moves the label, so this emits one event on a click and nothing otherwise. The joiner does read
+ * rating, negative_feedback_reason, dwell_millis and completion_rate off feedback events
+ * (OnlineJoinerStreamingJob.scala's latestFeedback), but they are deliberately not emitted here:
+ * the label is unaffected either way, and a serving-sourced sample will simply carry nulls in
+ * those columns rather than values FeedbackRequest doesn't collect.
+ *
+ * session_id is also deliberately omitted. The joiner aggregates it with
+ * first(col("session_id"), ignoreNulls = true), not gated on isImpression, so a fabricated value
+ * here would make the sample's session_id nondeterministic depending on event ordering; a null
+ * loses to the impression event's real session_id under ignoreNulls.
  *
  * requestId is a parameter rather than request.requestId() because the caller
  * (HybridRecommendationService.recordFeedback) has already resolved which id joins to the
@@ -38,7 +45,6 @@ public final class GrpoFeedbackEvents {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("event_id", UUID.randomUUID().toString());
         event.put("request_id", requestId);
-        event.put("session_id", "sess_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8));
         event.put("user_id", request.user());
         event.put("item_id", request.item());
         event.put("event_type", "click");

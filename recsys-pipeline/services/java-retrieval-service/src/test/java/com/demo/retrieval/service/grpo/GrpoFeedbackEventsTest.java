@@ -47,7 +47,7 @@ class GrpoFeedbackEventsTest {
             "u1", "m1", true, 1.0, "req-1", 4.5, null, 3000L, 0.9);
         Map<String, Object> event = GrpoFeedbackEvents.build(request, "req-1", 1000L).get(0);
         assertEquals(
-            Set.of("event_id", "request_id", "session_id", "user_id", "item_id", "event_type",
+            Set.of("event_id", "request_id", "user_id", "item_id", "event_type",
                 "timestamp_ms", "position", "user_features", "item_features", "context_features"),
             event.keySet());
     }

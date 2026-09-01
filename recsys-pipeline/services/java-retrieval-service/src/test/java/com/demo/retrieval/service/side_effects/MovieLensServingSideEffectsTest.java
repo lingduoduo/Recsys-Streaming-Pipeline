@@ -1,6 +1,7 @@
 package com.demo.retrieval.service.side_effects;
 
 import com.demo.retrieval.config.RecommendationProperties;
+import com.demo.retrieval.event.RecsysEventAvroCodec;
 import com.demo.retrieval.service.grpo.GrpoEventPublisher;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
@@ -55,7 +56,7 @@ class MovieLensServingSideEffectsTest {
             return List.of();
         });
         sideEffects = new MovieLensServingSideEffects(redis, new ObjectMapper(), Duration.ofHours(1),
-            new GrpoEventPublisher(new ObjectMapper(), null, false),
+            new GrpoEventPublisher(new RecsysEventAvroCodec(), null, false),
             offScorer());
     }
 
