@@ -16,8 +16,9 @@ import java.util.UUID;
  * moves the label, so this emits one event on a click and nothing otherwise. The joiner does read
  * rating, negative_feedback_reason, dwell_millis and completion_rate off feedback events
  * (OnlineJoinerStreamingJob.scala's latestFeedback), but they are deliberately not emitted here:
- * the label is unaffected either way, and a serving-sourced sample will simply carry nulls in
- * those columns rather than values FeedbackRequest doesn't collect.
+ * FeedbackRequest carries all four, so this is not a data-availability gap: none of them affects
+ * label, and emitting them would be scope nobody asked for, so a serving-sourced sample simply
+ * carries nulls in those columns.
  *
  * session_id is also deliberately omitted. The joiner aggregates it with
  * first(col("session_id"), ignoreNulls = true), not gated on isImpression, so a fabricated value

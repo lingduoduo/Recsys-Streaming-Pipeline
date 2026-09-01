@@ -59,7 +59,7 @@ public final class RecsysEventAvroCodec {
         for (Map.Entry<String, Object> entry : event.entrySet()) {
             Schema.Field field = schema.getField(entry.getKey());
             if (field != null) {
-                builder.set(field, coerce(field.schema(), entry.getValue()));
+                builder.set(field, entry.getValue());
             }
         }
         GenericRecord record = builder.build();
@@ -75,39 +75,6 @@ public final class RecsysEventAvroCodec {
             throw new UncheckedIOException(e);
         }
         return out.toByteArray();
-    }
-
-    /**
-     * GenericDatumWriter casts a field's value to its exact boxed type (Integer for "int", Long for
-     * "long", ...) rather than accepting any Number; a caller's Map<String, Object> is not
-     * guaranteed to hand back that exact type, so this normalizes it before the write instead of
-     * letting a ClassCastException surface as an "encoding failure" for what is really a type slip.
-     */
-    private static Object coerce(Schema fieldSchema, Object value) {
-        if (value == null) {
-            return null;
-        }
-        Schema effective = fieldSchema;
-        if (effective.getType() == Schema.Type.UNION) {
-            for (Schema branch : effective.getTypes()) {
-                if (branch.getType() != Schema.Type.NULL) {
-                    effective = branch;
-                    break;
-                }
-            }
-        }
-        switch (effective.getType()) {
-            case INT:
-                return value instanceof Integer ? value : ((Number) value).intValue();
-            case LONG:
-                return value instanceof Long ? value : ((Number) value).longValue();
-            case FLOAT:
-                return value instanceof Float ? value : ((Number) value).floatValue();
-            case DOUBLE:
-                return value instanceof Double ? value : ((Number) value).doubleValue();
-            default:
-                return value;
-        }
     }
 
     private static Schema loadSchema(String resource) {

@@ -128,7 +128,7 @@ public class HybridRecommendationService {
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
         this.grpoPublisher = new GrpoEventPublisher(
-            new RecsysEventAvroCodec(), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
+            createGrpoCodec(properties), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
             this.grpoPublisher,
@@ -149,6 +149,17 @@ public class HybridRecommendationService {
      */
     static String grpoOutputTopic() {
         return System.getenv().getOrDefault("ONLINE_JOINER_INPUT_TOPIC", "recsys_events");
+    }
+
+    // Guarded the same way createGrpoSender below is: RecsysEventAvroCodec parses a bundled schema
+    // resource at construction, so building it unconditionally would let a missing or corrupt
+    // schema fail Spring bean creation even with emit-events off, breaking the promise that the
+    // flag being off means nothing new happens at all.
+    private static RecsysEventAvroCodec createGrpoCodec(RecommendationProperties properties) {
+        if (!properties.getGrpo().isEmitEvents()) {
+            return null;
+        }
+        return new RecsysEventAvroCodec();
     }
 
     // No KafkaConfig bean is reachable from here — this service has never published to Kafka

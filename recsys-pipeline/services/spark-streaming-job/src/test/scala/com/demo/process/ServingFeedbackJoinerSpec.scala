@@ -28,7 +28,7 @@ class ServingFeedbackJoinerSpec extends AnyFlatSpec with Matchers with SparkTest
     // (not meaningful for feedback — the joiner never reads position off anything but an
     // impression), user_features/item_features/context_features empty.
     val feedback =
-      """{"event_id":"e-fb-1","request_id":"req-1","session_id":"sess_efgh5678","user_id":"u1",
+      """{"event_id":"e-fb-1","request_id":"req-1","user_id":"u1",
         |"item_id":"m1","event_type":"click","timestamp_ms":5000,"position":0,
         |"user_features":{},"item_features":{},"context_features":{}}""".stripMargin.replaceAll("\n", "")
 
