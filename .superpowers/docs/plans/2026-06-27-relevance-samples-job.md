@@ -15,8 +15,9 @@
   `recommended_movie_id` (= `item_id`), `title` (lookup, null if absent),
   `genres` (lookup comma-string → array, `[]` if absent), `release_year` (lookup → nullable int),
   `score` (= `label`).
-- [x] `fetchMovieFeatures(ids, host, port, poolMax)` — driver-side Redis HGETALL of
-  `movie:{id}:features` (via `RedisPool`); missing keys omitted; empty ids → empty map.
+- [x] `fetchMovieFeaturesDf(ids, host, port, poolMax)` — executor-side, pipelined Redis HGETALL of
+  `movie:{id}:features` (via `RedisPool`, one pooled connection per partition, batched through
+  `jedis.pipelined()`); missing/empty hashes omitted; empty ids → empty DataFrame, no Redis call.
 - [x] `parseSamples` — `EventParsing.fromJson(raw, ExperienceCollectorStreamingJob.TrainingSampleSchema)`
   filtered on non-null `user_id`/`item_id`.
 - [x] `main` — `readStream(RELEVANCE_INPUT_TOPIC=training_samples)` → `foreachBatch`: distinct
@@ -24,7 +25,7 @@
   `to_json` keyed by `query:recommended_movie_id` → `write` to
   `RELEVANCE_OUTPUT_TOPIC=relevance_samples`; BatchMetricsListener; ProcessingTime trigger.
 - [x] Spec: field set + values (query, joined title/genres/year incl. absent cases, score = label);
-  `fetchMovieFeatures` empty-ids path.
+  `fetchMovieFeaturesDf` empty-ids path.
 
 ## Verification
 

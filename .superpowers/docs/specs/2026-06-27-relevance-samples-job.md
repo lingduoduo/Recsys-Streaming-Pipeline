@@ -27,11 +27,14 @@ relevance/LTR analysis.
 
 - **Source:** `training_samples` (OnlineJoiner output; reuse
   `ExperienceCollectorStreamingJob.TrainingSampleSchema`).
-- **Document text:** per micro-batch, distinct `item_id`s are collected on the driver and their
-  `movie:{id}:features` hashes fetched from Redis (`title`, `genres` comma-string, `releaseYear`),
-  written by `MovieLensContextCollectorStreamingJob` from the movie-metadata path. Attached via
-  `buildRelevanceSamples` (a pure function over three lookup maps → unit-testable). Missing →
-  null title / empty genres / null year.
+- **Document text:** per micro-batch, `movie:{id}:features` hashes are read from Redis
+  (`title`, `genres` comma-string, `releaseYear`), written by
+  `MovieLensContextCollectorStreamingJob` from the movie-metadata path. The read runs on the
+  executors via `mapPartitions`, one pooled connection per partition, pipelined in chunks — it was
+  originally a driver-side collect with one `hgetAll` per id, which cost N serial round-trips on
+  the driver every micro-batch. Attached via `buildRelevanceSamples`, a pure function over the
+  resulting features DataFrame (→ unit-testable). The join is a LEFT join so an item absent from
+  Redis still yields its row: missing → null title / empty genres / null year.
 - **Query:** `concat_ws(":", user_id, session_id)` (personalized-retrieval framing).
 - **Score = engagement label** (chosen scope).
 - **Job:** `com.demo.process.RelevanceSampleStreamingJob` — `readStream(training_samples)` →
@@ -50,6 +53,7 @@ relevance/LTR analysis.
 
 - [ ] `buildRelevanceSamples` emits the 7 fields; `query` = user_id:session_id; title/genres/year
       from the lookups (null/empty when absent); `score` = label. (Unit-tested.)
-- [ ] `fetchMovieFeatures` HGETALLs `movie:{id}:features`; empty ids → no Redis call.
+- [ ] `fetchMovieFeaturesDf` HGETALLs `movie:{id}:features` executor-side, pipelined per
+      partition; empty ids → no Redis call.
 - [ ] Job consumes `training_samples`, writes JSON to `relevance_samples`.
 - [ ] `sbt test` green (existing specs unaffected).

@@ -2,7 +2,7 @@ package com.demo.report
 
 import com.demo.engine.RedisPool
 import com.demo.util.{Env, SegmentFeatures, SparkSessions}
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
@@ -68,10 +68,10 @@ object SegmentReportJob {
 
       emit("device", deviceMetrics(df, overallCtr)) // event-context, from Parquet
 
-      val ids = df.select("user_id").distinct().collect().map(_.getString(0))
-      val demographics = fetchDemographics(ids, redisHost, redisPort, redisPoolMaxTotal)
-      if (demographics.nonEmpty) {
-        val joined = perUserEngagement(df).join(demographicsDf(spark, demographics), "user_id")
+      val ids = df.select("user_id").distinct()
+      val demographics = fetchDemographicsDf(ids, redisHost, redisPort, redisPoolMaxTotal).cache()
+      if (!demographics.isEmpty) {
+        val joined = perUserEngagement(df).join(demographics, "user_id")
         DemoDims.foreach(dim => emit(dim, demographicMetrics(joined, dim, overallCtr)))
       } else {
         println("no demographics in Redis — skipped age_band/gender/occupation/geo")
@@ -135,28 +135,56 @@ object SegmentReportJob {
         round((col("ctr") - lit(overallCtr)) / lit(overallCtr) * 100, 1))
       .orderBy(col("ctr").desc)
 
-  /** Build the demographics DataFrame from the Redis `user:{id}:features` hashes. */
-  def demographicsDf(spark: SparkSession, features: Map[String, Map[String, String]]): DataFrame = {
-    val rows = features.toSeq.map { case (id, h) =>
-      Row(id, h.get("gender").orNull, h.get("occupation").orNull,
-        SegmentFeatures.deriveAgeBand(h.getOrElse("age", "")),
-        SegmentFeatures.deriveGeo(h.getOrElse("zipCode", "")),
-        parseDouble(h.getOrElse("avgRating", "")),
-        parseLong(h.getOrElse("ratingCount", "")))
-    }
-    spark.createDataFrame(rows.asJava, DemographicsSchema)
-  }
+  /** Pure: one already-fetched Redis hash → one demographics row. Single source of truth for
+    * the per-row derivation, used by the executor-side `fetchDemographicsDf` below. */
+  def demographicsRow(id: String, h: Map[String, String]): Row =
+    Row(id, h.get("gender").orNull, h.get("occupation").orNull,
+      SegmentFeatures.deriveAgeBand(h.getOrElse("age", "")),
+      SegmentFeatures.deriveGeo(h.getOrElse("zipCode", "")),
+      parseDouble(h.getOrElse("avgRating", "")),
+      parseLong(h.getOrElse("ratingCount", "")))
 
-  /** Driver-side Redis HGETALL of `user:{id}:features`; missing keys omitted. */
-  def fetchDemographics(ids: Array[String], host: String, port: Int, poolMax: Int): Map[String, Map[String, String]] = {
-    if (ids.isEmpty) return Map.empty
-    val jedis = RedisPool.get(host, port, poolMax).getResource
-    try {
-      ids.flatMap { id =>
-        val h = jedis.hgetAll(s"user:$id:features")
-        if (h == null || h.isEmpty) None else Some(id -> h.asScala.toMap)
-      }.toMap
-    } finally jedis.close()
+  /** Pure: a raw (possibly null/empty) Redis hash → at most one row. "Missing keys omitted"
+    * lives here so it is testable without Redis, and is enforced identically by both fetch paths. */
+  def demographicsRowOrNone(id: String, h: java.util.Map[String, String]): Option[Row] =
+    if (h == null || h.isEmpty) None else Some(demographicsRow(id, h.asScala.toMap))
+
+  private val RedisPipelineBatchSize = 500
+
+  /** Executor-side, pipelined replacement for the driver-side fetch-then-collect pair
+    * previously used by `main`: reads `user:{id}:features` in parallel across
+    * partitions, one pooled Jedis connection per partition (`RedisPool` — one JedisPool per
+    * executor JVM; REDIS_POOL_MAX_TOTAL should be at least the executor core count, since it now
+    * bounds per-executor concurrency rather than only a driver-side pool), batching HGETALLs
+    * through `jedis.pipelined()` so N users cost O(partitions) round trips instead of N sequential
+    * ones on the driver. Missing/empty hashes are omitted, exactly like the driver-side path.
+    */
+  def fetchDemographicsDf(ids: DataFrame, host: String, port: Int, poolMax: Int): DataFrame = {
+    val rowRdd = ids.rdd.mapPartitions { partitionRows =>
+      val partitionIds = partitionRows.map(_.getString(0)).toList
+      if (partitionIds.isEmpty) Iterator.empty
+      else {
+        val jedis = RedisPool.get(host, port, poolMax).getResource
+        try {
+          // Eagerly build the full result before returning: mapPartitions hands Spark a lazy
+          // iterator, and closing `jedis` in `finally` would run before Spark ever consumes a
+          // lazy iterator, killing the connection mid-read. Materializing into `results` here
+          // means every Redis call happens inside this try, before close() runs — so it is safe
+          // to close right after.
+          val results = scala.collection.mutable.ArrayBuffer.empty[Row]
+          partitionIds.grouped(RedisPipelineBatchSize).foreach { chunk =>
+            val pipeline = jedis.pipelined()
+            val pending = chunk.map(id => id -> pipeline.hgetAll(s"user:$id:features"))
+            pipeline.sync()
+            pending.foreach { case (id, response) =>
+              demographicsRowOrNone(id, response.get()).foreach(results += _)
+            }
+          }
+          results.iterator
+        } finally jedis.close()
+      }
+    }
+    ids.sparkSession.createDataFrame(rowRdd, DemographicsSchema)
   }
 
   private def parseDouble(s: String): Double = scala.util.Try(s.toDouble).getOrElse(0.0)
