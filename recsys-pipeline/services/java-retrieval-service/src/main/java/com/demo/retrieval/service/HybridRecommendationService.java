@@ -18,7 +18,8 @@ import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
-import com.demo.retrieval.service.grpo.GrpoImpressionPublisher;
+import com.demo.retrieval.event.RecsysEventAvroCodec;
+import com.demo.retrieval.service.grpo.GrpoEventPublisher;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
 import com.demo.retrieval.service.retrieval.MovieCandidate;
@@ -95,6 +96,7 @@ public class HybridRecommendationService {
     private final TopKScoreSelector<ScoredCandidate> topKScoreSelector = new TopKScoreSelector<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
+    private final GrpoEventPublisher grpoPublisher;
     private final CatalogContentScoring catalogContentScoring;
     private final ContentCandidateRetriever contentCandidateRetriever;
     private final RecommendationMeasurementService measurementService;
@@ -125,9 +127,11 @@ public class HybridRecommendationService {
         this.onlineLearningService = onlineLearningService;
         this.featureCache = featureCache;
         this.queryHydrators = List.copyOf(queryHydrators);
+        this.grpoPublisher = new GrpoEventPublisher(
+            createGrpoCodec(properties), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
-            new GrpoImpressionPublisher(objectMapper, createGrpoSender(properties), properties.getGrpo().isEmitEvents()),
+            this.grpoPublisher,
             new GrpoPolicyScorer(redis, properties));
         this.catalogContentScoring = new CatalogContentScoring(properties);
         this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
@@ -147,11 +151,22 @@ public class HybridRecommendationService {
         return System.getenv().getOrDefault("ONLINE_JOINER_INPUT_TOPIC", "recsys_events");
     }
 
+    // Guarded the same way createGrpoSender below is: RecsysEventAvroCodec parses a bundled schema
+    // resource at construction, so building it unconditionally would let a missing or corrupt
+    // schema fail Spring bean creation even with emit-events off, breaking the promise that the
+    // flag being off means nothing new happens at all.
+    private static RecsysEventAvroCodec createGrpoCodec(RecommendationProperties properties) {
+        if (!properties.getGrpo().isEmitEvents()) {
+            return null;
+        }
+        return new RecsysEventAvroCodec();
+    }
+
     // No KafkaConfig bean is reachable from here — this service has never published to Kafka
     // before. Off by default (emit-events=false), so the live path on every existing deployment
     // never opens a producer connection. When enabled, a broker that can't be reached at startup
     // must not fail startup: publishing is a logging side effect, never a serving dependency.
-    private static GrpoImpressionPublisher.GrpoSender createGrpoSender(RecommendationProperties properties) {
+    private static GrpoEventPublisher.GrpoSender createGrpoSender(RecommendationProperties properties) {
         if (!properties.getGrpo().isEmitEvents()) {
             return null;
         }
@@ -396,6 +411,17 @@ public class HybridRecommendationService {
         });
 
         cacheKeysToInvalidate.forEach(featureCache::invalidateRewardStats);
+
+        // Serving's own requestId first, since that's what the impression event carries; the
+        // replay context's requestId (read above, before the pipeline) is the fallback for a
+        // client that didn't send one. Without either, the event can't join to its impression,
+        // and inventing an id would silently corrupt the join rather than just dropping the row.
+        String grpoRequestId = request.requestId() != null && !request.requestId().isBlank()
+            ? request.requestId()
+            : asNonBlankString(replayEvent.get(ReplayEvent.REQUEST_ID));
+        if (grpoRequestId != null) {
+            grpoPublisher.publishFeedback(request, grpoRequestId, System.currentTimeMillis());
+        }
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
@@ -735,6 +761,10 @@ public class HybridRecommendationService {
             .mapToDouble(this::readDouble)
             .max()
             .orElse(0.0);
+    }
+
+    private static String asNonBlankString(Object value) {
+        return value instanceof String s && !s.isBlank() ? s : null;
     }
 
     private Optional<Map<String, Object>> readPendingReplayContext(String user, String item) {

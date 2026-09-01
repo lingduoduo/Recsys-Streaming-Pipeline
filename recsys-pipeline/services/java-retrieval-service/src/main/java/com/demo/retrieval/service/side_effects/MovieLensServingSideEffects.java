@@ -9,7 +9,7 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-import com.demo.retrieval.service.grpo.GrpoImpressionPublisher;
+import com.demo.retrieval.service.grpo.GrpoEventPublisher;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.replay.ReplayEvent;
 
@@ -33,12 +33,12 @@ public class MovieLensServingSideEffects {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Duration pendingTtl;
-    private final GrpoImpressionPublisher grpoPublisher;
+    private final GrpoEventPublisher grpoPublisher;
     private final GrpoPolicyScorer grpoScorer;
 
     public MovieLensServingSideEffects(
         StringRedisTemplate redis, ObjectMapper objectMapper, Duration pendingTtl,
-        GrpoImpressionPublisher grpoPublisher, GrpoPolicyScorer grpoScorer
+        GrpoEventPublisher grpoPublisher, GrpoPolicyScorer grpoScorer
     ) {
         this.redis = redis;
         this.objectMapper = objectMapper;

@@ -1,5 +1,6 @@
 package com.demo.retrieval.service;
 
+import com.demo.retrieval.event.RecsysEventAvroCodec;
 import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.model.MovieLensUserFeatures;
@@ -12,6 +13,7 @@ import com.demo.retrieval.service.clients.UserProfileClient;
 import com.demo.retrieval.service.query_hydrators.MovieLensUserHistoryQueryHydrator;
 import com.demo.retrieval.service.query_hydrators.UserBehaviorProfileQueryHydrator;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.SetOperations;
@@ -27,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.when;
 
 @SuppressWarnings({"unchecked", "null"})
@@ -288,6 +292,31 @@ class HybridRecommendationServiceTest {
         assertEquals(0.616, row.get("weightedOutcomeScore"));
         assertEquals(0.841, row.get("predictionScore"));
         assertEquals(0.617, row.get("rewardModelScore"));
+    }
+
+    // Guards the default-off promise: RECSYS_GRPO_EMIT_EVENTS=false must mean nothing new happens
+    // at all, including a broken Avro schema resource failing Spring bean creation. Mocks the
+    // RecsysEventAvroCodec constructor to throw, simulating a corrupt/missing schema, and proves
+    // construction still succeeds with emission disabled — and that the codec was never
+    // instantiated in the first place, so no such failure could ever reach it.
+    @Test
+    void constructionSucceedsWithEmitEventsDisabledEvenIfAvroCodecConstructionFails() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getGrpo().setEmitEvents(false);
+        FeatureCache featureCache = new FeatureCache(properties);
+
+        try (MockedConstruction<RecsysEventAvroCodec> codecConstruction = mockConstruction(
+                RecsysEventAvroCodec.class,
+                (mockCodec, context) -> {
+                    throw new IllegalStateException("simulated corrupt/missing Avro schema resource");
+                })) {
+            assertDoesNotThrow(() -> new HybridRecommendationService(
+                redis, properties,
+                new OnlineLearningService(redis, properties, featureCache),
+                featureCache, List.of()));
+            assertTrue(codecConstruction.constructed().isEmpty());
+        }
     }
 
     private static MovieProfile movie(String genre) {
