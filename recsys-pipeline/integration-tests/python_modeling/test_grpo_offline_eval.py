@@ -129,6 +129,17 @@ def test_matching_schema_does_not_raise():
         rows_version="v1", rows_dim=10, weights_version="v1", weights=[0.0] * 10)
 
 
+def test_detect_feature_schema_picks_the_majority_schema_over_a_stale_leading_row():
+    """A single leading row on a stale/different version must not abort an otherwise-fine run --
+    the schema should be the one the data mostly agrees on, not whichever row happens to sort
+    first."""
+    stale = _row(_TRAIN_ONLY_RID, "m0", 0.0, "v0:0.0,0.0,0.0")
+    rows = [stale] + [_row(_TRAIN_ONLY_RID, f"m{i}", 0.0, _TEN_X) for i in range(5)]
+    version, dim = goe.detect_feature_schema(rows)
+    assert version == "v1"
+    assert dim == 10
+
+
 # ── build_scored_rows: held-out split + data-availability guard ──────────────────
 def test_build_scored_rows_keeps_only_the_held_out_split():
     rows = [
@@ -151,6 +162,37 @@ def test_build_scored_rows_drops_and_counts_rows_missing_grpo_x_or_prediction_sc
     assert len(scored) == 1
     assert scored[0]["request_id"] == _HELD_OUT_RID
     assert dropped == 3
+
+
+def test_build_scored_rows_drops_a_row_whose_grpo_x_version_does_not_match_the_pinned_schema():
+    rows = [_row(_HELD_OUT_RID, "m1", 1.0, "v2:" + ",".join(["0.1"] * 10), prediction_score="0.5")]
+    scored, dropped = goe.build_scored_rows(rows, weights=[0.1] * 10, version="v1", dim=10)
+    assert scored == []
+    assert dropped == 1
+
+
+def test_build_scored_rows_drops_a_row_whose_grpo_x_width_does_not_match_the_pinned_schema():
+    rows = [_row(_HELD_OUT_RID, "m1", 1.0, "v1:" + ",".join(["0.1"] * 5), prediction_score="0.5")]
+    scored, dropped = goe.build_scored_rows(rows, weights=[0.1] * 10, version="v1", dim=10)
+    assert scored == []
+    assert dropped == 1
+
+
+def test_build_scored_rows_counts_a_nan_label_in_n_dropped():
+    """A NaN label is neither a click (label > 0) nor shown-not-clicked (label == 0) -- it fits
+    neither bucket evaluate_slates sorts on, so it must be dropped and counted, not silently kept
+    as a "usable" row that happens to contribute no pairs."""
+    rows = [_row(_HELD_OUT_RID, "m1", float("nan"), _TEN_X, prediction_score="0.5")]
+    scored, dropped = goe.build_scored_rows(rows, weights=[0.1] * 10, version="v1", dim=10)
+    assert scored == []
+    assert dropped == 1
+
+
+def test_build_scored_rows_counts_a_negative_label_in_n_dropped():
+    rows = [_row(_HELD_OUT_RID, "m1", -1.0, _TEN_X, prediction_score="0.5")]
+    scored, dropped = goe.build_scored_rows(rows, weights=[0.1] * 10, version="v1", dim=10)
+    assert scored == []
+    assert dropped == 1
 
 
 def test_build_scored_rows_computes_grpo_score_as_the_pinned_dot_product():
@@ -213,8 +255,10 @@ def test_evaluate_slates_ignores_a_slate_with_no_negative_label():
 
 
 def test_evaluate_slates_counts_a_tie_as_half_a_pair():
-    scored = [{"request_id": "r1", "grpo_score": 1.0, "prediction_score": 1.0, "label": 1.0},
-              {"request_id": "r1", "grpo_score": 1.0, "prediction_score": 0.0, "label": 0.0}]
+    scored = [{"request_id": "r1", "grpo_score": 1.0, "grpo_score_position_free": 1.0,
+               "prediction_score": 1.0, "label": 1.0},
+              {"request_id": "r1", "grpo_score": 1.0, "grpo_score_position_free": 1.0,
+               "prediction_score": 0.0, "label": 0.0}]
     result = goe.evaluate_slates(scored)
     assert result["n_pairs"] == 1
     assert result["grpo_auc"] == pytest.approx(0.5)     # tied scores
@@ -225,12 +269,18 @@ def test_evaluate_slates_aggregates_pairs_across_slates_rather_than_macro_averag
     """Slate A: 1 pair, wrong. Slate B: 3 pairs, all correct. Micro-aggregated AUC = 3/4, which
     differs from the macro average of the two per-slate AUCs (0/1 and 3/3 -> 0.5)."""
     scored = [
-        {"request_id": "A", "grpo_score": 0.0, "prediction_score": 0.0, "label": 1.0},
-        {"request_id": "A", "grpo_score": 1.0, "prediction_score": 0.0, "label": 0.0},
-        {"request_id": "B", "grpo_score": 3.0, "prediction_score": 0.0, "label": 1.0},
-        {"request_id": "B", "grpo_score": 1.0, "prediction_score": 0.0, "label": 0.0},
-        {"request_id": "B", "grpo_score": 2.0, "prediction_score": 0.0, "label": 0.0},
-        {"request_id": "B", "grpo_score": 0.5, "prediction_score": 0.0, "label": 0.0},
+        {"request_id": "A", "grpo_score": 0.0, "grpo_score_position_free": 0.0,
+         "prediction_score": 0.0, "label": 1.0},
+        {"request_id": "A", "grpo_score": 1.0, "grpo_score_position_free": 1.0,
+         "prediction_score": 0.0, "label": 0.0},
+        {"request_id": "B", "grpo_score": 3.0, "grpo_score_position_free": 3.0,
+         "prediction_score": 0.0, "label": 1.0},
+        {"request_id": "B", "grpo_score": 1.0, "grpo_score_position_free": 1.0,
+         "prediction_score": 0.0, "label": 0.0},
+        {"request_id": "B", "grpo_score": 2.0, "grpo_score_position_free": 2.0,
+         "prediction_score": 0.0, "label": 0.0},
+        {"request_id": "B", "grpo_score": 0.5, "grpo_score_position_free": 0.5,
+         "prediction_score": 0.0, "label": 0.0},
     ]
     result = goe.evaluate_slates(scored)
     assert result["n_usable_slates"] == 2
@@ -252,6 +302,24 @@ def test_parse_weight_fields_reads_the_redis_hash_shape():
     version, weights = goe.parse_weight_fields(fields)
     assert version == "v1"
     assert weights == pytest.approx([0.1, 0.2, 0.3])
+
+
+@pytest.mark.parametrize("bad_value", ["NaN", "Infinity", "-Infinity"])
+def test_parse_weight_fields_refuses_a_non_finite_weight(bad_value):
+    """float() happily parses "NaN"/"Infinity" -- unlike an unparseable string, which already
+    raises. A non-finite weight makes every downstream dot product NaN, every comparison in
+    evaluate_slates come out False, and the tool print grpo_auc=0.0 -- reading as "GRPO is
+    maximally worse" when the weight vector is simply unusable. Both GrpoPolicyScorer.readWeights
+    (Java) and this refuse rather than let that happen."""
+    fields = {"weights": f"0.1,{bad_value},0.3", "dim": "3", "feature_version": "v1"}
+    with pytest.raises(SystemExit, match=r"(?i)finite"):
+        goe.parse_weight_fields(fields)
+
+
+def test_parse_weight_fields_names_the_offending_index_on_a_non_finite_weight():
+    fields = {"weights": "0.1,0.2,NaN", "dim": "3", "feature_version": "v1"}
+    with pytest.raises(SystemExit, match="index 2"):
+        goe.parse_weight_fields(fields)
 
 
 def test_load_weight_fields_from_a_json_file(tmp_path):
@@ -278,6 +346,62 @@ def _write_weights_file(tmp_path, weights, version="v1"):
         "feature_version": version,
     }))
     return path
+
+
+def _position_only_fixture():
+    """One held-out slate whose two rows differ ONLY on the position feature (index 8, the served
+    slot -- see GrpoFeatures.of in java-retrieval-service). Weight mass sits entirely on that
+    index, so grpo_auc's apparent edge is pure position leakage: unrealizable at serve time,
+    because the score has to exist before selection assigns a position. Zeroing index 8's weight
+    should erase the edge back to a coin flip."""
+    pos_x = _packed([0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0])   # served late/last -> position feature 1.0
+    neg_x = _packed([0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0])   # served first -> position feature 0.0
+    rows = [
+        _row(_HELD_OUT_RID, "m1", 1.0, pos_x, prediction_score="0.5"),
+        _row(_HELD_OUT_RID, "m2", 0.0, neg_x, prediction_score="0.5"),
+    ]
+    weights = [0.0] * 8 + [1.0, 0.0]
+    return rows, weights
+
+
+def test_main_position_only_weights_show_large_auc_diff_but_near_zero_position_free_diff(tmp_path):
+    rows, weights = _position_only_fixture()
+    parquet_path = _write_training_samples(tmp_path, rows)
+    weights_path = _write_weights_file(tmp_path, weights)
+
+    result = goe.main(["--parquet", str(parquet_path), "--weights", str(weights_path)])
+
+    assert result["auc_diff"] == pytest.approx(0.5)
+    assert result["auc_diff_position_free"] == pytest.approx(0.0)
+
+
+def _sign_disagreement_fixture():
+    """Position (index 8) pulls the ranking one way; the one other informative feature (index 1)
+    pulls it the other way. Raw auc_diff reads positive off the unrealizable position feature,
+    while the position-free arm -- what a live scorer could actually compute -- is negative. This
+    is exactly the case the tool must surface: a positive auc_diff alone does not mean GRPO ranks
+    better, because it can be entirely position bias."""
+    pos_x = _packed([1.0, 1.0, 0, 0, 0, 0, 0, 0, 1.0, 0])
+    neg_x = _packed([1.0, 0.0, 0, 0, 0, 0, 0, 0, 0.0, 0])
+    rows = [
+        _row(_HELD_OUT_RID, "m1", 1.0, pos_x, prediction_score="0.5"),
+        _row(_HELD_OUT_RID, "m2", 0.0, neg_x, prediction_score="0.5"),
+    ]
+    weights = [0.0, -1.0, 0, 0, 0, 0, 0, 0, 5.0, 0.0]
+    return rows, weights
+
+
+def test_main_reports_sign_disagreement_between_raw_and_position_free_auc_diff(tmp_path, capsys):
+    rows, weights = _sign_disagreement_fixture()
+    parquet_path = _write_training_samples(tmp_path, rows)
+    weights_path = _write_weights_file(tmp_path, weights)
+
+    result = goe.main(["--parquet", str(parquet_path), "--weights", str(weights_path)])
+
+    assert result["auc_diff"] > 0
+    assert result["auc_diff_position_free"] < 0
+    out = capsys.readouterr().out
+    assert "disagree" in out.lower()
 
 
 def test_main_reports_both_aucs_and_the_usable_slate_counts(tmp_path, capsys):

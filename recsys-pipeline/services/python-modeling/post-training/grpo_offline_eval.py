@@ -31,9 +31,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 # The sibling modules live one directory up; this script is run directly, not imported.
@@ -70,6 +71,26 @@ def dot(weights, x) -> float:
     return sum(w * v for w, v in zip(weights, x))
 
 
+# GrpoFeatures.of (Java, java-retrieval-service) index 8 is position/slateSize -- the slot the
+# item occupies in what was ALREADY served. A score used to decide selection cannot depend on the
+# position selection itself produces: selection runs the scorer to decide who goes where, so the
+# position does not exist yet at the moment the score would need it. GrpoPolicyScorer.
+# recordShadowSlate documents exactly this ("modelPredictions ... is built before selection
+# assigns positions") for why it never persists grpoScore onto the pre-selection prediction. Any
+# AUC weight on this index buys measures agreement with the order that was already served, not
+# whether GRPO would rank a fresh, not-yet-positioned slate better.
+POSITION_FEATURE_INDEX = 8
+
+
+def _position_free_weights(weights):
+    """weights with the position-feature weight zeroed out -- see POSITION_FEATURE_INDEX."""
+    if len(weights) <= POSITION_FEATURE_INDEX:
+        return list(weights)
+    zeroed = list(weights)
+    zeroed[POSITION_FEATURE_INDEX] = 0.0
+    return zeroed
+
+
 # ── weights: Redis hash (live) or a JSON file with the same three fields (pinned) ─
 def parse_weight_fields(fields: dict):
     """(feature_version, [weights]) from a dict shaped like the `grpo:policy:weights` Redis hash
@@ -86,6 +107,15 @@ def parse_weight_fields(fields: dict):
         weights = [float(p) for p in parts]
     except ValueError as e:
         raise SystemExit(f"unparseable weights '{raw}': {e}")
+    # float() parses "nan"/"inf" without raising -- a diverged training run would otherwise be
+    # read back as a "valid" vector whose every dot product comes out NaN. NaN compares False
+    # against everything, so every pairwise comparison in evaluate_slates loses and the tool
+    # prints grpo_auc=0.0 -- reading as "GRPO is maximally worse" when the vector is simply
+    # unusable. GrpoPolicyScorer.readWeights (Java) checks Double.isFinite per weight for the
+    # same reason; this is the offline side of that guard.
+    for i, w in enumerate(weights):
+        if not math.isfinite(w):
+            raise SystemExit(f"weight at index {i} is not finite ('{parts[i]}') -- refusing to score")
     return version, weights
 
 
@@ -125,15 +155,29 @@ def _as_feature_map(raw) -> dict:
 
 
 def detect_feature_schema(rows):
-    """(version, dim) read off the first row whose grpo_x parses -- the schema the DATA carries,
-    which the pinned weights are then checked against (not the other way around)."""
-    for row in rows:
+    """(version, dim) the MAJORITY of parseable rows agree on -- the schema the data mostly
+    carries, which the pinned weights are then checked against (not the other way around).
+
+    Pinning off the first parseable row instead would let one stale-version row -- a late
+    backfill, a run boundary -- abort an otherwise-fine evaluation just because it happened to
+    sort first. Ties fall back to whichever schema was seen first, the same determinism the
+    first-row approach gave callers when there was nothing to disagree about."""
+    counts = Counter()
+    first_seen_at = {}
+    for idx, row in enumerate(rows):
         features = _as_feature_map(row.get("item_features"))
         parsed = parse_packed_vector(features.get("grpo_x"))
-        if parsed is not None:
-            version, vector = parsed
-            return version, len(vector)
-    raise SystemExit("no training_samples row carries a parseable grpo_x -- nothing to score")
+        if parsed is None:
+            continue
+        version, vector = parsed
+        schema = (version, len(vector))
+        counts[schema] += 1
+        first_seen_at.setdefault(schema, idx)
+    if not counts:
+        raise SystemExit("no training_samples row carries a parseable grpo_x -- nothing to score")
+    max_count = max(counts.values())
+    majority = [schema for schema, n in counts.items() if n == max_count]
+    return min(majority, key=lambda schema: first_seen_at[schema])
 
 
 def assert_feature_schema_matches(rows_version, rows_dim, weights_version, weights):
@@ -159,10 +203,13 @@ def build_scored_rows(rows, weights, version, dim):
     in-sample advantage prediction_score does not get, exactly the reasoning post_train_dpo.py and
     post_train_q.py already document for their own arms.
 
-    A row missing grpo_x, missing prediction_score, missing label, or whose grpo_x parses to a
-    version/width other than the pinned schema is DROPPED and counted -- not zero-filled, which
-    would silently bias the comparison in whatever direction the missing data happens to skew.
+    A row missing grpo_x, missing prediction_score, missing label, whose grpo_x parses to a
+    version/width other than the pinned schema, or whose label is NaN or negative (fitting neither
+    the positive nor the negative bucket evaluate_slates sorts on) is DROPPED and counted -- not
+    zero-filled, which would silently bias the comparison in whatever direction the missing data
+    happens to skew.
     """
+    position_free_weights = _position_free_weights(weights)
     scored = []
     n_dropped = 0
     for row in rows:
@@ -186,9 +233,18 @@ def build_scored_rows(rows, weights, version, dim):
         except (TypeError, ValueError):
             n_dropped += 1
             continue
+        # evaluate_slates buckets labels into positive (>0) and negative (==0) only; a NaN or
+        # negative label fits neither bucket and would otherwise contribute no pairs while still
+        # being counted "usable" -- an invisible drop, the same class of silent bias the
+        # missing-field checks above exist to avoid. `label >= 0.0` is False for both NaN and
+        # negatives, so one comparison catches both.
+        if not (label >= 0.0):
+            n_dropped += 1
+            continue
         scored.append({
             "request_id": request_id,
             "grpo_score": dot(weights, vector),
+            "grpo_score_position_free": dot(position_free_weights, vector),
             "prediction_score": prediction_score,
             "label": label,
         })
@@ -211,7 +267,7 @@ def evaluate_slates(scored_rows):
         by_slate[row["request_id"]].append(row)
 
     n_pairs = 0
-    concordant = {"grpo_score": 0.0, "prediction_score": 0.0}
+    concordant = {"grpo_score": 0.0, "grpo_score_position_free": 0.0, "prediction_score": 0.0}
     n_usable = 0
     for slate_rows in by_slate.values():
         positives = [r for r in slate_rows if r["label"] > 0.0]
@@ -236,6 +292,7 @@ def evaluate_slates(scored_rows):
         "n_usable_slates": n_usable,
         "n_pairs": n_pairs,
         "grpo_auc": _auc("grpo_score"),
+        "grpo_auc_position_free": _auc("grpo_score_position_free"),
         "prediction_auc": _auc("prediction_score"),
     }
 
@@ -276,9 +333,14 @@ def main(argv=None) -> dict:
             "held-out rows dropped for missing or malformed data")
 
     result = evaluate_slates(scored_rows)
-    auc_diff = (result["grpo_auc"] - result["prediction_auc"]
-                if result["grpo_auc"] is not None and result["prediction_auc"] is not None
+
+    def _diff(grpo_key):
+        return (result[grpo_key] - result["prediction_auc"]
+                if result[grpo_key] is not None and result["prediction_auc"] is not None
                 else None)
+
+    auc_diff = _diff("grpo_auc")
+    auc_diff_position_free = _diff("grpo_auc_position_free")
 
     summary = {
         "feature_version": rows_version,
@@ -286,6 +348,7 @@ def main(argv=None) -> dict:
         "n_rows_usable": len(scored_rows),
         "n_rows_dropped": n_dropped,
         "auc_diff": auc_diff,
+        "auc_diff_position_free": auc_diff_position_free,
         **result,
     }
 
@@ -299,9 +362,25 @@ def main(argv=None) -> dict:
     if result["n_pairs"] == 0:
         print("no usable slate: no pairwise AUC can be computed from this data")
     else:
-        print(f"pairwise AUC: grpoScore={_format(result['grpo_auc'])} "
+        # auc_diff (raw) includes index 8, position/slateSize -- the served slot, which cannot be
+        # realized at serve time because the score has to exist BEFORE selection assigns
+        # positions (see POSITION_FEATURE_INDEX). The position-free number, with that weight
+        # zeroed, is what a live scorer could actually achieve, so it -- not the raw diff -- is
+        # the one the shadow-to-on flip decision should read.
+        print(f"pairwise AUC (raw, includes position/slateSize -- NOT realizable at serve time): "
+              f"grpoScore={_format(result['grpo_auc'])} "
               f"prediction_score={_format(result['prediction_auc'])} "
-              f"diff={_format(summary['auc_diff'], signed=True)}")
+              f"diff={_format(auc_diff, signed=True)}")
+        print(f"pairwise AUC (position-free -- THE FLIP CRITERION): "
+              f"grpoScore={_format(result['grpo_auc_position_free'])} "
+              f"prediction_score={_format(result['prediction_auc'])} "
+              f"diff={_format(auc_diff_position_free, signed=True)}")
+        if (auc_diff is not None and auc_diff_position_free is not None
+                and ((auc_diff > 0 and auc_diff_position_free < 0)
+                     or (auc_diff < 0 and auc_diff_position_free > 0))):
+            print("WARNING: raw and position-free diffs disagree in sign -- the apparent "
+                  "improvement in the raw number is position bias, not a better-ranking policy; "
+                  "read the position-free diff")
     print("caution: a number computed from a handful of slates is not a verdict -- read "
           "n_usable_slates before treating the AUCs as evidence for the shadow-to-on flip")
     return summary
