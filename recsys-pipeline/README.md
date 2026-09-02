@@ -382,7 +382,10 @@ behavior source. Both take `off` | `shadow` | `on`, and advancing one does not a
 [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#grpopolicystreamingjob) for
 the rollout order and why `emit-events` gates more than serving). In `shadow`, each slate logs one
 INFO line carrying its `requestId`, slate size, and `pairwiseConcordance` — how often the GRPO
-order agrees with the served order, which is what the flip to `on` should be judged on.
+order agrees with the served order. That measures agreement with the incumbent, not quality, and
+does not justify the flip in either direction; the flip criterion is instead read from
+`post-training/grpo_offline_eval.py`, which scores held-out `training_samples` rows offline with a
+pinned weight vector and reports pairwise AUC for `grpoScore` against `prediction_score`.
 
 | Property | Env var | Default |
 |---|---|---|
