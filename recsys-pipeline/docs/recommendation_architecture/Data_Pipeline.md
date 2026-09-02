@@ -976,10 +976,15 @@ GRPO shadow slate requestId=<id> slateSize=<n> pairwiseConcordance=<0.0..1.0>
 
 `pairwiseConcordance` is the fraction of served position pairs the GRPO score orders the same way
 serving did — 1.0 means the policy would have produced the served slate exactly, 0.0 that it would
-have reversed it. Ties count as disagreement. This is the measure the flip criterion reads: watch
-it across many slates before promoting `shadow` to `on`. Nothing is logged in `off` (no Redis read
-happens at all), in `on` (where the score already steers the order it would be graded against), for
-single-item slates, or when no usable weight vector is in Redis yet.
+have reversed it. Ties count as disagreement. **This measures agreement with the incumbent, not
+quality, and it does not justify a flip in either direction**: 1.0 means GRPO changes nothing if
+switched on, and 0.0 means it reverses the order, which could be better or worse — concordance
+alone cannot say. The design's flip criterion ("shadow scores must rank held-out slates better than
+the reference") is instead read from `post-training/grpo_offline_eval.py`, which scores held-out
+`training_samples` rows with a pinned weight vector and reports pairwise AUC against realized
+labels for `grpoScore` and `prediction_score` side by side. Nothing is logged in `off` (no Redis
+read happens at all), in `on` (where the score already steers the order it would be graded
+against), for single-item slates, or when no usable weight vector is in Redis yet.
 
 A weight vector that has diverged to NaN or infinity is treated as absent on both sides:
 `GrpoPolicyStreamingJob` refuses to write one (it logs at ERROR and keeps the last good weights —
