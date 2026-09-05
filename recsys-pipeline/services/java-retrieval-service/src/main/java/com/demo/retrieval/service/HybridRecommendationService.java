@@ -511,11 +511,7 @@ public class HybridRecommendationService {
         if (grpoPolicyScorer.blendWeight() <= 0.0) {
             return selected;
         }
-        List<double[]> featureVectors = selected.stream()
-            .map(c -> GrpoFeatures.of(
-                round(c.banditScore()), round(c.estimatedReward()), round(c.onlineScore()),
-                round(c.explorationBonus()), c.coldStart(), c.impressions(), c.clicks()))
-            .toList();
+        List<double[]> featureVectors = selected.stream().map(this::grpoFeaturesFor).toList();
         double[] finalScores = selected.stream().mapToDouble(ScoredCandidate::finalScore).toArray();
         Optional<int[]> reRankOrder = grpoPolicyScorer.reRankOrder(featureVectors, finalScores);
         if (reRankOrder.isEmpty()) {
@@ -526,6 +522,18 @@ public class HybridRecommendationService {
             reordered.add(selected.get(index));
         }
         return List.copyOf(reordered);
+    }
+
+    /**
+     * Package-private (not private) so a test can drive this exact call site directly, alongside
+     * {@link #toServedMovie}, on the same candidate -- the only way to prove the rounding here
+     * actually matches training's rounding without both sides of the test rounding independently
+     * and comparing rounded-to-rounded, which would pass even if this method stopped rounding.
+     */
+    double[] grpoFeaturesFor(ScoredCandidate candidate) {
+        return GrpoFeatures.of(
+            round(candidate.banditScore()), round(candidate.estimatedReward()), round(candidate.onlineScore()),
+            round(candidate.explorationBonus()), candidate.coldStart(), candidate.impressions(), candidate.clicks());
     }
 
     private ScoredCandidate scoreCandidate(
@@ -687,7 +695,10 @@ public class HybridRecommendationService {
         return predictions;
     }
 
-    private ServedMovie toServedMovie(ScoredCandidate candidate) {
+    // Package-private (not private): tests must drive this exact call site -- the one
+    // GrpoImpressionEvents packs training's grpo_x from -- to compare against grpoFeaturesFor's
+    // real output on the same candidate.
+    ServedMovie toServedMovie(ScoredCandidate candidate) {
         return new ServedMovie(
             candidate.itemId(),
             round(candidate.estimatedReward()),
@@ -1232,7 +1243,9 @@ public class HybridRecommendationService {
         }
     }
 
-    private record ScoredCandidate(
+    // Package-private (not private): a test constructs one directly to drive toServedMovie and
+    // grpoFeaturesFor on an identical candidate without going through the full recommend() path.
+    record ScoredCandidate(
         String itemId,
         double estimatedReward,
         double relevanceScore,

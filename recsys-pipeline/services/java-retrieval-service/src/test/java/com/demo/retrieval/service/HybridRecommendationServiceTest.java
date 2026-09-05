@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -369,6 +370,47 @@ class HybridRecommendationServiceTest {
         RecommendationResult result = service.recommend("u1", 2);
 
         assertEquals(List.of("sci-fi", "drama"), result.recommendations());
+    }
+
+    /**
+     * GrpoFeaturesTest.theTwoOverloadsAgreeAfterTheSameRoundingTheRealCallSitesApply rounds inline
+     * on both sides of the comparison and never calls a production method -- it proves
+     * rounding-then-comparing agrees with rounding-then-comparing, which would stay green even if
+     * {@code applyGrpoReRank} stopped rounding entirely. This test instead drives the two REAL call
+     * sites on the same unrounded {@code ScoredCandidate}: {@code toServedMovie}, which
+     * GrpoImpressionEvents packs training's grpo_x from, and {@code grpoFeaturesFor}, which
+     * applyGrpoReRank feeds the re-rank scorer. If either call site's rounding drifted from the
+     * other -- including if the rounding were removed entirely -- this comparison would fail on
+     * the affected indices, unlike the inline-rounding test above.
+     */
+    @Test
+    void toServedMovieAndGrpoFeaturesForAgreeOnAnUnroundedCandidate() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        RecommendationProperties properties = new RecommendationProperties();
+        FeatureCache featureCache = new FeatureCache(properties);
+        HybridRecommendationService service = new HybridRecommendationService(
+            redis, properties,
+            new OnlineLearningService(redis, properties, featureCache),
+            featureCache, List.of());
+
+        HybridRecommendationService.ScoredCandidate candidate = new HybridRecommendationService.ScoredCandidate(
+            "m1",
+            0.654321789, // estimatedReward
+            0.0, 0.0, 0.0, // relevanceScore, contentScore, popularityScore -- not GRPO features
+            0.333333789, // onlineScore
+            0.070707789, // explorationBonus
+            0.123456789, // banditScore
+            false,       // coldStart
+            0.0,         // noveltyScore -- not a GRPO feature
+            42L, 7L,     // impressions, clicks
+            0.0, 0.0, 0.0, 0.0, // qValue, weightedOutcomeScore, predictionScore, diversityScore
+            null, null   // diversityGroupId, primaryGenre
+        );
+
+        double[] viaToServedMovie = GrpoFeatures.of(service.toServedMovie(candidate));
+        double[] viaGrpoFeaturesFor = service.grpoFeaturesFor(candidate);
+
+        assertArrayEquals(viaToServedMovie, viaGrpoFeaturesFor, 1e-12);
     }
 
     // Guards the default-off promise: RECSYS_GRPO_EMIT_EVENTS=false must mean nothing new happens
