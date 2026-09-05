@@ -385,7 +385,13 @@ INFO line carrying its `requestId`, slate size, and `pairwiseConcordance` — ho
 order agrees with the served order. That measures agreement with the incumbent, not quality, and
 does not justify the flip in either direction; the flip criterion is instead read from
 `post-training/grpo_offline_eval.py`, which scores held-out `training_samples` rows offline with a
-pinned weight vector and reports pairwise AUC for `grpoScore` against `prediction_score`.
+pinned weight vector and reports one pairwise AUC number for `grpoScore` against `prediction_score`.
+The feature vector (`GrpoFeatures`) is 9-dimensional, wire version `v2`, and deliberately excludes
+the item's served position — a ranking policy scores candidates before selection assigns positions,
+so that feature could only ever be 0 at scoring time and would leak label information during
+training instead. The earlier `v1` layout carried it at index 8; every consumer (`GrpoWeightStore`,
+`GrpoSlates`, `GrpoPolicyScorer`, `grpo_offline_eval.py`) refuses a `v1`-tagged or 10-wide vector
+rather than misalign it against the `v2` (9-wide) layout.
 
 | Property | Env var | Default |
 |---|---|---|

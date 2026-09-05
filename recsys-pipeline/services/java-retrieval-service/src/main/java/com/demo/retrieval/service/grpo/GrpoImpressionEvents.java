@@ -40,7 +40,7 @@ public final class GrpoImpressionEvents {
             ServedMovie movie = selected.get(position);
             Map<String, String> itemFeatures = new LinkedHashMap<>();
             itemFeatures.put("prediction_score", Double.toString(GrpoFeatures.predictionScore(movie)));
-            itemFeatures.put("grpo_x", GrpoFeatures.pack(GrpoFeatures.of(movie, position, selected.size())));
+            itemFeatures.put("grpo_x", GrpoFeatures.pack(GrpoFeatures.of(movie)));
 
             Map<String, Object> event = new LinkedHashMap<>();
             event.put("event_id", UUID.randomUUID().toString());

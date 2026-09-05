@@ -9,12 +9,20 @@ changes nothing) and 0.0 means it reverses it (which could be better OR worse; c
 cannot say). No value of it justifies the flip.
 
 The real question is answerable offline, from data that already exists. Every `training_samples`
-row carries an `item_features` map with `grpo_x` (the packed GRPO feature vector, "v1:0.1,0.2,...")
+row carries an `item_features` map with `grpo_x` (the packed GRPO feature vector, "v2:0.1,0.2,...")
 and `prediction_score` (the behavior policy's logit, the baseline to beat), plus `label`,
 `request_id`, `user_id`, `item_id` at the row level. GRPO's score is just `w . x` -- no serving
 change needed. This CLI pins ONE weight vector (from the live `grpo:policy:weights` Redis hash, or
 a `--weights` file for a reproducible run), scores every held-out slate with it, and reports
 pairwise AUC against realized labels for grpoScore and prediction_score side by side.
+
+Feature v1 carried a served-position feature (position/slateSize) that could not be realized at
+serve time -- selection runs the scorer to decide who goes where, so the position does not exist
+yet at scoring time. That made v1's raw `auc_diff` unusable as the flip criterion on its own: it
+could read positive purely from position leakage, so this tool used to report a second,
+position-free number (that weight zeroed) alongside it. v2 (`GrpoFeatures`, java-retrieval-service)
+removed the position feature entirely, so there is nothing left to zero: `auc_diff` is computed
+from the same features the live scorer would see, and is the flip criterion directly.
 
     python3 grpo_offline_eval.py --parquet training_samples.parquet
     python3 grpo_offline_eval.py --parquet training_samples.parquet --weights pinned_weights.json
@@ -44,7 +52,7 @@ import ope_eval_report
 import ope_support
 
 
-# ── wire format: "v1:0.1,0.2,..." -> (version, [floats]) ─────────────────────────
+# ── wire format: "v2:0.1,0.2,..." -> (version, [floats]) ─────────────────────────
 def parse_packed_vector(packed):
     """Split a packed GRPO feature vector into (version, values), or None if malformed.
 
@@ -52,9 +60,9 @@ def parse_packed_vector(packed):
     `GrpoSlates.parseFeatureVector` (Scala, spark-streaming-job) and the packing
     `GrpoFeatures.pack` (Java, java-retrieval-service) writes. Both split on the first ":" and then
     on "," in ENCOUNTERED order -- no reordering, no sorting -- so the ith token here is the same
-    feature `GrpoPolicyScorer.dot` calls x[i]. Index 0 is the bias term, index 8 the
-    position-in-slate normalized by slate size; this function does not need to know that, but the
-    ordering it preserves is exactly what makes those indices mean the same thing on both sides.
+    feature `GrpoPolicyScorer.dot` calls x[i]. Index 0 is the bias term; this function does not need
+    to know what the rest mean, but the ordering it preserves is exactly what makes each index mean
+    the same feature on both sides.
     """
     if not packed or ":" not in packed:
         return None
@@ -69,26 +77,6 @@ def parse_packed_vector(packed):
 def dot(weights, x) -> float:
     """w . x, index-for-index -- the same computation as GrpoPolicyScorer.dot (Java)."""
     return sum(w * v for w, v in zip(weights, x))
-
-
-# GrpoFeatures.of (Java, java-retrieval-service) index 8 is position/slateSize -- the slot the
-# item occupies in what was ALREADY served. A score used to decide selection cannot depend on the
-# position selection itself produces: selection runs the scorer to decide who goes where, so the
-# position does not exist yet at the moment the score would need it. GrpoPolicyScorer.
-# recordShadowSlate documents exactly this ("modelPredictions ... is built before selection
-# assigns positions") for why it never persists grpoScore onto the pre-selection prediction. Any
-# AUC weight on this index buys measures agreement with the order that was already served, not
-# whether GRPO would rank a fresh, not-yet-positioned slate better.
-POSITION_FEATURE_INDEX = 8
-
-
-def _position_free_weights(weights):
-    """weights with the position-feature weight zeroed out -- see POSITION_FEATURE_INDEX."""
-    if len(weights) <= POSITION_FEATURE_INDEX:
-        return list(weights)
-    zeroed = list(weights)
-    zeroed[POSITION_FEATURE_INDEX] = 0.0
-    return zeroed
 
 
 # ── weights: Redis hash (live) or a JSON file with the same three fields (pinned) ─
@@ -209,7 +197,6 @@ def build_scored_rows(rows, weights, version, dim):
     zero-filled, which would silently bias the comparison in whatever direction the missing data
     happens to skew.
     """
-    position_free_weights = _position_free_weights(weights)
     scored = []
     n_dropped = 0
     for row in rows:
@@ -244,7 +231,6 @@ def build_scored_rows(rows, weights, version, dim):
         scored.append({
             "request_id": request_id,
             "grpo_score": dot(weights, vector),
-            "grpo_score_position_free": dot(position_free_weights, vector),
             "prediction_score": prediction_score,
             "label": label,
         })
@@ -267,7 +253,7 @@ def evaluate_slates(scored_rows):
         by_slate[row["request_id"]].append(row)
 
     n_pairs = 0
-    concordant = {"grpo_score": 0.0, "grpo_score_position_free": 0.0, "prediction_score": 0.0}
+    concordant = {"grpo_score": 0.0, "prediction_score": 0.0}
     n_usable = 0
     for slate_rows in by_slate.values():
         positives = [r for r in slate_rows if r["label"] > 0.0]
@@ -292,7 +278,6 @@ def evaluate_slates(scored_rows):
         "n_usable_slates": n_usable,
         "n_pairs": n_pairs,
         "grpo_auc": _auc("grpo_score"),
-        "grpo_auc_position_free": _auc("grpo_score_position_free"),
         "prediction_auc": _auc("prediction_score"),
     }
 
@@ -334,13 +319,9 @@ def main(argv=None) -> dict:
 
     result = evaluate_slates(scored_rows)
 
-    def _diff(grpo_key):
-        return (result[grpo_key] - result["prediction_auc"]
-                if result[grpo_key] is not None and result["prediction_auc"] is not None
+    auc_diff = (result["grpo_auc"] - result["prediction_auc"]
+                if result["grpo_auc"] is not None and result["prediction_auc"] is not None
                 else None)
-
-    auc_diff = _diff("grpo_auc")
-    auc_diff_position_free = _diff("grpo_auc_position_free")
 
     summary = {
         "feature_version": rows_version,
@@ -348,7 +329,6 @@ def main(argv=None) -> dict:
         "n_rows_usable": len(scored_rows),
         "n_rows_dropped": n_dropped,
         "auc_diff": auc_diff,
-        "auc_diff_position_free": auc_diff_position_free,
         **result,
     }
 
@@ -362,25 +342,17 @@ def main(argv=None) -> dict:
     if result["n_pairs"] == 0:
         print("no usable slate: no pairwise AUC can be computed from this data")
     else:
-        # auc_diff (raw) includes index 8, position/slateSize -- the served slot, which cannot be
-        # realized at serve time because the score has to exist BEFORE selection assigns
-        # positions (see POSITION_FEATURE_INDEX). The position-free number, with that weight
-        # zeroed, is what a live scorer could actually achieve, so it -- not the raw diff -- is
-        # the one the shadow-to-on flip decision should read.
-        print(f"pairwise AUC (raw, includes position/slateSize -- NOT realizable at serve time): "
+        # v1's grpo_x carried a served-position feature (position/slateSize) that could not be
+        # realized at serve time -- the score has to exist BEFORE selection assigns positions --
+        # so a positive raw auc_diff could be pure position leakage rather than ranking skill.
+        # That was the reason this tool used to report a second, position-free number alongside
+        # the raw one. v2 (GrpoFeatures, java-retrieval-service) removed the position feature, so
+        # every feature scored here is one the live scorer would actually see: auc_diff is
+        # computed from exactly those features and is the flip criterion directly.
+        print(f"pairwise AUC (THE FLIP CRITERION): "
               f"grpoScore={_format(result['grpo_auc'])} "
               f"prediction_score={_format(result['prediction_auc'])} "
               f"diff={_format(auc_diff, signed=True)}")
-        print(f"pairwise AUC (position-free -- THE FLIP CRITERION): "
-              f"grpoScore={_format(result['grpo_auc_position_free'])} "
-              f"prediction_score={_format(result['prediction_auc'])} "
-              f"diff={_format(auc_diff_position_free, signed=True)}")
-        if (auc_diff is not None and auc_diff_position_free is not None
-                and ((auc_diff > 0 and auc_diff_position_free < 0)
-                     or (auc_diff < 0 and auc_diff_position_free > 0))):
-            print("WARNING: raw and position-free diffs disagree in sign -- the apparent "
-                  "improvement in the raw number is position bias, not a better-ranking policy; "
-                  "read the position-free diff")
     print("caution: a number computed from a handful of slates is not a verdict -- read "
           "n_usable_slates before treating the AUCs as evidence for the shadow-to-on flip")
     return summary

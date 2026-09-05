@@ -12,8 +12,8 @@ class GrpoJobConfigSpec extends AnyFlatSpec with Matchers {
     cfg.hyper.klBeta shouldBe 0.02
     cfg.hyper.learningRate shouldBe 0.01
     cfg.hyper.innerEpochs shouldBe 4
-    cfg.featureVersion shouldBe "v1"
-    cfg.dim shouldBe 10
+    cfg.featureVersion shouldBe "v2"
+    cfg.dim shouldBe 9
     cfg.weightsKey shouldBe "grpo:policy:weights"
   }
 

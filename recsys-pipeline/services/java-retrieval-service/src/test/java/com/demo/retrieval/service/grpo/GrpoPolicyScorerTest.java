@@ -40,7 +40,7 @@ class GrpoPolicyScorerTest {
         HashOperations hashOps = mock(HashOperations.class);
         when(redis.opsForHash()).thenReturn(hashOps);
         when(hashOps.entries(anyString())).thenReturn(weights == null ? Map.of()
-            : Map.of("weights", weights, "feature_version", version, "dim", "10"));
+            : Map.of("weights", weights, "feature_version", version, "dim", "9"));
         lastRedis = redis;
         return new GrpoPolicyScorer(redis, properties);
     }
@@ -56,11 +56,7 @@ class GrpoPolicyScorerTest {
             .collect(Collectors.joining(","));
     }
 
-    /**
-     * Isolates feature 1 (banditScore) so a slate's GRPO order is exactly its banditScore order.
-     * With the 1..10 vector, feature 8 (position/slateSize) carries weight 9 and would dominate,
-     * making every slate score monotonically increasing in position regardless of the items.
-     */
+    /** Isolates feature 1 (banditScore) so a slate's GRPO order is exactly its banditScore order. */
     private String weightsOnBanditScoreOnly() {
         String[] w = new String[GrpoFeatures.DIM];
         java.util.Arrays.fill(w, "0.0");
@@ -68,8 +64,8 @@ class GrpoPolicyScorerTest {
         return String.join(",", w);
     }
 
-    private double expectedScore(int position, int slateSize) {
-        double[] x = GrpoFeatures.of(movie, position, slateSize);
+    private double expectedScore() {
+        double[] x = GrpoFeatures.of(movie);
         double sum = 0.0;
         for (int i = 0; i < GrpoFeatures.DIM; i++) {
             sum += (i + 1) * x[i];
@@ -107,40 +103,31 @@ class GrpoPolicyScorerTest {
 
     @Test
     void offModeIsDisabledAndScoresZero() {
-        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v1");
+        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v2");
         assertFalse(s.enabled());
-        assertEquals(0.0, s.score(movie, 0, 5));
+        assertEquals(0.0, s.score(movie));
     }
 
     @Test
     void offModeReadsNothingFromRedis() {
         // The rollout's first promise: with the flag off, the serving path pays nothing at all.
-        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v1");
-        s.score(movie, 0, 5);
+        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v2");
+        s.score(movie);
         s.recordShadowSlate(slate(List.of(itemWithBanditScore("m1", 0.9), itemWithBanditScore("m2", 0.1))));
         verify(lastRedis, never()).opsForHash();
     }
 
     @Test
     void shadowModeScoresButClaimsNoBlendWeight() {
-        GrpoPolicyScorer s = scorer("shadow", distinctWeights(), "v1");
+        GrpoPolicyScorer s = scorer("shadow", distinctWeights(), "v2");
         assertTrue(s.enabled());
         assertEquals(0.0, s.blendWeight(), "shadow must never move a recommendation");
-        assertEquals(expectedScore(0, 5), s.score(movie, 0, 5), 1e-9);
-    }
-
-    @Test
-    void scoreUsesEachWeightAgainstItsOwnFeature() {
-        // Position is the only input that differs, so a score that ignored the weight/feature
-        // pairing on feature 8 would return the same number for both positions.
-        GrpoPolicyScorer s = scorer("shadow", distinctWeights(), "v1");
-        assertEquals(expectedScore(3, 5), s.score(movie, 3, 5), 1e-9);
-        assertEquals(expectedScore(0, 5), s.score(movie, 0, 5), 1e-9);
+        assertEquals(expectedScore(), s.score(movie), 1e-9);
     }
 
     @Test
     void onModeClaimsOnlyTheUnclaimedBlendWeight() {
-        GrpoPolicyScorer s = scorer("on", distinctWeights(), "v1");
+        GrpoPolicyScorer s = scorer("on", distinctWeights(), "v2");
         assertEquals(GrpoPolicyScorer.ON_BLEND_WEIGHT, s.blendWeight());
         // MovieLensOutcomeScorer's weights sum to 0.85; taking more than 0.15 would silently
         // change every existing score.
@@ -149,17 +136,29 @@ class GrpoPolicyScorerTest {
 
     @Test
     void anUnrecognisedModeIsTreatedAsOff() {
-        assertFalse(scorer("enabled", distinctWeights(), "v1").enabled());
+        assertFalse(scorer("enabled", distinctWeights(), "v2").enabled());
     }
 
     @Test
     void weightsOfADifferentFeatureVersionAreIgnored() {
-        assertEquals(0.0, scorer("shadow", distinctWeights(), "v0").score(movie, 0, 5));
+        // The exact cutover hazard: v1 weights left behind in Redis after the v2 rollout must be
+        // refused, not silently applied against the v2 (9-wide) feature layout.
+        assertEquals(0.0, scorer("shadow", distinctWeights(), "v1").score(movie));
+    }
+
+    @Test
+    void aV1WidthWeightVectorIsIgnoredEvenWhenTaggedV2() {
+        // Belt and suspenders on the same cutover hazard: even if the version tag were (wrongly)
+        // left as v2, a stale 10-wide v1 vector must not be applied against 9 v2 features.
+        String tenWide = java.util.stream.IntStream.rangeClosed(1, 10)
+            .mapToObj(i -> Double.toString((double) i))
+            .collect(Collectors.joining(","));
+        assertEquals(0.0, scorer("shadow", tenWide, "v2").score(movie));
     }
 
     @Test
     void aMissingWeightVectorScoresZeroRatherThanFailing() {
-        assertEquals(0.0, scorer("shadow", null, "v1").score(movie, 0, 5));
+        assertEquals(0.0, scorer("shadow", null, "v2").score(movie));
     }
 
     @Test
@@ -167,9 +166,9 @@ class GrpoPolicyScorerTest {
         // Double.parseDouble accepts "NaN": without the finite check the score would be NaN, which
         // is worse than no score at all because it sorts unpredictably.
         String withNaN = "NaN," + String.join(",", java.util.Collections.nCopies(GrpoFeatures.DIM - 1, "1.0"));
-        assertEquals(0.0, scorer("shadow", withNaN, "v1").score(movie, 0, 5));
+        assertEquals(0.0, scorer("shadow", withNaN, "v2").score(movie));
         String withInf = "Infinity," + String.join(",", java.util.Collections.nCopies(GrpoFeatures.DIM - 1, "1.0"));
-        assertEquals(0.0, scorer("shadow", withInf, "v1").score(movie, 0, 5));
+        assertEquals(0.0, scorer("shadow", withInf, "v2").score(movie));
     }
 
     @Test
@@ -192,7 +191,7 @@ class GrpoPolicyScorerTest {
 
     @Test
     void shadowModeLogsOneLinePerSlate() {
-        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v1");
+        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v2");
         // Descending banditScore under a banditScore-only weight vector: the GRPO order reproduces
         // the served order exactly, so concordance is 1.0.
         List<String> lines = capturingLogs(ignored -> s.recordShadowSlate(slate(List.of(
@@ -207,7 +206,7 @@ class GrpoPolicyScorerTest {
 
     @Test
     void shadowModeLogsADisagreeingSlateAsSuch() {
-        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v1");
+        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v2");
         List<String> lines = capturingLogs(ignored -> s.recordShadowSlate(slate(List.of(
             itemWithBanditScore("m1", 0.1),
             itemWithBanditScore("m2", 0.9)))));
@@ -216,7 +215,7 @@ class GrpoPolicyScorerTest {
 
     @Test
     void offModeLogsNothing() {
-        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v1");
+        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v2");
         assertTrue(capturingLogs(ignored -> s.recordShadowSlate(slate(List.of(
             itemWithBanditScore("m1", 0.9),
             itemWithBanditScore("m2", 0.1))))).isEmpty());
@@ -225,7 +224,7 @@ class GrpoPolicyScorerTest {
     @Test
     void onModeLogsNothing() {
         // In `on` the score already drives the order it would be graded against.
-        GrpoPolicyScorer s = scorer("on", distinctWeights(), "v1");
+        GrpoPolicyScorer s = scorer("on", distinctWeights(), "v2");
         assertTrue(capturingLogs(ignored -> s.recordShadowSlate(slate(List.of(
             itemWithBanditScore("m1", 0.9),
             itemWithBanditScore("m2", 0.1))))).isEmpty());
@@ -233,7 +232,7 @@ class GrpoPolicyScorerTest {
 
     @Test
     void aSlateWithNoUsableWeightsLogsNothing() {
-        GrpoPolicyScorer s = scorer("shadow", null, "v1");
+        GrpoPolicyScorer s = scorer("shadow", null, "v2");
         assertTrue(capturingLogs(ignored -> s.recordShadowSlate(slate(List.of(
             itemWithBanditScore("m1", 0.9),
             itemWithBanditScore("m2", 0.1))))).isEmpty());
@@ -241,7 +240,7 @@ class GrpoPolicyScorerTest {
 
     @Test
     void aSingleItemSlateLogsNothing() {
-        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v1");
+        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v2");
         assertTrue(capturingLogs(ignored ->
             s.recordShadowSlate(slate(List.of(itemWithBanditScore("m1", 0.9))))).isEmpty());
     }
