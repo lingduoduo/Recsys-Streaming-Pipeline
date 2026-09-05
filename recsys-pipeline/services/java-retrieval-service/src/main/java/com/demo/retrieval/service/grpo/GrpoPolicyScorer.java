@@ -112,6 +112,10 @@ public class GrpoPolicyScorer {
      * {@link #blendWeight()} and grpoNorm is w·x min-max normalized across the candidate set.
      * Normalizing is not optional: w·x is unbounded while finalScore is clamped to [0, 1], so
      * adding them unnormalized would let GRPO dominate regardless of the configured weight.
+     *
+     * Same failure contract as {@link #recordShadowSlate}: an operator error in Redis (e.g. the
+     * weights key holding the wrong type) must degrade to "don't re-rank," never fail the request
+     * that every other candidate's score already succeeded on.
      */
     public Optional<int[]> reRankOrder(List<double[]> featureVectors, double[] finalScores) {
         if (blendWeight() <= 0.0) {
@@ -123,41 +127,50 @@ public class GrpoPolicyScorer {
             // Nothing to reorder.
             return Optional.empty();
         }
-        Optional<double[]> weights = readWeights();
-        if (weights.isEmpty()) {
+        try {
+            Optional<double[]> weights = readWeights();
+            if (weights.isEmpty()) {
+                return Optional.empty();
+            }
+            double[] w = weights.get();
+            double[] raw = new double[n];
+            double min = Double.POSITIVE_INFINITY;
+            double max = Double.NEGATIVE_INFINITY;
+            for (int i = 0; i < n; i++) {
+                raw[i] = dot(w, featureVectors.get(i));
+                min = Math.min(min, raw[i]);
+                max = Math.max(max, raw[i]);
+            }
+            double range = max - min;
+            if (range < 1e-12) {
+                // Every candidate scores identically: min-max normalization is degenerate and
+                // there is no preference for GRPO to express, so re-ranking would be an arbitrary
+                // tie-break.
+                return Optional.empty();
+            }
+            double blend = blendWeight();
+            Double[] adjusted = new Double[n];
+            for (int i = 0; i < n; i++) {
+                double norm = (raw[i] - min) / range;
+                adjusted[i] = (1.0 - blend) * finalScores[i] + blend * norm;
+            }
+            Integer[] order = new Integer[n];
+            for (int i = 0; i < n; i++) {
+                order[i] = i;
+            }
+            Arrays.sort(order, (a, b) -> Double.compare(adjusted[b], adjusted[a]));
+            int[] result = new int[n];
+            for (int i = 0; i < n; i++) {
+                result[i] = order[i];
+            }
+            return Optional.of(result);
+        } catch (Exception e) {
+            // Same contract as GrpoEventPublisher.publish and recordShadowSlate: a Redis-side
+            // surprise (e.g. the weights key holding the wrong type) must never turn into a
+            // failed recommendation.
+            log.warn("Failed to compute GRPO re-rank order; leaving the incumbent order", e);
             return Optional.empty();
         }
-        double[] w = weights.get();
-        double[] raw = new double[n];
-        double min = Double.POSITIVE_INFINITY;
-        double max = Double.NEGATIVE_INFINITY;
-        for (int i = 0; i < n; i++) {
-            raw[i] = dot(w, featureVectors.get(i));
-            min = Math.min(min, raw[i]);
-            max = Math.max(max, raw[i]);
-        }
-        double range = max - min;
-        if (range < 1e-12) {
-            // Every candidate scores identically: min-max normalization is degenerate and there is
-            // no preference for GRPO to express, so re-ranking would be an arbitrary tie-break.
-            return Optional.empty();
-        }
-        double blend = blendWeight();
-        Double[] adjusted = new Double[n];
-        for (int i = 0; i < n; i++) {
-            double norm = (raw[i] - min) / range;
-            adjusted[i] = (1.0 - blend) * finalScores[i] + blend * norm;
-        }
-        Integer[] order = new Integer[n];
-        for (int i = 0; i < n; i++) {
-            order[i] = i;
-        }
-        Arrays.sort(order, (a, b) -> Double.compare(adjusted[b], adjusted[a]));
-        int[] result = new int[n];
-        for (int i = 0; i < n; i++) {
-            result[i] = order[i];
-        }
-        return Optional.of(result);
     }
 
     /**

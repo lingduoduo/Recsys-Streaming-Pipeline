@@ -357,6 +357,20 @@ class GrpoPolicyScorerTest {
     }
 
     @Test
+    void reRankOrderNeverThrowsWhenRedisFails() {
+        // Same contract as recordShadowSlate: an operator error in Redis (e.g. `SET
+        // grpo:policy:weights <string>` leaving the key the wrong type) must degrade to "don't
+        // re-rank," not fail every request while every other Redis read on the path succeeds.
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getGrpo().setMode("on");
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        when(redis.opsForHash()).thenThrow(new IllegalStateException("WRONGTYPE"));
+        GrpoPolicyScorer s = new GrpoPolicyScorer(redis, properties);
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
+    }
+
+    @Test
     void aFailingSlateNeverThrowsIntoTheServingPath() {
         RecommendationProperties properties = new RecommendationProperties();
         properties.getGrpo().setMode("shadow");

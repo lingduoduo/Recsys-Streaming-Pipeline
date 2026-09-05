@@ -498,18 +498,23 @@ public class HybridRecommendationService {
      * the next of their own re-sorts, and this is also the exact slate whose position
      * servingSideEffects then records as served.
      *
-     * `off` costs nothing beyond this enabled() check -- no feature vectors are built and no
-     * Redis is touched -- which is how default-off stays byte-identical to before this method
-     * existed.
+     * `off` and `shadow` cost nothing beyond this blendWeight() check -- no feature vectors are
+     * built and no Redis is touched -- which is how default-off stays byte-identical to before
+     * this method existed, and shadow (which never re-ranks) does no wasted work either.
+     *
+     * Features are rounded to 3dp with the same {@link #round} helper toServedMovie uses on the
+     * ServedMovie that GrpoImpressionEvents later packs into training's grpo_x: serving must score
+     * the identical rounded values training records, or this reintroduces exactly the train/serve
+     * mismatch the v2 feature change removed.
      */
     private List<ScoredCandidate> applyGrpoReRank(List<ScoredCandidate> selected) {
-        if (!grpoPolicyScorer.enabled()) {
+        if (grpoPolicyScorer.blendWeight() <= 0.0) {
             return selected;
         }
         List<double[]> featureVectors = selected.stream()
             .map(c -> GrpoFeatures.of(
-                c.banditScore(), c.estimatedReward(), c.onlineScore(),
-                c.explorationBonus(), c.coldStart(), c.impressions(), c.clicks()))
+                round(c.banditScore()), round(c.estimatedReward()), round(c.onlineScore()),
+                round(c.explorationBonus()), c.coldStart(), c.impressions(), c.clicks()))
             .toList();
         double[] finalScores = selected.stream().mapToDouble(ScoredCandidate::finalScore).toArray();
         Optional<int[]> reRankOrder = grpoPolicyScorer.reRankOrder(featureVectors, finalScores);
