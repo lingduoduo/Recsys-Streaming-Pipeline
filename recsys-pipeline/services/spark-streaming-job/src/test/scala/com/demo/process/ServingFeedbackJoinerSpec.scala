@@ -21,7 +21,7 @@ class ServingFeedbackJoinerSpec extends AnyFlatSpec with Matchers with SparkTest
       """{"event_id":"e-imp-1","request_id":"req-1","session_id":"sess_abcd1234","user_id":"u1",
         |"item_id":"m1","event_type":"impression","timestamp_ms":1000,"position":0,
         |"user_features":{"algorithm":"hybrid"},
-        |"item_features":{"prediction_score":"0.73","grpo_x":"v1:1.0,0.7,0.4,0.3,0.05,0.0,2.4,1.1,0.0,0.18"},
+        |"item_features":{"prediction_score":"0.73","grpo_x":"v2:1.0,0.7,0.4,0.3,0.05,0.0,2.4,1.1,0.18"},
         |"context_features":{}}""".stripMargin.replaceAll("\n", "")
 
     // Verbatim shape of GrpoFeedbackEvents.build(...): one event, event_type "click", position 0

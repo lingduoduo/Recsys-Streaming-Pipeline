@@ -41,7 +41,7 @@ object GrpoSlates {
     * "so the driver never collects per-slate vectors". That is not what happens: `collect()` here
     * pulls every surviving slate's feature matrix into driver memory, and
     * `GrpoPolicyStreamingJob.applyBatch` then folds over them there. With MAX_OFFSETS_PER_TRIGGER
-    * at its 5000 default and a ten-item slate of ten doubles, a batch is on the order of a few MB,
+    * at its 5000 default and a ten-item slate of nine doubles, a batch is on the order of a few MB,
     * so the driver holds it comfortably — but the ceiling is the driver's heap, not the cluster's,
     * and raising the trigger size is the operation that hits it.
     *

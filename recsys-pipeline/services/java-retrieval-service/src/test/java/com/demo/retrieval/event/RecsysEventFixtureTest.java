@@ -37,6 +37,10 @@ class RecsysEventFixtureTest {
         event.put("user_features", Map.of("algorithm", "hybrid"));
         Map<String, String> itemFeatures = new LinkedHashMap<>();
         itemFeatures.put("prediction_score", "0.83");
+        // Frozen codec fixture, not a live GrpoFeatures sample: grpo_x is an opaque
+        // map<string,string> value to this byte-identity check, and changing this v1/10-wide
+        // string would require regenerating the committed .avro fixture below for no encoding
+        // benefit -- GrpoFeatures has since moved to v2/9-wide.
         itemFeatures.put("grpo_x", "v1:1.0,0.4,0.3,0.05,0.7,0.0,0.0,0.0,0.0,0.3");
         event.put("item_features", itemFeatures);
         event.put("context_features", Map.of());

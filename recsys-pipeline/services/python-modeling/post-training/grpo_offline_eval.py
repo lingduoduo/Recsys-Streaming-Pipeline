@@ -52,6 +52,14 @@ import ope_eval_report
 import ope_support
 
 
+# The one feature layout this tool supports (GrpoFeatures, java-retrieval-service). Pinned rather
+# than inferred so a v1 dataset -- whose auc_diff is inflated by the served-position feature v1
+# carried -- is refused outright rather than evaluated just because its rows and weights happen to
+# agree with each other.
+SUPPORTED_FEATURE_VERSION = "v2"
+SUPPORTED_FEATURE_DIM = 9
+
+
 # ── wire format: "v2:0.1,0.2,..." -> (version, [floats]) ─────────────────────────
 def parse_packed_vector(packed):
     """Split a packed GRPO feature vector into (version, values), or None if malformed.
@@ -149,7 +157,16 @@ def detect_feature_schema(rows):
     Pinning off the first parseable row instead would let one stale-version row -- a late
     backfill, a run boundary -- abort an otherwise-fine evaluation just because it happened to
     sort first. Ties fall back to whichever schema was seen first, the same determinism the
-    first-row approach gave callers when there was nothing to disagree about."""
+    first-row approach gave callers when there was nothing to disagree about.
+
+    The majority schema is then checked against this tool's one supported contract, `v2`/9-wide
+    (`GrpoFeatures`, java-retrieval-service). A relative check alone -- rows agree with the
+    weights -- is not enough: a v1 parquet scored with v1 weights agree with EACH OTHER, so that
+    check alone lets a v1 dataset evaluate happily and print its auc_diff as the flip criterion,
+    unlabeled, with no caveat. v1's auc_diff is inflated by the served-position feature it carried
+    at index 8 (position/slateSize, unrealizable at scoring time -- see the module docstring), so
+    a v1 dataset cannot answer the flip question no matter what weights score it; it must be
+    re-collected under v2."""
     counts = Counter()
     first_seen_at = {}
     for idx, row in enumerate(rows):
@@ -165,7 +182,14 @@ def detect_feature_schema(rows):
         raise SystemExit("no training_samples row carries a parseable grpo_x -- nothing to score")
     max_count = max(counts.values())
     majority = [schema for schema, n in counts.items() if n == max_count]
-    return min(majority, key=lambda schema: first_seen_at[schema])
+    version, dim = min(majority, key=lambda schema: first_seen_at[schema])
+    if (version, dim) != (SUPPORTED_FEATURE_VERSION, SUPPORTED_FEATURE_DIM):
+        raise SystemExit(
+            f"training_samples rows carry grpo_x schema '{version}' (dim {dim}), not the "
+            f"'{SUPPORTED_FEATURE_VERSION}' (dim {SUPPORTED_FEATURE_DIM}) this tool supports -- "
+            "v1 carried a served-position feature whose AUC is inflated by position bias, so a v1 "
+            "dataset cannot answer the flip question and must be re-collected under v2")
+    return version, dim
 
 
 def assert_feature_schema_matches(rows_version, rows_dim, weights_version, weights):

@@ -16,22 +16,22 @@ private case class TestSlate(
 class GrpoSlatesSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
 
   private val cfg = GrpoJobConfig.from(Map.empty)
-  private def vec(v: Double): String = "v1:" + Array.fill(10)(v).mkString(",")
+  private def vec(v: Double): String = "v2:" + Array.fill(9)(v).mkString(",")
 
   "parseFeatureVector" should "accept a correctly versioned vector of the right width" in {
-    GrpoSlates.parseFeatureVector(vec(0.5), "v1", 10).map(_.length) shouldBe Some(10)
+    GrpoSlates.parseFeatureVector(vec(0.5), "v2", 9).map(_.length) shouldBe Some(9)
   }
 
   it should "reject an unknown version rather than misalign weights against features" in {
-    GrpoSlates.parseFeatureVector("v2:" + Array.fill(10)(0.5).mkString(","), "v1", 10) shouldBe None
+    GrpoSlates.parseFeatureVector("v1:" + Array.fill(9)(0.5).mkString(","), "v2", 9) shouldBe None
   }
 
   it should "reject a vector of the wrong width" in {
-    GrpoSlates.parseFeatureVector("v1:0.5,0.5", "v1", 10) shouldBe None
+    GrpoSlates.parseFeatureVector("v2:0.5,0.5", "v2", 9) shouldBe None
   }
 
   it should "reject an unparseable vector" in {
-    GrpoSlates.parseFeatureVector("v1:a,b,c", "v1", 10) shouldBe None
+    GrpoSlates.parseFeatureVector("v2:a,b,c", "v2", 9) shouldBe None
   }
 
   "toGroups" should "keep a slate with reward variance and count it" in {

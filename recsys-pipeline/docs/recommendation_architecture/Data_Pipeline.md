@@ -955,6 +955,14 @@ AUC with position bias rather than ranking skill. The earlier layout (`v1`) carr
 `GrpoWeightStore.decode`, `GrpoSlates.parseFeatureVector`, and `GrpoPolicyScorer.readWeights` all
 refuse a `v1`-tagged or 10-wide vector rather than reinterpret it against the `v2` (9-wide) layout.
 
+**Rollout note:** upgrading a running deployment from `v1` to `v2` requires flushing the stale
+weights before restarting `GrpoPolicyStreamingJob` — `redis-cli DEL grpo:policy:weights` (or
+equivalent). `GrpoWeightStore.decode` refuses a stored `v1`/10-wide vector against a job configured
+for `v2`/9-wide, so without the flush the job crash-loops on every restart until someone clears the
+key. This is deliberate, not a bug to work around: silently reinterpreting a 10-wide vector as
+9-wide would pair each weight against the wrong feature for the rest of the vector, producing a
+policy that looks like it is training but scores every candidate on misaligned weights.
+
 ```bash
 SPARK_MAIN_CLASS=com.demo.grpo.GrpoPolicyStreamingJob \
 GRPO_INPUT_TOPIC=training_experiences \

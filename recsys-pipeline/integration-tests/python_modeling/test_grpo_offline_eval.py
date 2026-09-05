@@ -146,6 +146,20 @@ def test_detect_feature_schema_picks_the_majority_schema_over_a_stale_leading_ro
     assert dim == 9
 
 
+def _v1_packed(values):
+    return "v1:" + ",".join(str(v) for v in values)
+
+
+def test_detect_feature_schema_refuses_a_v1_majority_schema():
+    # The back door the reviewer flagged: detect_feature_schema used to just report whatever
+    # schema the rows agreed on, so a v1 parquet (majority v1/10) sailed through and its
+    # position-leaked auc_diff got printed as "THE FLIP CRITERION" with no caveat. The only
+    # schema this tool supports is v2/9 -- anything else, majority or not, must be refused.
+    rows = [_row(_TRAIN_ONLY_RID, f"m{i}", 0.0, _v1_packed([0.1] * 10)) for i in range(3)]
+    with pytest.raises(SystemExit, match="v1"):
+        goe.detect_feature_schema(rows)
+
+
 # ── build_scored_rows: held-out split + data-availability guard ──────────────────
 def test_build_scored_rows_keeps_only_the_held_out_split():
     rows = [
@@ -391,4 +405,20 @@ def test_main_raises_when_no_training_samples_rows(tmp_path):
     parquet_path = _write_training_samples(tmp_path, [])
     weights_path = _write_weights_file(tmp_path, [0.0] * 9)
     with pytest.raises(SystemExit):
+        goe.main(["--parquet", str(parquet_path), "--weights", str(weights_path)])
+
+
+def test_main_refuses_a_v1_dataset_scored_with_v1_weights(tmp_path):
+    """The exact leak reintroduced by dropping the position-free split: a v1 parquet and v1
+    weights agree with EACH OTHER, so the old relative-only check (rows_version == weights_version)
+    let it through and printed a position-leaked auc_diff as the flip criterion. v1 must be
+    refused outright, regardless of what the weights say."""
+    rows = [
+        _row(_HELD_OUT_RID, "m1", 1.0, _v1_packed([1.0] * 10), prediction_score="0.1"),
+        _row(_HELD_OUT_RID, "m2", 0.0, _v1_packed([0.0] * 10), prediction_score="0.9"),
+    ]
+    parquet_path = _write_training_samples(tmp_path, rows)
+    weights_path = _write_weights_file(tmp_path, [1.0] * 10, version="v1")
+
+    with pytest.raises(SystemExit, match="v1"):
         goe.main(["--parquet", str(parquet_path), "--weights", str(weights_path)])
