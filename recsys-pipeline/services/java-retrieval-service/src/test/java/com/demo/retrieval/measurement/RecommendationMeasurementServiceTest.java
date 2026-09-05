@@ -50,7 +50,7 @@ class RecommendationMeasurementServiceTest {
         measurements.recordFilterDecisions(List.of(new FilterDecision("customer supplied explanation")));
         measurements.recordFeedbackCoverage(new FeedbackRequest(
             "user-42", "item-9", true, 1.0, "request-123", 4.5,
-            "not relevant", 900L, 0.7));
+            "not relevant", 900L, 0.7, null));
 
         assertEquals(1.0, registry.find("recommendation.filter.decisions")
             .tag("reason", "unknown").counter().count());
@@ -127,7 +127,7 @@ class RecommendationMeasurementServiceTest {
         ));
         measurements.recordFeedbackCoverage(new FeedbackRequest("u1", "i1", true, 1.0));
         measurements.recordFeedbackCoverage(new FeedbackRequest(
-            "u2", "i2", true, 1.0, "r2", 5.0, null, null, null));
+            "u2", "i2", true, 1.0, "r2", 5.0, null, null, null, null));
 
         Map<String, Object> values = measurements.snapshot().asMap();
         Map<?, ?> safety = (Map<?, ?>) values.get("safety");
