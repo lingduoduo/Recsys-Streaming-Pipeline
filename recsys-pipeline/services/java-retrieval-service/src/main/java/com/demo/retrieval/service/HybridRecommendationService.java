@@ -20,6 +20,7 @@ import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
 import com.demo.retrieval.event.RecsysEventAvroCodec;
 import com.demo.retrieval.service.grpo.GrpoEventPublisher;
+import com.demo.retrieval.service.grpo.GrpoFeatures;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
 import com.demo.retrieval.service.retrieval.MovieCandidate;
@@ -97,6 +98,7 @@ public class HybridRecommendationService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
     private final GrpoEventPublisher grpoPublisher;
+    private final GrpoPolicyScorer grpoPolicyScorer;
     private final CatalogContentScoring catalogContentScoring;
     private final ContentCandidateRetriever contentCandidateRetriever;
     private final RecommendationMeasurementService measurementService;
@@ -129,10 +131,11 @@ public class HybridRecommendationService {
         this.queryHydrators = List.copyOf(queryHydrators);
         this.grpoPublisher = new GrpoEventPublisher(
             createGrpoCodec(properties), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
+        this.grpoPolicyScorer = new GrpoPolicyScorer(redis, properties);
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
             this.grpoPublisher,
-            new GrpoPolicyScorer(redis, properties));
+            this.grpoPolicyScorer);
         this.catalogContentScoring = new CatalogContentScoring(properties);
         this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
         this.measurementService = measurementService;
@@ -288,7 +291,7 @@ public class HybridRecommendationService {
                 .selected();
             return new SelectionOutputs(selection.selected(), candidateSnapshot);
         });
-        List<ScoredCandidate> selected = selectionOutputs.selected();
+        List<ScoredCandidate> selected = applyGrpoReRank(selectionOutputs.selected());
         List<ScoredCandidate> candidateSnapshot = selectionOutputs.candidateSnapshot();
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
         measurementService.recordFreshness(recommendations.stream()
@@ -486,6 +489,39 @@ public class HybridRecommendationService {
         );
     }
 
+
+    /**
+     * Re-ranks the already-diversified, already-selected slate with GRPO's policy score, if the
+     * mode is `on` and a usable weight vector is available. Deliberately placed after both
+     * MovieLensOutcomeScorer.applyDiversity and TopKScoreSelector.select have already sorted by
+     * their own score field: reordering anything upstream of either would be silently undone by
+     * the next of their own re-sorts, and this is also the exact slate whose position
+     * servingSideEffects then records as served.
+     *
+     * `off` costs nothing beyond this enabled() check -- no feature vectors are built and no
+     * Redis is touched -- which is how default-off stays byte-identical to before this method
+     * existed.
+     */
+    private List<ScoredCandidate> applyGrpoReRank(List<ScoredCandidate> selected) {
+        if (!grpoPolicyScorer.enabled()) {
+            return selected;
+        }
+        List<double[]> featureVectors = selected.stream()
+            .map(c -> GrpoFeatures.of(
+                c.banditScore(), c.estimatedReward(), c.onlineScore(),
+                c.explorationBonus(), c.coldStart(), c.impressions(), c.clicks()))
+            .toList();
+        double[] finalScores = selected.stream().mapToDouble(ScoredCandidate::finalScore).toArray();
+        Optional<int[]> reRankOrder = grpoPolicyScorer.reRankOrder(featureVectors, finalScores);
+        if (reRankOrder.isEmpty()) {
+            return selected;
+        }
+        List<ScoredCandidate> reordered = new ArrayList<>(selected.size());
+        for (int index : reRankOrder.get()) {
+            reordered.add(selected.get(index));
+        }
+        return List.copyOf(reordered);
+    }
 
     private ScoredCandidate scoreCandidate(
         MovieCandidate candidate,

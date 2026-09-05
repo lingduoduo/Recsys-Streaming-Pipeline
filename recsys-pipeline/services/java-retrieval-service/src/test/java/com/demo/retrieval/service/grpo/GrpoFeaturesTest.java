@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,5 +52,18 @@ class GrpoFeaturesTest {
         // An absent key must not silently become 0.0: a zero logit is a real, wrong policy claim,
         // whereas banditScore is the score predictionScore is derived from.
         assertEquals(0.61, GrpoFeatures.predictionScore(movie(0.61, 0, 0, Map.of())));
+    }
+
+    @Test
+    void servedMovieOverloadAndPrimitiveOverloadAgreeOnTheSameInputs() {
+        // The re-rank site (HybridRecommendationService) has a ScoredCandidate, not a ServedMovie,
+        // so it must call the primitive overload. The two must never drift, or a weight vector
+        // fit against one layout would silently misalign against the other.
+        ServedMovie m = movie(0.7, 10, 2, Map.of());
+        double[] viaServedMovie = GrpoFeatures.of(m);
+        double[] viaPrimitives = GrpoFeatures.of(
+            m.banditScore(), m.estimatedReward(), m.onlineScore(),
+            m.explorationBonus(), m.coldStart(), m.impressions(), m.clicks());
+        assertArrayEquals(viaServedMovie, viaPrimitives, 1e-12);
     }
 }

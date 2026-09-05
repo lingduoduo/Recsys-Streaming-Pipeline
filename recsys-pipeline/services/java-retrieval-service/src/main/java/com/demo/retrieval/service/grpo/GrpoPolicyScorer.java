@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,11 +18,11 @@ import java.util.Optional;
  *
  *   off    — not computed, no Redis read
  *   shadow — computed and logged at blend weight 0.0
- *   on     — claims part of the blend weight MovieLensOutcomeScorer leaves unclaimed
+ *   on     — re-ranks the post-diversity, post-selection slate (see {@link #reRankOrder})
  *
  * Mirrors recsys.sequence.behavior-mode so operators meet a rollout shape they already know.
- * Every failure path scores 0.0: a missing, stale or wrongly versioned weight vector must leave
- * recommendations exactly as they were, never fail a request.
+ * Every failure path scores 0.0 / re-ranks nothing: a missing, stale or wrongly versioned weight
+ * vector must leave recommendations exactly as they were, never fail a request.
  *
  * Constructed directly by MovieLensServingSideEffects' owner rather than injected, matching
  * GrpoEventPublisher: both are serving-path side effects, not collaborators anything else
@@ -37,10 +38,16 @@ public class GrpoPolicyScorer {
     public static final String WEIGHTS_KEY = "grpo:policy:weights";
 
     /**
-     * MovieLensOutcomeScorer's exploitation weights sum to 0.85, not 1.0, because a fourth term
-     * was always 0.0 at runtime, and it documents that the remainder is deliberately NOT
-     * renormalized. Taking 0.10 of the unclaimed 0.15 means no existing weight changes and no
-     * existing score moves when GRPO is switched on.
+     * Weight GRPO's min-max-normalized score carries in the post-diversity ranking blend that
+     * {@link #reRankOrder} applies: {@code adjusted = (1 - w) * finalScore + w * grpoNorm}.
+     *
+     * The original design instead let GRPO claim part of the 0.15 that MovieLensOutcomeScorer's
+     * exploitation weights leave unclaimed, blended inside that scorer. That was abandoned as
+     * circular: index 2 of the GRPO feature vector is estimatedReward, which is an OUTPUT of
+     * MovieLensOutcomeScorer.score() -- an in-blend term there would feed the scorer its own
+     * output. The training data's grpo_x is also recorded after scoring runs, so serving must
+     * score after scoring (and diversity) too, or reintroduce the train/serve mismatch the v2
+     * feature change removed. Do not move this back inside MovieLensOutcomeScorer.
      */
     public static final double ON_BLEND_WEIGHT = 0.10;
 
@@ -78,12 +85,79 @@ public class GrpoPolicyScorer {
     }
 
     private static double dot(double[] w, ServedMovie movie) {
-        double[] x = GrpoFeatures.of(movie);
+        return dot(w, GrpoFeatures.of(movie));
+    }
+
+    private static double dot(double[] w, double[] x) {
         double sum = 0.0;
         for (int i = 0; i < GrpoFeatures.DIM; i++) {
             sum += w[i] * x[i];
         }
         return sum;
+    }
+
+    /**
+     * New order for the candidates, or empty when GRPO should not re-rank.
+     *
+     * Called by HybridRecommendationService after MovieLensOutcomeScorer.applyDiversity and
+     * top-K selection have both run, on the final served slate -- not earlier, because both of
+     * those stages independently re-sort by their own score field, which would silently undo a
+     * reorder applied to anything upstream of them.
+     *
+     * featureVectors and finalScores must be the same length and index-aligned: featureVectors[i]
+     * is candidate i's GRPO feature vector (built via {@link GrpoFeatures#of}) and finalScores[i]
+     * is that same candidate's current (post-diversity) ranking score, clamped to [0, 1].
+     *
+     * The blend is adjusted[i] = (1 - w) * finalScores[i] + w * grpoNorm[i], where w is
+     * {@link #blendWeight()} and grpoNorm is w·x min-max normalized across the candidate set.
+     * Normalizing is not optional: w·x is unbounded while finalScore is clamped to [0, 1], so
+     * adding them unnormalized would let GRPO dominate regardless of the configured weight.
+     */
+    public Optional<int[]> reRankOrder(List<double[]> featureVectors, double[] finalScores) {
+        if (blendWeight() <= 0.0) {
+            // off scores 0.0 and never reads Redis; shadow computes but must never move an order.
+            return Optional.empty();
+        }
+        int n = featureVectors.size();
+        if (n < 2) {
+            // Nothing to reorder.
+            return Optional.empty();
+        }
+        Optional<double[]> weights = readWeights();
+        if (weights.isEmpty()) {
+            return Optional.empty();
+        }
+        double[] w = weights.get();
+        double[] raw = new double[n];
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < n; i++) {
+            raw[i] = dot(w, featureVectors.get(i));
+            min = Math.min(min, raw[i]);
+            max = Math.max(max, raw[i]);
+        }
+        double range = max - min;
+        if (range < 1e-12) {
+            // Every candidate scores identically: min-max normalization is degenerate and there is
+            // no preference for GRPO to express, so re-ranking would be an arbitrary tie-break.
+            return Optional.empty();
+        }
+        double blend = blendWeight();
+        Double[] adjusted = new Double[n];
+        for (int i = 0; i < n; i++) {
+            double norm = (raw[i] - min) / range;
+            adjusted[i] = (1.0 - blend) * finalScores[i] + blend * norm;
+        }
+        Integer[] order = new Integer[n];
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+        }
+        Arrays.sort(order, (a, b) -> Double.compare(adjusted[b], adjusted[a]));
+        int[] result = new int[n];
+        for (int i = 0; i < n; i++) {
+            result[i] = order[i];
+        }
+        return Optional.of(result);
     }
 
     /**
