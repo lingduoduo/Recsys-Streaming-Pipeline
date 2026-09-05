@@ -47,6 +47,12 @@ public final class GrpoFeedbackEvents {
         // "order" is only ever appended inside `if clicked_item:`, so an order is always a click
         // that converted. Emitting an order without a click would give serving-sourced data a
         // shape producer data never has, so once ordered is true we emit both events unconditionally.
+        //
+        // The synthetic click is a real Kafka event, not a label-only artefact: it is also consumed by
+        // UserEventStreamingJob (sequence store), RedisSink (click aggregates), CtrRankingModelTrainingJob
+        // (CTR labels) and the dashboard funnel. A client that sends ordered=true, clicked=false will
+        // therefore register a click everywhere, not just in the joiner's label. That is the intended
+        // reading -- an order IS a converted click -- but it is a wider blast radius than the label alone.
         if (!request.clicked() && !ordered) {
             return List.of();
         }
