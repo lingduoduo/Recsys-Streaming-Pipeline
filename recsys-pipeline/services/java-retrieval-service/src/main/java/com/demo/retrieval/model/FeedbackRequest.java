@@ -15,9 +15,10 @@ public record FeedbackRequest(
     @DecimalMin("0.0") @DecimalMax("5.0") Double rating,
     @Pattern(regexp = "[a-zA-Z0-9_-]{1,64}") String negativeFeedbackReason,
     @PositiveOrZero Long dwellMillis,
-    @DecimalMin("0.0") @DecimalMax("1.0") Double completionRate
+    @DecimalMin("0.0") @DecimalMax("1.0") Double completionRate,
+    Boolean ordered
 ) {
     public FeedbackRequest(String user, String item, boolean clicked, double reward) {
-        this(user, item, clicked, reward, null, null, null, null, null);
+        this(user, item, clicked, reward, null, null, null, null, null, null);
     }
 }

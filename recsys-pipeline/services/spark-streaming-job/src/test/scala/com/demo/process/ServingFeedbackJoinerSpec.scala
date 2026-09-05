@@ -45,4 +45,42 @@ class ServingFeedbackJoinerSpec extends AnyFlatSpec with Matchers with SparkTest
     row.getAs[Int]("ordered") shouldBe 0
     row.getAs[Double]("label") shouldBe 1.0
   }
+
+  "the joiner" should "label a serving impression + serving click + serving order as ordered with label 2.0" in {
+    val s = spark; import s.implicits._
+
+    val impression =
+      """{"event_id":"e-imp-2","request_id":"req-2","session_id":"sess_efgh5678","user_id":"u2",
+        |"item_id":"m2","event_type":"impression","timestamp_ms":1000,"position":0,
+        |"user_features":{"algorithm":"hybrid"},
+        |"item_features":{"prediction_score":"0.73","grpo_x":"v2:1.0,0.7,0.4,0.3,0.05,0.0,2.4,1.1,0.18"},
+        |"context_features":{}}""".stripMargin.replaceAll("\n", "")
+
+    // Verbatim shape of GrpoFeedbackEvents.build(...) when ordered=true: a click event followed by
+    // an order event, both carrying the same request_id/user_id/item_id/timestamp_ms (see
+    // GrpoFeedbackEvents.build's ordered-implies-clicked comment for why both are always emitted
+    // together).
+    val click =
+      """{"event_id":"e-fb-2","request_id":"req-2","user_id":"u2",
+        |"item_id":"m2","event_type":"click","timestamp_ms":5000,"position":0,
+        |"user_features":{},"item_features":{},"context_features":{}}""".stripMargin.replaceAll("\n", "")
+
+    val order =
+      """{"event_id":"e-fb-3","request_id":"req-2","user_id":"u2",
+        |"item_id":"m2","event_type":"order","timestamp_ms":5000,"position":0,
+        |"user_features":{},"item_features":{},"context_features":{}}""".stripMargin.replaceAll("\n", "")
+
+    val kafkaShaped = Seq(impression, click, order).toDF("value")
+    val decoded = EventParsing.fromJson(kafkaShaped, EventSchemas.joiner)
+    val gated = OnlineJoinerStreamingJob.parseEvents(decoded)
+    val samples = OnlineJoinerStreamingJob.buildTrainingSamples(gated.kept)
+    val row = samples.select("request_id", "user_id", "item_id", "clicked", "ordered", "label").collect().head
+
+    row.getAs[String]("request_id") shouldBe "req-2"
+    row.getAs[String]("user_id") shouldBe "u2"
+    row.getAs[String]("item_id") shouldBe "m2"
+    row.getAs[Int]("clicked") shouldBe 1
+    row.getAs[Int]("ordered") shouldBe 1
+    row.getAs[Double]("label") shouldBe 2.0
+  }
 }
