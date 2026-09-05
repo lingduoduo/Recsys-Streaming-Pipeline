@@ -94,7 +94,11 @@ object GrpoPolicyStreamingJob {
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaBootstrapServers)
       .option("subscribe", inputTopic)
-      .option("startingOffsets", "latest")
+      // Configurable like every sibling streaming job (RelevanceSampleStreamingJob,
+      // MovieLensContextCollectorStreamingJob), under the same env var. Hardcoding it left
+      // this the only job that cannot replay a backlog -- a topic already holding slates
+      // could not be trained on at all, only new arrivals.
+      .option("startingOffsets", sys.env.getOrElse("KAFKA_STARTING_OFFSETS", "latest"))
       .option("failOnDataLoss", "false")
       .option("maxOffsetsPerTrigger", maxOffsetsPerTrigger)
       .load()

@@ -14,6 +14,11 @@ OUT_DIR="$SIM_ROOT/training-samples"
 RUN_ID="${RUN_ID:-r$(date +%s)}"
 RECSYS_TOPIC="recsys_events_${RUN_ID}"
 CONTEXT_TOPIC="movielens_context_${RUN_ID}"
+# The joiner's OUTPUT topic. Without this it defaults to plain `training_samples`, which no
+# script provisions and the checked-in catalog does not cover -- the Kafka sink then fails the
+# task, which aborts the whole micro-batch and takes the Parquet sink down with it, so the
+# drain sees zero samples for its full timeout and the report dies on an empty directory.
+SAMPLES_TOPIC="training_samples_${RUN_ID}"
 NUM_USERS="${NUM_USERS:-800}"
 NUM_SLATES="${NUM_SLATES:-20000}"
 
@@ -108,7 +113,7 @@ docker compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 # existence. Without this every producer and job blocks on metadata that never arrives and dies
 # with "KafkaTimeoutError: Failed to update metadata" -- the hazard noted below, but hit by the
 # producer rather than the jobs.
-for topic in "$RECSYS_TOPIC" "$CONTEXT_TOPIC"; do
+for topic in "$RECSYS_TOPIC" "$CONTEXT_TOPIC" "$SAMPLES_TOPIC"; do
   docker compose exec -T kafka kafka-topics --bootstrap-server localhost:29092 \
     --create --if-not-exists --topic "$topic" --partitions 3 --replication-factor 1 >/dev/null
 done
@@ -127,6 +132,7 @@ start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis 
 CTX_PID="$LAST_JOB_PID"
 start_job com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
   "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC" \
+  "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC" \
   "FEEDBACK_JOIN_WAIT=$FEEDBACK_JOIN_WAIT_SECONDS seconds"
 OJ_PID="$LAST_JOB_PID"
 
