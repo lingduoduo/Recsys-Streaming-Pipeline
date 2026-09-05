@@ -20,16 +20,35 @@ public final class GrpoFeatures {
     private GrpoFeatures() {}
 
     public static double[] of(ServedMovie movie) {
+        return of(movie.banditScore(), movie.estimatedReward(), movie.onlineScore(),
+            movie.explorationBonus(), movie.coldStart(), movie.impressions(), movie.clicks());
+    }
+
+    /**
+     * Same layout as {@link #of(ServedMovie)}, taken as primitives so a caller with no
+     * {@code ServedMovie} on hand -- the re-rank site in HybridRecommendationService has a
+     * private {@code ScoredCandidate} instead -- can still build the one true feature vector
+     * rather than a second, potentially-drifting implementation of this contract.
+     */
+    public static double[] of(
+        double banditScore,
+        double estimatedReward,
+        double onlineScore,
+        double explorationBonus,
+        boolean coldStart,
+        long impressions,
+        long clicks
+    ) {
         return new double[] {
-            1.0,                                              // 0 bias
-            movie.banditScore(),                              // 1
-            movie.estimatedReward(),                          // 2
-            movie.onlineScore(),                              // 3
-            movie.explorationBonus(),                         // 4
-            movie.coldStart() ? 1.0 : 0.0,                    // 5
-            Math.log1p(movie.impressions()),                  // 6
-            Math.log1p(movie.clicks()),                       // 7
-            movie.clicks() / (double) (movie.impressions() + 1) // 8 smoothed CTR
+            1.0,                                    // 0 bias
+            banditScore,                             // 1
+            estimatedReward,                         // 2
+            onlineScore,                              // 3
+            explorationBonus,                         // 4
+            coldStart ? 1.0 : 0.0,                    // 5
+            Math.log1p(impressions),                  // 6
+            Math.log1p(clicks),                       // 7
+            clicks / (double) (impressions + 1)       // 8 smoothed CTR
         };
     }
 

@@ -13,9 +13,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -81,6 +83,21 @@ class GrpoPolicyScorerTest {
 
     private ServedMovie itemWithBanditScore(String id, double banditScore) {
         return new ServedMovie(id, 0.0, 0.0, 0.0, banditScore, false, 0, 0, Map.of());
+    }
+
+    /**
+     * Feature vectors with every dimension zero except index 1 (banditScore), so that under
+     * {@link #weightsOnBanditScoreOnly()} the raw w·x for each candidate is exactly the given
+     * value and hand computation of the min-max normalization is trivial.
+     */
+    private List<double[]> vectorsIsolatingBanditScore(double... values) {
+        List<double[]> vectors = new java.util.ArrayList<>();
+        for (double value : values) {
+            double[] x = new double[GrpoFeatures.DIM];
+            x[1] = value;
+            vectors.add(x);
+        }
+        return vectors;
     }
 
     /** Captures what GrpoPolicyScorer logs while the block runs. */
@@ -243,6 +260,114 @@ class GrpoPolicyScorerTest {
         GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v2");
         assertTrue(capturingLogs(ignored ->
             s.recordShadowSlate(slate(List.of(itemWithBanditScore("m1", 0.9))))).isEmpty());
+    }
+
+    @Test
+    void reRankOrderChangesWhenGrpoDisagreesWithTheIncumbentOrder() {
+        // Incumbent (finalScores) narrowly favors candidate 0 (0.52 > 0.50). GRPO's raw score
+        // favors candidate 1 so strongly that even the 0.10 blend weight flips the order.
+        GrpoPolicyScorer s = scorer("on", weightsOnBanditScoreOnly(), "v2");
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        Optional<int[]> order = s.reRankOrder(vectors, new double[] {0.52, 0.50});
+        assertTrue(order.isPresent());
+        assertArrayEquals(new int[] {1, 0}, order.get());
+    }
+
+    @Test
+    void reRankOrderIsEmptyInOffMode() {
+        GrpoPolicyScorer s = scorer("off", weightsOnBanditScoreOnly(), "v2");
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
+    }
+
+    @Test
+    void reRankOrderIsEmptyInShadowMode() {
+        // Shadow must never move an order, even when it would compute a different one.
+        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v2");
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
+    }
+
+    @Test
+    void offAndShadowModeReturnTheExactIncumbentOrderNotJustAnEmptyOptional() {
+        // Reproduces exactly what HybridRecommendationService.applyGrpoReRank does with the
+        // Optional<int[]> contract: when reRankOrder is empty the caller keeps its own list as-is.
+        // The same vectors and finalScores are used as the "changes order" test above -- if this
+        // guard against emptiness were ever weakened to a permutation, the resulting order would
+        // visibly differ from incumbentOrder here, not merely throw.
+        List<String> incumbentOrder = List.of("a", "b");
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        double[] finalScores = {0.52, 0.50};
+
+        for (String mode : List.of("off", "shadow")) {
+            GrpoPolicyScorer s = scorer(mode, weightsOnBanditScoreOnly(), "v2");
+            Optional<int[]> reRankOrder = s.reRankOrder(vectors, finalScores);
+            List<String> served = reRankOrder
+                .map(order -> java.util.Arrays.stream(order).mapToObj(incumbentOrder::get).toList())
+                .orElse(incumbentOrder);
+            assertEquals(incumbentOrder, served, "mode=" + mode);
+        }
+    }
+
+    @Test
+    void reRankOrderIsEmptyWithFewerThanTwoCandidates() {
+        GrpoPolicyScorer s = scorer("on", weightsOnBanditScoreOnly(), "v2");
+        assertTrue(s.reRankOrder(vectorsIsolatingBanditScore(10.0), new double[] {0.5}).isEmpty());
+    }
+
+    @Test
+    void reRankOrderIsEmptyWhenWeightsAreMissing() {
+        GrpoPolicyScorer s = scorer("on", null, "v2");
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
+    }
+
+    @Test
+    void reRankOrderIsEmptyWhenFeatureVersionMismatches() {
+        GrpoPolicyScorer s = scorer("on", weightsOnBanditScoreOnly(), "v1");
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
+    }
+
+    @Test
+    void reRankOrderIsEmptyWhenEveryDotProductTies() {
+        // Min-max normalization is degenerate (0/0) when every candidate scores the same: there is
+        // no preference for GRPO to express, so it must not manufacture an arbitrary tie-break.
+        GrpoPolicyScorer s = scorer("on", weightsOnBanditScoreOnly(), "v2");
+        List<double[]> vectors = vectorsIsolatingBanditScore(20.0, 20.0, 20.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.9, 0.5, 0.1}).isEmpty());
+    }
+
+    @Test
+    void reRankOrderBlendArithmeticMatchesAHandComputedExpectation() {
+        // w isolates feature index 1, so raw w·x is exactly that feature: 30, 10, 20 for
+        // candidates 0, 1, 2. min=10, max=30, range=20, so:
+        //   norm0 = (30-10)/20 = 1.00   norm1 = (10-10)/20 = 0.00   norm2 = (20-10)/20 = 0.50
+        // ON_BLEND_WEIGHT = 0.10, blended against finalScores {0.50, 0.52, 0.10}:
+        //   adjusted0 = 0.9*0.50 + 0.1*1.00 = 0.45 + 0.10 = 0.55
+        //   adjusted1 = 0.9*0.52 + 0.1*0.00 = 0.468
+        //   adjusted2 = 0.9*0.10 + 0.1*0.50 = 0.09 + 0.05 = 0.14
+        // Descending adjusted order is candidate 0, then 1, then 2 -- note the incumbent order by
+        // finalScores alone would have been {1, 0, 2}.
+        GrpoPolicyScorer s = scorer("on", weightsOnBanditScoreOnly(), "v2");
+        List<double[]> vectors = vectorsIsolatingBanditScore(30.0, 10.0, 20.0);
+        Optional<int[]> order = s.reRankOrder(vectors, new double[] {0.50, 0.52, 0.10});
+        assertTrue(order.isPresent());
+        assertArrayEquals(new int[] {0, 1, 2}, order.get());
+    }
+
+    @Test
+    void reRankOrderNeverThrowsWhenRedisFails() {
+        // Same contract as recordShadowSlate: an operator error in Redis (e.g. `SET
+        // grpo:policy:weights <string>` leaving the key the wrong type) must degrade to "don't
+        // re-rank," not fail every request while every other Redis read on the path succeeds.
+        RecommendationProperties properties = new RecommendationProperties();
+        properties.getGrpo().setMode("on");
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        when(redis.opsForHash()).thenThrow(new IllegalStateException("WRONGTYPE"));
+        GrpoPolicyScorer s = new GrpoPolicyScorer(redis, properties);
+        List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
+        assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
     }
 
     @Test

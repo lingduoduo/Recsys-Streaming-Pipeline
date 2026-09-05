@@ -20,6 +20,7 @@ import com.demo.retrieval.service.content.NormalizedProfile;
 import com.demo.retrieval.service.filters.FilterContext;
 import com.demo.retrieval.event.RecsysEventAvroCodec;
 import com.demo.retrieval.service.grpo.GrpoEventPublisher;
+import com.demo.retrieval.service.grpo.GrpoFeatures;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.retrieval.ContentCandidateRetriever;
 import com.demo.retrieval.service.retrieval.MovieCandidate;
@@ -97,6 +98,7 @@ public class HybridRecommendationService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MovieLensServingSideEffects servingSideEffects;
     private final GrpoEventPublisher grpoPublisher;
+    private final GrpoPolicyScorer grpoPolicyScorer;
     private final CatalogContentScoring catalogContentScoring;
     private final ContentCandidateRetriever contentCandidateRetriever;
     private final RecommendationMeasurementService measurementService;
@@ -129,10 +131,11 @@ public class HybridRecommendationService {
         this.queryHydrators = List.copyOf(queryHydrators);
         this.grpoPublisher = new GrpoEventPublisher(
             createGrpoCodec(properties), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
+        this.grpoPolicyScorer = new GrpoPolicyScorer(redis, properties);
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
             this.grpoPublisher,
-            new GrpoPolicyScorer(redis, properties));
+            this.grpoPolicyScorer);
         this.catalogContentScoring = new CatalogContentScoring(properties);
         this.contentCandidateRetriever = new ContentCandidateRetriever(redis, properties, catalogContentScoring);
         this.measurementService = measurementService;
@@ -288,7 +291,7 @@ public class HybridRecommendationService {
                 .selected();
             return new SelectionOutputs(selection.selected(), candidateSnapshot);
         });
-        List<ScoredCandidate> selected = selectionOutputs.selected();
+        List<ScoredCandidate> selected = applyGrpoReRank(selectionOutputs.selected());
         List<ScoredCandidate> candidateSnapshot = selectionOutputs.candidateSnapshot();
         List<String> recommendations = selected.stream().map(ScoredCandidate::itemId).toList();
         measurementService.recordFreshness(recommendations.stream()
@@ -487,6 +490,52 @@ public class HybridRecommendationService {
     }
 
 
+    /**
+     * Re-ranks the already-diversified, already-selected slate with GRPO's policy score, if the
+     * mode is `on` and a usable weight vector is available. Deliberately placed after both
+     * MovieLensOutcomeScorer.applyDiversity and TopKScoreSelector.select have already sorted by
+     * their own score field: reordering anything upstream of either would be silently undone by
+     * the next of their own re-sorts, and this is also the exact slate whose position
+     * servingSideEffects then records as served.
+     *
+     * `off` and `shadow` cost nothing beyond this blendWeight() check -- no feature vectors are
+     * built and no Redis is touched -- which is how default-off stays byte-identical to before
+     * this method existed, and shadow (which never re-ranks) does no wasted work either.
+     *
+     * Features are rounded to 3dp with the same {@link #round} helper toServedMovie uses on the
+     * ServedMovie that GrpoImpressionEvents later packs into training's grpo_x: serving must score
+     * the identical rounded values training records, or this reintroduces exactly the train/serve
+     * mismatch the v2 feature change removed.
+     */
+    private List<ScoredCandidate> applyGrpoReRank(List<ScoredCandidate> selected) {
+        if (grpoPolicyScorer.blendWeight() <= 0.0) {
+            return selected;
+        }
+        List<double[]> featureVectors = selected.stream().map(this::grpoFeaturesFor).toList();
+        double[] finalScores = selected.stream().mapToDouble(ScoredCandidate::finalScore).toArray();
+        Optional<int[]> reRankOrder = grpoPolicyScorer.reRankOrder(featureVectors, finalScores);
+        if (reRankOrder.isEmpty()) {
+            return selected;
+        }
+        List<ScoredCandidate> reordered = new ArrayList<>(selected.size());
+        for (int index : reRankOrder.get()) {
+            reordered.add(selected.get(index));
+        }
+        return List.copyOf(reordered);
+    }
+
+    /**
+     * Package-private (not private) so a test can drive this exact call site directly, alongside
+     * {@link #toServedMovie}, on the same candidate -- the only way to prove the rounding here
+     * actually matches training's rounding without both sides of the test rounding independently
+     * and comparing rounded-to-rounded, which would pass even if this method stopped rounding.
+     */
+    double[] grpoFeaturesFor(ScoredCandidate candidate) {
+        return GrpoFeatures.of(
+            round(candidate.banditScore()), round(candidate.estimatedReward()), round(candidate.onlineScore()),
+            round(candidate.explorationBonus()), candidate.coldStart(), candidate.impressions(), candidate.clicks());
+    }
+
     private ScoredCandidate scoreCandidate(
         MovieCandidate candidate,
         String itemId,
@@ -646,7 +695,10 @@ public class HybridRecommendationService {
         return predictions;
     }
 
-    private ServedMovie toServedMovie(ScoredCandidate candidate) {
+    // Package-private (not private): tests must drive this exact call site -- the one
+    // GrpoImpressionEvents packs training's grpo_x from -- to compare against grpoFeaturesFor's
+    // real output on the same candidate.
+    ServedMovie toServedMovie(ScoredCandidate candidate) {
         return new ServedMovie(
             candidate.itemId(),
             round(candidate.estimatedReward()),
@@ -1191,7 +1243,9 @@ public class HybridRecommendationService {
         }
     }
 
-    private record ScoredCandidate(
+    // Package-private (not private): a test constructs one directly to drive toServedMovie and
+    // grpoFeaturesFor on an identical candidate without going through the full recommend() path.
+    record ScoredCandidate(
         String itemId,
         double estimatedReward,
         double relevanceScore,
