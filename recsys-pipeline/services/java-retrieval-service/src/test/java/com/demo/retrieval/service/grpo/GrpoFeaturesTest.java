@@ -16,41 +16,29 @@ class GrpoFeaturesTest {
 
     @Test
     void producesExactlyDimValues() {
-        double[] x = GrpoFeatures.of(movie(0.7, 10, 2, Map.of()), 0, 5);
+        double[] x = GrpoFeatures.of(movie(0.7, 10, 2, Map.of()));
         assertEquals(GrpoFeatures.DIM, x.length);
     }
 
     @Test
     void firstDimensionIsTheBiasTerm() {
-        double[] x = GrpoFeatures.of(movie(0.7, 10, 2, Map.of()), 3, 5);
+        double[] x = GrpoFeatures.of(movie(0.7, 10, 2, Map.of()));
         assertEquals(1.0, x[0]);
     }
 
     @Test
     void countsEnterLogarithmicallySoAPopularItemDoesNotDominate() {
-        double[] few = GrpoFeatures.of(movie(0.5, 10, 0, Map.of()), 0, 5);
-        double[] many = GrpoFeatures.of(movie(0.5, 100_000, 0, Map.of()), 0, 5);
+        double[] few = GrpoFeatures.of(movie(0.5, 10, 0, Map.of()));
+        double[] many = GrpoFeatures.of(movie(0.5, 100_000, 0, Map.of()));
         // log1p keeps a 10,000x impression gap inside one order of magnitude.
         assertTrue(many[6] < 5.0 * few[6], "impressions must be compressed, got " + many[6] + " vs " + few[6]);
-    }
-
-    @Test
-    void positionIsNormalizedBySlateSize() {
-        double[] x = GrpoFeatures.of(movie(0.5, 0, 0, Map.of()), 2, 4);
-        assertEquals(0.5, x[8]);
-    }
-
-    @Test
-    void aSingletonSlateDoesNotDivideByZero() {
-        double[] x = GrpoFeatures.of(movie(0.5, 0, 0, Map.of()), 0, 0);
-        assertEquals(0.0, x[8]);
     }
 
     @Test
     void packCarriesTheVersionPrefix() {
         String packed = GrpoFeatures.pack(new double[] {1.0, 0.5});
         assertTrue(packed.startsWith(GrpoFeatures.VERSION + ":"), packed);
-        assertEquals("v1:1.0,0.5", packed);
+        assertEquals("v2:1.0,0.5", packed);
     }
 
     @Test

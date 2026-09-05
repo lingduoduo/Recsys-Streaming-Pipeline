@@ -57,7 +57,7 @@ class GrpoImpressionEventsTest {
         Map<String, Object> event = GrpoImpressionEvents.build(request(List.of(movie("m1", 0.73))), 1000L).get(0);
         Map<String, String> itemFeatures = (Map<String, String>) event.get("item_features");
         assertEquals("0.73", itemFeatures.get("prediction_score"));
-        assertTrue(itemFeatures.get("grpo_x").startsWith("v1:"), itemFeatures.get("grpo_x"));
+        assertTrue(itemFeatures.get("grpo_x").startsWith("v2:"), itemFeatures.get("grpo_x"));
     }
 
     @Test

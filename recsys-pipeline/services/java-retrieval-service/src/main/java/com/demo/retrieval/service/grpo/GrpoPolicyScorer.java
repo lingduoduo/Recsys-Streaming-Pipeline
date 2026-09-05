@@ -66,7 +66,7 @@ public class GrpoPolicyScorer {
         return MODE_ON.equals(mode) ? ON_BLEND_WEIGHT : 0.0;
     }
 
-    public double score(ServedMovie movie, int position, int slateSize) {
+    public double score(ServedMovie movie) {
         if (!enabled()) {
             return 0.0;
         }
@@ -74,11 +74,11 @@ public class GrpoPolicyScorer {
         if (weights.isEmpty()) {
             return 0.0;
         }
-        return dot(weights.get(), movie, position, slateSize);
+        return dot(weights.get(), movie);
     }
 
-    private static double dot(double[] w, ServedMovie movie, int position, int slateSize) {
-        double[] x = GrpoFeatures.of(movie, position, slateSize);
+    private static double dot(double[] w, ServedMovie movie) {
+        double[] x = GrpoFeatures.of(movie);
         double sum = 0.0;
         for (int i = 0; i < GrpoFeatures.DIM; i++) {
             sum += w[i] * x[i];
@@ -90,9 +90,9 @@ public class GrpoPolicyScorer {
      * Logs one line per slate describing how the GRPO policy would have ordered it.
      *
      * Called from the serving side effects because that is the only place a slate position exists:
-     * feature 8 is position/slateSize, and modelPredictions — the obvious alternative home for the
-     * score — is built before selection assigns positions. Putting grpoScore there would train on a
-     * position the serving side never had, so the score is logged and deliberately not carried.
+     * modelPredictions — the obvious alternative home for the score — is built before selection
+     * assigns positions. Putting grpoScore there would train on a position the serving side never
+     * had, so the score is logged and deliberately not carried.
      *
      * Rank agreement is reported as pairwise concordance: over every ordered pair (i &lt; j) of
      * served positions, the fraction the GRPO score ranks the same way serving did. Top-N overlap
@@ -124,7 +124,7 @@ public class GrpoPolicyScorer {
             double[] w = weights.get();
             double[] scores = new double[slateSize];
             for (int i = 0; i < slateSize; i++) {
-                scores[i] = dot(w, served.get(i), i, slateSize);
+                scores[i] = dot(w, served.get(i));
             }
             log.info("GRPO shadow slate requestId={} slateSize={} pairwiseConcordance={}",
                 request.requestId(), slateSize, pairwiseConcordance(scores));

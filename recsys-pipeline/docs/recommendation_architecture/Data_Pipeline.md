@@ -944,6 +944,25 @@ Consumes slates from `training_experiences` and continuously trains the online G
 each micro-batch is one minibatch of PPO-clipped gradient steps, and the updated weight vector is
 written back to the `grpo:policy:weights` Redis hash that `GrpoPolicyScorer` (serving) reads.
 
+The feature vector (`GrpoFeatures`, java-retrieval-service) is 9-dimensional, wire version `v2`:
+bias, banditScore, estimatedReward, onlineScore, explorationBonus, coldStart, log1p(impressions),
+log1p(clicks), and smoothed CTR. It deliberately excludes the item's served position. A ranking
+policy scores candidates *before* selection assigns positions, so at scoring time a position
+feature can only ever be 0 — identical for every candidate, contributing nothing to the ranking —
+while during training it strongly predicts the label regardless of item quality, inflating offline
+AUC with position bias rather than ranking skill. The earlier layout (`v1`) carried
+`position/slateSize` at index 8; dropping it is why the wire version bumped to `v2`.
+`GrpoWeightStore.decode`, `GrpoSlates.parseFeatureVector`, and `GrpoPolicyScorer.readWeights` all
+refuse a `v1`-tagged or 10-wide vector rather than reinterpret it against the `v2` (9-wide) layout.
+
+**Rollout note:** upgrading a running deployment from `v1` to `v2` requires flushing the stale
+weights before restarting `GrpoPolicyStreamingJob` — `redis-cli DEL grpo:policy:weights` (or
+equivalent). `GrpoWeightStore.decode` refuses a stored `v1`/10-wide vector against a job configured
+for `v2`/9-wide, so without the flush the job crash-loops on every restart until someone clears the
+key. This is deliberate, not a bug to work around: silently reinterpreting a 10-wide vector as
+9-wide would pair each weight against the wrong feature for the rest of the vector, producing a
+policy that looks like it is training but scores every candidate on misaligned weights.
+
 ```bash
 SPARK_MAIN_CLASS=com.demo.grpo.GrpoPolicyStreamingJob \
 GRPO_INPUT_TOPIC=training_experiences \

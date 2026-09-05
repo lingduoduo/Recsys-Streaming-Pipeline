@@ -16,8 +16,8 @@ final case class GrpoJobConfig(
 object GrpoJobConfig {
 
   /** Must match GrpoFeatures.DIM and GrpoFeatures.VERSION on the Java side. */
-  val FeatureVersion = "v1"
-  val Dim = 10
+  val FeatureVersion = "v2"
+  val Dim = 9
   val WeightsKey = "grpo:policy:weights"
 
   private def doubleFrom(env: Map[String, String], key: String, default: Double): Double =

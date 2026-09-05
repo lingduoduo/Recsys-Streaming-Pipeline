@@ -14,12 +14,12 @@ import java.util.StringJoiner;
  */
 public final class GrpoFeatures {
 
-    public static final int DIM = 10;
-    public static final String VERSION = "v1";
+    public static final int DIM = 9;
+    public static final String VERSION = "v2";
 
     private GrpoFeatures() {}
 
-    public static double[] of(ServedMovie movie, int position, int slateSize) {
+    public static double[] of(ServedMovie movie) {
         return new double[] {
             1.0,                                              // 0 bias
             movie.banditScore(),                              // 1
@@ -29,8 +29,7 @@ public final class GrpoFeatures {
             movie.coldStart() ? 1.0 : 0.0,                    // 5
             Math.log1p(movie.impressions()),                  // 6
             Math.log1p(movie.clicks()),                       // 7
-            slateSize <= 0 ? 0.0 : (double) position / slateSize, // 8
-            movie.clicks() / (double) (movie.impressions() + 1) // 9 smoothed CTR
+            movie.clicks() / (double) (movie.impressions() + 1) // 8 smoothed CTR
         };
     }
 

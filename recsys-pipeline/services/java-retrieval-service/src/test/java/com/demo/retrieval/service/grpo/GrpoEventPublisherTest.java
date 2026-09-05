@@ -66,7 +66,7 @@ class GrpoEventPublisherTest {
             .map(entry -> entry.getValue().toString())
             .findFirst()
             .orElseThrow();
-        assertTrue(grpoX.startsWith("v1:"), grpoX);
+        assertTrue(grpoX.startsWith("v2:"), grpoX);
     }
 
     @Test

@@ -16,7 +16,7 @@ class GrpoWeightStoreSpec extends AnyFlatSpec with Matchers {
   }
 
   "encode then decode" should "round-trip the weights exactly" in {
-    val original = GrpoWeights(Array(0.1, -0.2, 0.3, 0.0, 1.5, -0.7, 0.05, 0.0, 2.0, -1.0), "v1", 42L, 900L)
+    val original = GrpoWeights(Array(0.1, -0.2, 0.3, 0.0, 1.5, -0.7, 0.05, 0.0, 2.0), "v2", 42L, 900L)
     val fields = GrpoWeightStore.encode(original, 1000L)
     val decoded = GrpoWeightStore.decode(fields.asScala.toMap, cfg)
     decoded.map(_.weights.toSeq) shouldBe Right(original.weights.toSeq)
@@ -25,14 +25,15 @@ class GrpoWeightStoreSpec extends AnyFlatSpec with Matchers {
   }
 
   "decode" should "refuse weights fit against a different feature version" in {
-    // Applying v1 weights to a v2 feature layout is silent, total nonsense. Refuse loudly.
+    // The exact cutover hazard: v1 weights left behind in Redis after the v2 rollout must be
+    // refused, not silently applied against the v2 (9-wide) feature layout.
     val fields = Map("weights" -> Array.fill(10)(0.1).mkString(","),
-      "feature_version" -> "v0", "dim" -> "10", "batch_id" -> "1", "slates_applied" -> "1")
+      "feature_version" -> "v1", "dim" -> "10", "batch_id" -> "1", "slates_applied" -> "1")
     GrpoWeightStore.decode(fields, cfg).left.map(_.contains("feature_version")) shouldBe Left(true)
   }
 
   it should "refuse a weight vector of the wrong width" in {
-    val fields = Map("weights" -> "0.1,0.2", "feature_version" -> "v1", "dim" -> "2",
+    val fields = Map("weights" -> "0.1,0.2", "feature_version" -> "v2", "dim" -> "2",
       "batch_id" -> "1", "slates_applied" -> "1")
     GrpoWeightStore.decode(fields, cfg).isLeft shouldBe true
   }
