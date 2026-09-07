@@ -118,7 +118,7 @@ genre -> [itemId...]      tag -> [itemId...]
 ```
 
 `lookup(kind, value)` returns the item list or empty. Item ids are kept in catalog iteration order
-so `sample_items` is deterministic. Building the index is O(catalog × attributes) once; level 3 is
+and each posting list is sorted, so `sample_items` is deterministic regardless of map order. Building the index is O(catalog × attributes) once; level 3 is
 then O(1) per preference for every user. This is the "repeat queries faster" piece: without it,
 each user would rescan the catalog per preference.
 
@@ -163,8 +163,9 @@ GET /actuator/profile-audit?limit=10000
 
 - `limit`: optional, 1..`max-users` (default and max 10,000); out of range → 400.
 - 200 with the report; 409 `{"status":"busy"}`; 503 `{"status":"error","message":...}`.
-- Records the request through `RecommendationMeasurementService.recordRequest("profile-audit", ...)`
-  the way `/users/{user}/profile` does, so it shows up in `/metrics` like every other endpoint.
+- Records no measurement, like `/actuator/model-reload`. `RecommendationMeasurementService` only
+  accepts a fixed endpoint set that the dashboard measurement contract depends on; an operator
+  tool does not belong in serving latency percentiles.
 
 ## Report shape
 
