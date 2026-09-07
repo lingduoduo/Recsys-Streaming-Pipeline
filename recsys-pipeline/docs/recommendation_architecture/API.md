@@ -119,6 +119,67 @@ User IDs outside `[a-zA-Z0-9_:-]{1,64}` return HTTP 400. Profile lookups record 
 `redis_error`. Configure a non-default namespace with `RECSYS_USER_PROFILE_KEY_PREFIX`; it must
 match `USER_PROFILE_REDIS_KEY_PREFIX` used by the Spark publisher.
 
+## `GET /actuator/profile-audit`
+
+Operator tool. Walks every user → has_profile → profile preferences → catalog content and returns
+a findings-only report: users with no usable profile, profiles with no usable preference, and
+preferences that match no catalog item. Healthy users are counted, not listed. One audit runs at a
+time; the call is synchronous and bounded by `limit` (default and maximum
+`RECSYS_PROFILE_AUDIT_MAX_USERS`, 10000).
+
+```bash
+curl -s 'http://localhost:8080/actuator/profile-audit?limit=1000' | jq .summary
+```
+
+Users are discovered with a cursor SCAN over `RECSYS_PROFILE_AUDIT_USER_KEY_PATTERN` (default
+`user:*:features`). A profile counts as present only if it passes the same checks
+`/users/{user}/profile` applies; the reason otherwise is one of `missing_profile`,
+`invalid_json`, `unsupported_version`, `user_mismatch`, `run_mismatch`. If the active-run pointer
+is unset, `status` is `missing_active_run`, every user is counted under that reason, and no
+per-user rows are returned. Content is the service catalog (`RECSYS_CATALOG_PATH` merged over the
+inline catalog); `summary.catalog_size` says how much content the audit could match against.
+
+```json
+{
+  "status": "ok",
+  "active_run": "run-7",
+  "generated_at": "2026-09-07T10:00:00Z",
+  "elapsed_ms": 812,
+  "truncated": false,
+  "summary": {
+    "users_scanned": 6040,
+    "users_with_profile": 5900,
+    "users_healthy": 5547,
+    "no_profile_by_reason": {"missing_profile": 130, "invalid_json": 10},
+    "findings_by_type": {"new_or_unknown": 300, "empty_preferences": 12, "preference_without_content": 41},
+    "unmatched_preferences": {"genre": {"film-noir": 12}, "tag": {"space": 3}},
+    "min_profile_ttl_seconds": 3400,
+    "catalog_size": 12
+  },
+  "users": [
+    {"user_id": "u1", "has_profile": false, "findings": [{"type": "no_profile", "reason": "missing_profile"}]},
+    {"user_id": "u2", "has_profile": true, "ttl_seconds": 3400,
+     "findings": [{"type": "preference_without_content", "preferences": [{"kind": "genre", "value": "film-noir"}]}],
+     "preferences": [{"kind": "genre", "value": "sci-fi", "score": 0.72, "evidence_count": 8,
+                      "matched_items": 8, "sample_items": ["item1", "item4"]}]}
+  ]
+}
+```
+
+Finding types: `no_profile` (with `reason`), `new_or_unknown` (the profile job's low-evidence
+persona), `empty_preferences` (no genre or tag with a positive score), `preference_without_content`
+(lists each unmatched `{kind, value}`). `unmatched_preferences` counts users per unmatched value so
+a catalog gap appears once with its blast radius. `min_profile_ttl_seconds` is the smallest TTL
+among valid profiles; profiles expire after one day while the active-run pointer does not, so a
+small value warns that the pointer is about to outlive its blobs. `truncated` is true when `limit`
+stopped the scan early.
+
+Status codes: 200 report; 400 `limit` outside `1..max-users`; 409 `{"status":"busy"}` while another
+audit runs; 503 `{"status":"error","message":...}` if Redis fails mid-walk (no partial report is
+returned). Tunables: `RECSYS_PROFILE_AUDIT_CHUNK_SIZE` (500 users per pipelined round trip),
+`RECSYS_PROFILE_AUDIT_PARALLELISM` (4; keep well below the Lettuce pool's `max-active` of 32),
+`RECSYS_PROFILE_AUDIT_SAMPLE_ITEMS` (5 ids per matched preference).
+
 ## `GET /predict/{user}/{item}`
 
 Scores a single (user, item) pair using the offline ONNX model. These are string IDs: the service

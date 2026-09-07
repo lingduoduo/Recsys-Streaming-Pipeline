@@ -226,6 +226,9 @@ See [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#behavio
 for input, decay, taxonomy, output, activation, metrics, and all environment variables, and
 [API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
 contract.
+To check every user at once — who lacks a valid profile, and which preferences match no catalog
+item — call `GET /actuator/profile-audit`; see
+[API.md](docs/recommendation_architecture/API.md#get-actuatorprofile-audit).
 
 ### Step 5 — Query the API
 
