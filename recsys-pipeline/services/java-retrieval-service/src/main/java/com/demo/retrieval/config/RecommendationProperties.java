@@ -31,6 +31,8 @@ public class RecommendationProperties {
     private Sequence sequence = new Sequence();
     private Grpo grpo = new Grpo();
     @Valid
+    private ProfileAudit profileAudit = new ProfileAudit();
+    @Valid
     private Measurements measurements = new Measurements();
     private Map<String, MovieProfile> catalog = new LinkedHashMap<>();
     // Optional path to a catalog JSON file ({itemId: MovieProfile}). When set, its entries are
@@ -100,6 +102,14 @@ public class RecommendationProperties {
 
     public void setGrpo(Grpo grpo) {
         this.grpo = grpo;
+    }
+
+    public ProfileAudit getProfileAudit() {
+        return profileAudit;
+    }
+
+    public void setProfileAudit(ProfileAudit profileAudit) {
+        this.profileAudit = profileAudit;
     }
 
     public Measurements getMeasurements() {
@@ -472,6 +482,62 @@ public class RecommendationProperties {
 
         public void setBucketFetchChunk(int bucketFetchChunk) {
             this.bucketFetchChunk = bucketFetchChunk;
+        }
+    }
+
+    /** GET /actuator/profile-audit: bounds on how much work one call may do. */
+    public static class ProfileAudit {
+        /** SCAN pattern for level 0; the user id is the second ':'-separated segment. */
+        @NotBlank
+        private String userKeyPattern = "user:*:features";
+        @Min(1)
+        private int maxUsers = 10000;
+        @Min(1)
+        private int chunkSize = 500;
+        /** Must stay well below spring.data.redis.lettuce.pool.max-active (32) so an audit cannot starve serving. */
+        @Min(1)
+        private int parallelism = 4;
+        @Min(0)
+        private int sampleItems = 5;
+
+        public String getUserKeyPattern() {
+            return userKeyPattern;
+        }
+
+        public void setUserKeyPattern(String userKeyPattern) {
+            this.userKeyPattern = userKeyPattern;
+        }
+
+        public int getMaxUsers() {
+            return maxUsers;
+        }
+
+        public void setMaxUsers(int maxUsers) {
+            this.maxUsers = maxUsers;
+        }
+
+        public int getChunkSize() {
+            return chunkSize;
+        }
+
+        public void setChunkSize(int chunkSize) {
+            this.chunkSize = chunkSize;
+        }
+
+        public int getParallelism() {
+            return parallelism;
+        }
+
+        public void setParallelism(int parallelism) {
+            this.parallelism = parallelism;
+        }
+
+        public int getSampleItems() {
+            return sampleItems;
+        }
+
+        public void setSampleItems(int sampleItems) {
+            this.sampleItems = sampleItems;
         }
     }
 
