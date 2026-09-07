@@ -17,6 +17,10 @@ public final class CatalogPreferenceIndex {
     public static final String KIND_GENRE = "genre";
     public static final String KIND_TAG = "tag";
 
+    /** Neighbor count plus a capped sample — the audit reads only what it reports. */
+    public record ContentNeighbors(int total, List<String> sample) {
+    }
+
     private final Map<String, List<String>> byGenre;
     private final Map<String, List<String>> byTag;
     private final int catalogSize;
@@ -52,6 +56,17 @@ public final class CatalogPreferenceIndex {
             default -> Map.of();
         };
         return postings.getOrDefault(value, List.of());
+    }
+
+    /**
+     * The bounded Preference → Content edge: how many catalog items carry {@code value} as a
+     * {@code kind}, plus at most {@code limit} of them. The posting list itself is never copied,
+     * so a preference matching thousands of items costs the same as one matching three.
+     */
+    public ContentNeighbors probe(String kind, String value, int limit) {
+        List<String> postings = lookup(kind, value);
+        int sampleSize = Math.min(Math.max(limit, 0), postings.size());
+        return new ContentNeighbors(postings.size(), postings.subList(0, sampleSize));
     }
 
     public int catalogSize() {
