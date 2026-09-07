@@ -124,6 +124,16 @@ class ProfileAuditServiceTest {
     }
 
     @Test
+    void unmatchedPreferenceRepeatedInOneProfileIsCountedOncePerUser() {
+        FakeStore store = new FakeStore()
+            .user("dup", profileJson("dup", "run-7", List.of("film-noir", "film-noir"), List.of(), false), 1200L);
+
+        ProfileAuditReport report = service(store, 500, 1).audit(null);
+
+        assertEquals(Map.of("genre", Map.of("film-noir", 1)), report.summary().unmatchedPreferences());
+    }
+
+    @Test
     void missingActiveRunShortCircuitsWithoutPerUserRows() {
         FakeStore store = new FakeStore().user("u1", null, -2L).user("u2", null, -2L);
         store.activeRun = Optional.empty();

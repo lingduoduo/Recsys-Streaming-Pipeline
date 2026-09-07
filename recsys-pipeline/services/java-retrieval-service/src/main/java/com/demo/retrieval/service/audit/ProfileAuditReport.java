@@ -2,12 +2,14 @@ package com.demo.retrieval.service.audit;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 import java.util.List;
 import java.util.Map;
 
 /** Response of GET /actuator/profile-audit. Null fields are omitted from JSON. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonPropertyOrder({"status", "active_run", "generated_at", "elapsed_ms", "truncated", "summary", "users"})
 public record ProfileAuditReport(
     String status,
     @JsonProperty("active_run") String activeRun,
@@ -40,6 +42,7 @@ public record ProfileAuditReport(
 
     /** One user with at least one finding. {@code ttlSeconds} and {@code preferences} are present only for valid profiles. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonPropertyOrder({"user_id", "has_profile", "ttl_seconds", "findings", "preferences"})
     public record UserRow(
         @JsonProperty("user_id") String userId,
         @JsonProperty("has_profile") boolean hasProfile,

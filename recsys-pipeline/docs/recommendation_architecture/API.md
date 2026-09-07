@@ -178,7 +178,9 @@ Status codes: 200 report; 400 `limit` outside `1..max-users`; 409 `{"status":"bu
 audit runs; 503 `{"status":"error","message":...}` if Redis fails mid-walk (no partial report is
 returned). Tunables: `RECSYS_PROFILE_AUDIT_CHUNK_SIZE` (500 users per pipelined round trip),
 `RECSYS_PROFILE_AUDIT_PARALLELISM` (4; keep well below the Lettuce pool's `max-active` of 32),
-`RECSYS_PROFILE_AUDIT_SAMPLE_ITEMS` (5 ids per matched preference).
+`RECSYS_PROFILE_AUDIT_SAMPLE_ITEMS` (5 ids per matched preference). Each chunk is one pipelined
+round trip that must complete within the Redis command timeout (`spring.data.redis.timeout`, 1 s);
+if a remote Redis times out with a 503, lower `RECSYS_PROFILE_AUDIT_CHUNK_SIZE` before anything else.
 
 ## `GET /predict/{user}/{item}`
 

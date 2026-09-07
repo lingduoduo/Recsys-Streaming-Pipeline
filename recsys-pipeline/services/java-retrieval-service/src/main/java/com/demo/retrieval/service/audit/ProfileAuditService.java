@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -98,7 +99,7 @@ public class ProfileAuditService {
                 aggregation.rows
             );
         } catch (RuntimeException e) {
-            if (e instanceof AuditBusyException || e instanceof ProfileAuditFailedException) {
+            if (e instanceof ProfileAuditFailedException) {
                 throw e;
             }
             throw new ProfileAuditFailedException(e);
@@ -154,7 +155,7 @@ public class ProfileAuditService {
                 }
                 findingsByType.merge(finding.type(), 1, Integer::sum);
                 if (finding.preferences() != null) {
-                    for (PreferenceRef ref : finding.preferences()) {
+                    for (PreferenceRef ref : new LinkedHashSet<>(finding.preferences())) {
                         unmatchedPreferences.computeIfAbsent(ref.kind(), k -> new TreeMap<>()).merge(ref.value(), 1, Integer::sum);
                     }
                 }

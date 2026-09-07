@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
@@ -55,6 +56,17 @@ class ProfileAuditControllerTest {
             .andExpect(jsonPath("$.users[0].findings[0].reason").value("missing_profile"))
             .andExpect(jsonPath("$.users[1].findings[0].reason").doesNotExist())
             .andExpect(jsonPath("$.users[1].ttl_seconds").value(3400));
+    }
+
+    @Test
+    void serializesFieldsInDocumentedOrder() throws Exception {
+        when(auditService.audit(isNull())).thenReturn(report());
+
+        String body = mvc.perform(get("/actuator/profile-audit"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+
+        assertTrue(body.startsWith("{\"status\":\"ok\",\"active_run\":\"run-7\",\"generated_at\":"));
     }
 
     @Test

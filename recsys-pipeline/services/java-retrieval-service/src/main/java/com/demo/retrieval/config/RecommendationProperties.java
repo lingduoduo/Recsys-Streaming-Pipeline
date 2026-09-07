@@ -30,6 +30,7 @@ public class RecommendationProperties {
     private RewardModel rewardModel = new RewardModel();
     private Sequence sequence = new Sequence();
     private Grpo grpo = new Grpo();
+    @Valid
     private ProfileAudit profileAudit = new ProfileAudit();
     @Valid
     private Measurements measurements = new Measurements();
@@ -487,11 +488,16 @@ public class RecommendationProperties {
     /** GET /actuator/profile-audit: bounds on how much work one call may do. */
     public static class ProfileAudit {
         /** SCAN pattern for level 0; the user id is the second ':'-separated segment. */
+        @NotBlank
         private String userKeyPattern = "user:*:features";
+        @Min(1)
         private int maxUsers = 10000;
+        @Min(1)
         private int chunkSize = 500;
         /** Must stay well below spring.data.redis.lettuce.pool.max-active (32) so an audit cannot starve serving. */
+        @Min(1)
         private int parallelism = 4;
+        @Min(0)
         private int sampleItems = 5;
 
         public String getUserKeyPattern() {
