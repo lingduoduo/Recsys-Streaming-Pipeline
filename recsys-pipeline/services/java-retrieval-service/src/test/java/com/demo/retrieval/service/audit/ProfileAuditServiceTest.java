@@ -36,6 +36,9 @@ class ProfileAuditServiceTest {
         String failOnUser = null;
         CountDownLatch blockReads = null;
         final List<List<String>> chunksSeen = new CopyOnWriteArrayList<>();
+        final java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger maxInFlight = new java.util.concurrent.atomic.AtomicInteger();
+        long readDelayMillis = 0L;
 
         FakeStore user(String id, String json, long ttl) {
             users.add(id);
@@ -55,14 +58,23 @@ class ProfileAuditServiceTest {
 
         @Override
         public List<RawProfile> readProfiles(String run, List<String> userIds) {
-            chunksSeen.add(userIds);
-            if (blockReads != null) {
-                try { blockReads.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            int now = inFlight.incrementAndGet();
+            maxInFlight.accumulateAndGet(now, Math::max);
+            try {
+                chunksSeen.add(userIds);
+                if (blockReads != null) {
+                    try { blockReads.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                }
+                if (readDelayMillis > 0L) {
+                    try { Thread.sleep(readDelayMillis); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                }
+                if (failOnUser != null && userIds.contains(failOnUser)) {
+                    throw new IllegalStateException("redis unavailable");
+                }
+                return userIds.stream().map(profiles::get).toList();
+            } finally {
+                inFlight.decrementAndGet();
             }
-            if (failOnUser != null && userIds.contains(failOnUser)) {
-                throw new IllegalStateException("redis unavailable");
-            }
-            return userIds.stream().map(profiles::get).toList();
         }
     }
 
@@ -217,5 +229,90 @@ class ProfileAuditServiceTest {
         } finally {
             runner.shutdownNow();
         }
+    }
+
+    @Test
+    void neverKeepsMoreThanParallelismChunksInFlight() {
+        FakeStore store = new FakeStore();
+        for (int i = 0; i < 18; i++) {
+            store.user("u" + i, null, -2L);
+        }
+        store.readDelayMillis = 20L;
+
+        ProfileAuditReport report = service(store, 2, 2).audit(null);
+
+        assertEquals(9, store.chunksSeen.size());
+        assertEquals(18, report.summary().usersScanned());
+        assertTrue(store.maxInFlight.get() <= 2, "max in flight was " + store.maxInFlight.get());
+    }
+
+    @Test
+    void streamingKeepsRowsInScanOrderAcrossManySmallChunks() {
+        FakeStore store = new FakeStore();
+        for (int i = 0; i < 7; i++) {
+            store.user("u" + i, null, -2L);
+        }
+
+        ProfileAuditReport report = service(store, 1, 3).audit(null);
+
+        assertEquals(List.of("u0", "u1", "u2", "u3", "u4", "u5", "u6"),
+            report.users().stream().map(UserRow::userId).toList());
+    }
+
+    @Test
+    void aFailureInTheLastChunkStillFailsTheWholeAudit() {
+        FakeStore store = new FakeStore();
+        for (int i = 0; i < 6; i++) {
+            store.user("u" + i, null, -2L);
+        }
+        store.failOnUser = "u5";
+
+        ProfileAuditService.ProfileAuditFailedException e = assertThrows(
+            ProfileAuditService.ProfileAuditFailedException.class, () -> service(store, 2, 2).audit(null));
+
+        assertEquals("redis unavailable", e.getMessage());
+        assertEquals(3, store.chunksSeen.size());
+    }
+
+    @Test
+    void auditAccountReturnsTheRowForOneHealthyAccount() {
+        FakeStore store = new FakeStore()
+            .user("u1", profileJson("u1", "run-7", List.of("sci-fi"), List.of("space"), false), 3400L)
+            .user("u2", null, -2L);
+
+        AccountAuditReport report = service(store, 500, 4).auditAccount("u1");
+
+        assertEquals("ok", report.status());
+        assertEquals("run-7", report.activeRun());
+        assertEquals(2, report.catalogSize());
+        assertEquals("u1", report.user().userId());
+        assertTrue(report.user().hasProfile());
+        assertTrue(report.user().findings().isEmpty());
+        assertEquals(2, report.user().preferences().size());
+        assertEquals(List.of(List.of("u1")), store.chunksSeen);
+    }
+
+    @Test
+    void auditAccountReportsMissingActiveRun() {
+        FakeStore store = new FakeStore().user("u1", null, -2L);
+        store.activeRun = Optional.empty();
+
+        AccountAuditReport report = service(store, 500, 4).auditAccount("u1");
+
+        assertEquals("missing_active_run", report.status());
+        assertNull(report.activeRun());
+        assertEquals("missing_active_run", report.user().findings().get(0).reason());
+        assertTrue(store.chunksSeen.isEmpty());
+    }
+
+    @Test
+    void auditAccountWrapsAStoreFailure() {
+        FakeStore store = new FakeStore().user("u1", null, -2L);
+        store.failOnUser = "u1";
+
+        ProfileAuditService.ProfileAuditFailedException e = assertThrows(
+            ProfileAuditService.ProfileAuditFailedException.class, () -> service(store, 500, 4).auditAccount("u1"));
+
+        assertEquals("redis unavailable", e.getMessage());
     }
 }

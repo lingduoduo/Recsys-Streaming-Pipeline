@@ -5,7 +5,6 @@ import com.demo.retrieval.service.audit.ProfileAuditReport.Finding;
 import com.demo.retrieval.service.audit.ProfileAuditReport.PreferenceRef;
 import com.demo.retrieval.service.audit.ProfileAuditReport.Summary;
 import com.demo.retrieval.service.audit.ProfileAuditReport.UserRow;
-import com.demo.retrieval.service.audit.ProfileAuditStore.RawProfile;
 import com.demo.retrieval.service.audit.ProfileAuditStore.ScanResult;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,7 +12,9 @@ import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +65,32 @@ public class ProfileAuditService {
         executor.shutdownNow();
     }
 
+    /**
+     * One account, one round trip. Deliberately unguarded and executor-free: this path is a
+     * bounded neighbor lookup, so it must not queue behind a full audit.
+     */
+    public AccountAuditReport auditAccount(String userId) {
+        long started = System.nanoTime();
+        try {
+            CatalogPreferenceIndex index = CatalogPreferenceIndex.build(catalogScoring.normalizedCatalog());
+            String activeRun = store.activeRun().orElse(null);
+            UserRow row = new ProfileAuditWalker(store, objectMapper, index, config.getSampleItems())
+                .walk(activeRun, List.of(userId)).get(0);
+            return new AccountAuditReport(
+                activeRun == null ? ProfileAuditReport.STATUS_MISSING_ACTIVE_RUN : ProfileAuditReport.STATUS_OK,
+                activeRun,
+                Instant.now().toString(),
+                (System.nanoTime() - started) / 1_000_000L,
+                index.catalogSize(),
+                row);
+        } catch (RuntimeException e) {
+            if (e instanceof ProfileAuditFailedException) {
+                throw e;
+            }
+            throw new ProfileAuditFailedException(e);
+        }
+    }
+
     /** {@code limit} null means {@code max-users}; otherwise it must lie in 1..max-users. */
     public ProfileAuditReport audit(Integer limit) {
         int maxUsers = config.getMaxUsers();
@@ -84,9 +111,7 @@ public class ProfileAuditService {
             if (activeRun == null) {
                 aggregation.noProfileByReason.put(ProfileAuditReport.STATUS_MISSING_ACTIVE_RUN, scan.userIds().size());
             } else {
-                for (RawProfile raw : readAllProfiles(activeRun, scan.userIds())) {
-                    aggregation.add(UserAuditClassifier.classify(raw, activeRun, index, objectMapper, config.getSampleItems()));
-                }
+                streamRows(activeRun, scan.userIds(), index, aggregation);
             }
 
             return new ProfileAuditReport(
@@ -108,23 +133,39 @@ public class ProfileAuditService {
         }
     }
 
-    /** Fans chunks over the executor, waits for all of them, then rethrows the first failure in chunk order. */
-    private List<RawProfile> readAllProfiles(String activeRun, List<String> userIds) {
-        List<CompletableFuture<List<RawProfile>>> futures = new ArrayList<>();
-        for (int from = 0; from < userIds.size(); from += config.getChunkSize()) {
-            List<String> chunk = userIds.subList(from, Math.min(from + config.getChunkSize(), userIds.size()));
-            futures.add(CompletableFuture.supplyAsync(() -> store.readProfiles(activeRun, chunk), executor));
-        }
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).exceptionally(t -> null).join();
-        List<RawProfile> all = new ArrayList<>(userIds.size());
-        for (CompletableFuture<List<RawProfile>> future : futures) {
-            try {
-                all.addAll(future.join());
-            } catch (CompletionException e) {
-                throw new ProfileAuditFailedException(e.getCause() == null ? e : e.getCause());
+    /**
+     * Streams chunks through the walker with at most {@code parallelism} futures in flight,
+     * joining the oldest first so rows stay in scan order and only a bounded number of chunks is
+     * ever resident. Failure semantics are unchanged: every in-flight read settles, then the
+     * failure hit first in chunk order is rethrown and the whole report is discarded.
+     */
+    private void streamRows(String activeRun, List<String> userIds, CatalogPreferenceIndex index, Aggregation aggregation) {
+        ProfileAuditWalker walker = new ProfileAuditWalker(store, objectMapper, index, config.getSampleItems());
+        Deque<CompletableFuture<List<UserRow>>> inFlight = new ArrayDeque<>();
+        try {
+            for (int from = 0; from < userIds.size(); from += config.getChunkSize()) {
+                if (inFlight.size() >= config.getParallelism()) {
+                    drainOldest(inFlight, aggregation);
+                }
+                List<String> chunk = userIds.subList(from, Math.min(from + config.getChunkSize(), userIds.size()));
+                inFlight.add(CompletableFuture.supplyAsync(() -> walker.walk(activeRun, chunk), executor));
             }
+            while (!inFlight.isEmpty()) {
+                drainOldest(inFlight, aggregation);
+            }
+        } catch (ProfileAuditFailedException e) {
+            CompletableFuture.allOf(inFlight.toArray(CompletableFuture[]::new)).exceptionally(t -> null).join();
+            throw e;
         }
-        return all;
+    }
+
+    private static void drainOldest(Deque<CompletableFuture<List<UserRow>>> inFlight, Aggregation aggregation) {
+        CompletableFuture<List<UserRow>> oldest = inFlight.poll();
+        try {
+            oldest.join().forEach(aggregation::add);
+        } catch (CompletionException e) {
+            throw new ProfileAuditFailedException(e.getCause() == null ? e : e.getCause());
+        }
     }
 
     private static final class Aggregation {
