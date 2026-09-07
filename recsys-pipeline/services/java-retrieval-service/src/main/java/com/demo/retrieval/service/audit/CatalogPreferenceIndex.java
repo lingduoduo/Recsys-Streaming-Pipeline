@@ -36,6 +36,8 @@ public final class CatalogPreferenceIndex {
         });
         byGenre.values().forEach(Collections::sort);
         byTag.values().forEach(Collections::sort);
+        byGenre.replaceAll((k, v) -> List.copyOf(v));
+        byTag.replaceAll((k, v) -> List.copyOf(v));
         return new CatalogPreferenceIndex(byGenre, byTag, normalizedCatalog.size());
     }
 

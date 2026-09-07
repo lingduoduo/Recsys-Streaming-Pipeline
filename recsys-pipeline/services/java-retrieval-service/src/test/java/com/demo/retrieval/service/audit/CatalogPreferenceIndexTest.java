@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CatalogPreferenceIndexTest {
@@ -49,5 +50,11 @@ class CatalogPreferenceIndexTest {
     void catalogSizeCountsItemsNotPostings() {
         assertEquals(3, index().catalogSize());
         assertEquals(0, CatalogPreferenceIndex.build(Map.of()).catalogSize());
+    }
+
+    @Test
+    void lookupResultIsUnmodifiable() {
+        List<String> hit = index().lookup(CatalogPreferenceIndex.KIND_GENRE, "sci-fi");
+        assertThrows(UnsupportedOperationException.class, () -> hit.add("x"));
     }
 }
