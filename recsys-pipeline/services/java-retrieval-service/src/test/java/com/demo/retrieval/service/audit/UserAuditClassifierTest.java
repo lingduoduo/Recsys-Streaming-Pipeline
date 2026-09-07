@@ -117,4 +117,16 @@ class UserAuditClassifierTest {
 
         assertNull(row.ttlSeconds());
     }
+
+    @Test
+    void nullActiveRunIsReportedAsMissingActiveRun() {
+        UserRow row = UserAuditClassifier.classify(
+            new RawProfile("u1", profileJson("u1", "run-7", List.of("sci-fi"), List.of(), false), 100L),
+            null, INDEX, MAPPER, 1);
+
+        assertFalse(row.hasProfile());
+        assertNull(row.ttlSeconds());
+        assertNull(row.preferences());
+        assertEquals(List.of(new Finding("no_profile", "missing_active_run", null)), row.findings());
+    }
 }
