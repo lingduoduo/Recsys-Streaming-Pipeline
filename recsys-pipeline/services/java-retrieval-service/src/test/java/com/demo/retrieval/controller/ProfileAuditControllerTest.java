@@ -1,5 +1,6 @@
 package com.demo.retrieval.controller;
 
+import com.demo.retrieval.service.audit.AccountAuditReport;
 import com.demo.retrieval.service.audit.ProfileAuditReport;
 import com.demo.retrieval.service.audit.ProfileAuditReport.Finding;
 import com.demo.retrieval.service.audit.ProfileAuditReport.Summary;
@@ -16,6 +17,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -102,6 +104,43 @@ class ProfileAuditControllerTest {
             new ProfileAuditService.ProfileAuditFailedException(new IllegalStateException("redis unavailable")));
 
         mvc.perform(get("/actuator/profile-audit"))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.status").value("error"))
+            .andExpect(jsonPath("$.message").value("redis unavailable"));
+    }
+
+    private static AccountAuditReport accountReport() {
+        return new AccountAuditReport("ok", "run-7", "2026-09-07T10:00:00Z", 2L, 12,
+            new UserRow("u2", true, 3400L, List.of(), List.of()));
+    }
+
+    @Test
+    void returnsOneAccountRow() throws Exception {
+        when(auditService.auditAccount("u2")).thenReturn(accountReport());
+
+        mvc.perform(get("/actuator/profile-audit/u2"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"))
+            .andExpect(jsonPath("$.active_run").value("run-7"))
+            .andExpect(jsonPath("$.catalog_size").value(12))
+            .andExpect(jsonPath("$.user.user_id").value("u2"))
+            .andExpect(jsonPath("$.user.ttl_seconds").value(3400))
+            .andExpect(jsonPath("$.user.findings").isEmpty());
+    }
+
+    @Test
+    void anInvalidAccountIdIs400() throws Exception {
+        mvc.perform(get("/actuator/profile-audit/bad id!"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Invalid input: id must be 1-64 alphanumeric characters"));
+    }
+
+    @Test
+    void accountStoreFailureIs503() throws Exception {
+        when(auditService.auditAccount(anyString())).thenThrow(
+            new ProfileAuditService.ProfileAuditFailedException(new IllegalStateException("redis unavailable")));
+
+        mvc.perform(get("/actuator/profile-audit/u2"))
             .andExpect(status().isServiceUnavailable())
             .andExpect(jsonPath("$.status").value("error"))
             .andExpect(jsonPath("$.message").value("redis unavailable"));

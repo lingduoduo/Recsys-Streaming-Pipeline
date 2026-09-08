@@ -181,6 +181,40 @@ returned). Tunables: `RECSYS_PROFILE_AUDIT_CHUNK_SIZE` (500 users per pipelined 
 `RECSYS_PROFILE_AUDIT_SAMPLE_ITEMS` (5 ids per matched preference). Each chunk is one pipelined
 round trip that must complete within the Redis command timeout (`spring.data.redis.timeout`, 1 s);
 if a remote Redis times out with a 503, lower `RECSYS_PROFILE_AUDIT_CHUNK_SIZE` before anything else.
+Chunks are classified as they complete, with at most `RECSYS_PROFILE_AUDIT_PARALLELISM` chunks
+resident at a time, so `max-users` bounds how much work one call does rather than how much memory
+it holds.
+
+## `GET /actuator/profile-audit/{user}`
+
+The same walk for a single account: one pipelined round trip for its profile, then one bounded
+probe per preference. Unguarded and executor-free, so it never queues behind a bulk audit.
+
+```bash
+curl -s localhost:8080/actuator/profile-audit/user_1 | jq .
+```
+
+```json
+{
+  "status": "ok",
+  "active_run": "run-7",
+  "generated_at": "2026-09-07T10:00:00Z",
+  "elapsed_ms": 2,
+  "catalog_size": 12,
+  "user": {"user_id": "user_1", "has_profile": true, "ttl_seconds": 3400, "findings": [],
+           "preferences": [{"kind": "genre", "value": "sci-fi", "score": 0.72, "evidence_count": 8,
+                            "matched_items": 8, "sample_items": ["item1", "item4"]}]}
+}
+```
+
+The `user` object is the same row the bulk report lists, and it is always returned — a healthy
+account has an empty `findings` array. `matched_items` is the full count of catalog items carrying
+that preference while `sample_items` holds at most `RECSYS_PROFILE_AUDIT_SAMPLE_ITEMS` of them, so
+a preference matching thousands of items costs no more to report than one matching three.
+
+Status codes: 200; 400 if the id is outside `[a-zA-Z0-9_:-]{1,64}`; 503
+`{"status":"error","message":...}` if Redis fails. There is no 409 — only the bulk route is
+single-flight.
 
 ## `GET /predict/{user}/{item}`
 
