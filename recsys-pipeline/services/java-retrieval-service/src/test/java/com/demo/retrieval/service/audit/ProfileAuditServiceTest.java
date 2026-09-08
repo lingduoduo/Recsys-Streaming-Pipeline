@@ -36,8 +36,6 @@ class ProfileAuditServiceTest {
         String failOnUser = null;
         CountDownLatch blockReads = null;
         final List<List<String>> chunksSeen = new CopyOnWriteArrayList<>();
-        final java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
-        final java.util.concurrent.atomic.AtomicInteger maxInFlight = new java.util.concurrent.atomic.AtomicInteger();
         long readDelayMillis = 0L;
 
         FakeStore user(String id, String json, long ttl) {
@@ -58,23 +56,40 @@ class ProfileAuditServiceTest {
 
         @Override
         public List<RawProfile> readProfiles(String run, List<String> userIds) {
-            int now = inFlight.incrementAndGet();
-            maxInFlight.accumulateAndGet(now, Math::max);
-            try {
-                chunksSeen.add(userIds);
-                if (blockReads != null) {
-                    try { blockReads.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                }
-                if (readDelayMillis > 0L) {
-                    try { Thread.sleep(readDelayMillis); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                }
-                if (failOnUser != null && userIds.contains(failOnUser)) {
-                    throw new IllegalStateException("redis unavailable");
-                }
-                return userIds.stream().map(profiles::get).toList();
-            } finally {
-                inFlight.decrementAndGet();
+            chunksSeen.add(userIds);
+            if (blockReads != null) {
+                try { blockReads.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             }
+            if (readDelayMillis > 0L) {
+                try { Thread.sleep(readDelayMillis); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            if (failOnUser != null && userIds.contains(failOnUser)) {
+                throw new IllegalStateException("redis unavailable");
+            }
+            return userIds.stream().map(profiles::get).toList();
+        }
+    }
+
+    /** Counts tasks submitted but not yet finished — the quantity a fixed pool hides. */
+    static final class CountingPool extends java.util.concurrent.ThreadPoolExecutor {
+        final java.util.concurrent.atomic.AtomicInteger outstanding = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger maxOutstanding = new java.util.concurrent.atomic.AtomicInteger();
+
+        CountingPool(int threads) {
+            super(threads, threads, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>());
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            maxOutstanding.accumulateAndGet(outstanding.incrementAndGet(), Math::max);
+            super.execute(command);
+        }
+
+        @Override
+        protected void afterExecute(Runnable r, Throwable t) {
+            super.afterExecute(r, t);
+            outstanding.decrementAndGet();
         }
     }
 
@@ -238,12 +253,17 @@ class ProfileAuditServiceTest {
             store.user("u" + i, null, -2L);
         }
         store.readDelayMillis = 20L;
+        CountingPool pool = new CountingPool(2);
+        ProfileAuditService s = new ProfileAuditService(store, properties(2, 2), new ObjectMapper(), pool);
+        try {
+            ProfileAuditReport report = s.audit(null);
 
-        ProfileAuditReport report = service(store, 2, 2).audit(null);
-
-        assertEquals(9, store.chunksSeen.size());
-        assertEquals(18, report.summary().usersScanned());
-        assertTrue(store.maxInFlight.get() <= 2, "max in flight was " + store.maxInFlight.get());
+            assertEquals(9, store.chunksSeen.size());
+            assertEquals(18, report.summary().usersScanned());
+            assertTrue(pool.maxOutstanding.get() <= 2, "max outstanding was " + pool.maxOutstanding.get());
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -314,5 +334,39 @@ class ProfileAuditServiceTest {
             ProfileAuditService.ProfileAuditFailedException.class, () -> service(store, 500, 4).auditAccount("u1"));
 
         assertEquals("redis unavailable", e.getMessage());
+    }
+
+    @Test
+    void auditAccountDoesNotQueueBehindABusyBulkAudit() throws Exception {
+        FakeStore store = new FakeStore().user("u1", null, -2L).user("u2", null, -2L);
+        store.blockReads = new CountDownLatch(1);
+        ProfileAuditService s = service(store, 500, 1);
+        ExecutorService bulkRunner = Executors.newSingleThreadExecutor();
+        ExecutorService accountRunner = Executors.newSingleThreadExecutor();
+        try {
+            Future<ProfileAuditReport> bulk = bulkRunner.submit(() -> s.audit(null));
+            while (store.chunksSeen.isEmpty()) {
+                Thread.sleep(5);
+            }
+
+            // auditAccount is deliberately unguarded: it must reach the store (proving it was not
+            // rejected by the single-flight guard) even while the bulk audit above is still
+            // in flight and holding running == true.
+            Future<AccountAuditReport> account = accountRunner.submit(() -> s.auditAccount("u2"));
+            while (store.chunksSeen.size() < 2) {
+                Thread.sleep(5);
+            }
+
+            store.blockReads.countDown();
+
+            AccountAuditReport report = account.get();
+            assertEquals("ok", report.status());
+            assertEquals("u2", report.user().userId());
+            assertEquals(2, bulk.get().summary().usersScanned());
+        } finally {
+            store.blockReads.countDown();
+            bulkRunner.shutdownNow();
+            accountRunner.shutdownNow();
+        }
     }
 }

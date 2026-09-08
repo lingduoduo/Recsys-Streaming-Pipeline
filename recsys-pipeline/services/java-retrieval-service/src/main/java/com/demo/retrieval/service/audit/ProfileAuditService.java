@@ -9,6 +9,7 @@ import com.demo.retrieval.service.audit.ProfileAuditStore.ScanResult;
 import com.demo.retrieval.service.content.CatalogContentScoring;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -52,12 +53,18 @@ public class ProfileAuditService {
     private final ExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    @Autowired
     public ProfileAuditService(ProfileAuditStore store, RecommendationProperties properties, ObjectMapper objectMapper) {
+        this(store, properties, objectMapper, Executors.newFixedThreadPool(properties.getProfileAudit().getParallelism()));
+    }
+
+    /** Test seam: how many chunk tasks are submitted is invisible through a fixed pool, which bounds concurrent execution regardless. */
+    ProfileAuditService(ProfileAuditStore store, RecommendationProperties properties, ObjectMapper objectMapper, ExecutorService executor) {
         this.store = store;
         this.config = properties.getProfileAudit();
         this.catalogScoring = new CatalogContentScoring(properties);
         this.objectMapper = objectMapper;
-        this.executor = Executors.newFixedThreadPool(config.getParallelism());
+        this.executor = executor;
     }
 
     @PreDestroy
