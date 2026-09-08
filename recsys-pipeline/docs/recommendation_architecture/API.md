@@ -187,8 +187,9 @@ it holds.
 
 ## `GET /actuator/profile-audit/{user}`
 
-The same walk for a single account: one pipelined round trip for its profile, then one bounded
-probe per preference. Unguarded and executor-free, so it never queues behind a bulk audit.
+The same walk for a single account: one read of the active-run pointer, one pipelined round trip
+for its profile, then one bounded probe per preference. Unguarded and executor-free, so it never
+queues behind a bulk audit.
 
 ```bash
 curl -s localhost:8080/actuator/profile-audit/user_1 | jq .
@@ -210,7 +211,9 @@ curl -s localhost:8080/actuator/profile-audit/user_1 | jq .
 The `user` object is the same row the bulk report lists, and it is always returned — a healthy
 account has an empty `findings` array. `matched_items` is the full count of catalog items carrying
 that preference while `sample_items` holds at most `RECSYS_PROFILE_AUDIT_SAMPLE_ITEMS` of them, so
-a preference matching thousands of items costs no more to report than one matching three.
+a preference matching thousands of items costs no more to report than one matching three. Unlike
+the bulk route, an unset active-run pointer still returns a row here: the status is
+`missing_active_run` and the row carries a `no_profile` finding with that same reason.
 
 Status codes: 200; 400 if the id is outside `[a-zA-Z0-9_:-]{1,64}`; 503
 `{"status":"error","message":...}` if Redis fails. There is no 409 — only the bulk route is

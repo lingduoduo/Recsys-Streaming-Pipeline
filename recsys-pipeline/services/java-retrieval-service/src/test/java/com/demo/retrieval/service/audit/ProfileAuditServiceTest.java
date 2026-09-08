@@ -6,6 +6,7 @@ import com.demo.retrieval.service.audit.ProfileAuditReport.UserRow;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -21,7 +22,9 @@ import java.util.concurrent.Future;
 import static com.demo.retrieval.service.audit.UserAuditClassifierTest.profileJson;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -260,7 +263,11 @@ class ProfileAuditServiceTest {
 
             assertEquals(9, store.chunksSeen.size());
             assertEquals(18, report.summary().usersScanned());
-            assertTrue(pool.maxOutstanding.get() <= 2, "max outstanding was " + pool.maxOutstanding.get());
+            // afterExecute runs after the future has completed and unparked the joining thread, so
+            // the main thread can submit the next chunk before the worker decrements outstanding —
+            // one unit of slack above parallelism (2+1=3). The reverted batch-submit implementation
+            // measured 9 here, so the bound still discriminates a real regression.
+            assertTrue(pool.maxOutstanding.get() <= 3, "max outstanding was " + pool.maxOutstanding.get());
         } finally {
             pool.shutdownNow();
         }
@@ -292,6 +299,20 @@ class ProfileAuditServiceTest {
 
         assertEquals("redis unavailable", e.getMessage());
         assertEquals(3, store.chunksSeen.size());
+    }
+
+    @Test
+    void stopsSubmittingChunksOnceOneFails() {
+        FakeStore store = new FakeStore();
+        for (int i = 0; i < 6; i++) {
+            store.user("u" + i, null, -2L);
+        }
+        store.failOnUser = "u0";
+
+        assertThrows(ProfileAuditService.ProfileAuditFailedException.class,
+            () -> service(store, 2, 2).audit(null));
+
+        assertEquals(2, store.chunksSeen.size(), "chunks seen: " + store.chunksSeen);
     }
 
     @Test
@@ -337,6 +358,7 @@ class ProfileAuditServiceTest {
     }
 
     @Test
+    @Timeout(10)
     void auditAccountDoesNotQueueBehindABusyBulkAudit() throws Exception {
         FakeStore store = new FakeStore().user("u1", null, -2L).user("u2", null, -2L);
         store.blockReads = new CountDownLatch(1);
@@ -368,5 +390,25 @@ class ProfileAuditServiceTest {
             bulkRunner.shutdownNow();
             accountRunner.shutdownNow();
         }
+    }
+
+    @Test
+    void reusesThePreferenceIndexUntilTheCatalogIsReplaced() {
+        RecommendationProperties properties = properties(500, 4);
+        ProfileAuditService s = new ProfileAuditService(new FakeStore(), properties, new ObjectMapper());
+        service = s;
+
+        CatalogPreferenceIndex first = s.preferenceIndex();
+        assertSame(first, s.preferenceIndex());
+
+        MovieProfile item3 = new MovieProfile();
+        item3.setGenres(List.of("comedy"));
+        Map<String, MovieProfile> replacement = new LinkedHashMap<>(properties.getCatalog());
+        replacement.put("item3", item3);
+        properties.setCatalog(replacement);
+
+        CatalogPreferenceIndex rebuilt = s.preferenceIndex();
+        assertNotSame(first, rebuilt);
+        assertEquals(3, rebuilt.catalogSize());
     }
 }

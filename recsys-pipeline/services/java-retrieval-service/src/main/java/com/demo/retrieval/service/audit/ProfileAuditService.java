@@ -7,6 +7,7 @@ import com.demo.retrieval.service.audit.ProfileAuditReport.Summary;
 import com.demo.retrieval.service.audit.ProfileAuditReport.UserRow;
 import com.demo.retrieval.service.audit.ProfileAuditStore.ScanResult;
 import com.demo.retrieval.service.content.CatalogContentScoring;
+import com.demo.retrieval.service.content.NormalizedProfile;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,13 +53,19 @@ public class ProfileAuditService {
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile IndexCache indexCache;
 
     @Autowired
     public ProfileAuditService(ProfileAuditStore store, RecommendationProperties properties, ObjectMapper objectMapper) {
         this(store, properties, objectMapper, Executors.newFixedThreadPool(properties.getProfileAudit().getParallelism()));
     }
 
-    /** Test seam: how many chunk tasks are submitted is invisible through a fixed pool, which bounds concurrent execution regardless. */
+    /**
+     * Package-private seam: production always uses the public constructor, which owns its pool.
+     * A test injects its own executor to observe how many chunk tasks are submitted — a quantity
+     * a fixed pool hides, since it bounds concurrent execution and queues the surplus. Note that
+     * {@code shutdown()} will {@code shutdownNow()} whatever executor is passed in.
+     */
     ProfileAuditService(ProfileAuditStore store, RecommendationProperties properties, ObjectMapper objectMapper, ExecutorService executor) {
         this.store = store;
         this.config = properties.getProfileAudit();
@@ -73,13 +80,33 @@ public class ProfileAuditService {
     }
 
     /**
+     * The index is derived from the normalized catalog, which is itself cached on catalog identity,
+     * so rebuilding it per request would make a single-account lookup scale with catalog size.
+     * Two threads racing here both build a correct index and the loser's is discarded — cheaper
+     * than locking a read path that changes only when the catalog is replaced.
+     */
+    CatalogPreferenceIndex preferenceIndex() {
+        Map<String, NormalizedProfile> normalized = catalogScoring.normalizedCatalog();
+        IndexCache cache = indexCache;
+        if (cache != null && cache.source() == normalized) {
+            return cache.index();
+        }
+        CatalogPreferenceIndex built = CatalogPreferenceIndex.build(normalized);
+        indexCache = new IndexCache(normalized, built);
+        return built;
+    }
+
+    private record IndexCache(Map<String, NormalizedProfile> source, CatalogPreferenceIndex index) {
+    }
+
+    /**
      * One account, one round trip. Deliberately unguarded and executor-free: this path is a
      * bounded neighbor lookup, so it must not queue behind a full audit.
      */
     public AccountAuditReport auditAccount(String userId) {
         long started = System.nanoTime();
         try {
-            CatalogPreferenceIndex index = CatalogPreferenceIndex.build(catalogScoring.normalizedCatalog());
+            CatalogPreferenceIndex index = preferenceIndex();
             String activeRun = store.activeRun().orElse(null);
             UserRow row = new ProfileAuditWalker(store, objectMapper, index, config.getSampleItems())
                 .walk(activeRun, List.of(userId)).get(0);
@@ -110,7 +137,7 @@ public class ProfileAuditService {
         }
         long started = System.nanoTime();
         try {
-            CatalogPreferenceIndex index = CatalogPreferenceIndex.build(catalogScoring.normalizedCatalog());
+            CatalogPreferenceIndex index = preferenceIndex();
             ScanResult scan = store.scanUserIds(config.getUserKeyPattern(), effectiveLimit);
             String activeRun = store.activeRun().orElse(null);
             Aggregation aggregation = new Aggregation();
