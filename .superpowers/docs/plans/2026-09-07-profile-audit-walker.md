@@ -233,6 +233,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 package com.demo.retrieval.service.audit;
 
 import com.demo.retrieval.service.audit.ProfileAuditReport.UserRow;
+import com.demo.retrieval.service.audit.ProfileAuditStore.RawProfile;
 import com.demo.retrieval.service.content.NormalizedProfile;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -254,7 +255,7 @@ class ProfileAuditWalkerTest {
         "item1", new NormalizedProfile("", Set.of("sci-fi"), Set.of("space"), Set.of("space"), "", false, 0L)));
 
     /** Records every readProfiles batch so the test can assert one round trip per walk. */
-    private static final class RecordingStore implements ProfileAuditStore {
+    private static class RecordingStore implements ProfileAuditStore {
         final List<List<String>> batches = new ArrayList<>();
         final Map<String, RawProfile> profiles;
 
@@ -582,7 +583,9 @@ Then append these six tests (before the class's closing brace):
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `mvn -q test -Dtest=ProfileAuditServiceTest`
-Expected: compilation FAILURE, `cannot find symbol: method auditAccount(String)` / `class AccountAuditReport`. (`neverKeepsMoreThanParallelismChunksInFlight` would also fail on the current code, which submits all 9 chunks up front.)
+Expected: compilation FAILURE, `cannot find symbol: method auditAccount(String)` / `class AccountAuditReport`.
+
+**Correction applied during execution:** as first written, this task's residency test asserted `maxInFlight <= parallelism` where `maxInFlight` counted concurrent entries into `FakeStore.readProfiles`. That is guaranteed by the fixed thread pool's size alone and passes on the pre-change batch-submit code, so it proved nothing. The test now injects a counting `ThreadPoolExecutor` through a package-private constructor seam on `ProfileAuditService` and asserts on tasks *submitted but not finished*, which is the quantity a fixed pool hides. RED is proven by temporarily reverting `streamRows` to batch-submit-all.
 
 - [ ] **Step 4: Add `auditAccount` and make the bulk audit stream**
 
