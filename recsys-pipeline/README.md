@@ -227,7 +227,8 @@ for input, decay, taxonomy, output, activation, metrics, and all environment var
 [API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
 contract.
 To check every user at once — who lacks a valid profile, and which preferences match no catalog
-item — call `GET /actuator/profile-audit`; see
+item — call `GET /actuator/profile-audit`; for a single account, `GET
+/actuator/profile-audit/{user}`. See
 [API.md](docs/recommendation_architecture/API.md#get-actuatorprofile-audit).
 
 ### Step 5 — Query the API

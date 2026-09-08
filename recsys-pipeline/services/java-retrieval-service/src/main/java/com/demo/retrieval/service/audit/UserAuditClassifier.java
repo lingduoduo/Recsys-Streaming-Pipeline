@@ -26,6 +26,10 @@ final class UserAuditClassifier {
     }
 
     static UserRow classify(RawProfile raw, String activeRun, CatalogPreferenceIndex index, ObjectMapper mapper, int sampleItems) {
+        if (activeRun == null) {
+            return new UserRow(raw.userId(), false, null,
+                List.of(new Finding(ProfileAuditReport.FINDING_NO_PROFILE, ProfileAuditReport.STATUS_MISSING_ACTIVE_RUN, null)), null);
+        }
         Result result = UserProfileValidation.validate(raw.json(), raw.userId(), activeRun, mapper);
         if (result instanceof Invalid invalid) {
             return new UserRow(raw.userId(), false, null,
@@ -67,10 +71,10 @@ final class UserAuditClassifier {
             if (preference.value() == null || preference.score() <= 0.0) {
                 continue;
             }
-            List<String> items = index.lookup(kind, preference.value());
+            CatalogPreferenceIndex.ContentNeighbors neighbors = index.probe(kind, preference.value(), sampleItems);
             matches.add(new PreferenceMatch(kind, preference.value(), preference.score(), preference.evidenceCount(),
-                items.size(), items.subList(0, Math.min(sampleItems, items.size()))));
-            if (items.isEmpty()) {
+                neighbors.total(), neighbors.sample()));
+            if (neighbors.total() == 0) {
                 unmatched.add(new PreferenceRef(kind, preference.value()));
             }
         }

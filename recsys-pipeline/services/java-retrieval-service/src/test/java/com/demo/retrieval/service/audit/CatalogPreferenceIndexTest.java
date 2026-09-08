@@ -57,4 +57,42 @@ class CatalogPreferenceIndexTest {
         List<String> hit = index().lookup(CatalogPreferenceIndex.KIND_GENRE, "sci-fi");
         assertThrows(UnsupportedOperationException.class, () -> hit.add("x"));
     }
+
+    @Test
+    void probeReturnsTotalAndACappedSample() {
+        CatalogPreferenceIndex.ContentNeighbors neighbors =
+            index().probe(CatalogPreferenceIndex.KIND_GENRE, "sci-fi", 1);
+
+        assertEquals(2, neighbors.total());
+        assertEquals(List.of("item1"), neighbors.sample());
+    }
+
+    @Test
+    void probeSampleIsTheWholePostingListWhenLimitExceedsIt() {
+        CatalogPreferenceIndex.ContentNeighbors neighbors =
+            index().probe(CatalogPreferenceIndex.KIND_TAG, "space", 10);
+
+        assertEquals(2, neighbors.total());
+        assertEquals(List.of("item1", "item9"), neighbors.sample());
+    }
+
+    @Test
+    void probeIsEmptyForMissUnknownKindNullValueOrNonPositiveLimit() {
+        CatalogPreferenceIndex index = index();
+
+        assertEquals(0, index.probe(CatalogPreferenceIndex.KIND_GENRE, "film-noir", 5).total());
+        assertTrue(index.probe(CatalogPreferenceIndex.KIND_GENRE, "film-noir", 5).sample().isEmpty());
+        assertTrue(index.probe("keyword", "space", 5).sample().isEmpty());
+        assertTrue(index.probe(CatalogPreferenceIndex.KIND_GENRE, null, 5).sample().isEmpty());
+
+        CatalogPreferenceIndex.ContentNeighbors zeroLimit =
+            index.probe(CatalogPreferenceIndex.KIND_GENRE, "sci-fi", 0);
+        assertEquals(2, zeroLimit.total());
+        assertTrue(zeroLimit.sample().isEmpty());
+
+        CatalogPreferenceIndex.ContentNeighbors negativeLimit =
+            index.probe(CatalogPreferenceIndex.KIND_GENRE, "sci-fi", -3);
+        assertEquals(2, negativeLimit.total());
+        assertTrue(negativeLimit.sample().isEmpty());
+    }
 }
