@@ -1345,6 +1345,14 @@ does a temporal train/val split by `date`, trains a click-probability classifier
 Spark ML model plus a `metrics.json` (AUC-ROC, PR-AUC, logloss). Offline only — no serving,
 Redis, or ONNX changes.
 
+This is the repository's consolidated supervised fine-tuning (SFT) stage. The holdout consists
+of the latest `CTR_HOLDOUT_DAYS` **observed dates**, rather than a calendar-day interval; undated
+rows are excluded. Only those holdout dates are collected to the driver. Training caches only
+the label and assembled feature vector with memory/disk persistence, reuses its row count, and
+releases the cache after fitting. Evaluation caches only labels and probabilities, shares the
+ROC/PR ranking statistics, and computes logloss and positive rate together. Evaluation-owned
+caches are released on success or failure; an existing caller-owned prediction cache is retained.
+
 ```bash
 CTR_INPUT_PATH=/tmp/spark-recsys/training-samples ./run-ctr-training.sh
 ```
