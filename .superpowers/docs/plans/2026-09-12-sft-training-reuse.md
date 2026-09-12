@@ -259,7 +259,7 @@ and inspect the staged paths. Include only the five files named in this plan.
 
 Observed: independent code/spec review returned no substantive findings; `git diff --check` passed.
 
-- [ ] **Step 4: Commit the design record and implementation.**
+- [x] **Step 4: Commit the design record and implementation.**
 
 From the repository root:
 
@@ -270,12 +270,16 @@ git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/tas
 git commit -m "perf: reuse SFT training features and evaluation statistics"
 ```
 
-- [ ] **Step 5: Push and create the requested PR.**
+- [x] **Step 5: Push and create the requested PR.**
 
 Push `perf/sft-training-reuse` to `origin` and use `gh pr create --base master --head perf/sft-training-reuse`.
 Write the PR body to a temporary file and use `--body-file`; include the problem, changes,
 16-to-4 fixture result, actual test results, and links to the spec and plan. Verify the remote
 PR contains both documentation and code, then report its URL. Leave the branch available for review.
+
+Published: [PR #220](https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/220), targeting
+`master`. Design record commit: `5b3585e`; implementation commit: `0ad5f0f`. Final targeted SFT
+verification passed all 14 tests after the full module run passed all 423 tests.
 
 ## Coverage self-review
 

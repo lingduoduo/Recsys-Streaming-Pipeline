@@ -1,7 +1,7 @@
 # SFT training and evaluation reuse
 
 **Date:** 2026-09-12
-**Status:** Implemented and verified; preparing PR
+**Status:** Implemented and verified; [PR #220](https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/220) open
 
 ## Problem and scope
 
@@ -127,6 +127,7 @@ artifact migration is required.
 ## Verification record
 
 - `sbt test`: 423 tests passed, 0 failures, on 2026-09-12 with Java 17 and Spark 3.5.1.
+- Final `CtrRankingModelTrainingJobSpec` run: 14 tests passed, 0 failures.
 - Independent code/spec review: no substantive findings.
 - Regression evidence: four prediction rows caused 16 upstream computations before the change
   and 4 afterward; the mixed-null-date fixture failed before the fix and passed afterward.
