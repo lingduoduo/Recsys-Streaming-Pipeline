@@ -9,6 +9,9 @@ import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.ml.util.MLWritable
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.storage.StorageLevel
+
+import scala.language.existentials
 
 object CtrRankingModelTrainingJob {
 
@@ -70,32 +73,44 @@ object CtrRankingModelTrainingJob {
   }
 
   def splitByDate(df: DataFrame, holdoutDays: Int): (DataFrame, DataFrame) = {
-    val dates = df.select(col("date").cast("string")).distinct()
-      .collect().map(_.getString(0)).sorted
-    val holdout = dates.takeRight(math.max(1, holdoutDays)).toSeq
+    val holdout = df.select(col("date").cast("string").as("date"))
+      .where(col("date").isNotNull).distinct()
+      .orderBy(col("date").desc).limit(math.max(1, holdoutDays))
+      .collect().map(_.getString(0)).toSeq
     val train = df.where(!col("date").cast("string").isin(holdout: _*))
     val valid = df.where(col("date").cast("string").isin(holdout: _*))
     (train, valid)
   }
 
   def evaluate(predictions: DataFrame): Map[String, Double] = {
-    val auc = new BinaryClassificationEvaluator()
-      .setLabelCol("ctr_label").setRawPredictionCol("probability").setMetricName("areaUnderROC")
-      .evaluate(predictions)
-    val prauc = new BinaryClassificationEvaluator()
-      .setLabelCol("ctr_label").setRawPredictionCol("probability").setMetricName("areaUnderPR")
-      .evaluate(predictions)
+    // Reuse inference across metric actions without retaining the wide feature frame.
+    val scores = predictions.select("ctr_label", "probability")
+    val ownsCache = scores.storageLevel == StorageLevel.NONE
+    if (ownsCache) scores.persist(StorageLevel.MEMORY_AND_DISK)
+    try {
+      val metrics = new BinaryClassificationEvaluator()
+        .setLabelCol("ctr_label").setRawPredictionCol("probability").getMetrics(scores)
+      val (auc, prauc) = try {
+        // Both curves share the same sorted cumulative counts and default binning.
+        (metrics.areaUnderROC(), metrics.areaUnderPR())
+      } finally {
+        metrics.unpersist()
+      }
 
-    val eps = 1e-15
-    val posProb = udf { v: Vector => math.min(1.0 - eps, math.max(eps, v(1))) }
-    val logloss = predictions
-      .withColumn("p", posProb(col("probability")))
-      .select(mean(-(col("ctr_label") * log(col("p")) +
-        (lit(1.0) - col("ctr_label")) * log(lit(1.0) - col("p")))).as("ll"))
-      .first().getDouble(0)
-    val posRate = predictions.select(mean(col("ctr_label"))).first().getDouble(0)
+      val eps = 1e-15
+      val posProb = udf { v: Vector => math.min(1.0 - eps, math.max(eps, v(1))) }
+      val summary = scores.withColumn("p", posProb(col("probability")))
+        .select(
+          mean(-(col("ctr_label") * log(col("p")) +
+            (lit(1.0) - col("ctr_label")) * log(lit(1.0) - col("p")))).as("ll"),
+          mean(col("ctr_label")).as("positive_rate"))
+        .first()
 
-    Map("auc_roc" -> auc, "pr_auc" -> prauc, "logloss" -> logloss, "positive_rate" -> posRate)
+      Map("auc_roc" -> auc, "pr_auc" -> prauc,
+        "logloss" -> summary.getDouble(0), "positive_rate" -> summary.getDouble(1))
+    } finally {
+      if (ownsCache) scores.unpersist()
+    }
   }
 
   def trainModel(training: DataFrame, algorithm: String): Model[_] = algorithm match {
@@ -117,16 +132,26 @@ object CtrRankingModelTrainingJob {
   ): Map[String, Double] = {
     val raw = spark.read.parquet(inputPath)
       .where(col("user_id").isNotNull && col("item_id").isNotNull && col("impression_time").isNotNull)
-    val labeled  = labelColumn(raw, labelMode)
-    val featured = assembleFeatures(labeled, numFeatures)
-    val (training, validation) = splitByDate(featured, holdoutDays)
-    require(!training.take(1).isEmpty && !validation.take(1).isEmpty,
-      s"Not enough distinct dates in $inputPath to form a train/validation split with holdoutDays=$holdoutDays")
+    val (trainRaw, validRaw) = splitByDate(raw, holdoutDays)
+    val validationRows = validRaw.count()
+    val training = assembleFeatures(labelColumn(trainRaw, labelMode), numFeatures)
+      .select("ctr_label", "features").persist(StorageLevel.MEMORY_AND_DISK)
+    val (model, trainingRows): (Model[_], Long) = try {
+      // Materialize once: reuse the count for validation/reporting and features for fitting.
+      val trainingRows = training.count()
+      require(trainingRows > 0 && validationRows > 0,
+        s"Not enough distinct dates in $inputPath to form a train/validation split with holdoutDays=$holdoutDays")
 
-    val model = trainModel(training, algorithm)
+      (trainModel(training, algorithm), trainingRows)
+    } finally {
+      training.unpersist()
+    }
+
+    val validation = assembleFeatures(labelColumn(validRaw, labelMode), numFeatures)
+      .select("ctr_label", "features")
     val metrics = evaluate(model.transform(validation)) ++ Map(
-      "train_rows" -> training.count().toDouble,
-      "val_rows"   -> validation.count().toDouble
+      "train_rows" -> trainingRows.toDouble,
+      "val_rows"   -> validationRows.toDouble
     )
 
     model match {

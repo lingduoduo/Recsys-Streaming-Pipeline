@@ -1,6 +1,7 @@
 package com.demo.task
 
 import org.apache.spark.ml.linalg.{Vector, Vectors}
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions.current_timestamp
 import org.scalatest.BeforeAndAfterAll
@@ -116,6 +117,86 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
     m("logloss") should be >= 0.0
   }
 
+  it should "compute each prediction once and release evaluation caches" in {
+    val s = spark; import s.implicits._
+    val computed = spark.sparkContext.longAccumulator("ctr-predictions")
+    val preds = spark.sparkContext.parallelize(Seq(
+      (1.0, Vectors.dense(0.2, 0.8)),
+      (0.0, Vectors.dense(0.7, 0.3)),
+      (1.0, Vectors.dense(0.4, 0.6)),
+      (0.0, Vectors.dense(0.9, 0.1))
+    ), 2).map { row => computed.add(1L); row }.toDF("ctr_label", "probability")
+    val cachedBefore = spark.sparkContext.getPersistentRDDs.keySet
+
+    val m = CtrRankingModelTrainingJob.evaluate(preds)
+
+    m("auc_roc") shouldBe (1.0 +- 1e-12)
+    m("pr_auc") shouldBe (1.0 +- 1e-12)
+    m("logloss") shouldBe (0.2990011586691898 +- 1e-12)
+    m("positive_rate") shouldBe (0.5 +- 1e-12)
+    computed.value shouldBe 4L
+    spark.sparkContext.getPersistentRDDs.keySet shouldBe cachedBefore
+  }
+
+  "splitByDate" should "hold out the latest observed dates and exclude undated rows" in {
+    val s = spark; import s.implicits._
+    val df = Seq(
+      ("a", "2026-06-01"), ("b", "2026-06-10"), ("c", "2026-06-20"),
+      ("d", "2026-06-20"), ("undated", null.asInstanceOf[String])
+    ).toDF("id", "date")
+    val (train, valid) = CtrRankingModelTrainingJob.splitByDate(df, holdoutDays = 2)
+    train.select("id").as[String].collect().toSet shouldBe Set("a")
+    valid.select("id").as[String].collect().toSet shouldBe Set("b", "c", "d")
+  }
+
+  "evaluate" should "preserve Spark metrics for ties and single-class holdouts" in {
+    val s = spark; import s.implicits._
+    Seq(Seq(1.0, 0.0, 1.0, 0.0), Seq(1.0, 1.0, 1.0, 1.0)).foreach { labels =>
+      val preds = labels.zip(Seq(0.9, 0.5, 0.5, 0.1))
+        .map { case (label, p) => (label, Vectors.dense(1.0 - p, p)) }
+        .toDF("ctr_label", "probability")
+      val evaluator = new BinaryClassificationEvaluator()
+        .setLabelCol("ctr_label").setRawPredictionCol("probability")
+      val expectedRoc = evaluator.setMetricName("areaUnderROC").evaluate(preds)
+      val expectedPr = evaluator.setMetricName("areaUnderPR").evaluate(preds)
+      val actual = CtrRankingModelTrainingJob.evaluate(preds)
+      actual("auc_roc") shouldBe (expectedRoc +- 1e-12)
+      actual("pr_auc") shouldBe (expectedPr +- 1e-12)
+    }
+  }
+
+  "splitByDate" should "exclude undated rows when no dated rows exist" in {
+    val s = spark; import s.implicits._
+    val df = Seq(("undated", null.asInstanceOf[String])).toDF("id", "date")
+    val (train, valid) = CtrRankingModelTrainingJob.splitByDate(df, holdoutDays = 1)
+    train.count() shouldBe 0L
+    valid.count() shouldBe 0L
+  }
+
+  "evaluate" should "release its cache when probability validation fails" in {
+    val s = spark; import s.implicits._
+    val preds = Seq((1.0, "invalid")).toDF("ctr_label", "probability")
+    val cachedBefore = spark.sparkContext.getPersistentRDDs.keySet
+    intercept[IllegalArgumentException] {
+      CtrRankingModelTrainingJob.evaluate(preds)
+    }
+    spark.sharedState.cacheManager.lookupCachedData(preds.select("ctr_label", "probability")) shouldBe None
+    spark.sparkContext.getPersistentRDDs.keySet shouldBe cachedBefore
+  }
+
+  it should "retain a caller-owned prediction cache" in {
+    val s = spark; import s.implicits._
+    val preds = Seq((1.0, Vectors.dense(0.2, 0.8)), (0.0, Vectors.dense(0.7, 0.3)))
+      .toDF("ctr_label", "probability").cache()
+    try {
+      preds.count()
+      CtrRankingModelTrainingJob.evaluate(preds)
+      spark.sharedState.cacheManager.lookupCachedData(preds).isDefined shouldBe true
+    } finally {
+      preds.unpersist()
+    }
+  }
+
   "run" should "train a model and write metrics.json" in {
     import java.nio.file.{Files, Paths}
     val s = spark; import s.implicits._
@@ -140,13 +221,28 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
 
     rows.write.mode("overwrite").partitionBy("date").parquet(input)
 
-    val m = CtrRankingModelTrainingJob.run(
-      spark, input, modelP, metricsP,
-      holdoutDays = 1, algorithm = "logreg", labelMode = "positive", numFeatures = 1024)
+    val cachedBefore = spark.sparkContext.getPersistentRDDs.keySet
+    Seq("logreg", "gbt").foreach { algorithm =>
+      val m = CtrRankingModelTrainingJob.run(
+        spark, input, modelP, metricsP,
+        holdoutDays = 1, algorithm = algorithm, labelMode = "positive", numFeatures = 1024)
 
-    m("auc_roc") should (be >= 0.0 and be <= 1.0)
-    Files.exists(Paths.get(metricsP)) shouldBe true
-    new java.io.File(modelP).exists() shouldBe true
+      m("auc_roc") should (be >= 0.0 and be <= 1.0)
+      m("train_rows") shouldBe 2.0
+      m("val_rows") shouldBe 2.0
+      Files.exists(Paths.get(metricsP)) shouldBe true
+      new java.io.File(modelP).exists() shouldBe true
+      spark.sparkContext.getPersistentRDDs.keySet shouldBe cachedBefore
+    }
+
+    // An oversized holdout leaves no training rows; even this early failure must release caches.
+    intercept[IllegalArgumentException] {
+      CtrRankingModelTrainingJob.run(
+        spark, input, modelP, metricsP,
+        holdoutDays = 2, algorithm = "logreg", labelMode = "positive", numFeatures = 1024)
+    }
+    spark.sharedState.cacheManager.isEmpty shouldBe true
+    spark.sparkContext.getPersistentRDDs.keySet shouldBe cachedBefore
   }
 
   it should "run writes parseable metrics.json when a metric is non-finite" in {
