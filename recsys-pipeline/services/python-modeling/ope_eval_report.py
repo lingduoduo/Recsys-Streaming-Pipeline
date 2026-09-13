@@ -42,7 +42,9 @@ BASE_FEATURES = ["coldStart", "impressions", "clicks"]
 TABULAR_Q_PRED_KEY = "tabQ"
 FQI_Q_PRED_KEY = "fqiQ"
 DPO_PRED_KEY = "dpoScore"
-#: The online GRPO policy's score, written by GrpoPolicyScorer in the serving path.
+#: The online GRPO policy's score. Registered defensively: GrpoPolicyScorer (serving) only logs
+#: shadow concordance and re-ranks in `on` mode; nothing writes this key into modelPredictions
+#: today. If a producer ever does, the registration keeps it out of the reward model's features.
 GRPO_PRED_KEY = "grpoScore"
 
 POLICY_ONLY_PRED_KEYS = (TABULAR_Q_PRED_KEY, FQI_Q_PRED_KEY, DPO_PRED_KEY, GRPO_PRED_KEY)
