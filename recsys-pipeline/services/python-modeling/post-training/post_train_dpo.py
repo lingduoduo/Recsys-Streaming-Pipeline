@@ -10,13 +10,12 @@ policy and the reference it was anchored to.
                               --output-parquet scored.parquet
     python3 ../ope_eval_report.py --parquet scored.parquet
 
-UNMET PREREQUISITE: the slate log and the replay buffer mint their request ids independently --
-`f"req_{uuid4().hex[:12]}"` in movie_segment_producer versus `UUID.randomUUID().toString()` in the
-Java serving path -- so on the data this repository produces today the requestId join matches
-nothing and this CLI exits with 0 pairs. It becomes runnable once the serving path emits its own
-requestId into the Kafka event stream the slate log is built from. The printed
-"slate request_ids matched to a replay requestId" count is the number that says which case you are
-in.
+PREREQUISITE: the join needs slates built from serving-emitted events. With
+RECSYS_GRPO_EMIT_EVENTS=true the retrieval service publishes its own impressions and feedback to
+Kafka carrying the same requestId it writes to the replay buffer, so the slate log and the replay
+share one id. Slates produced only by the Python producers mint their own
+`f"req_{uuid4().hex[:12]}"` ids and can never join. The printed "slate request_ids matched to a
+replay requestId" count is the number that says which case you are in.
 
 Chaining after post_train_q.py is safe: feature_names() excludes every key in
 POLICY_ONLY_PRED_KEYS, so scoring an already-scored replay cannot feed one arm's output into
@@ -145,16 +144,10 @@ def main(argv=None) -> dict:
             f"{dropped} candidate pairs dropped for want of a replay row, and only "
             f"{diagnostics.n_slate_request_ids_matched} of {diagnostics.n_slate_request_ids} slate "
             f"request_ids appear in the replay at all.\n"
-            "A TOTAL join failure (0 matched) means the two sides mint their ids independently: "
-            "the slate log's `request_id` comes from the Python producer "
-            "(movie_segment_producer.make_slate, f\"req_{uuid4().hex[:12]}\") while the replay's "
-            "`requestId` comes from the Java serving path (HybridRecommendationService, "
-            "UUID.randomUUID().toString()). Different generators, different formats -- the values "
-            "can never be equal, so the requestId join is structurally impossible on the data this "
-            "repository produces today.\n"
-            "Fixing it requires the SERVING path to emit its own requestId into the Kafka event "
-            "stream the slate log is built from, so both sides carry one id. That is a "
-            "serving-path change, outside this component.\n"
+            "A TOTAL join failure (0 matched) means the slates were not built from serving-emitted "
+            "events. The retrieval service publishes impressions and feedback carrying the replay's "
+            "requestId only when RECSYS_GRPO_EMIT_EVENTS=true (default false); slates from the "
+            "Python producers alone mint their own `req_...` ids and can never join.\n"
             "If ids DID match, the cause is instead that every slate had no engagement, or no "
             "unengaged item to contrast it against.")
 
