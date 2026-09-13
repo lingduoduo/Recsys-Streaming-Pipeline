@@ -1,7 +1,7 @@
 # Offline Q arm: share the scorer and the split with DPO
 
 **Date:** 2026-09-12
-**Status:** Implemented and verified; PR pending
+**Status:** Implemented and verified; [PR #226](https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/226) open
 
 ## Problem and scope
 
