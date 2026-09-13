@@ -71,7 +71,7 @@ def feature_names(events) -> list[str]:
                             if k not in POLICY_ONLY_PRED_KEYS]
 
 
-def _vec(cand_like: dict, names: list[str]) -> list[float]:
+def candidate_features(cand_like: dict, names: list[str]) -> list[float]:
     mp = cand_like.get("modelPredictions") or {}
     out = []
     for n in names:
@@ -95,7 +95,7 @@ def _taken_candidate(event: dict) -> dict:
 
 
 def taken_features(event: dict, names: list[str]) -> list[float]:
-    return _vec(_taken_candidate(event), names)
+    return candidate_features(_taken_candidate(event), names)
 
 
 def is_test(request_id: str) -> bool:
@@ -118,7 +118,7 @@ class RewardModel:
         """
         if not cand_likes:
             return np.zeros(0, dtype=float)
-        X = np.array([_vec(c, self.names) for c in cand_likes], dtype=float)
+        X = np.array([candidate_features(c, self.names) for c in cand_likes], dtype=float)
         Xs = logistic.apply_standardize(X, self._mean, self._std)
         return logistic.predict_proba(Xs, self._w)
 

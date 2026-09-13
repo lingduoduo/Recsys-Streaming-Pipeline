@@ -16,8 +16,7 @@ from dataclasses import dataclass
 
 # Reuses the sibling module's feature helpers on purpose: training, scoring, and evaluation must
 # read an identical feature schema, which is the property ope_eval_report's own comments demand.
-from ope_eval_report import _vec as candidate_features
-from ope_eval_report import feature_names, taken_features
+from ope_eval_report import candidate_features, feature_names, taken_features
 
 #: Inactivity gap that ends a session, in milliseconds.
 DEFAULT_SESSION_GAP_MS = 30 * 60 * 1000

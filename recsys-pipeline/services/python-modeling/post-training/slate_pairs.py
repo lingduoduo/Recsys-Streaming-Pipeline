@@ -83,7 +83,7 @@ def replay_index(events, names) -> dict:
             predictions = candidate.get("modelPredictions") or {}
             reference = predictions.get(REFERENCE_PRED_KEY)
             index[(request_id, str(candidate.get("item")))] = (
-                ope_eval_report._vec(candidate, names),
+                ope_eval_report.candidate_features(candidate, names),
                 float(reference or 0.0),
                 reference is not None,
             )

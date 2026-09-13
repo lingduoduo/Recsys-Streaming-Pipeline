@@ -93,7 +93,7 @@ def score_events(events, names, q, model):
     for event in events:
         state = replay_dataset.state_key(event.get("state"))
         for candidate in replay_dataset.as_list(event.get("actionSpace")):
-            rows.append(ope_eval_report._vec(candidate, names))
+            rows.append(ope_eval_report.candidate_features(candidate, names))
             targets.append((candidate, state))
     fqi_scores = model.score_many(rows)
     for (candidate, state), q_value in zip(targets, fqi_scores):

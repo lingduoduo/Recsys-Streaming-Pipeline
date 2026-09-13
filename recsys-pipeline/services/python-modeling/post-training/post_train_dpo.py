@@ -84,7 +84,7 @@ def score_events(events, names, policy):
     rows, targets = [], []
     for event in events:
         for candidate in replay_dataset.as_list(event.get("actionSpace")):
-            rows.append(ope_eval_report._vec(candidate, names))
+            rows.append(ope_eval_report.candidate_features(candidate, names))
             targets.append(candidate)
     scores = policy.score_many(rows)
     for candidate, score in zip(targets, scores):
