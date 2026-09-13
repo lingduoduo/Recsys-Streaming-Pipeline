@@ -250,7 +250,7 @@ def _replay_fixture(n_users=12, per_user=4):
 
 def test_split_transitions_uses_the_ope_held_out_hash():
     transitions = replay_dataset.build_transitions(_replay_fixture())
-    train, test = post_train_q.split_transitions(transitions)
+    train, test, _ = replay_dataset.split_held_out(transitions)
     assert train and test
     assert all(not ope_eval_report.is_test(t.request_id) for t in train)
     assert all(ope_eval_report.is_test(t.request_id) for t in test)

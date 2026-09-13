@@ -32,15 +32,6 @@ import replay_dataset
 import tabular_q
 
 
-def split_transitions(transitions):
-    """Train/held-out split on the same requestId hash ope_eval_report uses."""
-    train = [t for t in transitions if not ope_eval_report.is_test(t.request_id)]
-    test = [t for t in transitions if ope_eval_report.is_test(t.request_id)]
-    if not train:
-        return transitions, transitions
-    return train, test
-
-
 def tabular_td_residual(q, transitions, gamma: float):
     """Mean absolute Bellman error. None when there is nothing held out."""
     if not transitions:
@@ -125,7 +116,7 @@ def main(argv=None) -> dict:
     if not transitions:
         raise SystemExit("no transitions built from the replay buffer — nothing to fit")
 
-    train, held_out = split_transitions(transitions)
+    train, held_out, _ = replay_dataset.split_held_out(transitions)
     q = tabular_q.fit(train, gamma=args.gamma, sweeps=args.sweeps)
     model = fqi.fit(train, gamma=args.gamma, iterations=args.fqi_iterations,
                     epochs=args.fqi_epochs, seed=args.seed)
