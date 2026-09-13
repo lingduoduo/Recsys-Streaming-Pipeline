@@ -130,7 +130,7 @@ weights, or artifacts change.
   `ArrayBuffer`, or `.total` in `GrpoSlates.scala`.
 - `test_grpo_offline_eval.py`: 36 passed unchanged. Parity: `main` on a fixed fixture (5 slates,
   a v1 row, a missing prediction score, a NaN label, pinned weights) produced byte-identical stdout
-  and summary before and after. "position" mentions fell from 12 to 8; "served-position feature"
+  and summary before and after. "position" mentions fell from 14 to 8; "served-position feature"
   appears at the module docstring, the refusal message, and one pointer comment.
 - Diff against master: 4 files, 85 insertions, 120 deletions.
 - Full suites on 2026-09-12: retrieval Maven 329 run, 0 failures, 1 skipped
