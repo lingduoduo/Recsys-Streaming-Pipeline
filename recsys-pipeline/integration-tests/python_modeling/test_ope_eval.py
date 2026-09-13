@@ -344,3 +344,20 @@ def test_evaluate_statistics_matches_per_event_scoring_with_an_empty_action_spac
     assert rows["popularity"]["n_events"] == len(events) - 1
     assert rows["logging"]["n_events"] == len(events)
     assert rows["logging"]["lift_vs_logging"] == 0.0
+
+
+def test_bootstrap_scores_each_policy_once_regardless_of_sample_count():
+    events = _dataset(50)
+    model = ope.fit_reward_model(events)
+    points = ope.evaluate(events, model)
+    non_logging = [row["policy"] for row in points if row["policy"] != "logging"]
+    assert len(non_logging) == 4  # popularity, ctr, random, model:relevance
+
+    calls = []
+    original = model.predict_batch
+    model.predict_batch = lambda candidates: (calls.append(len(candidates)), original(candidates))[1]
+
+    rows = ope.bootstrap_intervals(events, model, points, samples=40, seed=19)
+
+    assert len(calls) == len(non_logging)
+    assert all(row["value_ci_low"] is not None for row in rows)

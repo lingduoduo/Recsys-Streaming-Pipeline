@@ -257,6 +257,7 @@ def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
     """Bootstrap event-sampling uncertainty conditional on the fixed fitted model.
 
     These intervals do not include uncertainty from fitting the reward model.
+    Every event is scored once per policy before resampling; replicates only re-index those scores.
     """
     if samples < 0:
         raise ValueError("bootstrap samples must be nonnegative")
@@ -266,11 +267,11 @@ def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
         return enriched
     policies = [row["policy"] for row in point_rows]
     stats = {policy: {"value": [], "lift": []} for policy in policies}
+    rewards, scores = _policy_scores(events, model, policies)
     rng = np.random.default_rng(seed)
     for _ in range(samples):
         indexes = rng.integers(0, len(events), size=len(events))
-        sampled = [events[int(index)] for index in indexes]
-        for row in _evaluate_statistics(sampled, model, policies):
+        for row in _rows_from_scores(rewards[indexes], scores[indexes], policies, model):
             stats[row["policy"]]["value"].append(float(row["value"]))
             if row["lift_vs_logging"] is not None:
                 stats[row["policy"]]["lift"].append(float(row["lift_vs_logging"]))
