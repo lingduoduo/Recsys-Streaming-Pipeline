@@ -40,7 +40,7 @@ session scratchpad ran on the unchanged code and saved `grpo_eval_parity_before.
 **Interfaces:**
 - Produces: the same public API minus `score(ServedMovie)` and `enabled()`.
 
-- [ ] **Step 1: Move the seven `score`-based tests to the production entry points**
+- [x] **Step 1: Move the seven `score`-based tests to the production entry points**
 
 Replace the tests `offModeIsDisabledAndScoresZero` through `aNonFiniteWeightIsUnusable` (lines 121-189) with:
 
@@ -128,12 +128,12 @@ Replace the tests `offModeIsDisabledAndScoresZero` through `aNonFiniteWeightIsUn
 
 Delete the `expectedScore()` helper (lines 46-53) and the now-unused `import static org.junit.jupiter.api.Assertions.assertFalse;`.
 
-- [ ] **Step 2: Run the scorer suite to confirm it still passes on the unchanged scorer**
+- [x] **Step 2: Run the scorer suite to confirm it still passes on the unchanged scorer**
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home mvn test -Dtest=GrpoPolicyScorerTest -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: `Tests run: 29, Failures: 0`. The tests now go through the real entry points; nothing in production has changed yet.
+Expected: `Tests run: 29, Failures: 0`. The tests now go through the real entry points; nothing in production has changed yet. Observed: 29 run, 0 failures.
 
-- [ ] **Step 3: Remove the dead entry points and unbox the sort**
+- [x] **Step 3: Remove the dead entry points and unbox the sort**
 
 In `GrpoPolicyScorer.java`:
 
@@ -157,15 +157,15 @@ In `GrpoPolicyScorer.java`:
             return Optional.of(order);
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `grep -n "score(\|enabled()\|Arrays" recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/grpo/GrpoPolicyScorer.java`
 Expected: no output.
 
 Run the same Maven command as Step 2.
-Expected: `Tests run: 29, Failures: 0`.
+Expected: `Tests run: 29, Failures: 0`. Observed: 29 run, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/grpo/GrpoPolicyScorer.java recsys-pipeline/services/java-retrieval-service/src/test/java/com/demo/retrieval/service/grpo/GrpoPolicyScorerTest.java
@@ -182,7 +182,7 @@ git commit -m "refactor: drop the GRPO scorer's dead entry points and boxed sort
 **Interfaces:**
 - Produces: `GrpoSlates.TooSmall`, `GrpoSlates.BadFeatureVersion`, `GrpoSlates.ZeroVariance` (Strings); private `classify(row: Row, cfg: GrpoJobConfig): Either[String, GrpoGroup]`; `toGroups` unchanged in signature.
 
-- [ ] **Step 1: Rewrite `GateCounts.reasons`, add the constants, `classify`, and the fold-based `toGroups`**
+- [x] **Step 1: Rewrite `GateCounts.reasons`, add the constants, `classify`, and the fold-based `toGroups`**
 
 Replace `GateCounts` with:
 
@@ -236,15 +236,15 @@ Replace `toGroups` (keeping its scaling-limitation doc comment verbatim) with:
   }
 ```
 
-- [ ] **Step 2: Run the GRPO suites**
+- [x] **Step 2: Run the GRPO suites**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home sbt -batch "testOnly com.demo.grpo.*"`
-Expected: 51 tests, 51 succeeded. The five gate tests pin each reason and the kept group's rewards.
+Expected: 51 tests, 51 succeeded. The five gate tests pin each reason and the kept group's rewards. Observed: 51 succeeded.
 
 Run: `grep -n "var \|ArrayBuffer\|\.total\b" recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoSlates.scala`
 Expected: no output.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoSlates.scala
@@ -261,7 +261,7 @@ git commit -m "refactor: classify GRPO slates purely and fold the gate counts"
 **Interfaces:**
 - Produces: private `_parse_rows(rows)` yielding `(row, features, parsed)`; every public function unchanged.
 
-- [ ] **Step 1: Share the row parse and collapse the schema check**
+- [x] **Step 1: Share the row parse and collapse the schema check**
 
 Add after `_as_feature_map`:
 
@@ -331,7 +331,7 @@ with
             continue
 ```
 
-- [ ] **Step 2: Tell the v1 history once**
+- [x] **Step 2: Tell the v1 history once**
 
 Replace the comment above `SUPPORTED_FEATURE_VERSION` with:
 
@@ -355,18 +355,18 @@ In `build_scored_rows`'s docstring, leave the text as is. In `main`, replace the
         # criterion directly.
 ```
 
-- [ ] **Step 3: Verify tests, parity, and the history count**
+- [x] **Step 3: Verify tests, parity, and the history count**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_grpo_offline_eval.py -q`
-Expected: 36 passed.
+Expected: 36 passed. Observed: 36 passed.
 
 Run: `cd recsys-pipeline && python3 <scratchpad>/grpo_eval_parity.py > <scratchpad>/grpo_eval_parity_after.json && cmp <scratchpad>/grpo_eval_parity_before.json <scratchpad>/grpo_eval_parity_after.json && echo IDENTICAL`
-Expected: `IDENTICAL`.
+Expected: `IDENTICAL`. Observed: identical.
 
 Run: `grep -c "served-position feature" recsys-pipeline/services/python-modeling/post-training/grpo_offline_eval.py`
-Expected: 2 (module docstring, `detect_feature_schema` docstring) or fewer.
+Expected: 2 (module docstring, `detect_feature_schema` docstring) or fewer. Observed: 3, at the module docstring, the pinned refusal message, and the one pointer comment in `main`; the `detect_feature_schema` docstring no longer uses the phrase.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/grpo_offline_eval.py
@@ -385,16 +385,16 @@ git commit -m "refactor: share the GRPO evaluator's row parse and tell the v1 hi
 - Consumes: the finished work from Tasks 1-3.
 - Produces: a PR against `master` from `simplify/grpo-surface`.
 
-- [ ] **Step 1: Run the three full suites**
+- [x] **Step 1: Run the three full suites**
 
 Run in the background, one sbt run at a time:
 - `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=... mvn test` → expected `BUILD SUCCESS`, `UserProfileIntegrationTest` skipped as always.
 - `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=... sbt -batch test` → expected all tests pass (424 on 2026-09-12).
 - `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling -q` → expected 501 passed.
 
-If unrelated tests fail, confirm they fail on `origin/master` too before reporting.
+If unrelated tests fail, confirm they fail on `origin/master` too before reporting. Observed: Maven 329 run, 0 failures, 1 skipped; Spark 424 succeeded in 5 min 1 s; Python 501 passed.
 
-- [ ] **Step 2: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 2: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` section with the per-task counts, the parity result, the greps, and the three full-suite results.
 
@@ -403,7 +403,7 @@ git add .superpowers/docs/specs/2026-09-12-grpo-surface-simplification-design.md
 git commit -m "docs: record GRPO surface simplification verification"
 ```
 
-- [ ] **Step 3: Open the PR**
+- [x] **Step 3: Open the PR**
 
 ```bash
 git push -u origin simplify/grpo-surface

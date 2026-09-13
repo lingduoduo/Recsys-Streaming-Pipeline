@@ -1,7 +1,7 @@
 # GRPO surface simplification
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `simplify/grpo-surface`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -109,7 +109,8 @@ Paths below are relative to the repository root.
 3. `test_grpo_offline_eval.py` reports 36 passed unchanged, and `main` on a fixed fixture prints
    the same stdout and returns the same summary before and after, compared as JSON.
 4. `grep -c "position" grpo_offline_eval.py` drops, and the phrase "served-position feature"
-   appears once.
+   appears only in the module docstring, the operator-facing refusal message the tests pin, and
+   one pointer comment.
 5. The full retrieval Maven suite, the full Spark module suite, and the full Python modeling suite
    pass, with unrelated failures reported against a baseline rather than claimed green.
 
@@ -120,3 +121,18 @@ disagreement test pin both. `classify` returns the first failing reason, which m
 nested order only if the checks stay in the same sequence; the five gate tests pin each reason.
 The evaluator refactor is guarded by 36 tests and a parity run. Rollback is a revert; no data,
 weights, or artifacts change.
+
+## Verification record
+
+- `GrpoPolicyScorerTest`: 29 tests, 0 failures, first with the moved tests on the unchanged scorer,
+  then after the removal. No `score(`, `enabled()`, or `Arrays` in the scorer's code.
+- `testOnly com.demo.grpo.*`: 51 tests, 51 succeeded; `GrpoSlatesSpec` untouched. No `var`,
+  `ArrayBuffer`, or `.total` in `GrpoSlates.scala`.
+- `test_grpo_offline_eval.py`: 36 passed unchanged. Parity: `main` on a fixed fixture (5 slates,
+  a v1 row, a missing prediction score, a NaN label, pinned weights) produced byte-identical stdout
+  and summary before and after. "position" mentions fell from 12 to 8; "served-position feature"
+  appears at the module docstring, the refusal message, and one pointer comment.
+- Diff against master: 4 files, 85 insertions, 120 deletions.
+- Full suites on 2026-09-12: retrieval Maven 329 run, 0 failures, 1 skipped
+  (`UserProfileIntegrationTest`, Testcontainers blocked on Docker 29); Spark module 424 succeeded
+  in 5 min 1 s; Python modeling 501 passed.
