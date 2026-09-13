@@ -1,7 +1,7 @@
 # GRPO surface simplification
 
 **Date:** 2026-09-12
-**Status:** Implemented and verified; PR pending
+**Status:** Implemented and verified; [PR #225](https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/225) open
 
 ## Problem and scope
 
