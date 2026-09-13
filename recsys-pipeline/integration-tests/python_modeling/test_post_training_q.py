@@ -324,7 +324,7 @@ def test_score_events_assigns_correct_per_candidate_q_values_not_constant_or_mis
     m1, m2 = candidates["m1"], candidates["m2"]
 
     for candidate in (m1, m2):
-        expected_fqi = model.score_one(ope_eval_report._vec(candidate, names))
+        expected_fqi = model.score_one(ope_eval_report.candidate_features(candidate, names))
         assert candidate["modelPredictions"]["fqiQ"] == pytest.approx(expected_fqi, abs=1e-6)
         expected_tab = tabular_q.score(q, state, candidate["item"])
         assert candidate["modelPredictions"]["tabQ"] == pytest.approx(expected_tab, abs=1e-6)

@@ -11,13 +11,14 @@ implementation does.
 """
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 
 # Reuses the sibling module's feature helpers on purpose: training, scoring, and evaluation must
 # read an identical feature schema, which is the property ope_eval_report's own comments demand.
-from ope_eval_report import _vec as candidate_features
-from ope_eval_report import feature_names, taken_features
+from ope_eval_report import candidate_features, feature_names, taken_features
+import ope_support
 
 #: Inactivity gap that ends a session, in milliseconds.
 DEFAULT_SESSION_GAP_MS = 30 * 60 * 1000
@@ -131,3 +132,32 @@ def build_transitions(events, names=None, gap_ms: int = DEFAULT_SESSION_GAP_MS) 
                     terminal=last or not next_candidates,
                 ))
     return transitions
+
+
+def load_events(args) -> list[dict]:
+    """Replay events from `--parquet` when given, otherwise from Redis at REDIS_HOST / REDIS_PORT."""
+    if args.parquet:
+        return ope_support.load_from_parquet(args.parquet)
+    import redis
+    client = redis.Redis(
+        host=os.environ.get("REDIS_HOST", "localhost"),
+        port=int(os.environ.get("REDIS_PORT", "6379")),
+        decode_responses=False,
+    )
+    return ope_support.load_from_redis(client, args.key, args.limit)
+
+
+def candidate_rows(events, names):
+    """Every candidate in every event's actionSpace, as (event, candidate, features, predictions).
+
+    `predictions` is the candidate's modelPredictions dict, created in place when it is None --
+    which is what Parquet yields for an absent nested struct -- so a scorer can write its policy
+    key straight into it. Every key written there must be registered in
+    ope_eval_report.POLICY_ONLY_PRED_KEYS, or the reward model is fit on the scores it grades.
+    """
+    for event in events:
+        for candidate in as_list(event.get("actionSpace")):
+            predictions = candidate.get("modelPredictions")
+            if predictions is None:
+                predictions = candidate["modelPredictions"] = {}
+            yield event, candidate, candidate_features(candidate, names), predictions
