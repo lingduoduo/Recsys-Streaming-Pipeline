@@ -59,7 +59,7 @@ def _fixture():
 
 def test_one_clicked_against_two_exposed_yields_two_pairs():
     slates, events = _fixture()
-    pairs, dropped = slate_pairs.build_pairs(slates, events)
+    pairs, dropped, _ = slate_pairs.build_pairs(slates, events)
     assert len(pairs) == 2
     assert dropped == 0
     assert {p.chosen_item for p in pairs} == {"m1"}
@@ -69,13 +69,15 @@ def test_one_clicked_against_two_exposed_yields_two_pairs():
 def test_a_slate_with_no_engagement_yields_no_pairs():
     events = [_event("r1", "u1", "m1", [("m1", 0.8, 0.7), ("m2", 0.2, 0.3)])]
     slates = [_slate("r1", "u1", [("m1", 0, 0, 0.0), ("m2", 0, 0, 0.0)])]
-    assert slate_pairs.build_pairs(slates, events) == ([], 0)
+    pairs, dropped, _ = slate_pairs.build_pairs(slates, events)
+    assert (pairs, dropped) == ([], 0)
 
 
 def test_a_slate_where_everything_engaged_yields_no_pairs():
     events = [_event("r1", "u1", "m1", [("m1", 0.8, 0.7), ("m2", 0.2, 0.3)])]
     slates = [_slate("r1", "u1", [("m1", 1, 0, 1.0), ("m2", 1, 0, 1.0)])]
-    assert slate_pairs.build_pairs(slates, events) == ([], 0)
+    pairs, dropped, _ = slate_pairs.build_pairs(slates, events)
+    assert (pairs, dropped) == ([], 0)
 
 
 def test_pairs_never_cross_slates():
@@ -83,7 +85,7 @@ def test_pairs_never_cross_slates():
               _event("r2", "u2", "m3", [("m3", 0.9, 0.6), ("m4", 0.1, 0.1)])]
     slates = [_slate("r1", "u1", [("m1", 1, 0, 1.0), ("m2", 0, 0, 0.0)]),
               _slate("r2", "u2", [("m3", 1, 0, 1.0), ("m4", 0, 0, 0.0)])]
-    pairs, _ = slate_pairs.build_pairs(slates, events)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events)
     assert {(p.chosen_item, p.rejected_item) for p in pairs} == {("m1", "m2"), ("m3", "m4")}
 
 
@@ -91,7 +93,7 @@ def test_a_pair_without_a_replay_row_is_dropped_and_counted():
     # The slate mentions m9, which never appears in any replay actionSpace.
     events = [_event("r1", "u1", "m1", [("m1", 0.8, 0.7), ("m2", 0.2, 0.3)])]
     slates = [_slate("r1", "u1", [("m1", 1, 0, 1.0), ("m2", 0, 0, 0.0), ("m9", 0, 0, 0.0)])]
-    pairs, dropped = slate_pairs.build_pairs(slates, events)
+    pairs, dropped, _ = slate_pairs.build_pairs(slates, events)
     assert len(pairs) == 1
     assert dropped == 1
 
@@ -106,14 +108,14 @@ def test_a_thumb_down_item_is_a_rejected_item_not_a_dropped_one():
     events = [_event("r1", "u1", "m1", [("m1", 0.8, 0.7), ("m2", 0.2, 0.3)])]
     slates = [_slate("r1", "u1", [("m1", 1, 0, 1.0), ("m2", 0, 0, 0.0)])]
     slates[0]["items"][1]["negative_feedback_reason"] = "thumb_down"
-    pairs, dropped = slate_pairs.build_pairs(slates, events)
+    pairs, dropped, _ = slate_pairs.build_pairs(slates, events)
     assert [(p.chosen_item, p.rejected_item) for p in pairs] == [("m1", "m2")]
     assert dropped == 0
 
 
 def test_reference_scores_come_from_prediction_score():
     slates, events = _fixture()
-    pairs, _ = slate_pairs.build_pairs(slates, events)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events)
     by_rejected = {p.rejected_item: p for p in pairs}
     assert by_rejected["m2"].chosen_reference == pytest.approx(0.7)
     assert by_rejected["m2"].rejected_reference == pytest.approx(0.3)
@@ -122,7 +124,7 @@ def test_reference_scores_come_from_prediction_score():
 def test_features_use_the_shared_ope_schema():
     slates, events = _fixture()
     names = ope_eval_report.feature_names(events)
-    pairs, _ = slate_pairs.build_pairs(slates, events, names)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events, names)
     assert len(pairs[0].chosen_features) == len(names)
 
 
@@ -135,7 +137,7 @@ def test_build_pairs_handles_a_parquet_round_tripped_slate(tmp_path):
     pd.DataFrame(slates).to_parquet(path, index=False)
     reloaded = pd.read_parquet(path).to_dict(orient="records")
 
-    pairs, dropped = slate_pairs.build_pairs(reloaded, events)
+    pairs, dropped, _ = slate_pairs.build_pairs(reloaded, events)
 
     assert len(pairs) == 2
     assert dropped == 0
@@ -235,7 +237,7 @@ def _joined_fixture(n_slates=12):
 
 def test_split_pairs_uses_the_ope_held_out_hash():
     slates, events = _joined_fixture()
-    pairs, _ = slate_pairs.build_pairs(slates, events)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events)
     train, held_out, degenerate = post_train_dpo.split_pairs(pairs)
     assert not degenerate
     assert train and held_out
@@ -246,7 +248,7 @@ def test_split_pairs_uses_the_ope_held_out_hash():
 
 def test_reference_accuracy_reports_what_the_logging_policy_already_knew():
     slates, events = _joined_fixture()
-    pairs, _ = slate_pairs.build_pairs(slates, events)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events)
     # m1's predictionScore (0.7) beats both rejected items, so the reference is already perfect.
     assert post_train_dpo.reference_pairwise_accuracy(pairs) == pytest.approx(1.0)
 
@@ -254,7 +256,7 @@ def test_reference_accuracy_reports_what_the_logging_policy_already_knew():
 def test_score_events_writes_the_dpo_key_onto_every_candidate():
     slates, events = _joined_fixture()
     names = ope_eval_report.feature_names(events)
-    pairs, _ = slate_pairs.build_pairs(slates, events, names)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events, names)
     policy = dpo.fit(pairs, beta=1.0, epochs=20, hidden=8)
     scored = post_train_dpo.score_events(events, names, policy)
     for event in scored:
@@ -267,7 +269,7 @@ def test_the_dpo_key_is_registered_as_policy_only():
     assert ope_eval_report.DPO_PRED_KEY in ope_eval_report.POLICY_ONLY_PRED_KEYS
     slates, events = _joined_fixture()
     names_before = ope_eval_report.feature_names(events)
-    pairs, _ = slate_pairs.build_pairs(slates, events, names_before)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events, names_before)
     policy = dpo.fit(pairs, beta=1.0, epochs=20, hidden=8)
     scored = post_train_dpo.score_events(events, names_before, policy)
     assert ope_eval_report.feature_names(scored) == names_before
@@ -278,7 +280,7 @@ def test_score_events_survives_a_null_model_predictions():
     slates, events = _joined_fixture(n_slates=2)
     events[0]["actionSpace"][0]["modelPredictions"] = None
     names = ope_eval_report.feature_names(events)
-    pairs, _ = slate_pairs.build_pairs(slates, events, names)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events, names)
     policy = dpo.fit(pairs, beta=1.0, epochs=10, hidden=8)
     scored = post_train_dpo.score_events(events, names, policy)
     assert ope_eval_report.DPO_PRED_KEY in scored[0]["actionSpace"][0]["modelPredictions"]
@@ -363,7 +365,7 @@ def _write_parquet_fixture(tmp_path, slates, events):
 
 def test_mismatched_request_id_namespaces_yield_no_pairs_and_no_matches():
     slates, events = _mismatched_fixture()
-    pairs, dropped, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    pairs, dropped, diagnostics = slate_pairs.build_pairs(slates, events)
     assert pairs == []
     assert dropped == len(slates)
     assert diagnostics.n_slate_request_ids == len(slates)
@@ -372,7 +374,7 @@ def test_mismatched_request_id_namespaces_yield_no_pairs_and_no_matches():
 
 def test_matched_request_id_count_is_nonzero_when_the_ids_agree():
     slates, events = _joined_fixture()
-    _, _, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    _, _, diagnostics = slate_pairs.build_pairs(slates, events)
     assert diagnostics.n_slate_request_ids == 12
     assert diagnostics.n_slate_request_ids_matched == 12
 
@@ -415,7 +417,7 @@ def test_pair_sides_without_a_prediction_score_are_counted():
     slates, events = _fixture()
     for candidate in events[0]["actionSpace"]:
         candidate["modelPredictions"].pop("predictionScore")
-    pairs, dropped, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    pairs, dropped, diagnostics = slate_pairs.build_pairs(slates, events)
     assert len(pairs) == 2 and dropped == 0
     # Both sides of both pairs: the reference margin is identically zero, so this is plain BPR.
     assert diagnostics.n_missing_reference_sides == 4
@@ -425,7 +427,7 @@ def test_pair_sides_without_a_prediction_score_are_counted():
 def test_a_null_model_predictions_counts_as_a_missing_reference():
     slates, events = _fixture()
     events[0]["actionSpace"][1]["modelPredictions"] = None
-    pairs, _, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events)
+    pairs, _, diagnostics = slate_pairs.build_pairs(slates, events)
     assert len(pairs) == 2
     assert diagnostics.n_missing_reference_sides == 1
 
@@ -459,7 +461,7 @@ def _all_held_out_fixture():
 
 def test_a_split_with_no_training_pairs_is_flagged_degenerate():
     slates, events = _all_held_out_fixture()
-    pairs, _ = slate_pairs.build_pairs(slates, events)
+    pairs, _, _ = slate_pairs.build_pairs(slates, events)
     train, held_out, degenerate = post_train_dpo.split_pairs(pairs)
     assert degenerate is True
     assert train == held_out == pairs

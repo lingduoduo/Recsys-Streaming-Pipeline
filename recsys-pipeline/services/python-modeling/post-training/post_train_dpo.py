@@ -137,7 +137,7 @@ def main(argv=None) -> dict:
         raise SystemExit("no slates — nothing to build preference pairs from")
 
     names = ope_eval_report.feature_names(events)
-    pairs, dropped, diagnostics = slate_pairs.build_pairs_with_diagnostics(slates, events, names)
+    pairs, dropped, diagnostics = slate_pairs.build_pairs(slates, events, names)
     if not pairs:
         raise SystemExit(
             f"no preference pairs built from {len(slates)} slates and {len(events)} replay events: "

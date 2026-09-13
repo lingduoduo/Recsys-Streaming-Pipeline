@@ -90,17 +90,8 @@ def replay_index(events, names) -> dict:
     return index
 
 
-def build_pairs(slates, events, names=None) -> tuple[list[PreferencePair], int]:
+def build_pairs(slates, events, names=None):
     """Cross every chosen item with every rejected item WITHIN each slate.
-
-    Returns (pairs, dropped); `build_pairs_with_diagnostics` returns the join diagnostics too.
-    """
-    pairs, dropped, _ = build_pairs_with_diagnostics(slates, events, names)
-    return pairs, dropped
-
-
-def build_pairs_with_diagnostics(slates, events, names=None):
-    """`build_pairs`, plus the numbers that say whether the join worked.
 
     Returns (pairs, dropped, JoinDiagnostics). `dropped` counts pairs discarded because one side
     had no replay row to supply features. A low join yield is a finding worth reporting, never
