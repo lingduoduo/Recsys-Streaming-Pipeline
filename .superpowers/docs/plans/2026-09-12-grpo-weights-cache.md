@@ -24,7 +24,7 @@ with `JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.
 The work is on `feat/grpo-weights-cache`, based on `origin/master`. Publish a PR against `master`.
 
 Baseline (2026-09-12): `mvn test -Dtest='GrpoPolicyScorerTest,FeatureCacheStatsTest,MovieLensServingSideEffectsTest,RecommendationMeasurementServiceTest'`
-→ recorded in Task 1 Step 2 below.
+→ 46 tests, 0 failures (29 / 3 / 3 / 11).
 
 ---
 
@@ -39,7 +39,7 @@ Baseline (2026-09-12): `mvn test -Dtest='GrpoPolicyScorerTest,FeatureCacheStatsT
 **Interfaces:**
 - Produces: `FeatureCache.getGrpoWeights(String key): double[]` (null when not cached), `FeatureCache.putGrpoWeights(String key, double[] weights)`, stats entry `grpo_weights`, `RecommendationProperties.Cache.getGrpoWeightsTtlSeconds(): long` (default 10).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `FeatureCacheStatsTest`, change `assertEquals(2, stats.size());` to `assertEquals(3, stats.size());` and add after `reportsZeroedStatsBeforeAnyLookup`:
 
@@ -59,12 +59,12 @@ In `FeatureCacheStatsTest`, change `assertEquals(2, stats.size());` to `assertEq
     }
 ```
 
-- [ ] **Step 2: Run the baseline and confirm the new test fails to compile**
+- [x] **Step 2: Run the baseline and confirm the new test fails to compile**
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home mvn test -Dtest='GrpoPolicyScorerTest,FeatureCacheStatsTest,MovieLensServingSideEffectsTest,RecommendationMeasurementServiceTest' -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: `COMPILATION ERROR` naming `getGrpoWeights`. (The pre-edit baseline for these four classes is run before Step 1 and recorded in the verification record.)
+Expected: `COMPILATION ERROR` naming `getGrpoWeights`. Observed: exactly that.
 
-- [ ] **Step 3: Add the property, the YAML line, and the cache**
+- [x] **Step 3: Add the property, the YAML line, and the cache**
 
 In `RecommendationProperties.Cache`, add after `private long rewardTtlSeconds = 30;`:
 
@@ -118,12 +118,12 @@ add after `invalidateRewardStats`:
 
 and in `stats()` add `values.put("grpo_weights", view(grpoWeights));` after the `reward_stats` line.
 
-- [ ] **Step 4: Run the stats test**
+- [x] **Step 4: Run the stats test**
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=... mvn test -Dtest=FeatureCacheStatsTest -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: `Tests run: 4, Failures: 0`.
+Expected: `Tests run: 4, Failures: 0`. Observed: 4 run, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/model/FeatureCache.java recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/config/RecommendationProperties.java recsys-pipeline/services/java-retrieval-service/src/main/resources/application.yml recsys-pipeline/services/java-retrieval-service/src/test/java/com/demo/retrieval/model/FeatureCacheStatsTest.java
@@ -144,7 +144,7 @@ git commit -m "feat(cache): a TTL cache for the GRPO policy weight vector"
 - Consumes: `FeatureCache.getGrpoWeights` / `putGrpoWeights` from Task 1.
 - Produces: `GrpoPolicyScorer(StringRedisTemplate, RecommendationProperties, FeatureCache)`.
 
-- [ ] **Step 1: Update the harnesses and write the two failing tests**
+- [x] **Step 1: Update the harnesses and write the two failing tests**
 
 In `GrpoPolicyScorerTest`, add `import com.demo.retrieval.model.FeatureCache;` and `import static org.mockito.Mockito.times;`, change the harness line `return new GrpoPolicyScorer(redis, properties);` to `return new GrpoPolicyScorer(redis, properties, new FeatureCache(properties));`, change the two direct constructions in `reRankOrderNeverThrowsWhenRedisFails` and `aFailingSlateNeverThrowsIntoTheServingPath` the same way, and add after `aNonFiniteWeightIsUnusable`:
 
@@ -177,12 +177,12 @@ In `MovieLensServingSideEffectsTest`, add `import com.demo.retrieval.model.Featu
     }
 ```
 
-- [ ] **Step 2: Run to verify compilation fails on the new constructor**
+- [x] **Step 2: Run to verify compilation fails on the new constructor**
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=... mvn test -Dtest=GrpoPolicyScorerTest -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: `COMPILATION ERROR` on the three-argument constructor.
+Expected: `COMPILATION ERROR` on the three-argument constructor. Observed: exactly that.
 
-- [ ] **Step 3: Implement the cache-first read and wire it**
+- [x] **Step 3: Implement the cache-first read and wire it**
 
 In `GrpoPolicyScorer`, add `import com.demo.retrieval.model.FeatureCache;`, the field `private final FeatureCache featureCache;`, and change the constructor to:
 
@@ -220,12 +220,12 @@ followed by the existing body from `Object version = raw.get("feature_version");
 
 In `HybridRecommendationService`, change `this.grpoPolicyScorer = new GrpoPolicyScorer(redis, properties);` to `this.grpoPolicyScorer = new GrpoPolicyScorer(redis, properties, featureCache);`.
 
-- [ ] **Step 4: Run the four affected classes**
+- [x] **Step 4: Run the four affected classes**
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=... mvn test -Dtest='GrpoPolicyScorerTest,FeatureCacheStatsTest,MovieLensServingSideEffectsTest,RecommendationMeasurementServiceTest' -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: all pass; `GrpoPolicyScorerTest` reports 31 (29 + 2).
+Expected: all pass; `GrpoPolicyScorerTest` reports 31 (29 + 2). Observed: 31 / 4 / 3 / 11, 49 total, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/grpo/GrpoPolicyScorer.java recsys-pipeline/services/java-retrieval-service/src/main/java/com/demo/retrieval/service/HybridRecommendationService.java recsys-pipeline/services/java-retrieval-service/src/test/java/com/demo/retrieval/service/grpo/GrpoPolicyScorerTest.java recsys-pipeline/services/java-retrieval-service/src/test/java/com/demo/retrieval/service/side_effects/MovieLensServingSideEffectsTest.java
@@ -242,7 +242,7 @@ git commit -m "feat(grpo): read the policy weights through the feature cache"
 - Modify: `.superpowers/docs/specs/2026-09-12-grpo-weights-cache-design.md` (status and verification record)
 - Modify: this plan (check boxes, record observations)
 
-- [ ] **Step 1: Documentation**
+- [x] **Step 1: Documentation**
 
 In `README.md` after the `recsys.cache.reward-ttl-seconds` table row add:
 
@@ -262,12 +262,12 @@ next request. An absent or rejected vector is cached the same way and is not re-
 expires. `off` mode still reads nothing.
 ```
 
-- [ ] **Step 2: Run the full retrieval Maven suite**
+- [x] **Step 2: Run the full retrieval Maven suite**
 
 Run in the background: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=... mvn test`
-Expected: `BUILD SUCCESS`; `UserProfileIntegrationTest` skipped as always. If unrelated tests fail, confirm they fail on `origin/master` too before reporting.
+Expected: `BUILD SUCCESS`; `UserProfileIntegrationTest` skipped as always. If unrelated tests fail, confirm they fail on `origin/master` too before reporting. Observed: 332 run, 0 failures, 1 skipped, BUILD SUCCESS.
 
-- [ ] **Step 3: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 3: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` with the baseline and final counts.
 
@@ -276,7 +276,7 @@ git add recsys-pipeline/README.md recsys-pipeline/docs/recommendation_architectu
 git commit -m "docs: GRPO weights cache TTL and verification record"
 ```
 
-- [ ] **Step 4: Open the PR**
+- [x] **Step 4: Open the PR**
 
 ```bash
 git push -u origin feat/grpo-weights-cache

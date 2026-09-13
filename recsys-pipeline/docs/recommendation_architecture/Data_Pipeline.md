@@ -61,7 +61,7 @@ Feature data is split across three tiers by access pattern and update frequency.
 |------|----------|------------|
 | **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Model and lookups bundled at build time, swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild; Parquet training samples written by the Spark streaming jobs on every micro-batch |
 | **Redis** | User click history, global item popularity, per-user columnar behavior/rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
-| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
+| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`), GRPO policy weights (`grpo:policy:weights`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
 
 The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
 
@@ -1009,6 +1009,12 @@ A weight vector that has diverged to NaN or infinity is treated as absent on bot
 `GrpoPolicyStreamingJob` refuses to write one (it logs at ERROR and keeps the last good weights —
 the key has no TTL, so a single NaN would otherwise be permanent), and `GrpoPolicyScorer` ignores
 one it reads back.
+
+`GrpoPolicyScorer` reads the vector through `FeatureCache` with a
+`recsys.cache.grpo-weights-ttl-seconds` TTL (`RECSYS_GRPO_WEIGHTS_TTL`, default `10`, the training
+job's trigger interval), so a new batch's weights reach serving within one TTL rather than on the
+next request. An absent or rejected vector is cached the same way and is not re-read until the TTL
+expires. `off` mode still reads nothing.
 
 `recsys.grpo.emit-events` (`RECSYS_GRPO_EMIT_EVENTS`, default `false`) is a second, independent
 switch that an operator cannot infer from the rollout mode above:

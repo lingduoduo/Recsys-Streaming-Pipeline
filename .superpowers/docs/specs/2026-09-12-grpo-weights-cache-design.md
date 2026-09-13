@@ -1,7 +1,7 @@
 # GRPO weights through the feature cache
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `feat/grpo-weights-cache`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -110,3 +110,16 @@ trigger, so a batch's weights reach serving no later than the next batch would h
 TTL toward zero restores today's behavior. A rejected vector is also cached, so an operator who
 fixes a bad key sees the fix within one TTL, not instantly. Rollback is a revert; the Redis
 layout is unchanged.
+
+## Verification record
+
+- Baseline on the unchanged code, four affected classes: `GrpoPolicyScorerTest` 29,
+  `FeatureCacheStatsTest` 3, `MovieLensServingSideEffectsTest` 3,
+  `RecommendationMeasurementServiceTest` 11 (46 total, 0 failures).
+- Task 1: the new stats test failed to compile on `getGrpoWeights` first; after the cache landed,
+  `FeatureCacheStatsTest` 4 passed.
+- Task 2: the harness change failed to compile on the three-argument constructor first; after the
+  cache-first read and wiring, the four classes reported 31 / 4 / 3 / 11 (49 total, 0 failures).
+  `offModeReadsNothingFromRedis` still passes, so `off` mode reads nothing.
+- Full retrieval Maven suite on 2026-09-12: 332 run, 0 failures, 0 errors, 1 skipped
+  (`UserProfileIntegrationTest`, Testcontainers blocked on Docker 29).
