@@ -110,10 +110,20 @@ class RewardModel:
         self._w = w
         self.calibration = calibration
 
-    def predict_one(self, cand_like: dict) -> float:
-        X = np.array([_vec(cand_like, self.names)], dtype=float)
+    def predict_batch(self, cand_likes: list[dict]) -> np.ndarray:
+        """Estimated reward for each candidate-like dict, in order.
+
+        One standardize and one sigmoid over the whole list; scoring candidate by candidate
+        pays numpy's per-call overhead once per candidate instead of once per policy.
+        """
+        if not cand_likes:
+            return np.zeros(0, dtype=float)
+        X = np.array([_vec(c, self.names) for c in cand_likes], dtype=float)
         Xs = logistic.apply_standardize(X, self._mean, self._std)
-        return float(logistic.predict_proba(Xs, self._w)[0])
+        return logistic.predict_proba(Xs, self._w)
+
+    def predict_one(self, cand_like: dict) -> float:
+        return float(self.predict_batch([cand_like])[0])
 
 
 def fit_reward_model(events: list[dict]) -> RewardModel:

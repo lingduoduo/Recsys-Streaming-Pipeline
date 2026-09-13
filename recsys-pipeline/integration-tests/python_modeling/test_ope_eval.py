@@ -305,3 +305,14 @@ def test_grpo_score_is_excluded_from_reward_model_features():
 
     event = {"modelPredictions": {"predictionScore": 0.4, ope_eval_report.GRPO_PRED_KEY: 0.9}}
     assert ope_eval_report.GRPO_PRED_KEY not in ope_eval_report.feature_names([event])
+
+
+def test_predict_batch_matches_predict_one():
+    events = _dataset(60)
+    model = ope.fit_reward_model(events)
+    candidates = [ope.candidates_of(e)[0] for e in events]
+    batch = model.predict_batch(candidates)
+    assert batch.shape == (len(candidates),)
+    assert all(abs(float(b) - model.predict_one(c)) < 1e-12
+               for b, c in zip(batch, candidates))
+    assert model.predict_batch([]).shape == (0,)
