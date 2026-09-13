@@ -1,7 +1,7 @@
 # DPO plumbing simplification
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `simplify/dpo-plumbing`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -114,3 +114,17 @@ The rename touches the Q arm and the replay dataset, so a missed call site fails
 at first use; the suites and the grep in criterion 1 cover it. Computing `state_key` per candidate
 instead of per event is a small amount of repeated string work on a path that is not
 performance-sensitive. Rollback is a revert; no data or artifact changes.
+
+## Verification record
+
+- `test_post_training_dpo.py` + `test_post_training_q.py`: 74 passed before and after; the builder
+  change first produced 19 failures on the two-value call sites, as intended, then 34/34 in the DPO file.
+- `test_ope_eval.py` after the rename: 23 passed, unchanged.
+- Parity: both CLIs run on a 12-slate joined fixture (24 pairs) with one null `modelPredictions`
+  and fixed seeds; the JSON dump of summaries, stdout, and per-candidate predictions is
+  byte-identical before and after (`cmp` on 6,846-byte files).
+- Greps: no `_vec` (the only hits are `mean_vec` in an unrelated report), no
+  `build_pairs_with_diagnostics`, no `_load_events`, no stray `import os` in either CLI.
+- Diff against master: 7 files, 70 insertions, 101 deletions; the two CLIs together lose 54 lines
+  net after the 31 shared lines land in `replay_dataset`.
+- Full Python modeling suite: 501 passed on 2026-09-12.

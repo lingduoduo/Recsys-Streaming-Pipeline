@@ -46,11 +46,11 @@ and dumps both summaries, both stdouts, and every candidate's `modelPredictions`
 **Interfaces:**
 - Produces: `ope_eval_report.candidate_features(cand_like: dict, names: list[str]) -> list[float]`, same body as the old `_vec`.
 
-- [ ] **Step 1: Rename the definition and its two internal callers**
+- [x] **Step 1: Rename the definition and its two internal callers**
 
 In `ope_eval_report.py` change `def _vec(` to `def candidate_features(`, and the two calls `_vec(_taken_candidate(event), names)` and `_vec(c, self.names)` to `candidate_features(...)`.
 
-- [ ] **Step 2: Update the external callers**
+- [x] **Step 2: Update the external callers**
 
 In `replay_dataset.py` replace
 
@@ -67,15 +67,15 @@ from ope_eval_report import candidate_features, feature_names, taken_features
 
 In `slate_pairs.py`, `post_train_dpo.py`, and `post_train_q.py` replace `ope_eval_report._vec(candidate, names)` with `ope_eval_report.candidate_features(candidate, names)`. In `test_post_training_q.py` replace `ope_eval_report._vec(candidate, names)` with `ope_eval_report.candidate_features(candidate, names)`.
 
-- [ ] **Step 3: Verify no private name remains and the suites pass**
+- [x] **Step 3: Verify no private name remains and the suites pass**
 
 Run: `grep -rn "_vec\b" recsys-pipeline/services/python-modeling recsys-pipeline/integration-tests --include='*.py'`
 Expected: no output.
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py integration-tests/python_modeling/test_post_training_q.py integration-tests/python_modeling/test_ope_eval.py -q`
-Expected: 97 passed (74 + 23).
+Expected: 97 passed (74 + 23). Observed: 97 passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/ope_eval_report.py recsys-pipeline/services/python-modeling/post-training/replay_dataset.py recsys-pipeline/services/python-modeling/post-training/slate_pairs.py recsys-pipeline/services/python-modeling/post-training/post_train_dpo.py recsys-pipeline/services/python-modeling/post-training/post_train_q.py recsys-pipeline/integration-tests/python_modeling/test_post_training_q.py
@@ -94,7 +94,7 @@ git commit -m "refactor: expose candidate_features instead of a private _vec"
 **Interfaces:**
 - Produces: `slate_pairs.build_pairs(slates, events, names=None) -> tuple[list[PreferencePair], int, JoinDiagnostics]`.
 
-- [ ] **Step 1: Update the tests to the three-value shape**
+- [x] **Step 1: Update the tests to the three-value shape**
 
 In `test_post_training_dpo.py`:
 
@@ -109,12 +109,12 @@ In `test_post_training_dpo.py`:
 
 - every `slate_pairs.build_pairs_with_diagnostics(` becomes `slate_pairs.build_pairs(`.
 
-- [ ] **Step 2: Run the DPO tests to verify they fail**
+- [x] **Step 2: Run the DPO tests to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py -q`
-Expected: failures with `ValueError: not enough values to unpack` on the two-value returns and `AttributeError` on the removed name.
+Expected: failures with `ValueError: not enough values to unpack` on the two-value returns and `AttributeError` on the removed name. Observed: 19 failed, 15 passed.
 
-- [ ] **Step 3: Collapse the builders**
+- [x] **Step 3: Collapse the builders**
 
 In `slate_pairs.py` delete the `build_pairs` wrapper (its `def`, docstring, and two-line body) and rename `build_pairs_with_diagnostics` to `build_pairs`, replacing its docstring's first line with:
 
@@ -130,15 +130,15 @@ In `slate_pairs.py` delete the `build_pairs` wrapper (its `def`, docstring, and 
 
 In `post_train_dpo.py` change `slate_pairs.build_pairs_with_diagnostics(slates, events, names)` to `slate_pairs.build_pairs(slates, events, names)`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `grep -rn "build_pairs_with_diagnostics" recsys-pipeline --include='*.py' --include='*.md'`
 Expected: no output.
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py -q`
-Expected: 34 passed.
+Expected: 34 passed. Observed: 34 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/slate_pairs.py recsys-pipeline/services/python-modeling/post-training/post_train_dpo.py recsys-pipeline/integration-tests/python_modeling/test_post_training_dpo.py
@@ -158,7 +158,7 @@ git commit -m "refactor: one build_pairs that returns its diagnostics"
 - Produces: `replay_dataset.load_events(args) -> list[dict]` (reads `args.parquet`, `args.key`, `args.limit`) and `replay_dataset.candidate_rows(events, names)` yielding `(event, candidate, features, predictions)`.
 - Consumes: `ope_support.load_from_parquet`, `ope_support.load_from_redis`, `candidate_features` from Task 1.
 
-- [ ] **Step 1: Add the helpers to `replay_dataset.py`**
+- [x] **Step 1: Add the helpers to `replay_dataset.py`**
 
 Add `import os` after `from __future__ import annotations` (before `from collections import defaultdict`), and `import ope_support` next to the `ope_eval_report` import. Append at the end of the file:
 
@@ -192,7 +192,7 @@ def candidate_rows(events, names):
             yield event, candidate, candidate_features(candidate, names), predictions
 ```
 
-- [ ] **Step 2: Slim the DPO CLI**
+- [x] **Step 2: Slim the DPO CLI**
 
 In `post_train_dpo.py` delete `import os`. Replace `score_events` and `_load_events` (from `def score_events` through the `return ope_support.load_from_redis(...)` line) with:
 
@@ -208,7 +208,7 @@ def score_events(events, names, policy):
 
 In `main`, change `events = _load_events(args)` to `events = replay_dataset.load_events(args)`.
 
-- [ ] **Step 3: Slim the Q CLI**
+- [x] **Step 3: Slim the Q CLI**
 
 In `post_train_q.py` delete `import os`. Replace `score_events` and `_load_events` (from `def score_events` through the `return ope_support.load_from_redis(...)` line) with:
 
@@ -229,18 +229,18 @@ def score_events(events, names, q, model):
 
 In `main`, change `events = _load_events(args)` to `events = replay_dataset.load_events(args)`. If `ope_support` is no longer referenced in `post_train_q.py`, delete its import; in `post_train_dpo.py` it is still used for `--slates`.
 
-- [ ] **Step 4: Run the suites and the parity script**
+- [x] **Step 4: Run the suites and the parity script**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py integration-tests/python_modeling/test_post_training_q.py -q`
-Expected: 74 passed.
+Expected: 74 passed. Observed: 74 passed.
 
 Run: `cd recsys-pipeline && python3 <scratchpad>/dpo_parity.py > <scratchpad>/dpo_parity_after.json && cmp <scratchpad>/dpo_parity_before.json <scratchpad>/dpo_parity_after.json && echo IDENTICAL`
-Expected: `IDENTICAL`.
+Expected: `IDENTICAL`. Observed: identical.
 
 Run: `grep -n "_load_events\|^import os" recsys-pipeline/services/python-modeling/post-training/post_train_dpo.py recsys-pipeline/services/python-modeling/post-training/post_train_q.py`
 Expected: no output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/replay_dataset.py recsys-pipeline/services/python-modeling/post-training/post_train_dpo.py recsys-pipeline/services/python-modeling/post-training/post_train_q.py
@@ -259,15 +259,15 @@ git commit -m "refactor: share the replay loader and candidate rows across post-
 - Consumes: the finished work from Tasks 1-3.
 - Produces: a PR against `master` from `simplify/dpo-plumbing`.
 
-- [ ] **Step 1: Run the full Python modeling suite and count the line change**
+- [x] **Step 1: Run the full Python modeling suite and count the line change**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling -q`
-Expected: 501 passed.
+Expected: 501 passed. Observed: 501 passed.
 
 Run: `git diff origin/master --stat -- recsys-pipeline/services/python-modeling`
-Expected: `post_train_dpo.py` plus `post_train_q.py` net at least 30 lines removed.
+Expected: `post_train_dpo.py` plus `post_train_q.py` net at least 30 lines removed. Observed: 54 net removed across the two; branch total 70 insertions, 101 deletions.
 
-- [ ] **Step 2: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 2: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` section with the test counts, the parity result, the grep results, and the diff stat.
 
@@ -276,7 +276,7 @@ git add .superpowers/docs/specs/2026-09-12-dpo-plumbing-simplification-design.md
 git commit -m "docs: record DPO plumbing simplification verification"
 ```
 
-- [ ] **Step 3: Open the PR**
+- [x] **Step 3: Open the PR**
 
 ```bash
 git push -u origin simplify/dpo-plumbing
