@@ -1,16 +1,12 @@
 package com.demo.task
 
-import com.demo.sink.RedisWriter
-import com.demo.util.{Env, RatingsCsv, SparkSessions}
-import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
+import com.demo.util.{EmbeddingText, Env, RatingsCsv, SparkSessions}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
-import scala.util.Try
 
 object UserEmbeddingTrainingJob {
   private val DefaultMinRating       = 3.5
   private val DefaultRedisTtlSeconds = 60 * 60 * 24
-
-  case class ItemEmbedding(movieId: String, vector: Seq[Double])
 
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
@@ -31,24 +27,14 @@ object UserEmbeddingTrainingJob {
       // Cache only when writing to both sinks to avoid recomputing the join+aggregation.
       val userEmbeddings = if (saveToRedis) raw.cache() else raw
 
-      userEmbeddings
-        .select(concat_ws(":", col("userId"), col("userEmbeddingStr")).as("value"))
-        .write
-        .mode("overwrite")
-        .text(userEmbeddingPath)
+      EmbeddingText.writeText(userEmbeddings, "userId", "userEmbedding", userEmbeddingPath)
 
       if (saveToRedis) {
-        val redisHost   = sys.env.getOrElse("REDIS_HOST", "localhost")
-        val redisPort   = Env.int("REDIS_PORT", 6379)
-        val ttlSeconds  = Env.int("USER_EMBEDDING_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
-        val keyPrefix   = sys.env.getOrElse("USER_EMBEDDING_REDIS_KEY_PREFIX", "uEmb")
-        userEmbeddings.foreachPartition { rows: Iterator[Row] =>
-          RedisWriter.writeWithPipeline(
-            redisHost, redisPort,
-            rows.map(r => r.getAs[String]("userId") -> r.getAs[String]("userEmbeddingStr")),
-            keyPrefix, ttlSeconds
-          )
-        }
+        EmbeddingText.writeRedis(
+          userEmbeddings, "userId", "userEmbedding",
+          sys.env.getOrElse("REDIS_HOST", "localhost"), Env.int("REDIS_PORT", 6379),
+          sys.env.getOrElse("USER_EMBEDDING_REDIS_KEY_PREFIX", "uEmb"),
+          Env.int("USER_EMBEDDING_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds))
         userEmbeddings.unpersist()
       }
     } finally {
@@ -63,7 +49,7 @@ object UserEmbeddingTrainingJob {
       minRating: Double = DefaultMinRating
   ): DataFrame = {
     val ratings = readRatings(sparkSession, ratingsPath)
-    val itemEmbeddings = readItemEmbeddings(sparkSession, itemEmbeddingPath)
+    val itemEmbeddings = EmbeddingText.read(sparkSession, itemEmbeddingPath).withColumnRenamed("id", "movieId")
     trainUserEmbeddings(ratings, itemEmbeddings, minRating)
   }
 
@@ -84,24 +70,10 @@ object UserEmbeddingTrainingJob {
     )
     userGrouped
       .withColumn("userEmbedding", transform(sumVec, (x: Column) => x / size(col("vecs"))))
-      .withColumn("userEmbeddingStr", array_join(transform(col("userEmbedding"), (x: Column) => x.cast("string")), " "))
-      .select("userId", "userEmbedding", "userEmbeddingStr")
+      .select("userId", "userEmbedding")
   }
 
   private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame =
     RatingsCsv.read(sparkSession, ratingsPath)
       .select(col("userId"), col("movieId"), col("rating"))
-
-  private def readItemEmbeddings(sparkSession: SparkSession, itemEmbeddingPath: String): DataFrame = {
-    import sparkSession.implicits._
-    sparkSession.read
-      .textFile(itemEmbeddingPath)
-      .flatMap { line =>
-        val parts = line.split(":", 2)
-        if (parts.length != 2 || parts(0).trim.isEmpty || parts(1).trim.isEmpty) None
-        else Try(parts(1).trim.split("\\s+").map(_.toDouble).toSeq).toOption
-          .map(vector => ItemEmbedding(parts(0).trim, vector))
-      }
-      .toDF()
-  }
 }

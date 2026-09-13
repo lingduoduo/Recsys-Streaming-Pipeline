@@ -1,10 +1,9 @@
 package com.demo.task
 
-import com.demo.sink.RedisWriter
-import com.demo.util.{Env, RatingsCsv, SparkSessions}
+import com.demo.util.{EmbeddingText, Env, RatingsCsv, SparkSessions}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
 import org.apache.spark.ml.recommendation.ALS
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
@@ -13,8 +12,6 @@ object AlsEmbeddingTrainingJob {
   private val DefaultMaxIter         = 10
   private val DefaultRegParam        = 0.1
   private val DefaultRedisTtlSeconds = 60 * 60 * 24
-
-  private val vectorToString = udf { v: Seq[Float] => v.mkString(" ") }
 
   def main(args: Array[String]): Unit = {
     val ratingsPath = Env.requiredArgOrEnv(args, 0, "RATINGS_INPUT_PATH", "ratings input path")
@@ -33,16 +30,16 @@ object AlsEmbeddingTrainingJob {
         regParam = Env.double("ALS_REG_PARAM", DefaultRegParam)
       )
 
-      writeFactors(userFactors, s"$outputPath/userFactors", "userId", "userEmbedding")
-      writeFactors(itemFactors, s"$outputPath/itemFactors", "movieId", "itemEmbedding")
+      EmbeddingText.writeText(userFactors, "userId", "userEmbedding", s"$outputPath/userFactors")
+      EmbeddingText.writeText(itemFactors, "movieId", "itemEmbedding", s"$outputPath/itemFactors")
 
       if (Env.boolean("ALS_SAVE_TO_REDIS", default = false)) {
         val redisHost       = sys.env.getOrElse("REDIS_HOST", "localhost")
         val redisPort       = Env.int("REDIS_PORT", 6379)
         val redisTtlSeconds = Env.int("ALS_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
-        writeFactorsToRedis(userFactors, "userId",  "userEmbedding", redisHost, redisPort,
+        EmbeddingText.writeRedis(userFactors, "userId", "userEmbedding", redisHost, redisPort,
           sys.env.getOrElse("ALS_USER_REDIS_KEY_PREFIX", "alsUserEmb"), redisTtlSeconds)
-        writeFactorsToRedis(itemFactors, "movieId", "itemEmbedding", redisHost, redisPort,
+        EmbeddingText.writeRedis(itemFactors, "movieId", "itemEmbedding", redisHost, redisPort,
           sys.env.getOrElse("ALS_ITEM_REDIS_KEY_PREFIX", "alsItemEmb"), redisTtlSeconds)
       }
     } finally {
@@ -114,20 +111,6 @@ object AlsEmbeddingTrainingJob {
     (userFactors, itemFactors)
   }
 
-  private[task] def writeFactors(
-      factors: DataFrame,
-      outputPath: String,
-      idCol: String,
-      embeddingCol: String
-  ): Unit = {
-    factors
-      .withColumn("embeddingStr", vectorToString(col(embeddingCol)))
-      .select(concat_ws(":", col(idCol), col("embeddingStr")).as("value"))
-      .write
-      .mode("overwrite")
-      .text(outputPath)
-  }
-
   private def readRatings(sparkSession: SparkSession, ratingsPath: String): DataFrame =
     RatingsCsv.read(sparkSession, ratingsPath)
       .select(col("userId"), col("movieId"), col("rating"))
@@ -136,24 +119,4 @@ object AlsEmbeddingTrainingJob {
           col("movieId").isNotNull &&
           col("rating").isNotNull
       )
-
-  private def writeFactorsToRedis(
-      factors: DataFrame,
-      idCol: String,
-      embeddingCol: String,
-      redisHost: String,
-      redisPort: Int,
-      keyPrefix: String,
-      redisTtlSeconds: Int
-  ): Unit = {
-    factors
-      .withColumn("embStr", vectorToString(col(embeddingCol)))
-      .foreachPartition { rows: Iterator[Row] =>
-        RedisWriter.writeWithPipeline(
-          redisHost, redisPort,
-          rows.map(r => r.getAs[String](idCol) -> r.getAs[String]("embStr")),
-          keyPrefix, redisTtlSeconds
-        )
-      }
-  }
 }

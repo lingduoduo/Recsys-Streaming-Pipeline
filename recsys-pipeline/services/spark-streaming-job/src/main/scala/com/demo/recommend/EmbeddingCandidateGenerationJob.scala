@@ -1,11 +1,10 @@
 package com.demo.recommend
 
-import com.demo.util.{Env, SparkSessions}
+import com.demo.util.{EmbeddingText, Env, SparkSessions}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import redis.clients.jedis.Jedis
 
 import scala.collection.mutable
-import scala.util.Try
 
 /**
  * Batch embedding-based candidate generation: three steps.
@@ -33,8 +32,8 @@ object EmbeddingCandidateGenerationJob {
     try {
       val candidates = topKCandidates(
         spark,
-        readEmbeddings(spark, userEmbPath),
-        readEmbeddings(spark, itemEmbPath),
+        EmbeddingText.read(spark, userEmbPath),
+        EmbeddingText.read(spark, itemEmbPath),
         topK
       )
 
@@ -90,22 +89,6 @@ object EmbeddingCandidateGenerationJob {
         }
       }
     }.toDF("userId", "candidateItems", "scores")
-  }
-
-  /** Read embeddings written by Item2VecTrainingJob / UserEmbeddingTrainingJob / AlsEmbeddingTrainingJob.
-   *  Expected line format: `id:v1 v2 v3 ...`
-   */
-  def readEmbeddings(spark: SparkSession, path: String): DataFrame = {
-    import spark.implicits._
-    spark.read.textFile(path).flatMap { line =>
-      val sep = line.indexOf(':')
-      if (sep <= 0) None
-      else Try {
-        val id  = line.substring(0, sep).trim
-        val vec = line.substring(sep + 1).trim.split("\\s+").map(_.toDouble).toSeq
-        (id, vec)
-      }.toOption
-    }.toDF("id", "vector")
   }
 
   private[recommend] def cosine(u: Array[Double], v: Array[Double]): Double = {
