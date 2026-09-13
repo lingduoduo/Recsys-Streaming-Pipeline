@@ -1,7 +1,7 @@
 # GRPO PPO objective simplification
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `simplify/grpo-ppo-objective`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -119,3 +119,14 @@ Reassociating the gradient arithmetic can move results at the `1e-12` level; the
 tolerance and the job spec's `1e-9` weight comparisons absorb that. The change does not alter the
 known driver-side collection in `GrpoSlates.toGroups`, the `GRPO_INNER_EPOCHS` floor, or the
 served-position exclusion from the feature vector. Rollback is a revert; no stored weights change.
+
+## Verification record
+
+- Baseline `testOnly com.demo.grpo.*` on `origin/master`: 50 tests, 50 succeeded, 2026-09-12.
+- New branch-coverage test passed on the unchanged code (51/51) and after each of the two
+  refactoring commits (51/51 both times).
+- Full Spark module suite, `sbt -batch test` under JDK 17: 424 tests, 424 succeeded, 0 failed,
+  in 4 min 32 s on 2026-09-12. `UserProfileIntegrationTest` skips as always (Testcontainers
+  blocked on Docker 29).
+- Code diff against master: 4 files, 64 insertions, 42 deletions; the only `foldLeft` dot products
+  left in the package are `logits` and `kl` inside `GrpoMath`.

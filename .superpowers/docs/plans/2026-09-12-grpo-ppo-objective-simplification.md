@@ -42,7 +42,7 @@ Baseline before any change (2026-09-12): `testOnly com.demo.grpo.*` → 50 tests
 - Consumes: `GrpoMath.gradient`, `GrpoMath.loss`, `GrpoMath.softmax`, `GrpoMath.advantages`, and the spec's private `numericGradient` and `gradTol` (existing).
 - Produces: a characterization test that must pass before and after Task 2.
 
-- [ ] **Step 1: Add the test**
+- [x] **Step 1: Add the test**
 
 Append inside `GrpoMathSpec`, after the last `"gradient" should "match a finite-difference approximation once the clip band is engaged with a positive advantage"` test and before the class's closing brace:
 
@@ -75,12 +75,12 @@ Append inside `GrpoMathSpec`, after the last `"gradient" should "match a finite-
   }
 ```
 
-- [ ] **Step 2: Run the GRPO suites to confirm it passes on the current code**
+- [x] **Step 2: Run the GRPO suites to confirm it passes on the current code**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home sbt -batch "testOnly com.demo.grpo.*"`
-Expected: 51 tests, 51 succeeded. This is a characterization test of a branch that is already correct.
+Expected: 51 tests, 51 succeeded. This is a characterization test of a branch that is already correct. Observed: 51 succeeded.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/grpo/GrpoMathSpec.scala
@@ -98,7 +98,7 @@ git commit -m "test: cover the clip-active, unclipped-selected GRPO gradient bra
 - Consumes: `softmax`, `kl`, `AdvantageFloor` (existing).
 - Produces: `def logits(x: Array[Array[Double]], w: Array[Double]): Array[Double]` (now public, same body); `loss` and `gradient` with unchanged signatures.
 
-- [ ] **Step 1: Make `logits` public and add the shared policy helper**
+- [x] **Step 1: Make `logits` public and add the shared policy helper**
 
 Replace
 
@@ -122,7 +122,7 @@ with
      softmax(loggedLogits, cfg.temperature))
 ```
 
-- [ ] **Step 2: Use the helper in `loss`**
+- [x] **Step 2: Use the helper in `loss`**
 
 Replace the three `val piSnap = ...`, `val piOld = ...`, `val pi = ...` lines at the top of `loss` with:
 
@@ -132,7 +132,7 @@ Replace the three `val piSnap = ...`, `val piOld = ...`, `val pi = ...` lines at
 
 Leave the surrogate expression and the return line as they are.
 
-- [ ] **Step 3: Rewrite `gradient` and its derivation comment**
+- [x] **Step 3: Rewrite `gradient` and its derivation comment**
 
 Replace everything from the `/** Analytic gradient of `loss` with respect to w.` doc comment through the end of `gradient` with:
 
@@ -173,12 +173,12 @@ Replace everything from the `/** Analytic gradient of `loss` with respect to w.`
   }
 ```
 
-- [ ] **Step 4: Run the GRPO suites**
+- [x] **Step 4: Run the GRPO suites**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home sbt -batch "testOnly com.demo.grpo.*"`
-Expected: 51 tests, 51 succeeded. The five finite-difference tests and the hand-computed loss test are what certify the rewrite.
+Expected: 51 tests, 51 succeeded. The five finite-difference tests and the hand-computed loss test are what certify the rewrite. Observed: 51 succeeded.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoMath.scala
@@ -197,7 +197,7 @@ git commit -m "refactor: simplify the GRPO clipped-surrogate gradient"
 - Consumes: `GrpoMath.logits` (public from Task 2), `GrpoMath.advantages`, `GrpoMath.gradient`.
 - Produces: `applyBatch(current, groups, cfg, batchId): GrpoWeights` with unchanged signature and semantics.
 
-- [ ] **Step 1: Replace the body of `applyBatch`**
+- [x] **Step 1: Replace the body of `applyBatch`**
 
 Replace the method from `val snapshot = current.weights.clone()` through the closing `GrpoWeights(...)` line with:
 
@@ -224,7 +224,7 @@ Replace the method from `val snapshot = current.weights.clone()` through the clo
 
 Keep the `if (groups.isEmpty) return current.copy(batchId = batchId)` guard and the method's doc comment as they are.
 
-- [ ] **Step 2: Use `GrpoMath.logits` in the job spec's epoch replay**
+- [x] **Step 2: Use `GrpoMath.logits` in the job spec's epoch replay**
 
 In `GrpoPolicyStreamingJobSpec`, inside the test `"keep the ratio anchored to the batch-start snapshot across inner epochs"`, replace
 
@@ -240,17 +240,17 @@ with
     val snapshotLogitsByGroup = groups.map(g => GrpoMath.logits(g.x, snapshot))
 ```
 
-- [ ] **Step 3: Run the GRPO suites**
+- [x] **Step 3: Run the GRPO suites**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home sbt -batch "testOnly com.demo.grpo.*"`
-Expected: 51 tests, 51 succeeded. The snapshot-anchoring replay, the no-leak test, the 200-batch stress test, and the non-mutation test guard this rewrite.
+Expected: 51 tests, 51 succeeded. The snapshot-anchoring replay, the no-leak test, the 200-batch stress test, and the non-mutation test guard this rewrite. Observed: 51 succeeded.
 
-- [ ] **Step 4: Confirm no dot product remains outside `GrpoMath`**
+- [x] **Step 4: Confirm no dot product remains outside `GrpoMath`**
 
 Run: `grep -rn "foldLeft(0.0)" recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/grpo`
-Expected: only the `logits` and `kl` lines in `GrpoMath.scala`.
+Expected: only the `logits` and `kl` lines in `GrpoMath.scala`. Observed: exactly those two lines.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoPolicyStreamingJob.scala recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/grpo/GrpoPolicyStreamingJobSpec.scala
@@ -269,12 +269,12 @@ git commit -m "refactor: prepare GRPO groups once per batch and reuse GrpoMath.l
 - Consumes: the finished package from Tasks 1-3.
 - Produces: a PR against `master` from `simplify/grpo-ppo-objective`.
 
-- [ ] **Step 1: Run the full Spark module suite in the background**
+- [x] **Step 1: Run the full Spark module suite in the background**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home sbt -batch test > <scratchpad>/spark_full.log 2>&1`
-Expected: all tests pass (423 passed on 2026-09-12 for the previous PR; `UserProfileIntegrationTest` always skips because Testcontainers is blocked on Docker 29). If unrelated tests fail, confirm they fail on `origin/master` too before reporting; do not claim a green suite otherwise.
+Expected: all tests pass (423 passed on 2026-09-12 for the previous PR; `UserProfileIntegrationTest` always skips because Testcontainers is blocked on Docker 29). If unrelated tests fail, confirm they fail on `origin/master` too before reporting; do not claim a green suite otherwise. Observed: 424 tests, 424 succeeded, 4 min 32 s.
 
-- [ ] **Step 2: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 2: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` section listing the per-task GRPO counts and the full-suite result.
 
@@ -283,7 +283,7 @@ git add .superpowers/docs/specs/2026-09-12-grpo-ppo-objective-simplification-des
 git commit -m "docs: record GRPO PPO objective simplification verification"
 ```
 
-- [ ] **Step 3: Open the PR**
+- [x] **Step 3: Open the PR**
 
 ```bash
 git push -u origin simplify/grpo-ppo-objective
