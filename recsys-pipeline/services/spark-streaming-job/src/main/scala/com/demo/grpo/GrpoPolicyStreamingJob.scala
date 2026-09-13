@@ -34,22 +34,19 @@ object GrpoPolicyStreamingJob {
     if (groups.isEmpty) return current.copy(batchId = batchId)
 
     val snapshot = current.weights.clone()
-    var w = current.weights.clone()
-    // The snapshot is fixed for the whole batch, so each group's snapshot-side logits are too --
-    // compute them once here rather than on every inner epoch, which also makes the freezing
-    // obvious to the next reader instead of implicit in when the line happens to run.
-    val snapshotLogitsByGroup: Seq[Array[Double]] = groups.map { g =>
-      g.x.map(row => row.indices.foldLeft(0.0)((a, i) => a + row(i) * snapshot(i)))
+    val w = current.weights.clone()
+    // Neither the snapshot-side logits nor the advantage depends on w, so both are fixed for the
+    // whole batch: prepare them once here rather than on every inner epoch.
+    val prepared = groups.flatMap { g =>
+      GrpoMath.advantages(g.rewards).map(adv => (g, GrpoMath.logits(g.x, snapshot), adv))
     }
     (1 to cfg.hyper.innerEpochs).foreach { _ =>
       val total = Array.fill(cfg.dim)(0.0)
-      groups.zip(snapshotLogitsByGroup).foreach { case (g, snapshotLogits) =>
-        GrpoMath.advantages(g.rewards).foreach { adv =>
-          // Ratio against the snapshot; KL against what actually served. GrpoMath.gradient takes
-          // both references, so the two cannot be conflated here.
-          val grad = GrpoMath.gradient(g.x, snapshotLogits, g.logged, w, adv, cfg.hyper)
-          (0 until cfg.dim).foreach(d => total(d) += grad(d))
-        }
+      prepared.foreach { case (g, snapshotLogits, adv) =>
+        // Ratio against the snapshot; KL against what actually served. GrpoMath.gradient takes
+        // both references, so the two cannot be conflated here.
+        val grad = GrpoMath.gradient(g.x, snapshotLogits, g.logged, w, adv, cfg.hyper)
+        (0 until cfg.dim).foreach(d => total(d) += grad(d))
       }
       (0 until cfg.dim).foreach(d => w(d) -= cfg.hyper.learningRate * total(d) / groups.size)
     }
