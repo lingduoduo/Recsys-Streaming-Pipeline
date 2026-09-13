@@ -39,7 +39,7 @@ Baseline before any change (2026-09-12): `python3 -m pytest integration-tests/py
 - Consumes: `_vec(cand_like, names)`, `logistic.apply_standardize`, `logistic.predict_proba` (existing).
 - Produces: `RewardModel.predict_batch(cand_likes: list[dict]) -> np.ndarray` of shape `(len(cand_likes),)`; empty input returns an empty float array. `predict_one(cand_like) -> float` unchanged in behavior.
 
-- [ ] **Step 1: Write the failing parity test**
+- [x] **Step 1: Write the failing parity test**
 
 Append to `test_ope_eval.py`:
 
@@ -56,12 +56,12 @@ def test_predict_batch_matches_predict_one():
     assert model.predict_batch([]).shape == (0,)
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_ope_eval.py::test_predict_batch_matches_predict_one -q`
 Expected: FAIL with `AttributeError: 'RewardModel' object has no attribute 'predict_batch'`
 
-- [ ] **Step 3: Implement `predict_batch` and route `predict_one` through it**
+- [x] **Step 3: Implement `predict_batch` and route `predict_one` through it**
 
 Replace the `RewardModel.predict_one` method with:
 
@@ -82,12 +82,12 @@ Replace the `RewardModel.predict_one` method with:
         return float(self.predict_batch([cand_like])[0])
 ```
 
-- [ ] **Step 4: Run the OPE tests**
+- [x] **Step 4: Run the OPE tests**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_ope_eval.py -q`
-Expected: 22 passed (21 existing + the new one).
+Expected: 21 passed (20 existing + the new one). Observed: 21 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/ope_eval_report.py recsys-pipeline/integration-tests/python_modeling/test_ope_eval.py
@@ -109,7 +109,7 @@ git commit -m "perf: vectorize reward model prediction over candidate lists"
   - `_rows_from_scores(rewards, scores, policies, model) -> list[dict]`: the same row dicts `_evaluate_statistics` returns today (`policy`, `value`, `lift_vs_logging`, `n_events`, `estimator_auc`, `estimator_mse`), sorted by value descending.
   - `_evaluate_statistics(events, model, policies)` keeps its signature and semantics.
 
-- [ ] **Step 1: Write the failing parity test with an empty action space**
+- [x] **Step 1: Write the failing parity test with an empty action space**
 
 Append to `test_ope_eval.py`:
 
@@ -141,7 +141,7 @@ def test_evaluate_statistics_matches_per_event_scoring_with_an_empty_action_spac
     assert rows["logging"]["lift_vs_logging"] == 0.0
 ```
 
-- [ ] **Step 2: Run it to confirm it passes against the current code, then update the stub**
+- [x] **Step 2: Run it to confirm it passes against the current code, then update the stub**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_ope_eval.py::test_evaluate_statistics_matches_per_event_scoring_with_an_empty_action_space -q`
 Expected: PASS. This is a characterization test; it must keep passing after the rewrite.
@@ -157,7 +157,7 @@ Then make the existing `ExactModel` stub in `test_evaluate_uses_raw_statistics_b
             return np.array([float(c["impressions"]) / 7.0 for c in candidates])
 ```
 
-- [ ] **Step 3: Rewrite `_evaluate_statistics` on the score matrix**
+- [x] **Step 3: Rewrite `_evaluate_statistics` on the score matrix**
 
 Replace `_evaluate_statistics` with:
 
@@ -217,12 +217,12 @@ def _evaluate_statistics(events: list[dict], model, policies: list[str]) -> list
 
 Remove the old `_evaluate_statistics` body entirely; `RewardModel` type hints on `model` are dropped because the test stub is duck-typed.
 
-- [ ] **Step 4: Run the OPE tests**
+- [x] **Step 4: Run the OPE tests**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_ope_eval.py -q`
-Expected: 23 passed.
+Expected: 22 passed. Observed: 22 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/ope_eval_report.py recsys-pipeline/integration-tests/python_modeling/test_ope_eval.py
@@ -241,7 +241,7 @@ git commit -m "perf: score each event once per policy for OPE point rows"
 - Consumes: `_policy_scores`, `_rows_from_scores` from Task 2.
 - Produces: `bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716)` with unchanged signature, return shape, and RNG sequence.
 
-- [ ] **Step 1: Write the failing prediction-count test**
+- [x] **Step 1: Write the failing prediction-count test**
 
 Append to `test_ope_eval.py`:
 
@@ -263,12 +263,12 @@ def test_bootstrap_scores_each_policy_once_regardless_of_sample_count():
     assert all(row["value_ci_low"] is not None for row in rows)
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_ope_eval.py::test_bootstrap_scores_each_policy_once_regardless_of_sample_count -q`
 Expected: FAIL with `assert 160 == 4` (40 replicates × 4 policies).
 
-- [ ] **Step 3: Resample the matrix instead of re-evaluating events**
+- [x] **Step 3: Resample the matrix instead of re-evaluating events**
 
 In `bootstrap_intervals`, replace the block from `policies = [...]` through the end of the `for _ in range(samples)` loop with:
 
@@ -291,12 +291,12 @@ Leave the `enriched` construction, the `samples == 0 or not events` early return
     Every event is scored once per policy before resampling; replicates only re-index those scores.
 ```
 
-- [ ] **Step 4: Run the OPE, post-training, dashboard, and logistic tests**
+- [x] **Step 4: Run the OPE, post-training, dashboard, and logistic tests**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_ope_eval.py integration-tests/python_modeling/test_logistic.py integration-tests/python_modeling/test_post_training_q.py integration-tests/python_modeling/test_post_training_dpo.py integration-tests/python_modeling/test_analysis_dashboard.py -q`
-Expected: 127 passed (124 baseline + 3 new).
+Expected: 127 passed (124 baseline + 3 new). Observed: 127 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/ope_eval_report.py recsys-pipeline/integration-tests/python_modeling/test_ope_eval.py
@@ -316,7 +316,7 @@ git commit -m "perf: resample precomputed policy scores in the OPE bootstrap"
 - Consumes: the finished module from Tasks 1-3.
 - Produces: a PR against `master` from `perf/reward-model-training`.
 
-- [ ] **Step 1: Re-run the investigation benchmark**
+- [x] **Step 1: Re-run the investigation benchmark**
 
 Write this to the session scratchpad (not the repository) as `bench_rm.py` and run `python3 bench_rm.py 5000` from `recsys-pipeline/`:
 
@@ -353,9 +353,9 @@ t0 = time.perf_counter(); ope.bootstrap_intervals(events, model, pts, samples=10
 print(f"bootstrap 1000 samples: {t1-t0:.3f}s")
 ```
 
-Expected: fit unchanged near 0.06 s, evaluate below 0.38 s, bootstrap of 1,000 samples in single-digit seconds (baseline extrapolated ~370 s). Record the numbers in the spec's verification record.
+Expected: fit unchanged near 0.06 s, evaluate below 0.38 s, bootstrap of 1,000 samples in single-digit seconds (baseline extrapolated ~370 s). Observed at 5,000 events: fit 0.060 s, evaluate 0.124 s, bootstrap 0.300 s; at 10,000 events: 0.143 s, 0.240 s, 0.570 s. Recorded in the spec's verification record.
 
-- [ ] **Step 2: Document the scoring behavior**
+- [x] **Step 2: Document the scoring behavior**
 
 In `Analysis_Report.md`, after the sentence ending `by later `POST /feedback` calls.` in the "Off-policy evaluation" section, add:
 
@@ -364,12 +364,12 @@ Each event is scored once under every policy against the fixed estimator; the bo
 those per-event scores rather than re-picking and re-scoring the slate in every replicate.
 ```
 
-- [ ] **Step 3: Run the full Python modeling suite**
+- [x] **Step 3: Run the full Python modeling suite**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling -q`
-Expected: all pass. If unrelated tests fail, confirm they fail on `origin/master` too before reporting; do not claim a green suite otherwise.
+Expected: all pass. Observed: 501 passed. If unrelated tests fail, confirm they fail on `origin/master` too before reporting; do not claim a green suite otherwise.
 
-- [ ] **Step 4: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 4: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` section listing the pytest counts and benchmark timings observed in Steps 1 and 3.
 
@@ -378,7 +378,7 @@ git add recsys-pipeline/docs/recommendation_architecture/Analysis_Report.md .sup
 git commit -m "docs: record reward model scoring reuse verification"
 ```
 
-- [ ] **Step 5: Open the PR**
+- [x] **Step 5: Open the PR**
 
 ```bash
 git push -u origin perf/reward-model-training

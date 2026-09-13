@@ -1,7 +1,7 @@
 # Reward model scoring reuse
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `perf/reward-model-training`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -112,3 +112,19 @@ The score matrix holds events × policies doubles, which is small at the replay 
 Python loop, so point evaluation stays proportional to events × candidates × policies; only the
 bootstrap changes complexity. Rollback consists of reverting this change; no data or artifact
 migration is required.
+
+## Verification record
+
+- `python3 -m pytest integration-tests/python_modeling -q`: 501 passed, 0 failures, on 2026-09-12
+  with Python 3.12.2 and numpy 2.5.1.
+- Final `test_ope_eval.py` run: 23 tests passed (20 pre-existing + 3 new).
+- Regression evidence: a 40-sample bootstrap over 4 non-logging policies called prediction 160 times
+  before the change and 4 times afterward.
+- Parity: on a 2,000-event fixture with one empty action space, 9 policies, 30 samples, seed 5,
+  the reported rows and intervals from `origin/master` and this branch are byte-identical.
+- Benchmark (synthetic buffer, 10 candidates per event, 9 policies, 1,000 bootstrap samples):
+
+| Events | Fit | Point rows | Bootstrap before | Bootstrap after |
+|---|---|---|---|---|
+| 5,000 | 0.06 s | 0.38 s → 0.12 s | ~370 s (extrapolated) | 0.30 s |
+| 10,000 (replay cap) | 0.14 s | 0.24 s | not measured | 0.57 s |
