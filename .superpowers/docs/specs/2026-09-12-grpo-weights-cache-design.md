@@ -1,7 +1,7 @@
 # GRPO weights through the feature cache
 
 **Date:** 2026-09-12
-**Status:** Implemented and verified; PR pending
+**Status:** Implemented and verified; [PR #227](https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/227) open
 
 ## Problem and scope
 
