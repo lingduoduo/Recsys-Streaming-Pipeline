@@ -27,6 +27,7 @@ recsys:
     item-vector-ttl-seconds: ${RECSYS_ITEM_VECTOR_TTL:300}
     reward-max-size: ${RECSYS_REWARD_CACHE_SIZE:50000}
     reward-ttl-seconds: ${RECSYS_REWARD_TTL:30}
+    grpo-weights-ttl-seconds: ${RECSYS_GRPO_WEIGHTS_TTL:10}
   sequence:
     # off = legacy CSV blobs only; shadow = read both and log the diff; on = serve the store
     mode: ${RECSYS_SEQUENCE_MODE:off}

@@ -19,12 +19,14 @@ import java.util.concurrent.TimeUnit;
  *
  * Item vectors (i2vEmb:*): updated only when training jobs run; safe to cache for minutes.
  * Reward model stats (reward-model:*): updated on every feedback event; short TTL keeps staleness bounded.
+ * GRPO policy weights (grpo:policy:weights): rewritten once per training micro-batch; the TTL matches that trigger.
  */
 @Component
 public class FeatureCache {
 
     private final Cache<String, double[]> itemVectors;
     private final Cache<String, RewardModelStats> rewardStats;
+    private final Cache<String, double[]> grpoWeights;
 
     public FeatureCache(RecommendationProperties properties) {
         RecommendationProperties.Cache cfg = properties.getCache();
@@ -36,6 +38,11 @@ public class FeatureCache {
         this.rewardStats = Caffeine.newBuilder()
             .maximumSize(cfg.getRewardMaxSize())
             .expireAfterWrite(cfg.getRewardTtlSeconds(), TimeUnit.SECONDS)
+            .recordStats()
+            .build();
+        this.grpoWeights = Caffeine.newBuilder()
+            .maximumSize(1)   // one fixed key: GrpoPolicyScorer.WEIGHTS_KEY
+            .expireAfterWrite(cfg.getGrpoWeightsTtlSeconds(), TimeUnit.SECONDS)
             .recordStats()
             .build();
     }
@@ -68,6 +75,17 @@ public class FeatureCache {
         rewardStats.invalidate(key);
     }
 
+    // --- GRPO policy weights ---
+
+    /** The parsed weight vector, an empty array when Redis held nothing usable, or null when not cached. */
+    public double[] getGrpoWeights(String key) {
+        return grpoWeights.getIfPresent(key);
+    }
+
+    public void putGrpoWeights(String key, double[] weights) {
+        grpoWeights.put(key, weights != null ? weights : new double[0]);
+    }
+
     public record RewardModelStats(long count, double rewardTotal) {}
 
     // --- statistics ---
@@ -86,6 +104,7 @@ public class FeatureCache {
         Map<String, CacheStatsView> values = new LinkedHashMap<>();
         values.put("item_vectors", view(itemVectors));
         values.put("reward_stats", view(rewardStats));
+        values.put("grpo_weights", view(grpoWeights));
         return values;
     }
 

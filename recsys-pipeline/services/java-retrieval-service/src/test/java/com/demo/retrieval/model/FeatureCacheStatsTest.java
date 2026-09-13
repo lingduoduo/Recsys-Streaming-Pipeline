@@ -13,10 +13,24 @@ class FeatureCacheStatsTest {
     void reportsZeroedStatsBeforeAnyLookup() {
         Map<String, FeatureCache.CacheStatsView> stats = new FeatureCache(new RecommendationProperties()).stats();
 
-        assertEquals(2, stats.size());
+        assertEquals(3, stats.size());
         assertEquals(0L, stats.get("item_vectors").hitCount());
         assertEquals(0L, stats.get("item_vectors").missCount());
         assertEquals(0L, stats.get("reward_stats").hitCount());
+    }
+
+    @Test
+    void countsGrpoWeightLookupsSeparately() {
+        FeatureCache cache = new FeatureCache(new RecommendationProperties());
+
+        cache.getGrpoWeights("absent");
+        cache.putGrpoWeights("key", new double[] {0.5});
+        cache.getGrpoWeights("key");
+
+        FeatureCache.CacheStatsView weights = cache.stats().get("grpo_weights");
+        assertEquals(1L, weights.hitCount());
+        assertEquals(1L, weights.missCount());
+        assertEquals(0L, cache.stats().get("reward_stats").missCount());
     }
 
     @Test
