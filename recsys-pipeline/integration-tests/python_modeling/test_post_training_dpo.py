@@ -336,11 +336,11 @@ def _uuid_style(n):
 
 
 def _mismatched_fixture(n_slates=6):
-    """The id namespaces this repository ACTUALLY produces on the two sides.
+    """Producer-only slates against a serving-written replay: the ids can never coincide.
 
-    The slate log's request_id is minted by movie_segment_producer as f"req_{uuid4().hex[:12]}";
-    the replay's requestId is minted independently by HybridRecommendationService as
-    UUID.randomUUID().toString(). The values can never coincide.
+    The Python producer mints the slate log's request_id as f"req_{uuid4().hex[:12]}"; the replay's
+    requestId is serving's UUID.randomUUID().toString(). Only slates built from serving-emitted
+    events (RECSYS_GRPO_EMIT_EVENTS=true) carry the replay's id.
     """
     events, slates = [], []
     for n in range(n_slates):
@@ -389,9 +389,8 @@ def test_main_names_the_request_id_mismatch_when_nothing_joins(tmp_path):
     message = str(excinfo.value)
     assert "6 candidate pairs dropped" in message
     assert "0 of 6 slate request_ids" in message
-    assert "movie_segment_producer" in message
-    assert "HybridRecommendationService" in message
-    assert "serving path" in message.lower()
+    assert "RECSYS_GRPO_EMIT_EVENTS" in message
+    assert "serving" in message.lower()
 
 
 def test_main_reports_the_matched_request_id_count_when_the_join_works(tmp_path, capsys):
