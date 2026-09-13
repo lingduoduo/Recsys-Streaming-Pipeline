@@ -1072,14 +1072,12 @@ come from the replay buffer, joined on `requestId`, so all three arms are scored
 Pairs whose replay row is missing are dropped and counted — check the reported join yield and the
 `slate request_ids matched to a replay requestId` line before reading the accuracy numbers.
 
-**Unmet prerequisite — this arm produces nothing on today's data.** The slate log's `request_id` is
-minted by `movie_segment_producer.py` as `f"req_{uuid4().hex[:12]}"`, while the replay's
-`requestId` is minted independently by the Java serving path as `UUID.randomUUID().toString()`.
-Different generators, different formats: the values can never be equal, so the join matches 0 rows
-and the CLI exits naming the mismatch. Making it runnable requires the **serving path** to emit its
-own `requestId` into the Kafka event stream the slate log is built from — a serving-path change
-outside this offline track. Everything downstream of the join is exercised by synthetic fixtures
-only.
+**Prerequisite — slates must come from serving-emitted events.** The join is on request id, and only
+the retrieval service writes the same id to both sides: with `RECSYS_GRPO_EMIT_EVENTS=true` it
+publishes its own impressions and feedback to Kafka carrying the `requestId` it also writes to the
+replay buffer. The flag defaults to `false`, and slates produced only by the Python producers mint
+their own `req_...` ids, so on a default deployment the join matches 0 rows and the CLI exits naming
+the flag. The `slate request_ids matched to a replay requestId` line is the check.
 
 Two things the accuracy comparison does **not** say. `predictionScore` is both the reference and an
 input feature of the fitted scorer, so beating the reference does not mean the policy learned
