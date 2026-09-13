@@ -138,6 +138,8 @@ signal has only one observed class; embedding metrics are empty when no rows hav
 then re-picks every event under logging, popularity, CTR, deterministic random, and available
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events
 are normally written to `replay:recommendations` by later `POST /feedback` calls.
+Each event is scored once under every policy against the fixed estimator; the bootstrap resamples
+those per-event scores rather than re-picking and re-scoring the slate in every replicate.
 
 `post-training/post_train_q.py` fits offline Q functions on the same replay buffer and injects
 their per-candidate predictions as `tabQ` and `fqiQ`, which the evaluator discovers automatically

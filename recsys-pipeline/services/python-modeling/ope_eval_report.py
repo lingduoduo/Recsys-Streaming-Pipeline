@@ -110,10 +110,20 @@ class RewardModel:
         self._w = w
         self.calibration = calibration
 
-    def predict_one(self, cand_like: dict) -> float:
-        X = np.array([_vec(cand_like, self.names)], dtype=float)
+    def predict_batch(self, cand_likes: list[dict]) -> np.ndarray:
+        """Estimated reward for each candidate-like dict, in order.
+
+        One standardize and one sigmoid over the whole list; scoring candidate by candidate
+        pays numpy's per-call overhead once per candidate instead of once per policy.
+        """
+        if not cand_likes:
+            return np.zeros(0, dtype=float)
+        X = np.array([_vec(c, self.names) for c in cand_likes], dtype=float)
         Xs = logistic.apply_standardize(X, self._mean, self._std)
-        return float(logistic.predict_proba(Xs, self._w)[0])
+        return logistic.predict_proba(Xs, self._w)
+
+    def predict_one(self, cand_like: dict) -> float:
+        return float(self.predict_batch([cand_like])[0])
 
 
 def fit_reward_model(events: list[dict]) -> RewardModel:
@@ -171,20 +181,41 @@ def policy_names(events) -> list[str]:
     return ["logging", "popularity", "ctr", "random"] + [f"model:{k}" for k in _model_pred_keys(events)]
 
 
-def _evaluate_statistics(events: list[dict], model: RewardModel,
-                         policies: list[str]) -> list[dict]:
-    n = len(events)
-    logging_value = sum(float(e.get("reward", 0.0)) for e in events) / n if n else 0.0
-    rows = []
-    for name in policies:
+def _policy_scores(events: list[dict], model, policies: list[str]):
+    """Observed rewards and an events x policies matrix of estimated rewards.
+
+    The `logging` column is the observed reward. Every other column is the fixed model's
+    estimate of that policy's pick, NaN where the event has no candidates. The model does not
+    change during evaluation, so this matrix is scored once and reused by the point rows and by
+    every bootstrap replicate; each non-logging policy calls predict_batch exactly once.
+    """
+    rewards = np.array([float(e.get("reward", 0.0)) for e in events], dtype=float)
+    scores = np.full((len(events), len(policies)), np.nan, dtype=float)
+    for column, name in enumerate(policies):
         if name == "logging":
-            value = logging_value
-            count = n
+            scores[:, column] = rewards
+            continue
+        picks = [pick(name, e) for e in events]
+        present = [i for i, c in enumerate(picks) if c is not None]
+        if present:
+            scores[present, column] = model.predict_batch([picks[i] for i in present])
+    return rewards, scores
+
+
+def _rows_from_scores(rewards: np.ndarray, scores: np.ndarray, policies: list[str],
+                      model) -> list[dict]:
+    n = rewards.shape[0]
+    logging_value = float(rewards.sum() / n) if n else 0.0
+    counts = np.count_nonzero(~np.isnan(scores), axis=0)
+    sums = np.nansum(scores, axis=0)
+    rows = []
+    for column, name in enumerate(policies):
+        if name == "logging":
+            # Assigned rather than re-derived from the column so the logging lift is exactly 0.0.
+            value, count = logging_value, n
         else:
-            picks = [pick(name, e) for e in events]
-            scored = [model.predict_one(c) for c in picks if c is not None]
-            count = len(scored)
-            value = sum(scored) / count if scored else 0.0
+            count = int(counts[column])
+            value = float(sums[column] / count) if count else 0.0
         lift = (value / logging_value - 1.0) if logging_value > 0.0 else None
         rows.append({
             "policy": name,
@@ -196,6 +227,11 @@ def _evaluate_statistics(events: list[dict], model: RewardModel,
         })
     rows.sort(key=lambda r: r["value"], reverse=True)
     return rows
+
+
+def _evaluate_statistics(events: list[dict], model, policies: list[str]) -> list[dict]:
+    rewards, scores = _policy_scores(events, model, policies)
+    return _rows_from_scores(rewards, scores, policies, model)
 
 
 def evaluate(events: list[dict], model: RewardModel) -> list[dict]:
@@ -221,6 +257,7 @@ def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
     """Bootstrap event-sampling uncertainty conditional on the fixed fitted model.
 
     These intervals do not include uncertainty from fitting the reward model.
+    Every event is scored once per policy before resampling; replicates only re-index those scores.
     """
     if samples < 0:
         raise ValueError("bootstrap samples must be nonnegative")
@@ -230,11 +267,11 @@ def bootstrap_intervals(events, model, point_rows, samples=1000, seed=20260716):
         return enriched
     policies = [row["policy"] for row in point_rows]
     stats = {policy: {"value": [], "lift": []} for policy in policies}
+    rewards, scores = _policy_scores(events, model, policies)
     rng = np.random.default_rng(seed)
     for _ in range(samples):
         indexes = rng.integers(0, len(events), size=len(events))
-        sampled = [events[int(index)] for index in indexes]
-        for row in _evaluate_statistics(sampled, model, policies):
+        for row in _rows_from_scores(rewards[indexes], scores[indexes], policies, model):
             stats[row["policy"]]["value"].append(float(row["value"]))
             if row["lift_vs_logging"] is not None:
                 stats[row["policy"]]["lift"].append(float(row["lift_vs_logging"]))
