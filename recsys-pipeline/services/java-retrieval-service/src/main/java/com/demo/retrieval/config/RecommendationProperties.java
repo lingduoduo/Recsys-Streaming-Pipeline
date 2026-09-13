@@ -149,6 +149,7 @@ public class RecommendationProperties {
         private long itemVectorTtlSeconds = 300;
         private int rewardMaxSize = 50_000;
         private long rewardTtlSeconds = 30;
+        private long grpoWeightsTtlSeconds = 10;
 
         public int getItemVectorMaxSize() { return itemVectorMaxSize; }
         public void setItemVectorMaxSize(int itemVectorMaxSize) { this.itemVectorMaxSize = itemVectorMaxSize; }
@@ -158,6 +159,8 @@ public class RecommendationProperties {
         public void setRewardMaxSize(int rewardMaxSize) { this.rewardMaxSize = rewardMaxSize; }
         public long getRewardTtlSeconds() { return rewardTtlSeconds; }
         public void setRewardTtlSeconds(long rewardTtlSeconds) { this.rewardTtlSeconds = rewardTtlSeconds; }
+        public long getGrpoWeightsTtlSeconds() { return grpoWeightsTtlSeconds; }
+        public void setGrpoWeightsTtlSeconds(long grpoWeightsTtlSeconds) { this.grpoWeightsTtlSeconds = grpoWeightsTtlSeconds; }
     }
 
     public static class Embeddings {

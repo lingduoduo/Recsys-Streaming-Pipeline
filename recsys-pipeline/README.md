@@ -88,7 +88,7 @@ Feature data is split across three tiers by access pattern and update frequency.
 |------|----------|------------|
 | **Disk** (filesystem) | ONNX model (`mlp_embedding_model.onnx`), ID lookup tables (`mlp_embedding_lookups.json`), Parquet training samples partitioned by date | Model and lookups bundled at build time, swappable at runtime via `ONNX_MODEL_PATH` without JAR rebuild; Parquet training samples written by the Spark streaming jobs on every micro-batch |
 | **Redis** | User click history, global item popularity, per-user columnar behavior/rating/click sequences (`seq:{id}:{kind}:{day}`), item/user embeddings (`i2vEmb:*`, `uEmb:*`, `alsItemEmb:*`, `alsUserEmb:*`), bandit counters, reward model stats, replay buffer | Streaming jobs (each micro-batch) and `/feedback` calls |
-| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
+| **In-memory** (Caffeine) | Item vectors (`i2vEmb:*`), reward model stats (`reward-model:*`), GRPO policy weights (`grpo:policy:weights`) | Populated from Redis on first request; TTL-expired; invalidated on `/feedback` writes |
 
 The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-trips per recommendation request. Before the scoring loop, a single `MGET` loads all candidate and recent-item vectors; reward model estimates are cached per key for the configured TTL and invalidated immediately when `/feedback` updates them.
 
@@ -342,6 +342,7 @@ classpath resources. When unset, falls back to classpath (the development and te
 | `recsys.cache.item-vector-ttl-seconds` | `RECSYS_ITEM_VECTOR_TTL` | `300` | Item vector TTL (seconds); matches training job cadence |
 | `recsys.cache.reward-max-size` | `RECSYS_REWARD_CACHE_SIZE` | `50000` | Maximum cached reward model stat entries |
 | `recsys.cache.reward-ttl-seconds` | `RECSYS_REWARD_TTL` | `30` | Reward model stat TTL; invalidated immediately on `/feedback` writes |
+| `recsys.cache.grpo-weights-ttl-seconds` | `RECSYS_GRPO_WEIGHTS_TTL` | `10` | GRPO policy weight vector TTL; matches the training job's trigger interval |
 
 ### Recommendation properties
 

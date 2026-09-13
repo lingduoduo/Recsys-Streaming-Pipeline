@@ -1,6 +1,7 @@
 package com.demo.retrieval.service.grpo;
 
 import com.demo.retrieval.config.RecommendationProperties;
+import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
 import org.slf4j.Logger;
@@ -52,10 +53,12 @@ public class GrpoPolicyScorer {
     public static final double ON_BLEND_WEIGHT = 0.10;
 
     private final StringRedisTemplate redis;
+    private final FeatureCache featureCache;
     private final String mode;
 
-    public GrpoPolicyScorer(StringRedisTemplate redis, RecommendationProperties properties) {
+    public GrpoPolicyScorer(StringRedisTemplate redis, RecommendationProperties properties, FeatureCache featureCache) {
         this.redis = redis;
+        this.featureCache = featureCache;
         String configured = properties.getGrpo().getMode();
         String normalized = configured == null ? MODE_OFF : configured.trim().toLowerCase(Locale.ROOT);
         if (!MODE_OFF.equals(normalized) && !MODE_SHADOW.equals(normalized) && !MODE_ON.equals(normalized)) {
@@ -219,8 +222,22 @@ public class GrpoPolicyScorer {
         return pairs == 0L ? 0.0 : (double) concordant / pairs;
     }
 
+    /**
+     * The usable weight vector, read through the feature cache: the vector changes once per
+     * training micro-batch, so it is re-read from Redis at most once per
+     * recsys.cache.grpo-weights-ttl-seconds. An absent or rejected vector is cached as an empty
+     * array for the same window rather than re-read on every request.
+     */
     private Optional<double[]> readWeights() {
-        Map<Object, Object> raw = redis.opsForHash().entries(WEIGHTS_KEY);
+        double[] cached = featureCache.getGrpoWeights(WEIGHTS_KEY);
+        if (cached == null) {
+            cached = parseWeights(redis.opsForHash().entries(WEIGHTS_KEY)).orElseGet(() -> new double[0]);
+            featureCache.putGrpoWeights(WEIGHTS_KEY, cached);
+        }
+        return cached.length == 0 ? Optional.empty() : Optional.of(cached);
+    }
+
+    private static Optional<double[]> parseWeights(Map<Object, Object> raw) {
         if (raw == null || raw.isEmpty()) {
             return Optional.empty();
         }

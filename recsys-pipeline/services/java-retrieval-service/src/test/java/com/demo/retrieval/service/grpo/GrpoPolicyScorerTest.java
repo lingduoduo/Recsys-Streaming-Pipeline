@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.demo.retrieval.config.RecommendationProperties;
+import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,7 +45,7 @@ class GrpoPolicyScorerTest {
         when(hashOps.entries(anyString())).thenReturn(weights == null ? Map.of()
             : Map.of("weights", weights, "feature_version", version, "dim", "9"));
         lastRedis = redis;
-        return new GrpoPolicyScorer(redis, properties);
+        return new GrpoPolicyScorer(redis, properties, new FeatureCache(properties));
     }
 
     /**
@@ -186,6 +188,24 @@ class GrpoPolicyScorerTest {
         assertLogsNoShadowLine(scorer("shadow", withNaN, "v2"));
         String withInf = "Infinity," + String.join(",", java.util.Collections.nCopies(GrpoFeatures.DIM - 1, "1.0"));
         assertLogsNoShadowLine(scorer("shadow", withInf, "v2"));
+    }
+
+    @Test
+    void weightsAreReadFromRedisOncePerTtlWindow() {
+        // The vector changes once per training micro-batch; re-reading it on every slate is what
+        // the feature cache exists to stop.
+        GrpoPolicyScorer s = scorer("shadow", weightsOnBanditScoreOnly(), "v2");
+        s.recordShadowSlate(twoItemSlate());
+        s.recordShadowSlate(twoItemSlate());
+        verify(lastRedis, times(1)).opsForHash();
+    }
+
+    @Test
+    void anAbsentVectorIsNotReReadWithinTheTtl() {
+        GrpoPolicyScorer s = scorer("shadow", null, "v2");
+        s.recordShadowSlate(twoItemSlate());
+        s.recordShadowSlate(twoItemSlate());
+        verify(lastRedis, times(1)).opsForHash();
     }
 
     @Test
@@ -365,7 +385,7 @@ class GrpoPolicyScorerTest {
         properties.getGrpo().setMode("on");
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         when(redis.opsForHash()).thenThrow(new IllegalStateException("WRONGTYPE"));
-        GrpoPolicyScorer s = new GrpoPolicyScorer(redis, properties);
+        GrpoPolicyScorer s = new GrpoPolicyScorer(redis, properties, new FeatureCache(properties));
         List<double[]> vectors = vectorsIsolatingBanditScore(10.0, 30.0);
         assertTrue(s.reRankOrder(vectors, new double[] {0.52, 0.50}).isEmpty());
     }
@@ -376,7 +396,7 @@ class GrpoPolicyScorerTest {
         properties.getGrpo().setMode("shadow");
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         when(redis.opsForHash()).thenThrow(new IllegalStateException("redis down"));
-        GrpoPolicyScorer s = new GrpoPolicyScorer(redis, properties);
+        GrpoPolicyScorer s = new GrpoPolicyScorer(redis, properties, new FeatureCache(properties));
         s.recordShadowSlate(slate(List.of(
             itemWithBanditScore("m1", 0.9), itemWithBanditScore("m2", 0.1))));
     }
