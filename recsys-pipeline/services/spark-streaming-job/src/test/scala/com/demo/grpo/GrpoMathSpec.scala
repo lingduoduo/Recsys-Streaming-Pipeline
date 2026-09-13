@@ -202,4 +202,31 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
     val numeric = numericGradient(x, snapshot, logged, w, adv, cfg)
     analytic.zip(numeric).foreach { case (a, n) => a shouldBe n +- gradTol }
   }
+
+  it should "match a finite-difference approximation when the clip is active but min() keeps the raw ratio" in {
+    // The branch no other fixture reaches. Candidate 0 has positive advantage and a ratio BELOW
+    // the band; candidate 1 has negative advantage and a ratio ABOVE it. In both cases min()
+    // keeps the raw ratio, so the surrogate still moves with w even though both ratios are
+    // outside the clip range. One-hot features make logits(x, w) == w exactly.
+    val x = Array(Array(1.0, 0.0), Array(0.0, 1.0))
+    val w = Array(-2.0, 0.0)
+    val snapshot = Array(0.0, 0.0)
+    val logged = Array(0.3, -0.9)
+    val adv = GrpoMath.advantages(Array(1.0, 0.0)).get // exactly [1.0, -1.0]
+
+    val pi = GrpoMath.softmax(w, cfg.temperature)
+    val piSnap = GrpoMath.softmax(snapshot, cfg.temperature)
+    adv(0) should be > 0.0
+    (pi(0) / piSnap(0)) should be < (1.0 - cfg.clipEpsilon)
+    adv(1) should be < 0.0
+    (pi(1) / piSnap(1)) should be > (1.0 + cfg.clipEpsilon)
+
+    val analytic = GrpoMath.gradient(x, snapshot, logged, w, adv, cfg)
+    val numeric = numericGradient(x, snapshot, logged, w, adv, cfg)
+    analytic.zip(numeric).foreach { case (a, n) => a shouldBe n +- gradTol }
+
+    // The surrogate is not flat on this branch: with the KL off, the gradient must be nonzero.
+    val noKl = cfg.copy(klBeta = 0.0)
+    GrpoMath.gradient(x, snapshot, logged, w, adv, noKl).exists(v => math.abs(v) > 1e-6) shouldBe true
+  }
 }

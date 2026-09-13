@@ -79,9 +79,7 @@ class GrpoPolicyStreamingJobSpec extends AnyFlatSpec with Matchers {
     val cfg2 = cfg.copy(hyper = hyper2)
 
     val snapshot = GrpoWeightStore.initial(cfg).weights.clone()
-    val snapshotLogitsByGroup = groups.map { g =>
-      g.x.map(row => row.indices.foldLeft(0.0)((a, i) => a + row(i) * snapshot(i)))
-    }
+    val snapshotLogitsByGroup = groups.map(g => GrpoMath.logits(g.x, snapshot))
     var wRef = snapshot.clone()
     var afterEpoch1: Array[Double] = null
     (1 to 2).foreach { epoch =>
