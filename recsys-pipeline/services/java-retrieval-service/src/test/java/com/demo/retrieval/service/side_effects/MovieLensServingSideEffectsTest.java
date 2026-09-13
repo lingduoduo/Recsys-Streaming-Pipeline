@@ -4,9 +4,13 @@ import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.event.RecsysEventAvroCodec;
 import com.demo.retrieval.service.grpo.GrpoEventPublisher;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
+import com.demo.retrieval.service.replay.ReplayEvent;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServedMovie;
 import com.demo.retrieval.service.side_effects.MovieLensServingSideEffects.ServingSideEffectRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.DecoderFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.HashOperations;
@@ -17,11 +21,13 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -117,6 +123,37 @@ class MovieLensServingSideEffectsTest {
         ));
 
         verify(redis, org.mockito.Mockito.never()).executePipelined(any(SessionCallback.class));
+    }
+
+    @Test
+    void replayContextAndEmittedImpressionShareTheServingRequestId() throws Exception {
+        // The offline DPO arm joins the slate log (built from these Kafka events) to the replay
+        // buffer on request id. Both sinks must carry the SAME value from one served request. Two
+        // independent generators is exactly the defect that left that join matching nothing until
+        // serving emitted its own events, so the identity is pinned here, where both writes happen.
+        List<byte[]> sent = new ArrayList<>();
+        RecsysEventAvroCodec codec = new RecsysEventAvroCodec();
+        sideEffects = new MovieLensServingSideEffects(redis, new ObjectMapper(), Duration.ofHours(1),
+            new GrpoEventPublisher(codec, (key, payload) -> sent.add(payload), true),
+            offScorer());
+        ServedMovie top = servedMovie("m1", false);
+
+        sideEffects.recordServed(new ServingSideEffectRequest(
+            "req-served-42", "u1", "ucb", Map.of(), List.of(top), List.of(top),
+            List.of(), List.of(), 1, 0, 1, 0.8, 0.1, 0.5));
+
+        ArgumentCaptor<String> pendingPayload = ArgumentCaptor.forClass(String.class);
+        verify(valueOps).set(eq(MovieLensServingSideEffects.pendingReplayKey("u1", "m1")),
+            pendingPayload.capture(), eq(Duration.ofHours(1)));
+        Map<?, ?> replay = new ObjectMapper().readValue(pendingPayload.getValue(), Map.class);
+
+        assertEquals(1, sent.size());
+        byte[] payload = sent.get(0);
+        var decoder = DecoderFactory.get().binaryDecoder(payload, 10, payload.length - 10, null);
+        GenericRecord event = new GenericDatumReader<GenericRecord>(codec.schema()).read(null, decoder);
+
+        assertEquals("req-served-42", replay.get(ReplayEvent.REQUEST_ID));
+        assertEquals(replay.get(ReplayEvent.REQUEST_ID), event.get("request_id").toString());
     }
 
     private ServedMovie servedMovie(String movieId, boolean coldStart) {
