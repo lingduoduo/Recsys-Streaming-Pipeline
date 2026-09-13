@@ -1,7 +1,7 @@
 # DPO plumbing simplification
 
 **Date:** 2026-09-12
-**Status:** Implemented and verified; PR pending
+**Status:** Implemented and verified; [PR #224](https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/224) open
 
 ## Problem and scope
 
