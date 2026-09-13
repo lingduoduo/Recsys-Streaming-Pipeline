@@ -2,6 +2,7 @@ package com.demo.retrieval.service.side_effects;
 
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.event.RecsysEventAvroCodec;
+import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.service.grpo.GrpoEventPublisher;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.replay.ReplayEvent;
@@ -44,7 +45,8 @@ class MovieLensServingSideEffectsTest {
 
     /** The default rollout state: the scorer must be inert, so these tests exercise nothing of it. */
     private static GrpoPolicyScorer offScorer() {
-        return new GrpoPolicyScorer(mock(StringRedisTemplate.class), new RecommendationProperties());
+        RecommendationProperties properties = new RecommendationProperties();
+        return new GrpoPolicyScorer(mock(StringRedisTemplate.class), properties, new FeatureCache(properties));
     }
 
     @BeforeEach

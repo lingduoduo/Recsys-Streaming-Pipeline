@@ -131,7 +131,7 @@ public class HybridRecommendationService {
         this.queryHydrators = List.copyOf(queryHydrators);
         this.grpoPublisher = new GrpoEventPublisher(
             createGrpoCodec(properties), createGrpoSender(properties), properties.getGrpo().isEmitEvents());
-        this.grpoPolicyScorer = new GrpoPolicyScorer(redis, properties);
+        this.grpoPolicyScorer = new GrpoPolicyScorer(redis, properties, featureCache);
         this.servingSideEffects = new MovieLensServingSideEffects(
             redis, objectMapper, properties.getReplayBuffer().getPendingTtl(),
             this.grpoPublisher,
