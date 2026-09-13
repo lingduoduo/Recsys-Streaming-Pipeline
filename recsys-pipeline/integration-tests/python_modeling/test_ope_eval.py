@@ -191,8 +191,9 @@ def test_evaluate_uses_raw_statistics_before_rounding_report_rows():
     class ExactModel:
         calibration = {"auc": None, "mse": None}
 
-        def predict_one(self, candidate):
-            return float(candidate["impressions"]) / 7.0
+        def predict_batch(self, candidates):
+            import numpy as np
+            return np.array([float(c["impressions"]) / 7.0 for c in candidates])
 
     events = [_event("a", "a", 0.5, 1, 0, False, 1.0, 1),
               _event("b", "b", 0.5, 2, 0, False, 1.0, 1)]
@@ -316,3 +317,30 @@ def test_predict_batch_matches_predict_one():
     assert all(abs(float(b) - model.predict_one(c)) < 1e-12
                for b, c in zip(batch, candidates))
     assert model.predict_batch([]).shape == (0,)
+
+
+def test_evaluate_statistics_matches_per_event_scoring_with_an_empty_action_space():
+    events = _dataset(30)
+    events.append({"requestId": "empty", "user": "u", "action": None, "coldStart": False,
+                   "modelPredictions": {}, "reward": 1.0, "clicked": 1, "actionSpace": []})
+    model = ope.fit_reward_model(events)
+    policies = ope.policy_names(events)
+
+    reference = {}
+    logging_value = sum(e["reward"] for e in events) / len(events)
+    for name in policies:
+        if name == "logging":
+            reference[name] = (logging_value, len(events))
+            continue
+        scored = [model.predict_one(c) for c in (ope.pick(name, e) for e in events)
+                  if c is not None]
+        reference[name] = (sum(scored) / len(scored), len(scored))
+
+    rows = {r["policy"]: r for r in ope._evaluate_statistics(events, model, policies)}
+    assert set(rows) == set(policies)
+    for name, (value, count) in reference.items():
+        assert rows[name]["n_events"] == count
+        assert rows[name]["value"] == pytest.approx(value, abs=1e-12)
+    assert rows["popularity"]["n_events"] == len(events) - 1
+    assert rows["logging"]["n_events"] == len(events)
+    assert rows["logging"]["lift_vs_logging"] == 0.0
