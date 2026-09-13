@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 # Reuses the sibling module's feature helpers on purpose: training, scoring, and evaluation must
 # read an identical feature schema, which is the property ope_eval_report's own comments demand.
-from ope_eval_report import candidate_features, feature_names, taken_features
+from ope_eval_report import candidate_features, feature_names, is_test, taken_features
 import ope_support
 
 #: Inactivity gap that ends a session, in milliseconds.
@@ -161,3 +161,17 @@ def candidate_rows(events, names):
             if predictions is None:
                 predictions = candidate["modelPredictions"] = {}
             yield event, candidate, candidate_features(candidate, names), predictions
+
+
+def split_held_out(items):
+    """Train/held-out split on the requestId hash ope_eval_report uses: (train, held_out, degenerate).
+
+    When the hash leaves no training item -- which a tiny input can do -- the whole set is
+    returned for BOTH sides rather than crashing, and `degenerate` says so: anything reported as
+    held-out is then in-sample, and the caller must label it as such.
+    """
+    train = [item for item in items if not is_test(item.request_id)]
+    held_out = [item for item in items if is_test(item.request_id)]
+    if not train:
+        return items, items, True
+    return train, held_out, False

@@ -221,6 +221,7 @@ def test_score_many_handles_an_empty_batch():
 
 import ope_support
 import post_train_dpo
+import replay_dataset
 
 
 def _joined_fixture(n_slates=12):
@@ -238,7 +239,7 @@ def _joined_fixture(n_slates=12):
 def test_split_pairs_uses_the_ope_held_out_hash():
     slates, events = _joined_fixture()
     pairs, _, _ = slate_pairs.build_pairs(slates, events)
-    train, held_out, degenerate = post_train_dpo.split_pairs(pairs)
+    train, held_out, degenerate = replay_dataset.split_held_out(pairs)
     assert not degenerate
     assert train and held_out
     assert all(not ope_eval_report.is_test(p.request_id) for p in train)
@@ -462,7 +463,7 @@ def _all_held_out_fixture():
 def test_a_split_with_no_training_pairs_is_flagged_degenerate():
     slates, events = _all_held_out_fixture()
     pairs, _, _ = slate_pairs.build_pairs(slates, events)
-    train, held_out, degenerate = post_train_dpo.split_pairs(pairs)
+    train, held_out, degenerate = replay_dataset.split_held_out(pairs)
     assert degenerate is True
     assert train == held_out == pairs
 

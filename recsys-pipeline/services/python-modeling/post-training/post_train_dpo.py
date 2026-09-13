@@ -42,21 +42,6 @@ import replay_dataset
 import slate_pairs
 
 
-def split_pairs(pairs):
-    """Train/held-out split on the same requestId hash ope_eval_report uses.
-
-    Returns (train, held_out, degenerate). When the hash leaves no training pairs -- which a tiny
-    input can do -- the whole set is returned for BOTH sides rather than crashing, and
-    `degenerate` says so: the reported accuracies are then IN-SAMPLE, not held-out, and the caller
-    must label them as such.
-    """
-    train = [p for p in pairs if not ope_eval_report.is_test(p.request_id)]
-    held_out = [p for p in pairs if ope_eval_report.is_test(p.request_id)]
-    if not train:
-        return pairs, pairs, True
-    return train, held_out, False
-
-
 def reference_pairwise_accuracy(pairs):
     """How often the LOGGING policy already ranked the pair correctly.
 
@@ -125,7 +110,7 @@ def main(argv=None) -> dict:
             "If ids DID match, the cause is instead that every slate had no engagement, or no "
             "unengaged item to contrast it against.")
 
-    train, held_out, degenerate_split = split_pairs(pairs)
+    train, held_out, degenerate_split = replay_dataset.split_held_out(pairs)
     policy = dpo.fit(train, beta=args.beta, epochs=args.epochs, hidden=args.hidden, seed=args.seed)
 
     total = len(pairs) + dropped
