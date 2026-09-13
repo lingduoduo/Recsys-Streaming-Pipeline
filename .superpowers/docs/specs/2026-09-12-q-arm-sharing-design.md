@@ -1,7 +1,7 @@
 # Offline Q arm: share the scorer and the split with DPO
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `simplify/q-arm-sharing`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -86,3 +86,15 @@ Paths below are relative to the repository root.
 The alias means a future change to `FittedQ` reaches DPO too, which is the point: the two arms
 were designed to share one function class so their comparison stays fair. Rollback is a revert;
 no data or artifact changes.
+
+## Verification record
+
+- DPO + Q test files: 74 passed before and after. The three split tests first failed with
+  `AttributeError: module 'replay_dataset' has no attribute 'split_held_out'`, as intended.
+- Parity: `post_train_q.main` then `post_train_dpo.main` on the 12-slate joined fixture with one
+  null `modelPredictions`; the JSON dump of summaries, stdout, and per-candidate predictions is
+  byte-identical before and after (`cmp` on 6,846-byte files).
+- Grep for `class PreferencePolicy`, `def split_pairs`, `def split_transitions` under
+  `services/python-modeling`: no matches.
+- Diff against master: 6 files, 25 insertions, 54 deletions.
+- Full Python modeling suite: 501 passed on 2026-09-12.

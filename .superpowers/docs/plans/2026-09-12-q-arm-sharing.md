@@ -37,7 +37,7 @@ fixture with one null `modelPredictions`) was run on the unchanged code and save
 **Interfaces:**
 - Produces: `dpo.PreferencePolicy` is `fqi.FittedQ`; `dpo.fit` still returns it.
 
-- [ ] **Step 1: Replace the class with the alias**
+- [x] **Step 1: Replace the class with the alias**
 
 Change
 
@@ -54,12 +54,12 @@ from fqi import QNetwork as ScoreNetwork
 
 and delete the whole `class PreferencePolicy:` block (from `class PreferencePolicy:` through `return self.score_many([features])[0]` and the blank lines after it), leaving `dpo_loss` immediately after the constants.
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py -q`
-Expected: 34 passed.
+Expected: 34 passed. Observed: 34 passed.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/dpo.py
@@ -80,16 +80,16 @@ git commit -m "refactor: DPO reuses the FQI scorer class instead of copying it"
 **Interfaces:**
 - Produces: `replay_dataset.split_held_out(items) -> tuple[list, list, bool]`.
 
-- [ ] **Step 1: Point the three tests at the shared helper first**
+- [x] **Step 1: Point the three tests at the shared helper first**
 
 In `test_post_training_dpo.py`, add `import replay_dataset` after `import post_train_dpo`, and change both `post_train_dpo.split_pairs(pairs)` calls to `replay_dataset.split_held_out(pairs)`. In `test_post_training_q.py`, change `train, test = post_train_q.split_transitions(transitions)` to `train, test, _ = replay_dataset.split_held_out(transitions)`.
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py integration-tests/python_modeling/test_post_training_q.py -q -k "split"`
-Expected: 3 failed with `AttributeError: module 'replay_dataset' has no attribute 'split_held_out'`.
+Expected: 3 failed with `AttributeError: module 'replay_dataset' has no attribute 'split_held_out'`. Observed: 3 failed, 1 passed, 70 deselected.
 
-- [ ] **Step 3: Add the helper and use it in both CLIs**
+- [x] **Step 3: Add the helper and use it in both CLIs**
 
 In `replay_dataset.py`, change the import line to
 
@@ -118,18 +118,18 @@ In `post_train_dpo.py`, delete `split_pairs` (its `def` through `return train, h
 
 In `post_train_q.py`, delete `split_transitions` (its `def` through `return train, test`) and change `train, held_out = split_transitions(transitions)` to `train, held_out, _ = replay_dataset.split_held_out(transitions)`.
 
-- [ ] **Step 4: Verify tests, parity, and the grep**
+- [x] **Step 4: Verify tests, parity, and the grep**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py integration-tests/python_modeling/test_post_training_q.py -q`
-Expected: 74 passed.
+Expected: 74 passed. Observed: 74 passed.
 
 Run: `cd recsys-pipeline && python3 <scratchpad>/dpo_parity.py > <scratchpad>/q_parity_after.json && cmp <scratchpad>/q_parity_before.json <scratchpad>/q_parity_after.json && echo IDENTICAL`
-Expected: `IDENTICAL`.
+Expected: `IDENTICAL`. Observed: identical.
 
 Run: `grep -rn "class PreferencePolicy\|def split_pairs\|def split_transitions" recsys-pipeline/services/python-modeling`
-Expected: no output.
+Expected: no output. Observed: no output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/replay_dataset.py recsys-pipeline/services/python-modeling/post-training/post_train_dpo.py recsys-pipeline/services/python-modeling/post-training/post_train_q.py recsys-pipeline/integration-tests/python_modeling/test_post_training_dpo.py recsys-pipeline/integration-tests/python_modeling/test_post_training_q.py
@@ -144,12 +144,12 @@ git commit -m "refactor: one held-out split for the post-training CLIs"
 - Modify: `.superpowers/docs/specs/2026-09-12-q-arm-sharing-design.md` (status and verification record)
 - Modify: this plan (check boxes, record observations)
 
-- [ ] **Step 1: Run the full Python modeling suite**
+- [x] **Step 1: Run the full Python modeling suite**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling -q`
-Expected: 501 passed.
+Expected: 501 passed. Observed: 501 passed.
 
-- [ ] **Step 2: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 2: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` with the test counts, the parity result, the grep, and the diff stat.
 
@@ -158,7 +158,7 @@ git add .superpowers/docs/specs/2026-09-12-q-arm-sharing-design.md .superpowers/
 git commit -m "docs: record Q arm sharing verification"
 ```
 
-- [ ] **Step 3: Open the PR**
+- [x] **Step 3: Open the PR**
 
 ```bash
 git push -u origin simplify/q-arm-sharing
