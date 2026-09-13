@@ -28,7 +28,6 @@ popularity baselines do not get.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -76,37 +75,12 @@ def policy_pairwise_accuracy(policy, pairs):
 
 
 def score_events(events, names, policy):
-    """Write dpoScore into every candidate's modelPredictions, in place.
-
-    Every key written here must be registered in ope_eval_report.POLICY_ONLY_PRED_KEYS, or the
-    reward model will be fit on the scores it is then used to grade.
-    """
-    rows, targets = [], []
-    for event in events:
-        for candidate in replay_dataset.as_list(event.get("actionSpace")):
-            rows.append(ope_eval_report.candidate_features(candidate, names))
-            targets.append(candidate)
-    scores = policy.score_many(rows)
-    for candidate, score in zip(targets, scores):
-        # setdefault returns the STORED value when the key is present, so a null modelPredictions
-        # -- what Parquet yields for an absent nested struct -- would come back as None.
-        predictions = candidate.get("modelPredictions")
-        if predictions is None:
-            predictions = candidate["modelPredictions"] = {}
+    """Write dpoScore into every candidate's modelPredictions, in place."""
+    rows = list(replay_dataset.candidate_rows(events, names))
+    scores = policy.score_many([features for _, _, features, _ in rows])
+    for (_, _, _, predictions), score in zip(rows, scores):
         predictions[ope_eval_report.DPO_PRED_KEY] = float(score)
     return events
-
-
-def _load_events(args):
-    if args.parquet:
-        return ope_support.load_from_parquet(args.parquet)
-    import redis
-    client = redis.Redis(
-        host=os.environ.get("REDIS_HOST", "localhost"),
-        port=int(os.environ.get("REDIS_PORT", "6379")),
-        decode_responses=False,
-    )
-    return ope_support.load_from_redis(client, args.key, args.limit)
 
 
 def _format(value):
@@ -129,7 +103,7 @@ def main(argv=None) -> dict:
                         help="write the scored replay here for ope_eval_report.py --parquet")
     args = parser.parse_args(argv)
 
-    events = _load_events(args)
+    events = replay_dataset.load_events(args)
     if not events:
         raise SystemExit("no replay events — nothing to join against")
     slates = ope_support.load_from_parquet(args.slates)

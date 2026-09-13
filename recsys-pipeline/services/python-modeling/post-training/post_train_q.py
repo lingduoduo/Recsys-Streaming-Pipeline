@@ -19,7 +19,6 @@ ctr and popularity baselines do not get.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -27,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import ope_eval_report
-import ope_support
 
 import fqi
 import replay_dataset
@@ -84,43 +82,17 @@ def fqi_td_residual(model, transitions, gamma: float):
 
 
 def score_events(events, names, q, model):
-    """Write the two policy-score keys into every candidate's modelPredictions, in place.
-
-    Every key written here must be registered in ope_eval_report.POLICY_ONLY_PRED_KEYS, or the
-    reward model will be fit on the scores it is then used to grade.
-    """
-    rows, targets = [], []
-    for event in events:
+    """Write the two policy-score keys into every candidate's modelPredictions, in place."""
+    rows = list(replay_dataset.candidate_rows(events, names))
+    fqi_scores = model.score_many([features for _, _, features, _ in rows])
+    for (event, candidate, _, predictions), q_value in zip(rows, fqi_scores):
         state = replay_dataset.state_key(event.get("state"))
-        for candidate in replay_dataset.as_list(event.get("actionSpace")):
-            rows.append(ope_eval_report.candidate_features(candidate, names))
-            targets.append((candidate, state))
-    fqi_scores = model.score_many(rows)
-    for (candidate, state), q_value in zip(targets, fqi_scores):
-        # setdefault returns the STORED value when the key is present, so a null
-        # modelPredictions -- which is what Parquet yields for an absent nested struct --
-        # would come back as None and the assignment below would raise.
-        predictions = candidate.get("modelPredictions")
-        if predictions is None:
-            predictions = candidate["modelPredictions"] = {}
         # Key names come from ope_eval_report so the producer and the schema-exclusion list cannot
         # drift apart; see POLICY_ONLY_PRED_KEYS there for why that matters.
         predictions[ope_eval_report.TABULAR_Q_PRED_KEY] = tabular_q.score(
             q, state, str(candidate.get("item")))
         predictions[ope_eval_report.FQI_Q_PRED_KEY] = float(q_value)
     return events
-
-
-def _load_events(args):
-    if args.parquet:
-        return ope_support.load_from_parquet(args.parquet)
-    import redis
-    client = redis.Redis(
-        host=os.environ.get("REDIS_HOST", "localhost"),
-        port=int(os.environ.get("REDIS_PORT", "6379")),
-        decode_responses=False,
-    )
-    return ope_support.load_from_redis(client, args.key, args.limit)
 
 
 def _format(value):
@@ -143,7 +115,7 @@ def main(argv=None) -> dict:
                         help="write the scored replay here for ope_eval_report.py --parquet")
     args = parser.parse_args(argv)
 
-    events = [e for e in _load_events(args) if e.get("reward") is not None]
+    events = [e for e in replay_dataset.load_events(args) if e.get("reward") is not None]
     if not events:
         raise SystemExit("no feedback-completed replay events (with reward) — nothing to fit")
 
