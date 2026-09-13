@@ -38,7 +38,7 @@ Baseline (2026-09-12): `testOnly com.demo.task.AlsEmbeddingTrainingJobSpec com.d
 **Interfaces:**
 - Consumes: `UserEmbeddingTrainingJob.trainUserEmbeddings(ratings: DataFrame, itemEmbeddings: DataFrame, minRating: Double): DataFrame` with `userId` and `userEmbedding` columns (existing).
 
-- [ ] **Step 1: Write the spec**
+- [x] **Step 1: Write the spec**
 
 ```scala
 package com.demo.task
@@ -74,12 +74,12 @@ class UserEmbeddingTrainingJobSpec extends AnyFlatSpec with Matchers with SparkT
 }
 ```
 
-- [ ] **Step 2: Run it against the current code**
+- [x] **Step 2: Run it against the current code**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=... sbt -batch "testOnly com.demo.task.UserEmbeddingTrainingJobSpec"`
-Expected: 2 tests, 2 succeeded. This is a characterization test; it must pass before any change.
+Expected: 2 tests, 2 succeeded. This is a characterization test; it must pass before any change. Observed: 2 succeeded.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/task/UserEmbeddingTrainingJobSpec.scala
@@ -97,7 +97,7 @@ git commit -m "test: characterize UserEmbeddingTrainingJob's mean and threshold"
 **Interfaces:**
 - Produces: `EmbeddingText.vectorString(vector: Column): Column`; `EmbeddingText.read(spark: SparkSession, path: String): DataFrame` (`id: String`, `vector: Seq[Double]`); `EmbeddingText.writeText(df: DataFrame, idCol: String, vectorCol: String, path: String): Unit`; `EmbeddingText.writeRedis(df: DataFrame, idCol: String, vectorCol: String, redisHost: String, redisPort: Int, keyPrefix: String, ttlSeconds: Int): Unit`.
 
-- [ ] **Step 1: Write the failing spec**
+- [x] **Step 1: Write the failing spec**
 
 ```scala
 package com.demo.util
@@ -147,12 +147,12 @@ class EmbeddingTextSpec extends AnyFlatSpec with Matchers with SparkTestSupport 
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails to compile**
+- [x] **Step 2: Run to verify it fails to compile**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=... sbt -batch "testOnly com.demo.util.EmbeddingTextSpec"`
-Expected: compilation error, `object EmbeddingText is not a member of package com.demo.util`.
+Expected: compilation error, `object EmbeddingText is not a member of package com.demo.util`. Observed: `not found: value EmbeddingText`.
 
-- [ ] **Step 3: Write the helper**
+- [x] **Step 3: Write the helper**
 
 ```scala
 package com.demo.util
@@ -201,12 +201,12 @@ object EmbeddingText {
 }
 ```
 
-- [ ] **Step 4: Run the spec**
+- [x] **Step 4: Run the spec**
 
 Run the same sbt command as Step 2.
-Expected: 3 tests, 3 succeeded.
+Expected: 3 tests, 3 succeeded. Observed: 3 succeeded.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/util/EmbeddingText.scala recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/util/EmbeddingTextSpec.scala
@@ -226,7 +226,7 @@ git commit -m "feat(util): one implementation of the id:vector embedding text co
 **Interfaces:**
 - Consumes: `EmbeddingText` from Task 2.
 
-- [ ] **Step 1: ALS**
+- [x] **Step 1: ALS**
 
 In `AlsEmbeddingTrainingJob.scala`:
 
@@ -253,7 +253,7 @@ and the two `writeFactorsToRedis(...)` calls with
 
 In `AlsEmbeddingTrainingJobSpec.scala`, delete the test `"write factors in id:f1 f2 f3 format readable by downstream consumers"` (the round trip now lives in `EmbeddingTextSpec`) and the imports it alone used (`java.nio.file.Files`, `scala.io.Source`).
 
-- [ ] **Step 2: User job**
+- [x] **Step 2: User job**
 
 In `UserEmbeddingTrainingJob.scala`:
 
@@ -279,19 +279,19 @@ keeping the `val userEmbeddings = if (saveToRedis) raw.cache() else raw` line an
 - in the DataFrame overload, delete the `.withColumn("userEmbeddingStr", ...)` line and change the final select to `.select("userId", "userEmbedding")`;
 - delete `readItemEmbeddings`.
 
-- [ ] **Step 3: Candidate generation**
+- [x] **Step 3: Candidate generation**
 
 In `EmbeddingCandidateGenerationJob.scala`, add `EmbeddingText` to the `com.demo.util` import, replace both `readEmbeddings(spark, ...)` calls in `main` with `EmbeddingText.read(spark, ...)`, delete the `readEmbeddings` method and its doc comment, and delete `import scala.util.Try` if nothing else uses it.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `grep -rn "def readEmbeddings\|def readItemEmbeddings\|def writeFactors\|vectorToString\|case class ItemEmbedding\|userEmbeddingStr" recsys-pipeline/services/spark-streaming-job/src/main/scala`
 Expected: no output.
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=... sbt -batch "testOnly com.demo.task.* com.demo.recommend.* com.demo.process.ItemSequencePreprocessingJobSpec com.demo.util.EmbeddingTextSpec"`
-Expected: all succeed; the counts include `UserEmbeddingTrainingJobSpec` 2, `EmbeddingTextSpec` 3, `AlsEmbeddingTrainingJobSpec` 2, `Item2VecTrainingJobSpec` 3.
+Expected: all succeed; the counts include `UserEmbeddingTrainingJobSpec` 2, `EmbeddingTextSpec` 3, `AlsEmbeddingTrainingJobSpec` 2, `Item2VecTrainingJobSpec` 3. Observed: 51 tests, 51 succeeded across the selection.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/task/AlsEmbeddingTrainingJob.scala recsys-pipeline/services/spark-streaming-job/src/test/scala/com/demo/task/AlsEmbeddingTrainingJobSpec.scala recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/task/UserEmbeddingTrainingJob.scala recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/recommend/EmbeddingCandidateGenerationJob.scala
@@ -306,19 +306,19 @@ git commit -m "refactor: ALS, user, and candidate jobs share the embedding text 
 - Modify: `.superpowers/docs/specs/2026-09-12-embedding-text-helper-design.md` (status and verification record)
 - Modify: this plan (check boxes, record observations)
 
-- [ ] **Step 1: Run the full Spark module suite in the background**
+- [x] **Step 1: Run the full Spark module suite in the background**
 
 Run: `cd recsys-pipeline/services/spark-streaming-job && JAVA_HOME=... sbt -batch test`
-Expected: all pass (424 on 2026-09-12 plus the 5 new tests, minus the 1 moved). If unrelated tests fail, confirm they fail on `origin/master` too before reporting.
+Expected: all pass (424 on 2026-09-12 plus the 5 new tests, minus the 1 moved). If unrelated tests fail, confirm they fail on `origin/master` too before reporting. Observed: 428 succeeded in 4 min 16 s.
 
-- [ ] **Step 2: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 2: Update the spec status and verification record, tick this plan, and commit**
 
 ```bash
 git add .superpowers/docs/specs/2026-09-12-embedding-text-helper-design.md .superpowers/docs/plans/2026-09-12-embedding-text-helper.md
 git commit -m "docs: record embedding text helper verification"
 ```
 
-- [ ] **Step 3: Open the PR**
+- [x] **Step 3: Open the PR**
 
 ```bash
 git push -u origin simplify/embedding-text-helper

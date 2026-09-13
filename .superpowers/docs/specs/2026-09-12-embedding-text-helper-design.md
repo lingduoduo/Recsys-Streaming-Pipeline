@@ -1,7 +1,7 @@
 # One embedding text contract
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `simplify/embedding-text-helper`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -116,3 +116,16 @@ the last digit for `array<float>`; both use Java's `Float.toString`, and every c
 with `toDouble`/`float()`, so the contract is preserved even if a digit moved. The user job's
 DataFrame overload loses a column that only `main` consumed. Rollback is a revert; no artifacts
 or keys change.
+
+## Verification record
+
+- Baseline on the unchanged code: ALS, Item2Vec, and sequence-preprocessing specs, 10 tests, 10 succeeded.
+- `UserEmbeddingTrainingJobSpec` (2) passed on the unchanged code before any refactor.
+- `EmbeddingTextSpec` (3) failed to compile on `not found: value EmbeddingText` first, then passed.
+- After the three jobs moved onto the helper: `testOnly com.demo.task.* com.demo.recommend.*
+  com.demo.process.ItemSequencePreprocessingJobSpec com.demo.util.EmbeddingTextSpec` → 51 tests,
+  51 succeeded. Grep for `readEmbeddings`, `readItemEmbeddings`, `writeFactors`,
+  `vectorToString`, `ItemEmbedding`, `userEmbeddingStr` under `main/scala`: no matches.
+- Diff against master: 7 files, 139 insertions, 129 deletions; production code net about 80 lines
+  smaller, the two new specs account for the additions.
+- Full Spark module suite on 2026-09-12: 428 tests, 428 succeeded, in 4 min 16 s.
