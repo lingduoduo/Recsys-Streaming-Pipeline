@@ -26,8 +26,10 @@ import torch.nn.functional as F
 
 import ope_support
 
-# The same two-layer MLP the FQI arm uses. Its name there is Q-specific; the shape is not, and
-# sharing it keeps all three arms on an identical function class so the comparison stays fair.
+# The same two-layer MLP and standardized scorer the FQI arm uses. Their names there are
+# Q-specific; the shapes are not, and sharing them keeps all three arms on an identical function
+# class so the comparison stays fair.
+from fqi import FittedQ as PreferencePolicy
 from fqi import QNetwork as ScoreNetwork
 
 DEFAULT_BETA = 1.0
@@ -35,28 +37,6 @@ DEFAULT_EPOCHS = 200
 DEFAULT_HIDDEN = 32
 DEFAULT_LR = 0.01
 SEED = 42
-
-
-class PreferencePolicy:
-    """A trained scorer plus the feature standardization it was fit under."""
-
-    def __init__(self, net: ScoreNetwork, mean, std):
-        self.net = net
-        self.mean = mean
-        self.std = std
-
-    def score_many(self, feature_rows) -> list[float]:
-        if not len(feature_rows):
-            return []
-        x = torch.tensor(
-            ope_support.apply_standardize(np.asarray(feature_rows, dtype=float), self.mean, self.std),
-            dtype=torch.float32,
-        )
-        with torch.no_grad():
-            return self.net(x).reshape(-1).tolist()
-
-    def score_one(self, features) -> float:
-        return self.score_many([features])[0]
 
 
 def dpo_loss(chosen_scores, rejected_scores, chosen_reference, rejected_reference, beta):
