@@ -53,8 +53,16 @@ object GrpoMath {
       else acc + p(i) * math.log(p(i) / math.max(q(i), AdvantageFloor))
     }
 
-  private def logits(x: Array[Array[Double]], w: Array[Double]): Array[Double] =
+  /** w . x_i for each candidate. */
+  def logits(x: Array[Array[Double]], w: Array[Double]): Array[Double] =
     x.map(row => row.indices.foldLeft(0.0)((acc, i) => acc + row(i) * w(i)))
+
+  /** (pi, piSnap, piOld): the current, batch-snapshot, and logged policies over one group. */
+  private def policies(x: Array[Array[Double]], snapshotLogits: Array[Double], loggedLogits: Array[Double],
+                       w: Array[Double], cfg: GrpoHyperParams): (Array[Double], Array[Double], Array[Double]) =
+    (softmax(logits(x, w), cfg.temperature),
+     softmax(snapshotLogits, cfg.temperature),
+     softmax(loggedLogits, cfg.temperature))
 
   /** The clipped surrogate plus the KL penalty, averaged over the group.
     *
@@ -71,9 +79,7 @@ object GrpoMath {
     */
   def loss(x: Array[Array[Double]], snapshotLogits: Array[Double], loggedLogits: Array[Double],
            w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Double = {
-    val piSnap = softmax(snapshotLogits, cfg.temperature)
-    val piOld = softmax(loggedLogits, cfg.temperature)
-    val pi = softmax(logits(x, w), cfg.temperature)
+    val (pi, piSnap, piOld) = policies(x, snapshotLogits, loggedLogits, w, cfg)
     val surrogate = pi.indices.map { i =>
       val ratio = pi(i) / math.max(piSnap(i), AdvantageFloor)
       val clipped = math.max(1.0 - cfg.clipEpsilon, math.min(1.0 + cfg.clipEpsilon, ratio))
@@ -84,19 +90,18 @@ object GrpoMath {
 
   /** Analytic gradient of `loss` with respect to w.
     *
-    * Derivation: with z_i = w.x_i / temperature, the softmax Jacobian gives
-    *   d pi_i / dw_d = (pi_i / temperature) * (x_i,d - E_pi[x_d]).
-    * So for any term of the loss expressed as a function of pi, dL/dw_d = sum_i (dL/dpi_i) *
-    * d pi_i/dw_d. Each candidate's contribution below is therefore built as `dL/dpi_i` (not
-    * dL/d log pi_i -- that would double-count a factor of pi_i) and only multiplied by pi_i once,
-    * together with the shared 1/temperature factor.
+    * With z_i = w.x_i / temperature, the softmax Jacobian gives
+    *   d pi_i / dw = (pi_i / temperature) * (x_i - E_pi[x]),
+    * so dL/dw = sum_i (dL/dpi_i) * d pi_i / dw. Each candidate's contribution is built as dL/dpi_i
+    * (not dL/d log pi_i, which would double-count a factor of pi_i) and multiplied by pi_i once.
+    * Because sum_i pi_i (x_i - E_pi[x]) = 0, any part of dL/dpi_i that is the same for every
+    * candidate drops out; the KL derivative log(pi_i / piOld_i) + 1 therefore contributes only
+    * its log.
     */
   def gradient(x: Array[Array[Double]], snapshotLogits: Array[Double], loggedLogits: Array[Double],
                w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double] = {
     val dim = w.length
-    val piSnap = softmax(snapshotLogits, cfg.temperature)
-    val piOld = softmax(loggedLogits, cfg.temperature)
-    val pi = softmax(logits(x, w), cfg.temperature)
+    val (pi, piSnap, piOld) = policies(x, snapshotLogits, loggedLogits, w, cfg)
 
     // Expected feature vector under pi -- the term that makes d log pi_i / dw a centred difference.
     val expected = Array.fill(dim)(0.0)
@@ -104,19 +109,14 @@ object GrpoMath {
 
     val grad = Array.fill(dim)(0.0)
     pi.indices.foreach { i =>
-      val ratio = pi(i) / math.max(piSnap(i), AdvantageFloor)   // ratio: snapshot reference
-      val clippedActive =
-        ratio < 1.0 - cfg.clipEpsilon || ratio > 1.0 + cfg.clipEpsilon
-      // Outside the clip range the surrogate is flat in w, so it contributes no gradient --
-      // unless the unclipped branch is the smaller one, which is when min() selects it.
-      val unclippedSelected = !clippedActive ||
-        (ratio * adv(i)) < (math.max(1.0 - cfg.clipEpsilon, math.min(1.0 + cfg.clipEpsilon, ratio)) * adv(i))
-      // d(-1/N * ratio_i * adv_i)/dpi_i = -(1/N) * adv_i / piSnap_i -- NOT -(1/N) * adv_i * ratio_i,
-      // which would carry a spurious extra factor of pi_i once multiplied through below.
-      val surrogateScale =
-        if (unclippedSelected) -adv(i) / (math.max(piSnap(i), AdvantageFloor) * pi.length) else 0.0
-      val klScale = cfg.klBeta * (math.log(math.max(pi(i), AdvantageFloor) /
-        math.max(piOld(i), AdvantageFloor)) + 1.0)
+      val piSnapFloored = math.max(piSnap(i), AdvantageFloor)
+      val ratio = pi(i) / piSnapFloored                          // ratio: snapshot reference
+      val clipped = math.max(1.0 - cfg.clipEpsilon, math.min(1.0 + cfg.clipEpsilon, ratio))
+      // The surrogate moves with w only when min() kept the raw ratio; the clip bound is flat.
+      val unclippedSelected = ratio * adv(i) <= clipped * adv(i)
+      val surrogateScale = if (unclippedSelected) -adv(i) / (piSnapFloored * pi.length) else 0.0
+      val klScale = cfg.klBeta *
+        math.log(math.max(pi(i), AdvantageFloor) / math.max(piOld(i), AdvantageFloor))
       val scale = (surrogateScale + klScale) * pi(i) / cfg.temperature
       (0 until dim).foreach(d => grad(d) += scale * (x(i)(d) - expected(d)))
     }
