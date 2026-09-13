@@ -39,7 +39,7 @@ Baselines (2026-09-12): `mvn test -Dtest=MovieLensServingSideEffectsTest` → 2 
 - Consumes: `MovieLensServingSideEffects(StringRedisTemplate, ObjectMapper, Duration, GrpoEventPublisher, GrpoPolicyScorer)`, `GrpoEventPublisher(RecsysEventAvroCodec, GrpoSender, boolean)`, `MovieLensServingSideEffects.pendingReplayKey(String, String)`, `ReplayEvent.REQUEST_ID` (`"requestId"`), and the existing `servedMovie` and `offScorer` helpers in the test.
 - Produces: a test that pins the identity; nothing else depends on it.
 
-- [ ] **Step 1: Add the imports**
+- [x] **Step 1: Add the imports**
 
 Add to the import block of `MovieLensServingSideEffectsTest.java`:
 
@@ -54,7 +54,7 @@ import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 ```
 
-- [ ] **Step 2: Add the test**
+- [x] **Step 2: Add the test**
 
 Insert after `recordServedSkipsEmptySelections` and before the `servedMovie` helper:
 
@@ -91,12 +91,12 @@ Insert after `recordServedSkipsEmptySelections` and before the `servedMovie` hel
     }
 ```
 
-- [ ] **Step 3: Run the suite**
+- [x] **Step 3: Run the suite**
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home mvn test -Dtest=MovieLensServingSideEffectsTest -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: `Tests run: 3, Failures: 0, Errors: 0`. This is a characterization test; it passes on the current code because both writes already read `request.requestId()`.
+Expected: `Tests run: 3, Failures: 0, Errors: 0`. This is a characterization test; it passes on the current code because both writes already read `request.requestId()`. Observed: 3 run, 0 failures.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add recsys-pipeline/services/java-retrieval-service/src/test/java/com/demo/retrieval/service/side_effects/MovieLensServingSideEffectsTest.java
@@ -115,7 +115,7 @@ git commit -m "test: pin one serving request id across the replay context and em
 - Consumes: `slate_pairs.build_pairs_with_diagnostics` (unchanged) and its `n_slate_request_ids_matched` / `n_slate_request_ids` fields.
 - Produces: the same `SystemExit` with new wording; `main`'s return value and stdout are unchanged.
 
-- [ ] **Step 1: Update the test assertions first**
+- [x] **Step 1: Update the test assertions first**
 
 In `test_main_names_the_request_id_mismatch_when_nothing_joins`, replace
 
@@ -143,12 +143,12 @@ Replace the `_mismatched_fixture` docstring with:
     """
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py::test_main_names_the_request_id_mismatch_when_nothing_joins -q`
-Expected: FAIL with `assert 'RECSYS_GRPO_EMIT_EVENTS' in message`.
+Expected: FAIL with `assert 'RECSYS_GRPO_EMIT_EVENTS' in message`. Observed: failed exactly so.
 
-- [ ] **Step 3: Rewrite the docstring paragraph**
+- [x] **Step 3: Rewrite the docstring paragraph**
 
 Replace the paragraph beginning `UNMET PREREQUISITE:` through `in.` with:
 
@@ -161,7 +161,7 @@ share one id. Slates produced only by the Python producers mint their own
 replay requestId" count is the number that says which case you are in.
 ```
 
-- [ ] **Step 4: Rewrite the zero-pair error text**
+- [x] **Step 4: Rewrite the zero-pair error text**
 
 Replace the lines from `"A TOTAL join failure (0 matched) means the two sides mint their ids independently: "` through `"serving-path change, outside this component.\n"` with:
 
@@ -174,12 +174,12 @@ Replace the lines from `"A TOTAL join failure (0 matched) means the two sides mi
 
 Keep the preceding figures and the trailing `"If ids DID match, ..."` sentence unchanged.
 
-- [ ] **Step 5: Run the DPO test file**
+- [x] **Step 5: Run the DPO test file**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_post_training_dpo.py -q`
-Expected: all pass (35 tests).
+Expected: all pass. Observed: 34 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/post_train_dpo.py recsys-pipeline/integration-tests/python_modeling/test_post_training_dpo.py
@@ -198,7 +198,7 @@ git commit -m "docs(dpo): state the emit-flag prerequisite instead of an unmet o
 - Consumes: nothing.
 - Produces: documentation only.
 
-- [ ] **Step 1: Replace the README paragraph**
+- [x] **Step 1: Replace the README paragraph**
 
 Replace the paragraph beginning `**Unmet prerequisite — this arm produces nothing on today's data.**` through `synthetic fixtures only.` with:
 
@@ -211,7 +211,7 @@ their own `req_...` ids, so on a default deployment the join matches 0 rows and 
 the flag. The `slate request_ids matched to a replay requestId` line is the check.
 ```
 
-- [ ] **Step 2: Replace the Analysis_Report sentences**
+- [x] **Step 2: Replace the Analysis_Report sentences**
 
 Replace
 
@@ -231,12 +231,12 @@ replay buffer, so the two sides join; producer-only slates never do, and the CLI
 flag. Read its held-out pairwise
 ```
 
-- [ ] **Step 3: Confirm nothing still claims the prerequisite is unmet**
+- [x] **Step 3: Confirm nothing still claims the prerequisite is unmet**
 
 Run: `grep -rn "UNMET PREREQUISITE\|Unmet prerequisite\|does not run on today's data\|produces nothing on today" recsys-pipeline --include='*.py' --include='*.md' | grep -v '/target/'`
-Expected: no output.
+Expected: no output. Observed: no output.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add recsys-pipeline/README.md recsys-pipeline/docs/recommendation_architecture/Analysis_Report.md
@@ -256,15 +256,15 @@ git commit -m "docs: DPO prerequisite is the emit flag, not a missing serving ch
 - Consumes: the finished work from Tasks 1-3.
 - Produces: a PR against `master` from `fix/dpo-prerequisite-met`.
 
-- [ ] **Step 1: Run the Python modeling suite and the retrieval service's Maven suite**
+- [x] **Step 1: Run the Python modeling suite and the retrieval service's Maven suite**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling -q`
-Expected: 501 passed.
+Expected: 501 passed. Observed: 501 passed.
 
 Run: `cd recsys-pipeline/services/java-retrieval-service && JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home mvn test 2>&1 | grep -E "Tests run:.*Fail|BUILD"` in the background if it exceeds a few minutes.
-Expected: `BUILD SUCCESS`; `UserProfileIntegrationTest` skips as always (Testcontainers blocked on Docker 29). If unrelated tests fail, confirm they fail on `origin/master` too before reporting.
+Expected: `BUILD SUCCESS`; `UserProfileIntegrationTest` skips as always (Testcontainers blocked on Docker 29). If unrelated tests fail, confirm they fail on `origin/master` too before reporting. Observed: 329 run, 0 failures, 1 skipped, BUILD SUCCESS in 37 s.
 
-- [ ] **Step 2: Update the spec status and verification record, tick this plan, and commit**
+- [x] **Step 2: Update the spec status and verification record, tick this plan, and commit**
 
 Set the spec's status line to `Implemented and verified; PR pending` and add a `## Verification record` section with the Maven counts, the pytest count, and the grep result.
 
@@ -273,11 +273,11 @@ git add .superpowers/docs/specs/2026-09-12-dpo-prerequisite-met-design.md .super
 git commit -m "docs: record DPO prerequisite verification"
 ```
 
-- [ ] **Step 3: Update the memory note**
+- [x] **Step 3: Update the memory note**
 
 In the memory file named above, replace the final paragraph beginning `**Fix now designed (2026-08-30):**` with a paragraph stating that PR #208 (impressions) and PRs #210/#216 (feedback) shipped the emission behind `RECSYS_GRPO_EMIT_EVENTS` (default false), that the identity is pinned by `replayContextAndEmittedImpressionShareTheServingRequestId`, and that the DPO join is reachable on emitted data as of this change's PR.
 
-- [ ] **Step 4: Open the PR**
+- [x] **Step 4: Open the PR**
 
 ```bash
 git push -u origin fix/dpo-prerequisite-met

@@ -1,7 +1,7 @@
 # DPO prerequisite met
 
 **Date:** 2026-09-12
-**Status:** Approved design; implementation in progress on `fix/dpo-prerequisite-met`
+**Status:** Implemented and verified; PR pending
 
 ## Problem and scope
 
@@ -109,3 +109,14 @@ The test proves both sinks share one id inside serving; it does not prove the jo
 experience collector, and the slate export preserve it end to end. Those stages are covered by
 their own suites and by the `n_slate_request_ids_matched` line the CLI prints, which remains the
 runtime check. Rollback is a revert; no data changes.
+
+## Verification record
+
+- `mvn test -Dtest=MovieLensServingSideEffectsTest` under JDK 17: 2 tests before, 3 after, 0 failures.
+  The new test passed on the unchanged production code, as expected for a characterization test.
+- Retrieval service full Maven suite: 329 tests, 0 failures, 0 errors, 1 skipped
+  (`UserProfileIntegrationTest`, Testcontainers blocked on Docker 29), 37 s, 2026-09-12.
+- `python3 -m pytest integration-tests/python_modeling -q`: 501 passed. `test_post_training_dpo.py`
+  alone: 34 passed, after the mismatch-message assertion first failed on the old text as intended.
+- Stale-text grep for "UNMET PREREQUISITE", "Unmet prerequisite", "does not run on today's data",
+  and "produces nothing on today" across `*.py` and `*.md`: no matches.
