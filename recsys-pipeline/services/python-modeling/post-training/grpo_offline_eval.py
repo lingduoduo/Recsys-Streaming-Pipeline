@@ -53,9 +53,7 @@ import ope_support
 
 
 # The one feature layout this tool supports (GrpoFeatures, java-retrieval-service). Pinned rather
-# than inferred so a v1 dataset -- whose auc_diff is inflated by the served-position feature v1
-# carried -- is refused outright rather than evaluated just because its rows and weights happen to
-# agree with each other.
+# than inferred: a v1 dataset must be refused, not evaluated (see the module docstring).
 SUPPORTED_FEATURE_VERSION = "v2"
 SUPPORTED_FEATURE_DIM = 9
 
@@ -150,6 +148,13 @@ def _as_feature_map(raw) -> dict:
     return dict(raw)
 
 
+def _parse_rows(rows):
+    """Each row with its normalized item_features and its parsed grpo_x, or None if absent/malformed."""
+    for row in rows:
+        features = _as_feature_map(row.get("item_features"))
+        yield row, features, parse_packed_vector(features.get("grpo_x"))
+
+
 def detect_feature_schema(rows):
     """(version, dim) the MAJORITY of parseable rows agree on -- the schema the data mostly
     carries, which the pinned weights are then checked against (not the other way around).
@@ -159,19 +164,12 @@ def detect_feature_schema(rows):
     sort first. Ties fall back to whichever schema was seen first, the same determinism the
     first-row approach gave callers when there was nothing to disagree about.
 
-    The majority schema is then checked against this tool's one supported contract, `v2`/9-wide
-    (`GrpoFeatures`, java-retrieval-service). A relative check alone -- rows agree with the
-    weights -- is not enough: a v1 parquet scored with v1 weights agree with EACH OTHER, so that
-    check alone lets a v1 dataset evaluate happily and print its auc_diff as the flip criterion,
-    unlabeled, with no caveat. v1's auc_diff is inflated by the served-position feature it carried
-    at index 8 (position/slateSize, unrealizable at scoring time -- see the module docstring), so
-    a v1 dataset cannot answer the flip question no matter what weights score it; it must be
-    re-collected under v2."""
+    The majority schema must then be the one supported contract, v2/9-wide; a v1 dataset agreeing
+    with v1 weights is still refused, because v1's auc_diff is inflated by the served-position
+    feature (module docstring)."""
     counts = Counter()
     first_seen_at = {}
-    for idx, row in enumerate(rows):
-        features = _as_feature_map(row.get("item_features"))
-        parsed = parse_packed_vector(features.get("grpo_x"))
+    for idx, (_, _, parsed) in enumerate(_parse_rows(rows)):
         if parsed is None:
             continue
         version, vector = parsed
@@ -223,19 +221,17 @@ def build_scored_rows(rows, weights, version, dim):
     """
     scored = []
     n_dropped = 0
-    for row in rows:
+    for row, features, parsed in _parse_rows(rows):
         request_id = row.get("request_id")
         if not ope_eval_report.is_test(request_id):
             continue
-        features = _as_feature_map(row.get("item_features"))
-        parsed = parse_packed_vector(features.get("grpo_x"))
         pred_raw = features.get("prediction_score")
         label_raw = row.get("label")
         if parsed is None or pred_raw is None or label_raw is None:
             n_dropped += 1
             continue
         row_version, vector = parsed
-        if row_version != version or len(vector) != dim:
+        if (row_version, len(vector)) != (version, dim):
             n_dropped += 1
             continue
         try:
@@ -366,13 +362,8 @@ def main(argv=None) -> dict:
     if result["n_pairs"] == 0:
         print("no usable slate: no pairwise AUC can be computed from this data")
     else:
-        # v1's grpo_x carried a served-position feature (position/slateSize) that could not be
-        # realized at serve time -- the score has to exist BEFORE selection assigns positions --
-        # so a positive raw auc_diff could be pure position leakage rather than ranking skill.
-        # That was the reason this tool used to report a second, position-free number alongside
-        # the raw one. v2 (GrpoFeatures, java-retrieval-service) removed the position feature, so
-        # every feature scored here is one the live scorer would actually see: auc_diff is
-        # computed from exactly those features and is the flip criterion directly.
+        # v2 removed the served-position feature (module docstring), so auc_diff is the flip
+        # criterion directly.
         print(f"pairwise AUC (THE FLIP CRITERION): "
               f"grpoScore={_format(result['grpo_auc'])} "
               f"prediction_score={_format(result['prediction_auc'])} "

@@ -19,7 +19,6 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -66,15 +65,6 @@ class GrpoPolicyScorerTest {
         return String.join(",", w);
     }
 
-    private double expectedScore() {
-        double[] x = GrpoFeatures.of(movie);
-        double sum = 0.0;
-        for (int i = 0; i < GrpoFeatures.DIM; i++) {
-            sum += (i + 1) * x[i];
-        }
-        return sum;
-    }
-
     private ServingSideEffectRequest slate(List<ServedMovie> selected) {
         return new ServingSideEffectRequest(
             "req-1", "u1", "ucb", Map.of(), selected, selected,
@@ -118,28 +108,35 @@ class GrpoPolicyScorerTest {
             .toList();
     }
 
+    /** A two-item slate: the smallest one recordShadowSlate will log. */
+    private ServingSideEffectRequest twoItemSlate() {
+        return slate(List.of(itemWithBanditScore("m1", 0.9), itemWithBanditScore("m2", 0.1)));
+    }
+
+    /** The weight-guard contract: unusable weights mean no shadow line, never an exception. */
+    private void assertLogsNoShadowLine(GrpoPolicyScorer s) {
+        assertTrue(capturingLogs(ignored -> s.recordShadowSlate(twoItemSlate())).isEmpty());
+    }
+
     @Test
-    void offModeIsDisabledAndScoresZero() {
-        GrpoPolicyScorer s = scorer("off", distinctWeights(), "v2");
-        assertFalse(s.enabled());
-        assertEquals(0.0, s.score(movie));
+    void offModeClaimsNoBlendWeight() {
+        assertEquals(0.0, scorer("off", distinctWeights(), "v2").blendWeight());
     }
 
     @Test
     void offModeReadsNothingFromRedis() {
         // The rollout's first promise: with the flag off, the serving path pays nothing at all.
         GrpoPolicyScorer s = scorer("off", distinctWeights(), "v2");
-        s.score(movie);
-        s.recordShadowSlate(slate(List.of(itemWithBanditScore("m1", 0.9), itemWithBanditScore("m2", 0.1))));
+        s.recordShadowSlate(twoItemSlate());
         verify(lastRedis, never()).opsForHash();
     }
 
     @Test
-    void shadowModeScoresButClaimsNoBlendWeight() {
+    void shadowModeReadsWeightsButClaimsNoBlendWeight() {
         GrpoPolicyScorer s = scorer("shadow", distinctWeights(), "v2");
-        assertTrue(s.enabled());
         assertEquals(0.0, s.blendWeight(), "shadow must never move a recommendation");
-        assertEquals(expectedScore(), s.score(movie), 1e-9);
+        s.recordShadowSlate(twoItemSlate());
+        verify(lastRedis).opsForHash();
     }
 
     @Test
@@ -153,14 +150,17 @@ class GrpoPolicyScorerTest {
 
     @Test
     void anUnrecognisedModeIsTreatedAsOff() {
-        assertFalse(scorer("enabled", distinctWeights(), "v2").enabled());
+        GrpoPolicyScorer s = scorer("enabled", distinctWeights(), "v2");
+        assertEquals(0.0, s.blendWeight());
+        s.recordShadowSlate(twoItemSlate());
+        verify(lastRedis, never()).opsForHash();
     }
 
     @Test
     void weightsOfADifferentFeatureVersionAreIgnored() {
         // The exact cutover hazard: v1 weights left behind in Redis after the v2 rollout must be
         // refused, not silently applied against the v2 (9-wide) feature layout.
-        assertEquals(0.0, scorer("shadow", distinctWeights(), "v1").score(movie));
+        assertLogsNoShadowLine(scorer("shadow", distinctWeights(), "v1"));
     }
 
     @Test
@@ -170,22 +170,22 @@ class GrpoPolicyScorerTest {
         String tenWide = java.util.stream.IntStream.rangeClosed(1, 10)
             .mapToObj(i -> Double.toString((double) i))
             .collect(Collectors.joining(","));
-        assertEquals(0.0, scorer("shadow", tenWide, "v2").score(movie));
+        assertLogsNoShadowLine(scorer("shadow", tenWide, "v2"));
     }
 
     @Test
-    void aMissingWeightVectorScoresZeroRatherThanFailing() {
-        assertEquals(0.0, scorer("shadow", null, "v2").score(movie));
+    void aMissingWeightVectorLogsNothingRatherThanFailing() {
+        assertLogsNoShadowLine(scorer("shadow", null, "v2"));
     }
 
     @Test
     void aNonFiniteWeightIsUnusable() {
-        // Double.parseDouble accepts "NaN": without the finite check the score would be NaN, which
-        // is worse than no score at all because it sorts unpredictably.
+        // Double.parseDouble accepts "NaN": without the finite check every score would be NaN,
+        // which sorts unpredictably instead of degrading to the no-weights case.
         String withNaN = "NaN," + String.join(",", java.util.Collections.nCopies(GrpoFeatures.DIM - 1, "1.0"));
-        assertEquals(0.0, scorer("shadow", withNaN, "v2").score(movie));
+        assertLogsNoShadowLine(scorer("shadow", withNaN, "v2"));
         String withInf = "Infinity," + String.join(",", java.util.Collections.nCopies(GrpoFeatures.DIM - 1, "1.0"));
-        assertEquals(0.0, scorer("shadow", withInf, "v2").score(movie));
+        assertLogsNoShadowLine(scorer("shadow", withInf, "v2"));
     }
 
     @Test

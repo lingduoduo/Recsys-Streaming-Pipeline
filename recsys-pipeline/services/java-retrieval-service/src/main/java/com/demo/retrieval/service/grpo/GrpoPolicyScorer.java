@@ -7,11 +7,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 /**
  * Serves the GRPO policy score, off by default.
@@ -65,27 +65,8 @@ public class GrpoPolicyScorer {
         this.mode = normalized;
     }
 
-    public boolean enabled() {
-        return !MODE_OFF.equals(mode);
-    }
-
     public double blendWeight() {
         return MODE_ON.equals(mode) ? ON_BLEND_WEIGHT : 0.0;
-    }
-
-    public double score(ServedMovie movie) {
-        if (!enabled()) {
-            return 0.0;
-        }
-        Optional<double[]> weights = readWeights();
-        if (weights.isEmpty()) {
-            return 0.0;
-        }
-        return dot(weights.get(), movie);
-    }
-
-    private static double dot(double[] w, ServedMovie movie) {
-        return dot(w, GrpoFeatures.of(movie));
     }
 
     private static double dot(double[] w, double[] x) {
@@ -149,21 +130,17 @@ public class GrpoPolicyScorer {
                 return Optional.empty();
             }
             double blend = blendWeight();
-            Double[] adjusted = new Double[n];
+            double[] adjusted = new double[n];
             for (int i = 0; i < n; i++) {
                 double norm = (raw[i] - min) / range;
                 adjusted[i] = (1.0 - blend) * finalScores[i] + blend * norm;
             }
-            Integer[] order = new Integer[n];
-            for (int i = 0; i < n; i++) {
-                order[i] = i;
-            }
-            Arrays.sort(order, (a, b) -> Double.compare(adjusted[b], adjusted[a]));
-            int[] result = new int[n];
-            for (int i = 0; i < n; i++) {
-                result[i] = order[i];
-            }
-            return Optional.of(result);
+            // Stable, descending: ties keep their incumbent order, as Arrays.sort did before.
+            int[] order = IntStream.range(0, n).boxed()
+                .sorted((a, b) -> Double.compare(adjusted[b], adjusted[a]))
+                .mapToInt(Integer::intValue)
+                .toArray();
+            return Optional.of(order);
         } catch (Exception e) {
             // Same contract as GrpoEventPublisher.publish and recordShadowSlate: a Redis-side
             // surprise (e.g. the weights key holding the wrong type) must never turn into a
@@ -211,7 +188,7 @@ public class GrpoPolicyScorer {
             double[] w = weights.get();
             double[] scores = new double[slateSize];
             for (int i = 0; i < slateSize; i++) {
-                scores[i] = dot(w, served.get(i));
+                scores[i] = dot(w, GrpoFeatures.of(served.get(i)));
             }
             log.info("GRPO shadow slate requestId={} slateSize={} pairwiseConcordance={}",
                 request.requestId(), slateSize, pairwiseConcordance(scores));

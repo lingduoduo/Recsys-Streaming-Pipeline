@@ -16,13 +16,17 @@ final case class GrpoGroup(
   * "learning from few slates" from "learning from none".
   */
 final case class GateCounts(kept: Long, tooSmall: Long, zeroVariance: Long, badFeatureVersion: Long) {
-  def total: Long = kept + tooSmall + zeroVariance + badFeatureVersion
   def reasons: Seq[(String, Long)] =
-    Seq("slate_too_small" -> tooSmall, "zero_reward_variance" -> zeroVariance,
-      "bad_feature_version" -> badFeatureVersion)
+    Seq(GrpoSlates.TooSmall -> tooSmall, GrpoSlates.ZeroVariance -> zeroVariance,
+      GrpoSlates.BadFeatureVersion -> badFeatureVersion)
 }
 
 object GrpoSlates {
+
+  /** Drop reasons, as DropMetrics reports them. */
+  val TooSmall = "slate_too_small"
+  val BadFeatureVersion = "bad_feature_version"
+  val ZeroVariance = "zero_reward_variance"
 
   /** Parse a packed feature vector, or None if it cannot be trusted to align with the weights. */
   def parseFeatureVector(packed: String, expectedVersion: String, dim: Int): Option[Array[Double]] = {
@@ -54,38 +58,31 @@ object GrpoSlates {
     * currently justifies; revisit it when a batch actually outgrows the driver.
     */
   def toGroups(slates: DataFrame, cfg: GrpoJobConfig): (Seq[GrpoGroup], GateCounts) = {
-    var tooSmall = 0L
-    var zeroVariance = 0L
-    var badVersion = 0L
-    val kept = scala.collection.mutable.ArrayBuffer.empty[GrpoGroup]
+    val classified = slates.select("slate_id", "items").collect().map(row => classify(row, cfg))
+    val kept = classified.collect { case Right(group) => group }.toSeq
+    val dropped = classified.collect { case Left(reason) => reason }
+      .groupBy(identity).map { case (reason, hits) => reason -> hits.length.toLong }
+    (kept, GateCounts(
+      kept = kept.size.toLong,
+      tooSmall = dropped.getOrElse(TooSmall, 0L),
+      zeroVariance = dropped.getOrElse(ZeroVariance, 0L),
+      badFeatureVersion = dropped.getOrElse(BadFeatureVersion, 0L)))
+  }
 
-    slates.select("slate_id", "items").collect().foreach { row =>
-      val slateId = row.getString(0)
-      val items = row.getSeq[Row](1)
-      if (items.size < 2) {
-        tooSmall += 1L
-      } else {
-        val parsed = items.map { item =>
-          val features = item.getAs[Map[String, String]]("item_features")
-          val x = parseFeatureVector(features.getOrElse("grpo_x", null), cfg.featureVersion, cfg.dim)
-          val logged = try features.getOrElse("prediction_score", "0.0").toDouble
-                       catch { case _: NumberFormatException => 0.0 }
-          val label = if (item.isNullAt(item.fieldIndex("label"))) 0.0
-                      else item.getAs[Double]("label")
-          (x, logged, label)
-        }
-        if (parsed.exists(_._1.isEmpty)) {
-          badVersion += 1L
-        } else {
-          val rewards = parsed.map(_._3).toArray
-          GrpoMath.advantages(rewards) match {
-            case None => zeroVariance += 1L
-            case Some(_) =>
-              kept += GrpoGroup(slateId, parsed.map(_._1.get).toArray, parsed.map(_._2).toArray, rewards)
-          }
-        }
-      }
-    }
-    (kept.toSeq, GateCounts(kept.size.toLong, tooSmall, zeroVariance, badVersion))
+  /** The group a slate row yields, or the first gate it fails: size, feature version, variance. */
+  private def classify(row: Row, cfg: GrpoJobConfig): Either[String, GrpoGroup] = {
+    val items = row.getSeq[Row](1)
+    if (items.size < 2) return Left(TooSmall)
+    val features = items.map(_.getAs[Map[String, String]]("item_features"))
+    val x = features.map(f => parseFeatureVector(f.getOrElse("grpo_x", null), cfg.featureVersion, cfg.dim))
+    if (x.exists(_.isEmpty)) return Left(BadFeatureVersion)
+    val rewards = items.map { item =>
+      if (item.isNullAt(item.fieldIndex("label"))) 0.0 else item.getAs[Double]("label")
+    }.toArray
+    if (GrpoMath.advantages(rewards).isEmpty) return Left(ZeroVariance)
+    val logged = features.map { f =>
+      try f.getOrElse("prediction_score", "0.0").toDouble catch { case _: NumberFormatException => 0.0 }
+    }.toArray
+    Right(GrpoGroup(row.getString(0), x.map(_.get).toArray, logged, rewards))
   }
 }
