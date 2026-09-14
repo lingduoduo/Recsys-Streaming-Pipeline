@@ -125,10 +125,10 @@ Observed: 16 tests passed, including logistic regression, GBT, split boundaries,
 **Interfaces:** Consumes the tested Task 1 diff; produces a reviewed commit and a PR against `master`.
 
 - [x] **Step 1: Request a read-only code review.** Check the diff against every spec constraint; resolve substantive findings before publishing.
-- [ ] **Step 2: Run the Spark module suite and whitespace validation.** From the Spark module run `sbt test`; from the repository root run `git diff --check`. Record the outcome below and in the PR.
-- [ ] **Step 3: Publish the design for review.** Commit the spec and plan with `docs: specify SFT holdout counting optimization`, push `optimize/sft-holdout-count` to `origin`, and create a draft PR against `master` titled `Optimize SFT holdout counting`. Supply the prepared PR description with `gh pr create --draft --body-file`.
-- [ ] **Step 4: Add verified code to the PR.** Commit the implementation, tests, architecture documentation, and final plan evidence with `perf: reuse date counts in SFT training`. Push the branch, update the PR description with test evidence, and mark it ready for review.
+- [x] **Step 2: Run the Spark module suite and whitespace validation.** From the Spark module run `sbt test`; from the repository root run `git diff --check`. Record the outcome below and in the PR.
+- [x] **Step 3: Publish the design for review.** Commit the spec and plan with `docs: specify SFT holdout counting optimization`, push `optimize/sft-holdout-count` to `origin`, and create a draft PR against `master` titled `Optimize SFT holdout counting`. Supply the prepared PR description with `gh pr create --draft --body-file`.
+- [x] **Step 4: Add verified code to the PR.** Commit the implementation, tests, architecture documentation, and final plan evidence with `perf: reuse date counts in SFT training`. Push the branch, update the PR description with test evidence, and mark it ready for review.
 
 ## Delivery evidence
 
-Focused regression baseline: 1 expected runtime failure (`10 was not equal to 5`). Focused final suite: 16 passed. Independent read-only review: no actionable findings; spec and implementation are aligned. Module-suite outcome will be recorded after completion.
+Focused regression baseline: 1 expected runtime failure (`10 was not equal to 5`). Focused final suite: 16 passed. Independent read-only review: no actionable findings; spec and implementation are aligned. Full Spark module suite (`sbt test`): 430 tests passed across 66 suites, zero failures or aborted suites (2026-09-14). `git diff --check` passed. Delivery: PR #230, https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/230; the spec/plan were published first, followed by the verified code.

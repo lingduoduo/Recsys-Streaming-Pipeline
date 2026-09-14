@@ -1353,7 +1353,8 @@ Redis, or ONNX changes.
 
 This is the repository's consolidated supervised fine-tuning (SFT) stage. The holdout consists
 of the latest `CTR_HOLDOUT_DAYS` **observed dates**, rather than a calendar-day interval; undated
-rows are excluded. Only those holdout dates are collected to the driver. Training caches only
+rows are excluded. Date discovery also counts rows per date, so only the holdout dates and their
+counts are collected to the driver and no separate holdout-count scan is needed. Training caches only
 the label and assembled feature vector with memory/disk persistence, reuses its row count, and
 releases the cache after fitting. Evaluation caches only labels and probabilities, shares the
 ROC/PR ranking statistics, and computes logloss and positive rate together. Evaluation-owned
