@@ -77,15 +77,22 @@ def replay_index(events) -> tuple[dict, set]:
     at 95% discarded when 5% of slates are engaged, and 100% when the slate and replay id
     namespaces do not match at all. `build_pairs` extracts on first use instead.
 
-    The returned set is every indexed requestId, collected in this loop rather than recovered by a
-    second pass over the keys. It answers only whether the join works at all.
+    The returned set is every requestId that contributed at least one candidate, collected in this
+    loop rather than recovered by a second pass over the keys. It answers only whether the join
+    works at all, so it must stay the set of ids the index can actually serve: an event with an
+    empty or absent actionSpace supplies no candidate and so is NOT a match, exactly as deriving
+    the set from the index keys used to give. Counting it would report ids as matched while no
+    pair could ever be built from them, which is the namespace mismatch this diagnostic exists to
+    tell apart from mere sparsity.
     """
     index = {}
     request_ids = set()
     for event in events:
         request_id = str(event.get("requestId", ""))
-        request_ids.add(request_id)
-        for candidate in ope_eval_report.candidates_of(event):
+        candidates = ope_eval_report.candidates_of(event)
+        if candidates:
+            request_ids.add(request_id)
+        for candidate in candidates:
             index[(request_id, str(candidate.get("item")))] = candidate
     return index, request_ids
 

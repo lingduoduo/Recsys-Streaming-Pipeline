@@ -577,6 +577,23 @@ def _join_fixtures():
                        dict(candidate("b"), modelPredictions={"relevance": 0.4})])]),
         ("no slates", [], ordinary_events),
         ("no events", [slate("r1", [item("a", clicked=1), item("b")])], []),
+        # An event that supplies no candidate contributes no index key, so its requestId is not a
+        # match however well the ids line up -- no pair can ever be built from it. Collecting the
+        # id set while walking events rather than from the index keys is the one way this
+        # optimization could change a diagnostic, so both empty and absent actionSpace are pinned.
+        ("event with an empty actionSpace",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [{"requestId": "r1", "user": "u", "action": None, "reward": 0.0, "clicked": 0,
+           "modelPredictions": {}, "actionSpace": []}]),
+        ("event with an absent actionSpace",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [{"requestId": "r1", "user": "u", "action": None, "reward": 0.0, "clicked": 0,
+           "modelPredictions": {}, "actionSpace": None}]),
+        ("one event has candidates, another with the same id does not",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [{"requestId": "r1", "user": "u", "action": None, "reward": 0.0, "clicked": 0,
+           "modelPredictions": {}, "actionSpace": []},
+          event("r1", [candidate("a", 0.9), candidate("b", 0.2)])]),
     ]
 
 
