@@ -46,7 +46,7 @@ All sbt commands run from `recsys-pipeline/services/spark-streaming-job`.
 
 **Interfaces:** Produces the branch and draft PR that Tasks 1-3 commit into. No code.
 
-- [ ] **Step 1: Commit the spec and plan on a branch off `master`.**
+- [x] **Step 1: Commit the spec and plan on a branch off `master`.**
 
 ```bash
 git checkout master && git pull
@@ -56,8 +56,9 @@ git add .superpowers/docs/specs/2026-09-14-optimize-ppo-training-design.md \
 git commit -m "docs: specify the PPO training optimization"
 ```
 
-- [ ] **Step 2: Push and open a draft PR against `master`** titled `Optimize PPO training`, whose body states the problem, the measured baseline, and that code follows in this same PR. Use `gh pr create --draft --body-file`. Record the PR number here; the spec and plan are then reviewable before any code exists.
+- [x] **Step 2: Push and open a draft PR against `master`** titled `Optimize PPO training`, whose body states the problem, the measured baseline, and that code follows in this same PR. Use `gh pr create --draft --body-file`. Record the PR number here; the spec and plan are then reviewable before any code exists.
 
+Observed: draft PR #235, https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/235.
 ---
 
 ### Task 1: Split the gradient at the softmax boundary
@@ -70,7 +71,7 @@ git commit -m "docs: specify the PPO training optimization"
 - Consumes: `GrpoMath.softmax(logits: Array[Double], temperature: Double): Array[Double]` and `GrpoMath.logits(x: Array[Array[Double]], w: Array[Double]): Array[Double]`, both unchanged.
 - Produces: `private[grpo] def gradientFromPolicies(x: Array[Array[Double]], piSnap: Array[Double], piOld: Array[Double], w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double]`. Task 2 calls this. The public `gradient` keeps its existing signature and becomes a wrapper.
 
-- [ ] **Step 1: Write the failing test.** Append to `GrpoMathSpec.scala`. It calls a method that does not exist yet, so it fails to compile until Step 3.
+- [x] **Step 1: Write the failing test.** Append to `GrpoMathSpec.scala`. It calls a method that does not exist yet, so it fails to compile until Step 3.
 
 ```scala
   it should "match the public gradient when the reference policies are supplied directly" in {
@@ -101,7 +102,7 @@ git commit -m "docs: specify the PPO training optimization"
   }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails.**
+- [x] **Step 2: Run it and confirm it fails.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoMathSpec'
@@ -109,7 +110,9 @@ sbt 'testOnly com.demo.grpo.GrpoMathSpec'
 
 Expected: a compile error reporting that `gradientFromPolicies` is not a member of `GrpoMath`. Record the message.
 
-- [ ] **Step 3: Extract the method.** In `GrpoMath.scala`, replace the existing `gradient` with the wrapper plus the extracted worker. The worker body is today's `gradient` body with the `policies` call replaced by deriving `pi` alone; every other line, including operation order, is unchanged.
+Observed: `GrpoMathSpec.scala:249:29: value gradientFromPolicies is not a member of object com.demo.grpo.GrpoMath`, then `Compilation failed`.
+
+- [x] **Step 3: Extract the method.** In `GrpoMath.scala`, replace the existing `gradient` with the wrapper plus the extracted worker. The worker body is today's `gradient` body with the `policies` call replaced by deriving `pi` alone; every other line, including operation order, is unchanged.
 
 ```scala
   def gradient(x: Array[Array[Double]], snapshotLogits: Array[Double], loggedLogits: Array[Double],
@@ -155,7 +158,7 @@ Expected: a compile error reporting that `gradientFromPolicies` is not a member 
 
 Keep the existing scaladoc block that explains the analytic gradient on the public `gradient`. Leave the private `policies` helper in place; `loss` still uses it.
 
-- [ ] **Step 4: Run the focused suite and confirm it passes.**
+- [x] **Step 4: Run the focused suite and confirm it passes.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoMathSpec'
@@ -163,7 +166,9 @@ sbt 'testOnly com.demo.grpo.GrpoMathSpec'
 
 Expected: all tests pass, including the pre-existing finite-difference, clipping, KL, and two-reference-separation cases. Record the count.
 
-- [ ] **Step 5: Commit.**
+Observed: 17 tests succeeded, including the pre-existing finite-difference, clipping, KL, and two-reference-separation cases.
+
+- [x] **Step 5: Commit.**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoMath.scala \
@@ -183,7 +188,7 @@ git commit -m "refactor(grpo): a gradient form that takes the reference policies
 - Consumes: `GrpoMath.gradientFromPolicies` from Task 1, and `GrpoMath.softmax` / `GrpoMath.logits` / `GrpoMath.advantages` unchanged.
 - Produces: no signature change. `applyBatch(current: GrpoWeights, groups: Seq[GrpoGroup], cfg: GrpoJobConfig, batchId: Long): GrpoWeights` keeps its shape and its result.
 
-- [ ] **Step 1: Write the failing test.** Append to `GrpoPolicyStreamingJobSpec.scala`. It pins bitwise equality against a by-hand loop built from the public `gradient`, at two inner epochs, which is where the recomputation happened. Written before Task 2's change, it passes; it exists to fail if the hoist ever drifts, so run it again after Step 3.
+- [x] **Step 1: Write the failing test.** Append to `GrpoPolicyStreamingJobSpec.scala`. It pins bitwise equality against a by-hand loop built from the public `gradient`, at two inner epochs, which is where the recomputation happened. Written before Task 2's change, it passes; it exists to fail if the hoist ever drifts, so run it again after Step 3.
 
 ```scala
   it should "produce bitwise the same weights as the public gradient over two inner epochs" in {
@@ -217,7 +222,7 @@ git commit -m "refactor(grpo): a gradient form that takes the reference policies
   }
 ```
 
-- [ ] **Step 2: Run it against the unhoisted `applyBatch`.**
+- [x] **Step 2: Run it against the unhoisted `applyBatch`.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoPolicyStreamingJobSpec'
@@ -225,7 +230,9 @@ sbt 'testOnly com.demo.grpo.GrpoPolicyStreamingJobSpec'
 
 Expected: PASS. This establishes the bitwise baseline the hoist must preserve. Record the result; if it fails here, the by-hand loop does not mirror `applyBatch` and must be corrected before proceeding.
 
-- [ ] **Step 3: Hoist the softmaxes.** In `applyBatch`, replace the `prepared` construction and the inner-epoch gradient call.
+Observed: PASS, 12 tests. The by-hand loop mirrors `applyBatch` bit for bit before the hoist, establishing the baseline the hoist must preserve.
+
+- [x] **Step 3: Hoist the softmaxes.** In `applyBatch`, replace the `prepared` construction and the inner-epoch gradient call.
 
 ```scala
     // Neither the snapshot-side logits nor the advantage depends on w, so both are fixed for the
@@ -252,7 +259,7 @@ Expected: PASS. This establishes the bitwise baseline the hoist must preserve. R
     }
 ```
 
-- [ ] **Step 4: Run the focused suite and confirm it still passes.**
+- [x] **Step 4: Run the focused suite and confirm it still passes.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoPolicyStreamingJobSpec com.demo.grpo.GrpoMathSpec'
@@ -260,7 +267,9 @@ sbt 'testOnly com.demo.grpo.GrpoPolicyStreamingJobSpec com.demo.grpo.GrpoMathSpe
 
 Expected: all tests pass, the new bitwise assertion included. A failure here means the hoisted policies were not in fact constant across epochs.
 
-- [ ] **Step 5: Commit.**
+Observed: 29 tests succeeded across both specs, the new bitwise assertion included. The hoisted policies are therefore constant across epochs.
+
+- [x] **Step 5: Commit.**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoPolicyStreamingJob.scala \
@@ -276,7 +285,7 @@ git commit -m "perf(grpo): hoist the reference policies out of the inner-epoch l
 
 **Interfaces:** Consumes the tested diff; produces a reviewed PR against `master`.
 
-- [ ] **Step 1: Run the whole Spark module suite.**
+- [x] **Step 1: Run the whole Spark module suite.**
 
 ```bash
 sbt test
@@ -284,7 +293,9 @@ sbt test
 
 Expected: zero failures and zero aborted suites. Record the test and suite counts.
 
-- [ ] **Step 2: Benchmark before and after.** Create the throwaway harness below at `src/test/scala/com/demo/grpo/ZzBenchThrowaway.scala`.
+Observed: 432 tests succeeded across 66 suites, 0 failed, 0 aborted (up from 430, the two additions being this branch's tests). The `injected Redis write failure` and `simulated Redis command error` lines in the log are deliberate fault-injection tests, not failures.
+
+- [x] **Step 2: Benchmark before and after.** Create the throwaway harness below at `src/test/scala/com/demo/grpo/ZzBenchThrowaway.scala`.
 
 ```scala
 package com.demo.grpo
@@ -355,7 +366,22 @@ rm src/test/scala/com/demo/grpo/ZzBenchThrowaway.scala
 
 Compare against the spec's baseline: `gradient` 1,677 ns/op, `applyBatch` 2.561 / 8.550 / 40.093 ms at 100 / 1,000 / 5,000 groups. Record both columns. Note that `gradient` is the public form and keeps all three softmaxes by design, so its own number should not improve; the saving shows up in `applyBatch`.
 
-- [ ] **Step 3: Confirm no benchmark artifact survives.**
+Observed. Identical harness settings on both sides (100 warmup batches, 25 timed runs, median of 25; per-call figures are the median of 15 runs of 200,000 calls after 300,000 warmup calls):
+
+| measurement | before | after | change |
+|---|---|---|---|
+| `applyBatch`, 100 groups | 1.052 ms | 0.702 ms | **-33%** |
+| `applyBatch`, 1,000 groups | 8.298 ms | 5.356 ms | **-35%** |
+| `applyBatch`, 5,000 groups | 40.365 ms | 28.793 ms | **-29%** |
+| `gradient` (public, 3 softmaxes) | 1,654 ns/op | 1,689 ns/op | unchanged, as designed |
+| `gradientFromPolicies` (1 softmax) | n/a | 929 ns/op | **-45% vs the public form** |
+| `softmax` alone | 364 ns/op | 368 ns/op | unchanged |
+
+The per-call saving is 1,689 - 929 = 760 ns, which is two softmaxes at 368 ns each -- the redundancy the spec predicted, recovered exactly.
+
+A first benchmark pass used only 50 warmup batches and 9 timed runs and produced incoherent results, including the 100-group case appearing 10% SLOWER after the change. That was a measurement artifact: at 100 groups a batch is under a millisecond, so JIT state and run-to-run JVM variance dominated. Raising the warmup to 100 batches and the sample to 25 runs made all three scales agree. The lesson for anyone re-running this: the small-group case needs the longer warmup to mean anything.
+
+- [x] **Step 3: Confirm no benchmark artifact survives.**
 
 ```bash
 git status --short
@@ -364,10 +390,23 @@ git diff --check
 
 Expected: no `ZzBenchThrowaway.scala`, and a clean whitespace check.
 
+Observed: `git status --short` empty and `git diff --check` clean; the harness is deleted.
+
 - [ ] **Step 4: Request a read-only code review.** Ask for a review against every spec constraint, specifically: that the extracted body is line-for-line today's arithmetic in the same order; that `piSnap`/`piOld` cannot be confused for logits at the one call site; that the hoisted values are genuinely independent of `w`; and that the tests would fail if the hoist drifted. Resolve substantive findings before publishing.
 
 - [ ] **Step 5: Publish.** Push `optimize/ppo-training`, open a PR against `master` titled `Optimize PPO training`, and record the measured before/after, the suite counts, and the deliberate absence of a red-green performance test in the body. Fill in this plan's verification record and commit it.
 
 ## Verification record
 
-Execution pending.
+- Task 1 red: `GrpoMathSpec.scala:249:29: value gradientFromPolicies is not a member of object com.demo.grpo.GrpoMath`. Task 1 green: 17 tests succeeded.
+- Task 2 baseline, before the hoist: 12 tests succeeded, the by-hand two-epoch loop matching `applyBatch` bit for bit. After the hoist: 29 tests succeeded across both specs.
+- Full Spark module suite under JDK 17: 432 tests succeeded, 66 suites, 0 failed, 0 aborted.
+- `git diff --check` clean; no benchmark artifact left in the tree.
+- Weights are bitwise identical before and after, at the function level (`gradientFromPolicies` against the public `gradient` over ordinary, saturated and clipped inputs) and at the batch level (two inner epochs, raw IEEE bit comparison).
+- Benchmark: `applyBatch` -33% / -35% / -29% at 100 / 1,000 / 5,000 groups; `gradientFromPolicies` 929 ns/op against the public form's 1,689 ns/op, a 760 ns saving that is exactly the two 368 ns softmaxes. See Task 3 Step 2 for the full table and for why the first benchmark pass was discarded.
+- The public `gradient` is unchanged at 1,654 to 1,689 ns/op across the change, which is the intended outcome: it still softmaxes both references for its own callers.
+- As the spec states, no test asserts the softmax call count. The performance property rests on the structure plus the benchmark; correctness rests on the bitwise equivalence assertions and the pre-existing finite-difference checks.
+
+### Limits of this evidence
+
+Single-JVM, JIT-warmed timings on one machine; group counts per batch depend on click-through because the zero-variance gate drops most slates at low CTR. The change does not address batch latency, which is dominated by the driver-side `collect` in `GrpoSlates.toGroups`, JSON parsing, and the Redis write. At the 5,000-group ceiling the PPO math moves from roughly 0.4% to 0.3% of a ten-second trigger.
