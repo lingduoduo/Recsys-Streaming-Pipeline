@@ -35,6 +35,10 @@ In `applyBatch`, `prepared` carries `(group, piSnap, piOld, advantages)` instead
 
 `piSnap` and `piOld` are probabilities but carry the same `Array[Double]` type as logits, so a caller can pass the wrong one without a compile error. The mitigations are that the method is package-visible rather than public, that its parameters and scaladoc name them as policies, and that exactly one production call site exists. A wrapper type for a single caller is not justified.
 
+`private[grpo]` is a Scala source-level restriction, not a hard boundary: the method compiles to a public JVM method, so a Java or reflective caller in any package can reach it. Nothing outside `com.demo.grpo` references `GrpoMath` today, so this is not reachable in practice, but the containment argument above rests on there being one call site, not on the access modifier being enforced at the bytecode level.
+
+Moving the two softmaxes into `applyBatch` also moves two uses of `cfg.hyper.temperature` out of `GrpoMath`, whose spec pins temperature behavior, and into the job, whose spec did not exercise a non-unit temperature at all. `GRPO_TEMPERATURE` is a supported knob, so the batch-level test must run at a non-unit temperature with non-uniform reference policies; a uniform softmax is temperature-invariant and bitwise equal to the other reference, which would hide both a dropped temperature argument and a swap of the two references.
+
 ## Validation and acceptance
 
 1. `gradientFromPolicies(x, softmax(snapshotLogits, t), softmax(loggedLogits, t), w, adv, cfg)` returns bitwise the same vector as `gradient(x, snapshotLogits, loggedLogits, w, adv, cfg)`, over ordinary, saturated, zero-advantage, and clipped-branch inputs.

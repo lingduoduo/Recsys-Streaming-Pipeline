@@ -157,10 +157,21 @@ class GrpoPolicyStreamingJobSpec extends AnyFlatSpec with Matchers {
     // applyBatch hoists the two reference policies out of the inner-epoch loop. Hoisting a value
     // that is genuinely fixed must not move a single bit; anything else means the hoisted
     // reference was not actually constant across epochs.
-    val groups = Seq(group(Array(1.0, 0.0, 0.0)), group(Array(0.0, 1.0, 0.0)))
-    val cfg2 = cfg.copy(hyper = cfg.hyper.copy(innerEpochs = 2))
+    //
+    // Every part of this fixture is load-bearing, because applyBatch is now where the two
+    // references get softmaxed and a uniform distribution hides almost every way that can go
+    // wrong. Non-unit `temperature`: a uniform softmax is temperature-invariant, so at the
+    // default 1.0 nothing here would notice the temperature argument being dropped from either
+    // call -- and GRPO_TEMPERATURE is a supported knob. Distinct non-uniform `logged` per group,
+    // and non-uniform starting weights so the snapshot is not uniform either: with both
+    // references uniform they are bitwise equal, so swapping them would go unseen too.
+    val groups = Seq(group(Array(1.0, 0.0, 0.0), logged = Array(2.0, -1.0, 0.0)),
+                     group(Array(0.0, 1.0, 0.0), logged = Array(-3.0, 4.0, 1.0)))
+    val cfg2 = cfg.copy(hyper = cfg.hyper.copy(innerEpochs = 2, temperature = 0.5))
+    def start = GrpoWeights(Array.tabulate(cfg2.dim)(i => 0.05 * (i + 1)),
+                            cfg2.featureVersion, -1L, 0L)
 
-    val snapshot = GrpoWeightStore.initial(cfg2).weights.clone()
+    val snapshot = start.weights.clone()
     val snapshotLogitsByGroup = groups.map(g => GrpoMath.logits(g.x, snapshot))
     val wRef = snapshot.clone()
     (1 to cfg2.hyper.innerEpochs).foreach { _ =>
@@ -175,8 +186,7 @@ class GrpoPolicyStreamingJobSpec extends AnyFlatSpec with Matchers {
         wRef(d) -= cfg2.hyper.learningRate * total(d) / groups.size)
     }
 
-    val actual = GrpoPolicyStreamingJob.applyBatch(
-      GrpoWeightStore.initial(cfg2), groups, cfg2, 1L).weights
+    val actual = GrpoPolicyStreamingJob.applyBatch(start, groups, cfg2, 1L).weights
     actual.indices.foreach { d =>
       java.lang.Double.doubleToRawLongBits(actual(d)) shouldBe
         java.lang.Double.doubleToRawLongBits(wRef(d))
