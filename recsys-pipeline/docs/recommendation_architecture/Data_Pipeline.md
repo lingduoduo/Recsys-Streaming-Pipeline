@@ -944,6 +944,15 @@ Consumes slates from `training_experiences` and continuously trains the online G
 each micro-batch is one minibatch of PPO-clipped gradient steps, and the updated weight vector is
 written back to the `grpo:policy:weights` Redis hash that `GrpoPolicyScorer` (serving) reads.
 
+`GrpoSlates.toGroups` applies its three gates — slate size, feature version, reward variance — in
+Spark, and collects only the slates that pass. It used to collect every parsed slate and gate on
+the driver, which at realistic click-through meant the driver held most of a batch in order to
+discard it: measured on 5,000 slates with 5% engaged, the variance gate keeps 250. Raising
+`MAX_OFFSETS_PER_TRIGGER` is still bounded by memory, but by the cached gated frame on the cluster
+rather than by the driver's heap. Per-slate gradient contributions are still summed on the driver
+rather than with `treeAggregate`, which is what keeps `GrpoPolicyStreamingJob.applyBatch` a pure
+function over arrays that needs no Spark session to test.
+
 The feature vector (`GrpoFeatures`, java-retrieval-service) is 9-dimensional, wire version `v2`:
 bias, banditScore, estimatedReward, onlineScore, explorationBonus, coldStart, log1p(impressions),
 log1p(clicks), and smoothed CTR. It deliberately excludes the item's served position. A ranking
