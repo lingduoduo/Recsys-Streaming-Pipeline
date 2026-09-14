@@ -68,26 +68,26 @@ class JoinDiagnostics:
     n_missing_reference_sides: int
 
 
-def replay_index(events, names) -> dict:
-    """(requestId, item) -> (feature vector, reference score, reference present) per candidate.
+def replay_index(events) -> tuple[dict, set]:
+    """(requestId, item) -> the replay candidate that can supply a pair's features.
 
-    The third element matters: an absent `predictionScore` -- or a null `modelPredictions`, which
-    is what Parquet yields for an absent nested struct -- reads as 0.0 here, which silently zeroes
-    the reference margin and degrades the DPO loss to plain BPR. Recording presence lets that be
-    counted and warned about instead of disappearing into a default.
+    Holds the candidate dict rather than an extracted feature vector. A pair exists only where a
+    slate carried both an engagement and a non-engaged item, so at low click-through most
+    candidates never reach one and extracting their features here is work thrown away -- measured
+    at 95% discarded when 5% of slates are engaged, and 100% when the slate and replay id
+    namespaces do not match at all. `build_pairs` extracts on first use instead.
+
+    The returned set is every indexed requestId, collected in this loop rather than recovered by a
+    second pass over the keys. It answers only whether the join works at all.
     """
     index = {}
+    request_ids = set()
     for event in events:
         request_id = str(event.get("requestId", ""))
+        request_ids.add(request_id)
         for candidate in ope_eval_report.candidates_of(event):
-            predictions = candidate.get("modelPredictions") or {}
-            reference = predictions.get(REFERENCE_PRED_KEY)
-            index[(request_id, str(candidate.get("item")))] = (
-                ope_eval_report.candidate_features(candidate, names),
-                float(reference or 0.0),
-                reference is not None,
-            )
-    return index
+            index[(request_id, str(candidate.get("item")))] = candidate
+    return index, request_ids
 
 
 def build_pairs(slates, events, names=None):
@@ -100,8 +100,24 @@ def build_pairs(slates, events, names=None):
     """
     if names is None:
         names = ope_eval_report.feature_names(events)
-    index = replay_index(events, names)
-    indexed_request_ids = {key[0] for key in index}
+    index, indexed_request_ids = replay_index(events)
+    # (requestId, item) -> (features, reference, reference present), built on first use. An
+    # absent predictionScore -- or a null modelPredictions, which is what Parquet yields for an
+    # absent nested struct -- reads as 0.0, which silently zeroes the reference margin and
+    # degrades the DPO loss to plain BPR. Recording presence lets that be counted and warned
+    # about instead of disappearing into a default.
+    sides: dict = {}
+
+    def side(key):
+        resolved = sides.get(key)
+        if resolved is None:
+            candidate = index[key]
+            predictions = candidate.get("modelPredictions") or {}
+            reference = predictions.get(REFERENCE_PRED_KEY)
+            resolved = (ope_eval_report.candidate_features(candidate, names),
+                        float(reference or 0.0), reference is not None)
+            sides[key] = resolved
+        return resolved
 
     pairs: list[PreferencePair] = []
     dropped = 0
@@ -111,18 +127,20 @@ def build_pairs(slates, events, names=None):
         request_id = str(slate.get("request_id", ""))
         slate_request_ids.add(request_id)
         user = str(slate.get("user_id", ""))
-        items = as_list(slate.get("items"))
-        chosen = [item for item in items if is_chosen(item)]
-        rejected = [item for item in items if not is_chosen(item)]
-        for win in chosen:
-            for lose in rejected:
-                win_key = (request_id, str(win.get("item_id")))
-                lose_key = (request_id, str(lose.get("item_id")))
+        # One pass: is_chosen is evaluated once per item, and each item's index key is built once
+        # here rather than inside the cross product below. Only the key is carried forward --
+        # every PreferencePair field comes from the key or the slate, never from the item dict.
+        chosen_keys, rejected_keys = [], []
+        for item in as_list(slate.get("items")):
+            key = (request_id, str(item.get("item_id")))
+            (chosen_keys if is_chosen(item) else rejected_keys).append(key)
+        for win_key in chosen_keys:
+            for lose_key in rejected_keys:
                 if win_key not in index or lose_key not in index:
                     dropped += 1
                     continue
-                win_features, win_reference, win_has_reference = index[win_key]
-                lose_features, lose_reference, lose_has_reference = index[lose_key]
+                win_features, win_reference, win_has_reference = side(win_key)
+                lose_features, lose_reference, lose_has_reference = side(lose_key)
                 missing_reference_sides += (not win_has_reference) + (not lose_has_reference)
                 pairs.append(PreferencePair(
                     request_id=request_id,
