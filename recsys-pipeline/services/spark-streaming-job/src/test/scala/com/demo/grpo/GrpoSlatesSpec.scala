@@ -118,4 +118,146 @@ class GrpoSlatesSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
     itemFeatures("prediction_score") shouldBe "0.73"
     GrpoSlates.parseFeatureVector(itemFeatures("grpo_x"), "v2", 9).map(_.length) shouldBe Some(9)
   }
+
+  /** A frozen copy of the collect-then-gate implementation, as the equivalence oracle.
+    *
+    * Deliberately duplicated rather than delegating: comparing the new path against a copy of
+    * itself would assert nothing. If toGroups is rewritten again, this stays as it is.
+    */
+  private def legacyToGroups(slates: org.apache.spark.sql.DataFrame,
+                             cfg: GrpoJobConfig): (Seq[GrpoGroup], GateCounts) = {
+    def classifyRow(row: org.apache.spark.sql.Row): Either[String, GrpoGroup] = {
+      val items = row.getSeq[org.apache.spark.sql.Row](1)
+      if (items.size < 2) return Left(GrpoSlates.TooSmall)
+      val features = items.map(_.getAs[Map[String, String]]("item_features"))
+      val x = features.map(f =>
+        GrpoSlates.parseFeatureVector(f.getOrElse("grpo_x", null), cfg.featureVersion, cfg.dim))
+      if (x.exists(_.isEmpty)) return Left(GrpoSlates.BadFeatureVersion)
+      val rewards = items.map { item =>
+        if (item.isNullAt(item.fieldIndex("label"))) 0.0 else item.getAs[Double]("label")
+      }.toArray
+      if (GrpoMath.advantages(rewards).isEmpty) return Left(GrpoSlates.ZeroVariance)
+      val logged = features.map { f =>
+        try f.getOrElse("prediction_score", "0.0").toDouble
+        catch { case _: NumberFormatException => 0.0 }
+      }.toArray
+      Right(GrpoGroup(row.getString(0), x.map(_.get).toArray, logged, rewards))
+    }
+    val classified = slates.select("slate_id", "items").collect().map(classifyRow)
+    val kept = classified.collect { case Right(g) => g }.toSeq
+    val dropped = classified.collect { case Left(r) => r }
+      .groupBy(identity).map { case (r, hits) => r -> hits.length.toLong }
+    (kept, GateCounts(
+      kept = kept.size.toLong,
+      tooSmall = dropped.getOrElse(GrpoSlates.TooSmall, 0L),
+      zeroVariance = dropped.getOrElse(GrpoSlates.ZeroVariance, 0L),
+      badFeatureVersion = dropped.getOrElse(GrpoSlates.BadFeatureVersion, 0L)))
+  }
+
+  private def sameGroups(a: Seq[GrpoGroup], b: Seq[GrpoGroup]): Boolean =
+    a.length == b.length && a.zip(b).forall { case (l, r) =>
+      l.slateId == r.slateId && l.rewards.sameElements(r.rewards) &&
+        l.logged.sameElements(r.logged) &&
+        l.x.length == r.x.length && l.x.zip(r.x).forall { case (p, q) => p.sameElements(q) }
+    }
+
+  private def item(id: String, label: Double, v: Double, prediction: String = "0.5"): TestItem =
+    TestItem(id, label, Map("grpo_x" -> vec(v), "prediction_score" -> prediction))
+
+  it should "return the same groups and counts as the collect-then-gate implementation" in {
+    val s = spark
+    import s.implicits._
+    // One slate per gate outcome plus two kept, so every branch is compared in a single frame.
+    val frame = Seq(
+      TestSlate("keep1", "r1", "u1", 1L, 1.0, 2,
+        Seq(item("a", 1.0, 0.5, "0.7"), item("b", 0.0, 0.2, "0.1"))),
+      TestSlate("small", "r2", "u1", 2L, 0.0, 1, Seq(item("a", 1.0, 0.5))),
+      TestSlate("badver", "r3", "u1", 3L, 0.0, 2, Seq(
+        TestItem("a", 1.0, Map("grpo_x" -> "v1:0.5", "prediction_score" -> "0.7")),
+        item("b", 0.0, 0.2))),
+      TestSlate("flat", "r4", "u1", 4L, 0.0, 2,
+        Seq(item("a", 0.0, 0.5), item("b", 0.0, 0.2))),
+      // "bad" prediction_score exercises the NumberFormatException fallback on a KEPT slate.
+      TestSlate("keep2", "r5", "u1", 5L, 1.0, 3, Seq(
+        item("a", 1.0, 0.9, "0.9"), item("b", 0.0, 0.1, "bad"), item("c", 0.0, 0.3, "0.3")))
+    ).toDF()
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+    val (wantGroups, wantCounts) = legacyToGroups(frame, cfg)
+
+    sameGroups(groups, wantGroups) shouldBe true
+    counts shouldBe wantCounts
+    counts.kept shouldBe 2L
+    counts.tooSmall shouldBe 1L
+    counts.badFeatureVersion shouldBe 1L
+    counts.zeroVariance shouldBe 1L
+    groups.map(_.slateId) shouldBe Seq("keep1", "keep2")   // input order preserved
+  }
+
+  it should "count a slate under the first gate it fails, not a later one" in {
+    val s = spark
+    import s.implicits._
+    // Counts now come from the Spark side while groups come from the driver side, so precedence
+    // is the property most at risk. A one-item slate with a bad vector fails size AND version;
+    // a flat two-item slate with a bad vector fails version AND variance.
+    val frame = Seq(
+      TestSlate("small-and-bad", "r1", "u1", 1L, 0.0, 1, Seq(
+        TestItem("a", 1.0, Map("grpo_x" -> "v1:nope", "prediction_score" -> "0.7")))),
+      TestSlate("bad-and-flat", "r2", "u1", 2L, 0.0, 2, Seq(
+        TestItem("a", 0.0, Map("grpo_x" -> "v2:1,2", "prediction_score" -> "0.7")),
+        item("b", 0.0, 0.2)))
+    ).toDF()
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+    val (_, wantCounts) = legacyToGroups(frame, cfg)
+
+    groups shouldBe empty
+    counts shouldBe wantCounts
+    counts.tooSmall shouldBe 1L            // not badFeatureVersion
+    counts.badFeatureVersion shouldBe 1L   // not zeroVariance
+    counts.zeroVariance shouldBe 0L
+  }
+
+  it should "leave the dropped slates behind rather than collecting them first" in {
+    val s = spark
+    import s.implicits._
+    // The whole point of the change: at low click-through the variance gate rejects most slates
+    // and they must not reach the driver on the way to being discarded. Every observable value is
+    // identical either way, so the claim is only testable by asserting on the gated frame -- which
+    // is exactly the frame toGroups collects from, exposed for this purpose and nothing else.
+    val keptCount = 5
+    val droppedCount = 95
+    val frame = ((0 until keptCount).map { i =>
+      TestSlate(s"k$i", s"r$i", "u1", i.toLong, 1.0, 2,
+        Seq(item("a", 1.0, 0.5), item("b", 0.0, 0.2)))
+    } ++ (0 until droppedCount).map { i =>
+      TestSlate(s"d$i", s"rd$i", "u1", i.toLong, 0.0, 2,
+        Seq(item("a", 0.0, 0.5), item("b", 0.0, 0.2)))
+    }).toDF()
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+    groups should have size keptCount
+    counts.kept shouldBe keptCount.toLong
+    counts.zeroVariance shouldBe droppedCount.toLong
+
+    val gated = GrpoSlates.tagged(frame, cfg)
+    gated.count() shouldBe (keptCount + droppedCount).toLong
+    gated.filter(gated(GrpoSlates.DropReasonColumn).isNull).count() shouldBe keptCount.toLong
+  }
+
+  it should "treat a slate with no items as too small rather than failing" in {
+    val s = spark
+    import s.implicits._
+    val frame = Seq(
+      TestSlate("empty", "r1", "u1", 1L, 0.0, 0, Seq.empty[TestItem]),
+      TestSlate("keep", "r2", "u1", 2L, 1.0, 2,
+        Seq(item("a", 1.0, 0.5), item("b", 0.0, 0.2)))
+    ).toDF()
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+    val (wantGroups, wantCounts) = legacyToGroups(frame, cfg)
+    sameGroups(groups, wantGroups) shouldBe true
+    counts shouldBe wantCounts
+    counts.tooSmall shouldBe 1L
+  }
 }
