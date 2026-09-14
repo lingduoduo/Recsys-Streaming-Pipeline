@@ -43,7 +43,7 @@ Run tests with the modeling interpreter from the repository root:
 
 **Interfaces:** Produces the branch and draft PR that Tasks 1-2 commit into. No code.
 
-- [ ] **Step 1: Commit the spec and plan on a branch off `master`.**
+- [x] **Step 1: Commit the spec and plan on a branch off `master`.**
 
 ```bash
 git checkout master && git pull
@@ -53,7 +53,7 @@ git add .superpowers/docs/specs/2026-09-14-optimize-dpo-training-design.md \
 git commit -m "docs: specify the DPO training optimization"
 ```
 
-- [ ] **Step 2: Push and open a draft PR against `master`** titled `Optimize DPO training`, whose body carries the problem, the measured baseline table, and the note that `dpo.fit` is deliberately out of scope. Use `gh pr create --draft --body-file`. Record the PR number here.
+- [x] **Step 2: Push and open a draft PR against `master`** titled `Optimize DPO training`, whose body carries the problem, the measured baseline table, and the note that `dpo.fit` is deliberately out of scope. Use `gh pr create --draft --body-file`. Record the PR number here.
 
 ---
 
@@ -67,7 +67,7 @@ git commit -m "docs: specify the DPO training optimization"
 - Consumes: `ope_eval_report.candidates_of(event)`, `ope_eval_report.candidate_features(candidate, names)`, `ope_eval_report.feature_names(events)`, and `replay_dataset.as_list`, all unchanged.
 - Produces: `replay_index(events) -> tuple[dict, set]` — `(requestId, item)` to the candidate dict, plus every indexed requestId. `build_pairs(slates, events, names=None)` keeps its exact signature and return shape.
 
-- [ ] **Step 1: Write the equivalence and call-count tests.** Append to `test_post_training_dpo.py`. The equivalence test compares against a frozen copy of today's implementation, so it is an independent oracle rather than hand-written expectations. The two call-count tests fail against the current eager implementation.
+- [x] **Step 1: Write the equivalence and call-count tests.** Append to `test_post_training_dpo.py`. The equivalence test compares against a frozen copy of today's implementation, so it is an independent oracle rather than hand-written expectations. The two call-count tests fail against the current eager implementation.
 
 ```python
 def _eager_build_pairs(slates, events, names=None):
@@ -235,7 +235,7 @@ def test_build_pairs_tests_each_slate_item_for_engagement_once(monkeypatch):
     assert sorted(calls) == ["a", "b", "c", "d"]
 ```
 
-- [ ] **Step 2: Run the three new tests and confirm the two call-count tests fail.**
+- [x] **Step 2: Run the three new tests and confirm the two call-count tests fail.**
 
 ```bash
 /Users/linghuang/miniconda3/bin/python3 -m pytest \
@@ -245,7 +245,7 @@ def test_build_pairs_tests_each_slate_item_for_engagement_once(monkeypatch):
 
 Expected: the equivalence test passes (it compares the current implementation against a copy of itself); the two call-count tests FAIL — `candidate_features` is called for all six candidates rather than three, and `is_chosen` is called eight times rather than four. Record both messages.
 
-- [ ] **Step 3: Reshape `replay_index`.** Replace it entirely.
+- [x] **Step 3: Reshape `replay_index`.** Replace it entirely.
 
 ```python
 def replay_index(events) -> tuple[dict, set]:
@@ -270,7 +270,7 @@ def replay_index(events) -> tuple[dict, set]:
     return index, request_ids
 ```
 
-- [ ] **Step 4: Rework `build_pairs`'s body.** Keep the signature and docstring; replace from `index = replay_index(...)` to the end of the slate loop.
+- [x] **Step 4: Rework `build_pairs`'s body.** Keep the signature and docstring; replace from `index = replay_index(...)` to the end of the slate loop.
 
 ```python
     index, indexed_request_ids = replay_index(events)
@@ -327,7 +327,7 @@ def replay_index(events) -> tuple[dict, set]:
                 ))
 ```
 
-- [ ] **Step 5: Run the three new tests and confirm they now pass.**
+- [x] **Step 5: Run the three new tests and confirm they now pass.**
 
 ```bash
 /Users/linghuang/miniconda3/bin/python3 -m pytest \
@@ -337,7 +337,7 @@ def replay_index(events) -> tuple[dict, set]:
 
 Expected: 3 passed.
 
-- [ ] **Step 6: Run the whole DPO suite, then the whole modeling suite.**
+- [x] **Step 6: Run the whole DPO suite, then the whole modeling suite.**
 
 ```bash
 /Users/linghuang/miniconda3/bin/python3 -m pytest \
@@ -347,7 +347,7 @@ Expected: 3 passed.
 
 Expected: zero failures in both. Record the counts.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/post-training/slate_pairs.py \
@@ -363,7 +363,7 @@ git commit -m "perf(dpo): extract features only for the candidates a pair uses"
 
 **Interfaces:** Consumes the tested diff; produces a reviewed PR against `master`.
 
-- [ ] **Step 1: Benchmark before and after.** Create the throwaway harness below at the scratchpad path, not inside the repository.
+- [x] **Step 1: Benchmark before and after.** Create the throwaway harness below at the scratchpad path, not inside the repository.
 
 ```python
 import sys, time, statistics
@@ -417,7 +417,7 @@ git stash pop
 
 Compare against the spec's baseline: `build_pairs` 172.6 / 141.0 / 107.1 / 95.8 ms at 100% / 30% / 5% engaged and the zero-join case. Expect a large gain at 5% and zero-join, little or none at 100%.
 
-- [ ] **Step 2: Confirm the tree is clean.**
+- [x] **Step 2: Confirm the tree is clean.**
 
 ```bash
 git status --short
@@ -431,4 +431,25 @@ Expected: no harness inside the repository, no stash left behind.
 
 ## Verification record
 
-Execution pending.
+- Task 1 red: `candidate_features` was called for all six fixture candidates where three suffice (`['a','b','c','d','e','f'] == ['a','b','c']`), and `is_chosen` eight times for four items. The equivalence test passed at that point, as expected -- it compared the eager implementation against a copy of itself.
+- Task 1 green: 3 new tests pass, 37 in the DPO suite, 511 across `python_modeling`, 0 failed.
+- Benchmark, same harness both sides, 5,000 events at ten candidates, median of five runs:
+
+| engaged slates | before | after | change |
+|---|---|---|---|
+| 100% | 174.6 ms | 171.9 ms | -1.5%, neutral as designed |
+| 30% | 131.9 ms | 74.5 ms | **-44%** |
+| 5% | 102.3 ms | 21.0 ms | **-79%** |
+| join fails | 96.5 ms | 18.6 ms | **-81%** |
+
+The shape is what the spec predicted: nil at full engagement, where every candidate reaches a pair anyway, and large wherever the index goes unused.
+
+### A regression this plan's own fixtures missed
+
+Collecting the request-id set while walking events, rather than deriving it from the index keys, changed `n_slate_request_ids_matched`. The eager `{key[0] for key in index}` could only contain ids that contributed a candidate; adding the id unconditionally also counted an event whose `actionSpace` is empty or absent. Measured on a two-event fixture: matched went from 0/2 to 2/2.
+
+That is not a cosmetic difference. This field's documented job is telling a namespace mismatch apart from sparse data -- "Zero means the two sides are in different id namespaces, not that the data is merely sparse." Reporting ids as matched when no pair can ever be built from them reads as "the join works, the data is thin", which is the exact misdiagnosis the field exists to prevent.
+
+None of the ten planned equivalence fixtures caught it, because every one of them gave its events a non-empty `actionSpace`. The id is now added only when the event supplies at least one candidate, and three fixtures pin it: empty `actionSpace`, absent `actionSpace`, and two events sharing one id where only one has candidates. All three fail against the unconditional version.
+
+The lesson for the next optimization of this shape: when a derived value moves from being computed FROM a data structure to being computed ALONGSIDE it, the two agree only where the structure is non-empty. Every such move needs an empty-contribution fixture, and planning the fixtures from the happy path will not produce one.
