@@ -140,6 +140,8 @@ then re-picks every event under logging, popularity, CTR, deterministic random, 
 are normally written to `replay:recommendations` by later `POST /feedback` calls.
 Each event is scored once under every policy against the fixed estimator; the bootstrap resamples
 those per-event scores rather than re-picking and re-scoring the slate in every replicate.
+Reward-model fitting reuses per-fit NumPy workspaces across gradient steps, preserving the existing
+iteration count, clipping, and regularization while reducing temporary allocation.
 
 `post-training/post_train_q.py` fits offline Q functions on the same replay buffer and injects
 their per-candidate predictions as `tabQ` and `fqiQ`, which the evaluator discovers automatically

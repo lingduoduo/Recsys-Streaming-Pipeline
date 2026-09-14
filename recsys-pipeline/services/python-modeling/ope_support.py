@@ -40,9 +40,20 @@ def fit(X, y, l2=1.0, lr=0.5, iters=500):
     y = np.asarray(y, dtype=float)
     w = np.zeros(D.shape[1])
     n = D.shape[0]
+    # Reuse row-sized workspace across iterations: logits become probabilities,
+    # then residuals. D, X, and y remain unchanged.
+    residual = np.empty(n, dtype=float)
+    grad = np.empty_like(w)
     for _ in range(iters):
-        p = _sigmoid(D @ w)
-        grad = D.T @ (p - y) / n
+        np.matmul(D, w, out=residual)
+        np.clip(residual, -30, 30, out=residual)
+        np.negative(residual, out=residual)
+        np.exp(residual, out=residual)
+        residual += 1.0
+        np.reciprocal(residual, out=residual)
+        residual -= y
+        np.matmul(D.T, residual, out=grad)
+        grad /= n
         grad[1:] += (l2 / n) * w[1:]  # L2 excludes intercept
         w -= lr * grad
     return w
