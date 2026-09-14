@@ -245,6 +245,37 @@ class GrpoSlatesSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
     gated.filter(gated(GrpoSlates.DropReasonColumn).isNull).count() shouldBe keptCount.toLong
   }
 
+  it should "treat a slate whose items array is absent as too small" in {
+    val s = spark
+    import s.implicits._
+    // `items` is nullable in SlateSchema and from_json yields null for a missing field, so a
+    // malformed slate off Kafka can reach here with no array at all. dropReason guards for it.
+    val frame = Seq(
+      TestSlate("nullitems", "r1", "u1", 1L, 0.0, 0, null),
+      TestSlate("keep", "r2", "u1", 2L, 1.0, 2,
+        Seq(item("a", 1.0, 0.5), item("b", 0.0, 0.2)))
+    ).toDF()
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+
+    groups.map(_.slateId) shouldBe Seq("keep")
+    counts.kept shouldBe 1L
+    counts.tooSmall shouldBe 1L
+  }
+
+  it should "gate an absent items array where the collect-then-gate path crashed on it" in {
+    val s = spark
+    import s.implicits._
+    // Characterizes a behavior change rather than an equivalence: the old path did
+    // `row.getSeq[Row](1).size`, and getSeq returns null for a null field, so it threw NPE on a
+    // slate the new path simply drops. Asserted so the difference is on the record and so that
+    // anyone restoring the old shape sees what they are restoring.
+    val frame = Seq(TestSlate("nullitems", "r1", "u1", 1L, 0.0, 0, null)).toDF()
+
+    a[NullPointerException] should be thrownBy legacyToGroups(frame, cfg)
+    GrpoSlates.toGroups(frame, cfg)._2.tooSmall shouldBe 1L
+  }
+
   it should "treat a slate with no items as too small rather than failing" in {
     val s = spark
     import s.implicits._

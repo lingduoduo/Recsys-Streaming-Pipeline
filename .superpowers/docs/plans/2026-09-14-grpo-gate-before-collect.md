@@ -43,7 +43,7 @@ export JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0
 
 **Interfaces:** Produces the branch and draft PR that Tasks 1-2 commit into. No code.
 
-- [ ] **Step 1: Commit the spec and plan on a branch off `master`.**
+- [x] **Step 1: Commit the spec and plan on a branch off `master`.**
 
 ```bash
 git checkout master && git pull
@@ -53,7 +53,7 @@ git add .superpowers/docs/specs/2026-09-14-grpo-gate-before-collect-design.md \
 git commit -m "docs: specify gating GRPO slates before the collect"
 ```
 
-- [ ] **Step 2: Push and open a draft PR against `master`** titled `Gate GRPO slates before the collect`, whose body carries the 5,000-to-250 row measurement, the spike result that established the parse/collect path dominates, and the explicit statement that no latency claim is made because that measurement failed. Use `gh pr create --draft --body-file`. Record the PR number here.
+- [x] **Step 2: Push and open a draft PR against `master`** titled `Gate GRPO slates before the collect`, whose body carries the 5,000-to-250 row measurement, the spike result that established the parse/collect path dominates, and the explicit statement that no latency claim is made because that measurement failed. Use `gh pr create --draft --body-file`. Record the PR number here.
 
 ---
 
@@ -67,7 +67,7 @@ git commit -m "docs: specify gating GRPO slates before the collect"
 - Consumes: `GrpoSlates.parseFeatureVector`, `GrpoMath.advantages`, and the `items` column of the slate schema (`item_id`, `label`, `item_features`).
 - Produces: `private[grpo] def dropReason(items: Seq[Row], featureVersion: String, dim: Int): Option[String]`, called by both the UDF and the driver-side builder; `private[grpo] def tagged(slates: DataFrame, cfg: GrpoJobConfig): DataFrame`; `private[grpo] val DropReasonColumn`. `toGroups` keeps its exact signature. `dropReason` takes the two primitives rather than a `GrpoJobConfig` so the UDF closes over only what the gates read — no fabricated config, and the Redis host, port and hyperparameters never ship to an executor.
 
-- [ ] **Step 1: Append the equivalence, precedence and volume tests to `GrpoSlatesSpec.scala`.** `legacyToGroups` is a frozen copy of the current implementation and is the oracle; it must not later be re-pointed at the production function.
+- [x] **Step 1: Append the equivalence, precedence and volume tests to `GrpoSlatesSpec.scala`.** `legacyToGroups` is a frozen copy of the current implementation and is the oracle; it must not later be re-pointed at the production function.
 
 ```scala
   /** A frozen copy of the collect-then-gate implementation, as the equivalence oracle.
@@ -213,7 +213,7 @@ git commit -m "docs: specify gating GRPO slates before the collect"
   }
 ```
 
-- [ ] **Step 2: Run the spec and record what fails.**
+- [x] **Step 2: Run the spec and record what fails.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoSlatesSpec'
@@ -221,7 +221,7 @@ sbt 'testOnly com.demo.grpo.GrpoSlatesSpec'
 
 Expected: a compile error — `tagged` and `DropReasonColumn` do not exist yet. The equivalence, precedence and empty-items tests would pass against the current implementation once it compiles (they compare it against a copy of itself); the volume test is the one that cannot be satisfied without the change. Record the compile error.
 
-- [ ] **Step 3: Rewrite `GrpoSlates.scala`'s gate and parse path.** Add to the imports at the top of the file:
+- [x] **Step 3: Rewrite `GrpoSlates.scala`'s gate and parse path.** Add to the imports at the top of the file:
 
 ```scala
 import org.apache.spark.sql.functions.{col, udf}
@@ -323,7 +323,7 @@ Replace `toGroups` and `classify` in their entirety with:
   }
 ```
 
-- [ ] **Step 4: Run the spec.**
+- [x] **Step 4: Run the spec.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoSlatesSpec'
@@ -331,7 +331,7 @@ sbt 'testOnly com.demo.grpo.GrpoSlatesSpec'
 
 Expected: all pass, the four new tests included. A failure in the equivalence test names which gate or field diverged; a failure in the volume test means the filter is not actually being applied before the collect.
 
-- [ ] **Step 5: Run the whole Spark module suite.**
+- [x] **Step 5: Run the whole Spark module suite.**
 
 ```bash
 sbt test
@@ -339,7 +339,7 @@ sbt test
 
 Expected: zero failures, zero aborted suites. Record the counts. `GrpoPolicyStreamingJobSpec` and `GrpoMathSpec` must be untouched by this change, since `applyBatch` and the learning rule are not involved.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoSlates.scala \
@@ -355,9 +355,9 @@ git commit -m "perf(grpo): gate slates in Spark before collecting them"
 
 **Interfaces:** Consumes the tested diff; produces a reviewed PR against `master`.
 
-- [ ] **Step 1: Update the architecture note.** `GrpoSlates.toGroups`'s KNOWN SCALING LIMITATION comment describes the collect-everything behavior and must now describe what actually happens: the gates run in Spark, the driver receives only survivors, and the remaining ceiling is the cached tagged frame on the cluster. Keep the paragraph explaining why `treeAggregate` is still not done, since that reasoning is unchanged.
+- [x] **Step 1: Update the architecture note.** `GrpoSlates.toGroups`'s KNOWN SCALING LIMITATION comment describes the collect-everything behavior and must now describe what actually happens: the gates run in Spark, the driver receives only survivors, and the remaining ceiling is the cached tagged frame on the cluster. Keep the paragraph explaining why `treeAggregate` is still not done, since that reasoning is unchanged.
 
-- [ ] **Step 2: Confirm the tree is clean.**
+- [x] **Step 2: Confirm the tree is clean.**
 
 ```bash
 git status --short
@@ -370,4 +370,26 @@ git diff --check
 
 ## Verification record
 
-Execution pending.
+- Task 0: draft PR #240, https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/240.
+- Task 1 Step 2, red: `GrpoSlatesSpec.scala:243:28: value tagged is not a member of object com.demo.grpo.GrpoSlates`, then `one error found`. Only the volume test cannot be satisfied without the change; the equivalence, precedence and empty-items tests compare the pre-change implementation against a frozen copy of itself and are green by construction, which is what makes the oracle valid once the implementation moves.
+- Task 1 Step 4, green: 14 tests in `GrpoSlatesSpec` -- the four added plus all ten pre-existing.
+- Task 1 Step 5, full Spark module suite under JDK 17: 439 tests succeeded, 66 suites, 0 failed, 0 aborted, up from 435. `GrpoMathSpec` and `GrpoPolicyStreamingJobSpec` are untouched, which is the check that `applyBatch` and the learning rule were not involved. The `simulated Redis command error` lines in the log are deliberate fault-injection tests.
+- `git diff --check` clean. No throwaway harness in the tree.
+
+### Evidence for the claim this rests on
+
+The design claims a row-volume reduction, not a latency win, so the evidence is a count rather than a timing. `test_..."leave the dropped slates behind rather than collecting them first"` builds 5 keepable and 95 zero-variance slates and asserts on the frame `toGroups` collects from: `tagged(frame, cfg).count()` is 100 while `tagged(...).filter(reason.isNull).count()` is 5. Every observable output is identical either way, so this is the only way the claim is testable at all without putting a counter in production code.
+
+The spike that motivated the work, for the record: parse + collect + classify against `applyBatch`, 5,000 slates of ten items -- 591.8 ms against 23.7 ms at full reward variance (3.8% math share), and 750.5 ms against 1.2 ms at 5% engaged (0.2%). One to two orders apart, far larger than the noise, which is what makes that part robust.
+
+### A crash this change fixes, found after the implementation
+
+The spec's acceptance list originally said a null `items` array is "handled as today". That was wrong, and the tests as planned would not have caught it: they covered an EMPTY items array but not a null one. The old path did `row.getSeq[Row](1).size`, and `Row.getSeq` returns null for a null field, so it threw `NullPointerException` -- and `items` is nullable in `SlateSchema` with `from_json` yielding null for a missing field, so one malformed slate off Kafka could fail a whole micro-batch.
+
+Verified both directions in one run: `a[NullPointerException] should be thrownBy legacyToGroups(frame, cfg)` passes, and the new path drops the slate as `TooSmall`. Two tests now pin it -- one asserting the new behavior, one characterizing the old -- and the spec's acceptance item 4 was rewritten to describe a deliberate improvement rather than an equivalence.
+
+The lesson matches the DPO one: an equivalence suite built from shapes the happy path produces will not contain the shape that distinguishes the implementations. Null and empty are different fixtures and need writing separately.
+
+### Why no latency number appears anywhere
+
+Splitting the parse/collect path into `from_json`, collect and driver-classify components produced a NEGATIVE driver-classify component at five repetitions -- `toGroups` measured faster than a bare collect of the same frame, which is impossible and means the noise exceeded the effect. A second attempt with 25 interleaved repetitions was not completed. Rather than publish a number that could not be stood behind, the spec added a "What this does and does not claim" section and rests the justification on driver memory. Anyone re-measuring this should interleave the variants within one JVM and expect roughly 150 ms of noise at 5,000 slates.

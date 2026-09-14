@@ -41,7 +41,7 @@ Extract the gate decision into `dropReason(items: Seq[Row], featureVersion: Stri
 1. For every fixture in the existing `GrpoSlatesSpec`, `toGroups` returns the same groups in the same order and the same `GateCounts` as before. Compared against a frozen copy of the pre-change implementation, not against hand-written expectations.
 2. Gate precedence is preserved where gates overlap: a one-item slate with a bad feature vector counts as `TooSmall`, not `BadFeatureVersion`; a two-item slate with a bad vector and zero variance counts as `BadFeatureVersion`, not `ZeroVariance`.
 3. The number of rows reaching the driver equals the number of kept slates. Asserted by counting, using a fixture where most slates fail the variance gate, so the claim this design rests on is tested rather than assumed.
-4. A slate whose `items` is null, and a slate with an empty `items` array, are handled as today.
+4. A slate with an empty `items` array is handled as today, counted under `TooSmall`. A slate whose `items` is **null** is a deliberate behavior change and is asserted as such, not as equivalence: the old path did `row.getSeq[Row](1).size`, and `getSeq` returns null for a null field, so it threw `NullPointerException`. `items` is nullable in `SlateSchema` and `from_json` yields null for a missing field, so a malformed slate off Kafka could reach it. Verified both ways — the frozen oracle throws, the new path drops the slate as `TooSmall`.
 5. The existing `GrpoSlatesSpec`, `GrpoPolicyStreamingJobSpec`, `GrpoMathSpec` and `GrpoJobConfigSpec` pass unchanged, and `applyBatch` still needs no Spark session.
 6. The Spark module suite passes under JDK 17 and `git diff --check` is clean.
 
@@ -50,6 +50,8 @@ Extract the gate decision into `dropReason(items: Seq[Row], featureVersion: Stri
 A UDF is opaque to the Catalyst optimizer, so the gate cannot be pushed into a scan or combined with other predicates; it runs once per row as a black box. That is acceptable because the alternative — reimplementing `parseFeatureVector`'s version prefix, width and numeric-parse semantics as SQL expressions — would put a second definition of the gates in the codebase, which the constraints forbid for exactly the reason that it would silently drift.
 
 The tagged frame is cached, so this trades driver memory for executor memory across two actions. On a 5,000-slate batch the cached frame is the same few MB the driver used to hold, now spread across executors. Raising the trigger size therefore still has a ceiling; it is the cluster's rather than the driver's, which is the point, but it is not unbounded.
+
+One behavior genuinely improves rather than being preserved, which is why the acceptance list treats it separately. A slate arriving with no `items` array at all used to crash the micro-batch with a `NullPointerException` from calling `.size` on the null `getSeq` returned; it is now gated as `TooSmall` like any other slate too small to form a group. This was found while reviewing the change rather than designed in, and it is an improvement — a single malformed slate should not fail a batch — but it means the "identical for every input" constraint above holds for every input the old path survived, not literally every input.
 
 Row order is preserved because `filter` does not reorder within partitions and the collect concatenates partitions in order, which is the same property the current `collect` relies on. No shuffle is introduced on the filtered path; the `groupBy` for counts shuffles at most four keys.
 
