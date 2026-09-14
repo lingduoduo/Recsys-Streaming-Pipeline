@@ -41,8 +41,9 @@ object GrpoSlates {
     try Some(parts.map(_.toDouble)) catch { case _: NumberFormatException => None }
   }
 
-  /** Column the gate reason is tagged under. Package-visible so the spec can assert that dropped
-    * slates are filtered out before the collect, which is otherwise unobservable. */
+  /** Column the gate reason is tagged under. Package-visible so the spec can look for this
+    * predicate in the executed plan of the collect, which is the only way the gate-before-collect
+    * property is observable -- every value `toGroups` returns is identical either way. */
   private[grpo] val DropReasonColumn = "grpo_drop_reason"
 
   /** The first gate a slate fails, or None when it survives all three.
@@ -65,19 +66,34 @@ object GrpoSlates {
     None
   }
 
+  /** An item's feature map, or empty when the struct carried none.
+    *
+    * Parquet and a null JSON field both yield a null map here. Both readers of it -- the gate's
+    * vector parse and the builder's reference score -- go through this, so neither can NPE on the
+    * null. Guarding in only one of them is how the old `classify` crashed on a null
+    * `item_features`: it checked nothing and called `getOrElse` straight on the null map.
+    */
+  private def featuresOf(item: Row): Map[String, String] = {
+    val features = item.getAs[Map[String, String]]("item_features")
+    if (features == null) Map.empty else features
+  }
+
   private def featureVectors(items: Seq[Row], featureVersion: String,
                              dim: Int): Seq[Option[Array[Double]]] = items.map { item =>
-    val features = item.getAs[Map[String, String]]("item_features")
-    val packed = if (features == null) null else features.getOrElse("grpo_x", null)
-    parseFeatureVector(packed, featureVersion, dim)
+    parseFeatureVector(featuresOf(item).getOrElse("grpo_x", null), featureVersion, dim)
   }
 
   private def rewardsOf(items: Seq[Row]): Array[Double] = items.map { item =>
     if (item.isNullAt(item.fieldIndex("label"))) 0.0 else item.getAs[Double]("label")
   }.toArray
 
-  /** `slate_id`, `items`, and the gate reason -- null for a slate that survives. */
-  private[grpo] def tagged(slates: DataFrame, cfg: GrpoJobConfig): DataFrame = {
+  /** `slate_id`, `items`, and the gate reason -- null for a slate that survives.
+    *
+    * Private: this was briefly package-visible for a test that asserted on a frame it built
+    * itself and so proved nothing about what `toGroups` collects. The property is now asserted on
+    * the executed plan of the real query, which needs no access here.
+    */
+  private def tagged(slates: DataFrame, cfg: GrpoJobConfig): DataFrame = {
     val featureVersion = cfg.featureVersion
     val dim = cfg.dim
     val reason = udf((items: Seq[Row]) => dropReason(items, featureVersion, dim).orNull)
@@ -113,7 +129,11 @@ object GrpoSlates {
       val kept = frame.filter(col(DropReasonColumn).isNull).select("slate_id", "items")
         .collect().map(row => buildGroup(row, cfg)).toSeq
       (kept, GateCounts(
-        kept = byReason.getOrElse(None, 0L),
+        // From the Seq itself, not the aggregation: this is the number the job logs as the batch
+        // it trained on, and taking it from the same value passed to stepBatch makes that
+        // identity true by construction rather than something a reader has to verify. The other
+        // three have no Seq to come from and must use the aggregation.
+        kept = kept.size.toLong,
         tooSmall = byReason.getOrElse(Some(TooSmall), 0L),
         zeroVariance = byReason.getOrElse(Some(ZeroVariance), 0L),
         badFeatureVersion = byReason.getOrElse(Some(BadFeatureVersion), 0L)))
@@ -122,13 +142,14 @@ object GrpoSlates {
 
   /** The group for a slate already known to pass every gate, so every parse here succeeds. */
   private def buildGroup(row: Row, cfg: GrpoJobConfig): GrpoGroup = {
-    val items = row.getSeq[Row](1)
+    // By name, not position: the projection this reads is one line away from the withColumn that
+    // adds the reason, and a third column would silently shift the indices.
+    val items = row.getAs[Seq[Row]]("items")
     val x = featureVectors(items, cfg.featureVersion, cfg.dim).map(_.get).toArray
     val logged = items.map { item =>
-      val features = item.getAs[Map[String, String]]("item_features")
-      try features.getOrElse("prediction_score", "0.0").toDouble
+      try featuresOf(item).getOrElse("prediction_score", "0.0").toDouble
       catch { case _: NumberFormatException => 0.0 }
     }.toArray
-    GrpoGroup(row.getString(0), x, logged, rewardsOf(items))
+    GrpoGroup(row.getAs[String]("slate_id"), x, logged, rewardsOf(items))
   }
 }

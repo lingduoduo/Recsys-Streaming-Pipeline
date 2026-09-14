@@ -218,13 +218,16 @@ class GrpoSlatesSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
     counts.zeroVariance shouldBe 0L
   }
 
-  it should "leave the dropped slates behind rather than collecting them first" in {
+  it should "filter the dropped slates inside the collect query, not on the driver" in {
     val s = spark
     import s.implicits._
-    // The whole point of the change: at low click-through the variance gate rejects most slates
-    // and they must not reach the driver on the way to being discarded. Every observable value is
-    // identical either way, so the claim is only testable by asserting on the gated frame -- which
-    // is exactly the frame toGroups collects from, exposed for this purpose and nothing else.
+    // The one property this change exists to deliver, and the only one invisible in every output:
+    // GateCounts and the groups are identical whether the gate runs in Spark or on the driver
+    // after collecting everything. An earlier version of this test asserted on a SEPARATELY built
+    // `tagged(frame, cfg)` frame and claimed it was "the frame toGroups collects from" -- it was
+    // not, nothing tied them, and a mutant that collected all 100 rows and filtered on the driver
+    // passed the whole suite. Only the executed plan of the query toGroups actually runs
+    // distinguishes them.
     val keptCount = 5
     val droppedCount = 95
     val frame = ((0 until keptCount).map { i =>
@@ -235,14 +238,131 @@ class GrpoSlatesSpec extends AnyFlatSpec with Matchers with SparkTestSupport {
         Seq(item("a", 0.0, 0.5), item("b", 0.0, 0.2)))
     }).toDF()
 
-    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+    val plans = scala.collection.mutable.ArrayBuffer[String]()
+    val listener = new org.apache.spark.sql.util.QueryExecutionListener {
+      override def onSuccess(name: String, qe: org.apache.spark.sql.execution.QueryExecution,
+                             durationNs: Long): Unit =
+        plans.synchronized { plans += qe.executedPlan.toString }
+      override def onFailure(name: String, qe: org.apache.spark.sql.execution.QueryExecution,
+                             exception: Exception): Unit = ()
+    }
+    def sawGate: Boolean =
+      plans.synchronized(plans.exists(_.toLowerCase.contains("isnull(grpo_drop_reason")))
+    s.listenerManager.register(listener)
+    val (groups, counts) = try {
+      val result = GrpoSlates.toGroups(frame, cfg)
+      // QueryExecutionListener fires asynchronously and SparkContext#listenerBus is private, so
+      // poll for the callback rather than reach into it.
+      val deadline = System.currentTimeMillis() + 10000
+      while (System.currentTimeMillis() < deadline && !sawGate) Thread.sleep(50)
+      result
+    } finally s.listenerManager.unregister(listener)
+
     groups should have size keptCount
     counts.kept shouldBe keptCount.toLong
     counts.zeroVariance shouldBe droppedCount.toLong
 
-    val gated = GrpoSlates.tagged(frame, cfg)
-    gated.count() shouldBe (keptCount + droppedCount).toLong
-    gated.filter(gated(GrpoSlates.DropReasonColumn).isNull).count() shouldBe keptCount.toLong
+    val collectPlans = plans.synchronized(plans.toList)
+    // The gate predicate must appear in a plan Spark executed -- that is what proves the dropped
+    // slates never crossed to the driver.
+    withClue(s"executed plans:\n${collectPlans.mkString("\n---\n")}\n") {
+      collectPlans.exists(_.toLowerCase.contains("isnull(grpo_drop_reason")) shouldBe true
+      // And the persist must be doing its job: without it the gate and the parse run twice, once
+      // per action. Removing the persist is otherwise undetectable.
+      collectPlans.exists(_.contains("InMemoryTableScan")) shouldBe true
+    }
+  }
+
+  it should "keep the input order of surviving slates across several partitions" in {
+    val s = spark
+    // The order assertion elsewhere runs on a single partition, where nothing can reorder. This
+    // one spreads the slates so the claim that no shuffle is introduced has something to bite on.
+    val rows = (0 until 40).map { i =>
+      org.apache.spark.sql.Row(s"s$i", s"r$i", "u1", i.toLong, 1.0, 2,
+        Seq(org.apache.spark.sql.Row("a", 1.0, Map("grpo_x" -> vec(0.5),
+              "prediction_score" -> "0.7")),
+            org.apache.spark.sql.Row("b", 0.0, Map("grpo_x" -> vec(0.2),
+              "prediction_score" -> "0.1"))))
+    }
+    val itemType = org.apache.spark.sql.types.StructType(Seq(
+      org.apache.spark.sql.types.StructField("item_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("label", org.apache.spark.sql.types.DoubleType),
+      org.apache.spark.sql.types.StructField("item_features",
+        org.apache.spark.sql.types.MapType(org.apache.spark.sql.types.StringType,
+                                           org.apache.spark.sql.types.StringType))))
+    val schema = org.apache.spark.sql.types.StructType(Seq(
+      org.apache.spark.sql.types.StructField("slate_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("request_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("user_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("request_ts", org.apache.spark.sql.types.LongType),
+      org.apache.spark.sql.types.StructField("slate_reward",
+        org.apache.spark.sql.types.DoubleType),
+      org.apache.spark.sql.types.StructField("slate_size",
+        org.apache.spark.sql.types.IntegerType),
+      org.apache.spark.sql.types.StructField("items",
+        org.apache.spark.sql.types.ArrayType(itemType))))
+    val frame = s.createDataFrame(s.sparkContext.parallelize(rows, 4), schema)
+
+    val (groups, _) = GrpoSlates.toGroups(frame, cfg)
+
+    groups.map(_.slateId) shouldBe (0 until 40).map(i => s"s$i")
+  }
+
+  it should "drop a slate whose item_features map is absent rather than crashing on it" in {
+    val s = spark
+    // A second behavior change on this branch, and it needs saying: master's classify called
+    // getOrElse straight on the null map and threw NPE. featuresOf now returns an empty map, so
+    // the slate fails the feature-version gate like any other unusable vector. Only reachable
+    // because "no grpo_x" and "no features map" coincide today -- if the version gate ever
+    // defaulted a missing vector, buildGroup would be the one reading the map.
+    val itemType = org.apache.spark.sql.types.StructType(Seq(
+      org.apache.spark.sql.types.StructField("item_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("label", org.apache.spark.sql.types.DoubleType),
+      org.apache.spark.sql.types.StructField("item_features",
+        org.apache.spark.sql.types.MapType(org.apache.spark.sql.types.StringType,
+                                           org.apache.spark.sql.types.StringType),
+        nullable = true)))
+    val schema = org.apache.spark.sql.types.StructType(Seq(
+      org.apache.spark.sql.types.StructField("slate_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("items",
+        org.apache.spark.sql.types.ArrayType(itemType))))
+    val frame = s.createDataFrame(s.sparkContext.parallelize(Seq(
+      org.apache.spark.sql.Row("nullmap", Seq(
+        org.apache.spark.sql.Row("a", 1.0, null),
+        org.apache.spark.sql.Row("b", 0.0, null)))), 1), schema)
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+
+    groups shouldBe empty
+    counts.badFeatureVersion shouldBe 1L
+  }
+
+  it should "read a null label as a zero reward" in {
+    val s = spark
+    // TestItem.label is a Double and cannot express null, so this needs a Row-built fixture. It
+    // also exercises fieldIndex("label") resolving inside the UDF, which only works because
+    // Spark hands an ArrayType(StructType) back as a schema-carrying Row.
+    val itemType = org.apache.spark.sql.types.StructType(Seq(
+      org.apache.spark.sql.types.StructField("item_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("label", org.apache.spark.sql.types.DoubleType,
+        nullable = true),
+      org.apache.spark.sql.types.StructField("item_features",
+        org.apache.spark.sql.types.MapType(org.apache.spark.sql.types.StringType,
+                                           org.apache.spark.sql.types.StringType))))
+    val schema = org.apache.spark.sql.types.StructType(Seq(
+      org.apache.spark.sql.types.StructField("slate_id", org.apache.spark.sql.types.StringType),
+      org.apache.spark.sql.types.StructField("items",
+        org.apache.spark.sql.types.ArrayType(itemType))))
+    val features = Map("grpo_x" -> vec(0.5), "prediction_score" -> "0.7")
+    val frame = s.createDataFrame(s.sparkContext.parallelize(Seq(
+      org.apache.spark.sql.Row("nulllabel", Seq(
+        org.apache.spark.sql.Row("a", 1.0, features),
+        org.apache.spark.sql.Row("b", null, features)))), 1), schema)
+
+    val (groups, counts) = GrpoSlates.toGroups(frame, cfg)
+
+    counts.kept shouldBe 1L
+    groups.head.rewards shouldBe Array(1.0, 0.0)
   }
 
   it should "treat a slate whose items array is absent as too small" in {

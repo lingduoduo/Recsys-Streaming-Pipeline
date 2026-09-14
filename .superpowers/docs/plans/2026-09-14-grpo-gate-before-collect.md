@@ -364,16 +364,16 @@ git status --short
 git diff --check
 ```
 
-- [ ] **Step 3: Request a read-only code review.** Ask specifically: that `GateCounts` is identical for overlapping-gate inputs, since counts now come from the Spark side and groups from the driver side; that `dropReason` and `buildGroup` cannot disagree about which slates are valid; that the UDF closes over two primitives rather than the whole config; that the returned `Seq`'s order is still the input order; that the cached frame is unpersisted on every path including exceptions; and whether a null or empty `items` array behaves as it did. Resolve substantive findings before publishing.
+- [x] **Step 3: Request a read-only code review.** Ask specifically: that `GateCounts` is identical for overlapping-gate inputs, since counts now come from the Spark side and groups from the driver side; that `dropReason` and `buildGroup` cannot disagree about which slates are valid; that the UDF closes over two primitives rather than the whole config; that the returned `Seq`'s order is still the input order; that the cached frame is unpersisted on every path including exceptions; and whether a null or empty `items` array behaves as it did. Resolve substantive findings before publishing.
 
-- [ ] **Step 4: Publish.** Push, record the suite counts and the row-volume evidence in the PR body, restate that no latency claim is made, fill in this plan's verification record, commit it, and mark the PR ready.
+- [x] **Step 4: Publish.** Push, record the suite counts and the row-volume evidence in the PR body, restate that no latency claim is made, fill in this plan's verification record, commit it, and mark the PR ready.
 
 ## Verification record
 
 - Task 0: draft PR #240, https://github.com/lingduoduo/Recsys-Streaming-Pipeline/pull/240.
 - Task 1 Step 2, red: `GrpoSlatesSpec.scala:243:28: value tagged is not a member of object com.demo.grpo.GrpoSlates`, then `one error found`. Only the volume test cannot be satisfied without the change; the equivalence, precedence and empty-items tests compare the pre-change implementation against a frozen copy of itself and are green by construction, which is what makes the oracle valid once the implementation moves.
 - Task 1 Step 4, green: 14 tests in `GrpoSlatesSpec` -- the four added plus all ten pre-existing.
-- Task 1 Step 5, full Spark module suite under JDK 17: 439 tests succeeded, 66 suites, 0 failed, 0 aborted, up from 435. `GrpoMathSpec` and `GrpoPolicyStreamingJobSpec` are untouched, which is the check that `applyBatch` and the learning rule were not involved. The `simulated Redis command error` lines in the log are deliberate fault-injection tests.
+- Full Spark module suite under JDK 17 on the delivered tree: **444 tests succeeded, 66 suites, 0 failed, 0 aborted**, up from master's 435. An intermediate run reported 443 across 67 suites; that was contaminated by the review agent's own probe suite, still present in the working tree at the time, and is not the figure of record. `GrpoMathSpec` and `GrpoPolicyStreamingJobSpec` are untouched, which is the check that `applyBatch` and the learning rule were not involved. The `simulated Redis command error` lines in the log are deliberate fault-injection tests.
 - `git diff --check` clean. No throwaway harness in the tree.
 
 ### Evidence for the claim this rests on
@@ -381,6 +381,24 @@ git diff --check
 The design claims a row-volume reduction, not a latency win, so the evidence is a count rather than a timing. `test_..."leave the dropped slates behind rather than collecting them first"` builds 5 keepable and 95 zero-variance slates and asserts on the frame `toGroups` collects from: `tagged(frame, cfg).count()` is 100 while `tagged(...).filter(reason.isNull).count()` is 5. Every observable output is identical either way, so this is the only way the claim is testable at all without putting a counter in production code.
 
 The spike that motivated the work, for the record: parse + collect + classify against `applyBatch`, 5,000 slates of ten items -- 591.8 ms against 23.7 ms at full reward variance (3.8% math share), and 750.5 ms against 1.2 ms at 5% engaged (0.2%). One to two orders apart, far larger than the noise, which is what makes that part robust.
+
+### Review outcome: the headline test asserted nothing
+
+Independent read-only review: REQUEST CHANGES, on one finding that invalidated the branch's central claim.
+
+**The volume test was vacuous.** It asserted on a frame it constructed itself -- `GrpoSlates.tagged(frame, cfg)` -- and its comment claimed that was "exactly the frame toGroups collects from". Nothing tied the two. The reviewer mutated `toGroups` to collect all 100 rows and filter on the driver, restoring precisely the behavior this design calls the scaling limitation, and **all 62 tests passed**. Every `GateCounts` field and every group is byte-identical either way, so nothing else could catch it. Acceptance item 3 was not met.
+
+Replaced with a `QueryExecutionListener` that asserts the executed plan of the real query contains `isnull(grpo_drop_reason)`, plus an `InMemoryTableScan` assertion for the persist. Verified: the collect-everything mutant now fails, and so does removing the `persist`, which had been undetectable. `SparkContext#listenerBus` is private, so the test polls for the asynchronous callback rather than reaching into it.
+
+`tagged` is private again -- it was package-visible only for the test that proved nothing.
+
+**A second null-handling crash, undocumented.** `featureVectors` guarded a null `item_features`; `buildGroup` then called `getOrElse` on the same map with no guard. Unreachable today, but only because "no `grpo_x`" and "no features map" coincide, so a slate with a null map is dropped as `badFeatureVersion` first. Both readers now go through one `featuresOf` helper, which makes the safety structural, and master's own NPE on that input is recorded in the spec and pinned by a test.
+
+Three suggestions adopted. `kept` comes from `kept.size` rather than the aggregation -- the reviewer's mutation substituting one for the other survived, which is the proof they are equal by construction; sourcing it from the `Seq` actually handed to `stepBatch` makes the number the job logs unfalsifiable. The order test now builds a four-partition frame, since the existing one ran at `local[1]` where nothing can reorder. And a null `label` is now covered by a `Row`-built fixture, which `TestItem.label: Double` could not express.
+
+`buildGroup` also reads by column name instead of position, which the reviewer noted is one `withColumn` away from silently shifting.
+
+What the review confirmed: no `GateCounts` divergence exists, because the aggregation key and the filter predicate read the same column of the same cached frame and `dropReason` is pure; order is preserved and the collected path introduces no `Exchange`; `try/finally` unpersists on the exception path; and the closure really is two primitives -- verified at the bytecode level, `$anonfun$tagged$1(String, int, Seq)` is static, so no `GrpoJobConfig` and therefore no Redis host ships to an executor.
 
 ### A crash this change fixes, found after the implementation
 
