@@ -229,4 +229,31 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
     val noKl = cfg.copy(klBeta = 0.0)
     GrpoMath.gradient(x, snapshot, logged, w, adv, noKl).exists(v => math.abs(v) > 1e-6) shouldBe true
   }
+
+  it should "match the public gradient when the reference policies are supplied directly" in {
+    // The public form softmaxes both references on every call; the inner form takes them
+    // already softmaxed. Same inputs must give the same vector, bit for bit -- the hoist in
+    // applyBatch is only safe if these two cannot drift.
+    val cases = Seq(
+      // (x, snapshotLogits, loggedLogits, w, rewards) - ordinary, saturated, and clipped
+      (Array(Array(1.0, 0.0), Array(0.0, 1.0)), Array(0.3, 0.3), Array(0.1, 0.2),
+       Array(0.5, -0.25), Array(1.0, 0.0)),
+      (Array(Array(1.0, 0.0), Array(0.0, 1.0)), Array(1000.0, -1000.0), Array(-800.0, 900.0),
+       Array(2.0, -3.0), Array(1.0, 0.0)),
+      (Array(Array(1.0, 0.0), Array(0.0, 1.0), Array(0.5, 0.5)), Array(0.0, 0.0, 0.0),
+       Array(5.0, -5.0, 0.0), Array(4.0, -4.0), Array(1.0, 0.0, 0.0)))
+
+    cases.foreach { case (x, snapshot, logged, w, rewards) =>
+      val adv = GrpoMath.advantages(rewards).get
+      val expected = GrpoMath.gradient(x, snapshot, logged, w, adv, cfg)
+      val actual = GrpoMath.gradientFromPolicies(
+        x, GrpoMath.softmax(snapshot, cfg.temperature),
+        GrpoMath.softmax(logged, cfg.temperature), w, adv, cfg)
+      actual.length shouldBe expected.length
+      actual.indices.foreach { d =>
+        java.lang.Double.doubleToRawLongBits(actual(d)) shouldBe
+          java.lang.Double.doubleToRawLongBits(expected(d))
+      }
+    }
+  }
 }

@@ -99,9 +99,24 @@ object GrpoMath {
     * its log.
     */
   def gradient(x: Array[Array[Double]], snapshotLogits: Array[Double], loggedLogits: Array[Double],
-               w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double] = {
+               w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double] =
+    gradientFromPolicies(x, softmax(snapshotLogits, cfg.temperature),
+                         softmax(loggedLogits, cfg.temperature), w, adv, cfg)
+
+  /** `gradient` with the two fixed reference POLICIES supplied already softmaxed.
+    *
+    * `piSnap` and `piOld` are distributions over the slate, not logits -- both are
+    * `Array[Double]`, so the compiler cannot tell them apart and a caller passing logits here
+    * would get a silently wrong gradient. Package-visible for that reason: the one production
+    * caller is `GrpoPolicyStreamingJob.applyBatch`, which holds both references fixed for a whole
+    * micro-batch and would otherwise re-derive them on every inner epoch. Only `pi` depends on
+    * `w`, so only `pi` is computed here.
+    */
+  private[grpo] def gradientFromPolicies(
+      x: Array[Array[Double]], piSnap: Array[Double], piOld: Array[Double],
+      w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double] = {
     val dim = w.length
-    val (pi, piSnap, piOld) = policies(x, snapshotLogits, loggedLogits, w, cfg)
+    val pi = softmax(logits(x, w), cfg.temperature)
 
     // Expected feature vector under pi -- the term that makes d log pi_i / dw a centred difference.
     val expected = Array.fill(dim)(0.0)
