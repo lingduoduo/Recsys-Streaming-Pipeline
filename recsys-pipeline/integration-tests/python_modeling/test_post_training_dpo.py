@@ -597,9 +597,22 @@ def _join_fixtures():
     ]
 
 
-def test_build_pairs_matches_the_eager_join_on_every_outcome():
+def test_build_pairs_matches_the_eager_join_on_every_outcome(tmp_path):
     """The lazy join must be indistinguishable from the eager one it replaces."""
-    for label, slates, events in _join_fixtures():
+    fixtures = list(_join_fixtures())
+    # The spec's acceptance list names a Parquet round trip among the cases the EQUIVALENCE
+    # comparison must cover, not merely the behavioural test above. Parquet returns nested items
+    # as an ndarray, which is why as_list exists; that call moved into the partition loop, so the
+    # oracle should see it too.
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    round_trip_slates, round_trip_events = _fixture()
+    path = tmp_path / "slates.parquet"
+    pd.DataFrame(round_trip_slates).to_parquet(path, index=False)
+    fixtures.append(("parquet round-tripped slate",
+                     pd.read_parquet(path).to_dict(orient="records"), round_trip_events))
+
+    for label, slates, events in fixtures:
         names = ope_eval_report.feature_names(events) if events else []
         actual_pairs, actual_dropped, actual_diag = slate_pairs.build_pairs(slates, events, names)
         want_pairs, want_dropped, want_diag = _eager_build_pairs(slates, events, names)

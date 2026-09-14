@@ -425,9 +425,9 @@ git status --short
 
 Expected: no harness inside the repository, no stash left behind.
 
-- [ ] **Step 3: Request a read-only code review.** Ask for a review against every spec constraint, specifically: that pair order and every field are unchanged; that the memo cannot return a stale or shared-mutable feature list; that `missing_reference_sides` still counts once per pair side rather than once per distinct key; and that the `key not in index` check still precedes any extraction so a dropped pair costs nothing. Resolve substantive findings before publishing.
+- [x] **Step 3: Request a read-only code review.** Ask for a review against every spec constraint, specifically: that pair order and every field are unchanged; that the memo cannot return a stale or shared-mutable feature list; that `missing_reference_sides` still counts once per pair side rather than once per distinct key; and that the `key not in index` check still precedes any extraction so a dropped pair costs nothing. Resolve substantive findings before publishing.
 
-- [ ] **Step 4: Publish.** Push, record the measured before/after and suite counts in the PR body, fill in this plan's verification record, commit it, and mark the PR ready.
+- [x] **Step 4: Publish.** Push, record the measured before/after and suite counts in the PR body, fill in this plan's verification record, commit it, and mark the PR ready.
 
 ## Verification record
 
@@ -443,6 +443,17 @@ Expected: no harness inside the repository, no stash left behind.
 | join fails | 96.5 ms | 18.6 ms | **-81%** |
 
 The shape is what the spec predicted: nil at full engagement, where every candidate reaches a pair anyway, and large wherever the index goes unused.
+
+### Review outcome
+
+Independent read-only review: APPROVE. It ran seven mutations against the full suite with no survivors -- eager extraction, dropping the memo, counting `missing_reference_sides` per key, the unguarded request-id set, two comprehensions, and swapping chosen for rejected were each caught by a named test. It independently reproduced the request-id regression below and confirmed the guard fixes it, verified `missing_reference_sides` still counts per pair side rather than per key (one candidate lacking `predictionScore` on five pairs yields five), confirmed the memo's `None` sentinel can never collide with a cached 3-tuple, and traced every downstream consumer of the shared feature list -- `dpo.fit`, `FittedQ.score_many`, `post_train_dpo` -- to confirm all copy and none mutate, as they did under the eager index too.
+
+Two suggestions adopted:
+
+- The spec's acceptance list named a Parquet-round-tripped slate among the cases the EQUIVALENCE comparison must cover, and it was the one enumerated case missing from the fixture list -- the same kind of gap that produced the regression below. It is now the eleventh fixture, so the oracle sees the ndarray path that `as_list` handles.
+- Deferring extraction also moves WHEN a malformed candidate raises. A non-numeric `impressions` on a candidate no pair uses previously failed the whole run at index time; now it is skipped in silence. Verified both ways. Defensible for a job reading a replay it does not control, but it was an unstated consequence, so `replay_index`'s docstring now records that it no longer validates the candidates it indexes.
+
+Process note: the plan's Task 0 and Task 2 assumed the spec, plan and code would land on one PR. The draft PR #236 carrying the spec and plan was merged before the code was written, so the implementation lands in a separate PR instead -- the same spec-then-code split as PR #231 and the RM work.
 
 ### A regression this plan's own fixtures missed
 

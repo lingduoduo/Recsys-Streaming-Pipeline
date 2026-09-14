@@ -84,6 +84,13 @@ def replay_index(events) -> tuple[dict, set]:
     the set from the index keys used to give. Counting it would report ids as matched while no
     pair could ever be built from them, which is the namespace mismatch this diagnostic exists to
     tell apart from mere sparsity.
+
+    One deliberate consequence of deferring extraction: a malformed candidate -- a non-numeric
+    `impressions`, say -- used to fail the whole run here, at index time, whether or not any pair
+    needed it. Now it raises only if a pair actually uses it, so a bad candidate in a slate that
+    produced no preference is skipped in silence. That is the right trade for a job whose input is
+    a logged replay it does not control, but it does mean this function no longer validates the
+    candidates it indexes.
     """
     index = {}
     request_ids = set()
