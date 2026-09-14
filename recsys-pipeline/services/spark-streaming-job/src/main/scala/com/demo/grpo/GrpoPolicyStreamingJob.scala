@@ -36,16 +36,23 @@ object GrpoPolicyStreamingJob {
     val snapshot = current.weights.clone()
     val w = current.weights.clone()
     // Neither the snapshot-side logits nor the advantage depends on w, so both are fixed for the
-    // whole batch: prepare them once here rather than on every inner epoch.
+    // whole batch -- and so are the two reference POLICIES derived from them. Softmax them once
+    // here rather than on every inner epoch: at the default four epochs, gradient would otherwise
+    // re-derive both distributions four times per group to no effect.
     val prepared = groups.flatMap { g =>
-      GrpoMath.advantages(g.rewards).map(adv => (g, GrpoMath.logits(g.x, snapshot), adv))
+      GrpoMath.advantages(g.rewards).map { adv =>
+        (g,
+         GrpoMath.softmax(GrpoMath.logits(g.x, snapshot), cfg.hyper.temperature),
+         GrpoMath.softmax(g.logged, cfg.hyper.temperature),
+         adv)
+      }
     }
     (1 to cfg.hyper.innerEpochs).foreach { _ =>
       val total = Array.fill(cfg.dim)(0.0)
-      prepared.foreach { case (g, snapshotLogits, adv) =>
-        // Ratio against the snapshot; KL against what actually served. GrpoMath.gradient takes
+      prepared.foreach { case (g, piSnap, piOld, adv) =>
+        // Ratio against the snapshot; KL against what actually served. gradientFromPolicies takes
         // both references, so the two cannot be conflated here.
-        val grad = GrpoMath.gradient(g.x, snapshotLogits, g.logged, w, adv, cfg.hyper)
+        val grad = GrpoMath.gradientFromPolicies(g.x, piSnap, piOld, w, adv, cfg.hyper)
         (0 until cfg.dim).foreach(d => total(d) += grad(d))
       }
       (0 until cfg.dim).foreach(d => w(d) -= cfg.hyper.learningRate * total(d) / groups.size)

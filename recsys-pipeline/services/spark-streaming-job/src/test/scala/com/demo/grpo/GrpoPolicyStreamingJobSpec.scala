@@ -152,4 +152,34 @@ class GrpoPolicyStreamingJobSpec extends AnyFlatSpec with Matchers {
     // applyBatch clones, so the rejected batch cannot have touched what the job still holds.
     lastGood.weights.forall(java.lang.Double.isFinite) shouldBe true
   }
+
+  it should "produce bitwise the same weights as the public gradient over two inner epochs" in {
+    // applyBatch hoists the two reference policies out of the inner-epoch loop. Hoisting a value
+    // that is genuinely fixed must not move a single bit; anything else means the hoisted
+    // reference was not actually constant across epochs.
+    val groups = Seq(group(Array(1.0, 0.0, 0.0)), group(Array(0.0, 1.0, 0.0)))
+    val cfg2 = cfg.copy(hyper = cfg.hyper.copy(innerEpochs = 2))
+
+    val snapshot = GrpoWeightStore.initial(cfg2).weights.clone()
+    val snapshotLogitsByGroup = groups.map(g => GrpoMath.logits(g.x, snapshot))
+    val wRef = snapshot.clone()
+    (1 to cfg2.hyper.innerEpochs).foreach { _ =>
+      val total = Array.fill(cfg2.dim)(0.0)
+      groups.zip(snapshotLogitsByGroup).foreach { case (g, snapshotLogits) =>
+        GrpoMath.advantages(g.rewards).foreach { adv =>
+          val grad = GrpoMath.gradient(g.x, snapshotLogits, g.logged, wRef, adv, cfg2.hyper)
+          (0 until cfg2.dim).foreach(d => total(d) += grad(d))
+        }
+      }
+      (0 until cfg2.dim).foreach(d =>
+        wRef(d) -= cfg2.hyper.learningRate * total(d) / groups.size)
+    }
+
+    val actual = GrpoPolicyStreamingJob.applyBatch(
+      GrpoWeightStore.initial(cfg2), groups, cfg2, 1L).weights
+    actual.indices.foreach { d =>
+      java.lang.Double.doubleToRawLongBits(actual(d)) shouldBe
+        java.lang.Double.doubleToRawLongBits(wRef(d))
+    }
+  }
 }
