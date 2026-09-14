@@ -43,7 +43,7 @@ export JAVA_HOME=/Users/linghuang/Library/Java/JavaVirtualMachines/corretto-17.0
 
 **Interfaces:** Produces the branch and draft PR that Tasks 1-2 commit into. No code.
 
-- [ ] **Step 1: Commit the spec and plan on a branch off `master`.**
+- [x] **Step 1: Commit the spec and plan on a branch off `master`.**
 
 ```bash
 git checkout master && git pull
@@ -53,7 +53,7 @@ git add .superpowers/docs/specs/2026-09-14-ppo-gradient-loops-design.md \
 git commit -m "docs: specify the PPO gradient loop rewrite"
 ```
 
-- [ ] **Step 2: Push and open a draft PR against `master`** titled `Rewrite the PPO gradient with indexed loops`, whose body carries the measured 1,158 to 322 ns/op prototype figure, the note that this is not a bottleneck, and the NaN caveat. Use `gh pr create --draft --body-file`. Record the PR number here.
+- [x] **Step 2: Push and open a draft PR against `master`** titled `Rewrite the PPO gradient with indexed loops`, whose body carries the measured 1,158 to 322 ns/op prototype figure, the note that this is not a bottleneck, and the NaN caveat. Use `gh pr create --draft --body-file`. Record the PR number here.
 
 ---
 
@@ -67,7 +67,7 @@ git commit -m "docs: specify the PPO gradient loop rewrite"
 - Consumes: `GrpoMath.AdvantageFloor`, and `GrpoHyperParams`'s `temperature`, `clipEpsilon` and `klBeta`. It no longer calls `logits` or `softmax`, which stay public and unchanged for their other callers.
 - Produces: no signature change. `private[grpo] def gradientFromPolicies(x: Array[Array[Double]], piSnap: Array[Double], piOld: Array[Double], w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double]`.
 
-- [ ] **Step 1: Add the frozen oracle and the equivalence tests.** Append to `GrpoMathSpec.scala`. `_combinatorGradient` is a frozen copy of today's body; it is the oracle and must not be re-pointed at the production function later.
+- [x] **Step 1: Add the frozen oracle and the equivalence tests.** Append to `GrpoMathSpec.scala`. `_combinatorGradient` is a frozen copy of today's body; it is the oracle and must not be re-pointed at the production function later.
 
 ```scala
   /** A frozen copy of the combinator-based body this rewrite replaces, as the equivalence oracle.
@@ -172,7 +172,7 @@ git commit -m "docs: specify the PPO gradient loop rewrite"
   }
 ```
 
-- [ ] **Step 2: Run the focused spec and confirm the three new tests pass against the current body.**
+- [x] **Step 2: Run the focused spec and confirm the three new tests pass against the current body.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoMathSpec'
@@ -180,7 +180,7 @@ sbt 'testOnly com.demo.grpo.GrpoMathSpec'
 
 Expected: all pass. The equivalence tests compare the current body against a copy of itself, so they are green here by construction — that is what makes them a valid oracle once the body changes. Record the count, and record the NaN test's outcome, which establishes the pre-change behavior the rewrite must preserve.
 
-- [ ] **Step 3: Rewrite the body.** Replace everything between `private[grpo] def gradientFromPolicies(` ... `): Array[Double] = {` and the closing `grad` with the following. Keep the scaladoc above it, and append the new paragraph shown.
+- [x] **Step 3: Rewrite the body.** Replace everything between `private[grpo] def gradientFromPolicies(` ... `): Array[Double] = {` and the closing `grad` with the following. Keep the scaladoc above it, and append the new paragraph shown.
 
 ```scala
   private[grpo] def gradientFromPolicies(
@@ -257,7 +257,7 @@ Append this paragraph to the existing scaladoc, after the sentence ending "so on
     * one function called per group per inner epoch, and the combinators cost about 72% of it.
 ```
 
-- [ ] **Step 4: Run the focused spec and confirm the equivalence tests still pass.**
+- [x] **Step 4: Run the focused spec and confirm the equivalence tests still pass.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoMathSpec'
@@ -265,7 +265,7 @@ sbt 'testOnly com.demo.grpo.GrpoMathSpec'
 
 Expected: all pass, now with the rewritten body compared against the frozen combinator oracle. A failure here names the slate size, temperature and klBeta of the first divergence.
 
-- [ ] **Step 5: Run the job spec, whose two-epoch bit comparison covers `applyBatch`.**
+- [x] **Step 5: Run the job spec, whose two-epoch bit comparison covers `applyBatch`.**
 
 ```bash
 sbt 'testOnly com.demo.grpo.GrpoPolicyStreamingJobSpec'
@@ -273,7 +273,7 @@ sbt 'testOnly com.demo.grpo.GrpoPolicyStreamingJobSpec'
 
 Expected: all pass. That test already runs at temperature 0.5 with non-uniform references.
 
-- [ ] **Step 6: Run the whole Spark module suite.**
+- [x] **Step 6: Run the whole Spark module suite.**
 
 ```bash
 sbt test
@@ -281,7 +281,7 @@ sbt test
 
 Expected: zero failures, zero aborted suites. Record the counts.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add recsys-pipeline/services/spark-streaming-job/src/main/scala/com/demo/grpo/GrpoMath.scala \
@@ -297,7 +297,7 @@ git commit -m "perf(grpo): indexed loops in the PPO gradient"
 
 **Interfaces:** Consumes the tested diff; produces a reviewed PR against `master`.
 
-- [ ] **Step 1: Benchmark before and after.** Create the throwaway harness below at `src/test/scala/com/demo/grpo/ZzBenchThrowaway.scala`, run it on this branch, then restore `GrpoMath.scala` from `master` and run it again. Delete the harness afterwards.
+- [x] **Step 1: Benchmark before and after.** Create the throwaway harness below at `src/test/scala/com/demo/grpo/ZzBenchThrowaway.scala`, run it on this branch, then restore `GrpoMath.scala` from `master` and run it again. Delete the harness afterwards.
 
 ```scala
 package com.demo.grpo
@@ -363,7 +363,7 @@ rm src/test/scala/com/demo/grpo/ZzBenchThrowaway.scala
 
 Note the harness only calls public members plus `gradientFromPolicies`, which is package-visible and reachable, so it compiles against both versions. Compare against the spec's baseline: 1,158 ns/op and 0.702 / 5.356 / 28.793 ms. Record both columns. Use at least 100 warmup batches — a prior PPO benchmark with 50 produced incoherent sub-millisecond results.
 
-- [ ] **Step 2: Confirm the tree is clean.**
+- [x] **Step 2: Confirm the tree is clean.**
 
 ```bash
 git status --short
@@ -372,10 +372,49 @@ git diff --check
 
 Expected: no harness, no stray `GrpoMath.scala` modification, clean whitespace.
 
-- [ ] **Step 3: Request a read-only code review.** Ask specifically: that the rewritten arithmetic is the same operations in the same order as the frozen oracle, checked term by term rather than by trusting the tests; that `n` correctly replaces `pi.length` in the surrogate denominator; that no loop reads an index it has already overwritten, given `pi` is written three times in place; that nothing mutates `x`, `piSnap`, `piOld`, `w` or `adv`; and which plausible transcription errors the randomized bit comparison would miss. Resolve substantive findings before publishing.
+- [x] **Step 3: Request a read-only code review.** Ask specifically: that the rewritten arithmetic is the same operations in the same order as the frozen oracle, checked term by term rather than by trusting the tests; that `n` correctly replaces `pi.length` in the surrogate denominator; that no loop reads an index it has already overwritten, given `pi` is written three times in place; that nothing mutates `x`, `piSnap`, `piOld`, `w` or `adv`; and which plausible transcription errors the randomized bit comparison would miss. Resolve substantive findings before publishing.
 
-- [ ] **Step 4: Publish.** Push, record the measured before and after plus suite counts in the PR body, fill in this plan's verification record, commit it, and mark the PR ready.
+- [x] **Step 4: Publish.** Push, record the measured before and after plus suite counts in the PR body, fill in this plan's verification record, commit it, and mark the PR ready.
 
 ## Verification record
 
-Execution pending.
+- Task 1 Step 2, the oracle validated against the unchanged body: 20 tests pass, the three new ones included. Green by construction at that point -- the frozen `combinatorGradient` was compared against the body it copies -- which is exactly what makes it a valid oracle once the body changes. The NaN test also passed here, establishing the pre-change behavior.
+- Task 1 Step 4 and 5, after the rewrite: 32 tests across `GrpoMathSpec` and `GrpoPolicyStreamingJobSpec`. The randomized comparison found zero bit differences over 2,000 drawn shapes, the six boundary cases matched, and `applyBatch`'s two-epoch bit comparison -- which runs at temperature 0.5 with non-uniform references since PR #237 -- still holds.
+- Task 1 Step 6, full Spark module suite under JDK 17: 435 tests succeeded, 66 suites, 0 failed, 0 aborted. The `simulated Redis command error` lines in the log are deliberate fault-injection tests.
+- `git diff --check` clean; no benchmark artifact left in the tree.
+- Benchmark, identical harness both sides, 100 warmup batches and 25 timed runs for `applyBatch`, 300,000 warmup and 15 runs of 200,000 calls for the per-call figure:
+
+| measurement | before | after | change |
+|---|---|---|---|
+| `gradientFromPolicies` | 1,046.5 ns/op | 321.6 ns/op | **-69%, a factor of 3.25** |
+| `applyBatch`, 100 groups | 0.958 ms | 0.675 ms | -30% |
+| `applyBatch`, 1,000 groups | 5.394 ms | 2.955 ms | **-45%** |
+| `applyBatch`, 5,000 groups | 29.896 ms | 15.082 ms | **-50%** |
+
+Taken with PR #235, which brought the 5,000-group batch from 40.4 ms to 29.9 ms, the two changes together take it to 15.1 ms -- a factor of 2.7 on the PPO learning rule.
+
+### Review outcome
+
+Independent read-only review: APPROVE. It verified the transcription term by term against `master` rather than by trusting the tests, then re-implemented both bodies in a standalone harness and compared raw bits over 3,412 slates with zero differences. It confirmed the fused division sits at the same sequence position as `softmax`'s separate scaling pass, that `n` and `pi.length` cannot diverge because both `map`s preserved length, that no pass reads an element it has overwritten, and that nothing writes into caller data. Of its mutations, `<` for `>` in the max loop, `total` accumulated before the store, and `dim` substituted for `n` were all caught.
+
+It found one Important gap, since fixed:
+
+**Every temperature in the suite was a power of two, which blinded the bit comparison to the one ordering error this fusion invites.** Division by a power of two is exact, so `(acc / T)` before the max subtraction and `(acc - max) / T` after it agree bit for bit at 1.0, 0.5 and 0.25 — the only temperatures anywhere in the suite, including the `non-unit temperature` boundary case and `GrpoPolicyStreamingJobSpec`'s 0.5. Independently reproduced: that mutation passed all 20 `GrpoMathSpec` tests. The reviewer measured it diverging on 2,593 of 3,412 draws at 0.7. `GrpoJobConfig` accepts any positive `GRPO_TEMPERATURE`, so an operator at 0.7 would have got different weights from a body the suite called bitwise identical.
+
+The randomized draw now picks from 1.0, 0.5 and 0.7, with a 0.7 boundary case beside it. Verified: the mutation now fails with `slate=11 temperature=0.7`.
+
+Two suggestions also adopted. An all-negative-logits boundary case was added, because the reviewer measured the `max = 0.0, i = 0` seeding error catching on only 65 of 3,412 random draws — enough with this seed, fragile to a reseed; it now fails the boundary test too. And the NaN claim was tightened in both directions: the reviewer showed the rewrite agrees with the combinators under NaN far more strongly than documented, which turned out to be almost right. Asserting raw-bit equality under NaN actually FAILED: with a NaN logit beside an infinite one the loops yield `7ff8000000000000` and the combinators `fff8000000000000`, differing in the sign bit, because the two take different maxima and the NaN then propagates through a different subtraction. Both are NaN and nothing can tell them apart, so the NaN test now compares with NaN equal to NaN and additionally asserts every element is NaN — across a NaN feature, a NaN weight, a NaN beside an infinity, and a NaN behind a large finite logit.
+
+A third suggestion was adopted as documentation only: the spec's "candidate-major" constraint read as a correctness requirement, but swapping the nesting leaves each accumulator's order unchanged and measured bit-identical, so it is an allocation and locality choice. The spec now says so.
+
+Two input shapes genuinely change behavior, both unreachable from the job and now recorded in the spec's limits: an empty slate throws a different exception, and a feature row longer than the weight vector is silently truncated where `logits` used to throw. `GrpoSlates` rejects both shapes before they reach here, but `gradient` is public.
+
+### One equivalence question worth recording
+
+The fused path divides by the temperature inside the dot-product loop, where the old path computed raw logits in `logits` and divided in `softmax`'s first pass. The sequence is nonetheless identical: `acc / temperature` produces exactly the value `logits.map(_ / temperature)` produced, the maximum is taken over the divided values in both, `exp(v - max)` follows in both, the total accumulates over candidates ascending in both, and the final division by the total is the same.
+
+The one place the two genuinely differ is the maximum itself. The fused loop compares with a strict inequality; `Array.max` goes through `Ordering[Double]`, which orders by `java.lang.Double.compare` and so ranks `-0.0` below `0.0` and `NaN` above everything. Neither difference reaches the output. For a `-0.0` against `0.0` maximum, `v - max` is `0.0` either way and `exp` of both `0.0` and `-0.0` is `1.0`. For a NaN logit, the old path's maximum is NaN and poisons every element, while the fused path keeps a finite maximum and poisons the one element plus the total, which then poisons every element through the final division -- both end all-NaN, and the batch is discarded by `stepBatch` regardless.
+
+### Limits of this evidence
+
+Single-JVM, JIT-warmed timings on one machine; JIT decisions for hand-rolled loops are more hardware- and version-sensitive than for the combinators they replace. The change also costs readability: indexed loops are harder to read than `pi.indices.foreach`, over the arithmetic in this repository least forgiving of a transcription error. That is why acceptance rests on bitwise comparison against a frozen oracle rather than on review alone. And as the spec insists, this is not batch-latency relief: 15 ms against a ten-second trigger is about 0.15% of the interval, with the driver-side `collect` in `GrpoSlates.toGroups` still dominating a micro-batch.

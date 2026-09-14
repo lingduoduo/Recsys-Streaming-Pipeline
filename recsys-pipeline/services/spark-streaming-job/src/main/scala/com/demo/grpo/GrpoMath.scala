@@ -138,9 +138,15 @@ object GrpoMath {
       pi(i) = acc / cfg.temperature
       i += 1
     }
-    // Subtract the max before exp, or large logits overflow. `>` is false against NaN, so a NaN
-    // logit leaves the running max in place where the public softmax's Array.max may pick it; both
-    // poison the gradient, and stepBatch discards the batch either way.
+    // Subtract the max before exp, or large logits overflow. Note the division by temperature
+    // already happened above, before this subtraction, exactly as softmax's separate scaling pass
+    // did -- reversing the two is bitwise invisible at a power-of-two temperature and wrong
+    // everywhere else, which is why GrpoMathSpec draws a temperature of 0.7.
+    //
+    // The strict inequality is false against NaN, so a NaN logit leaves the running max in place,
+    // where Array.max's Ordering[Double] ranks NaN above everything and picks it. Different
+    // maximum, identical result: a NaN logit exponentiates to NaN, so the total is NaN and every
+    // normalized entry is NaN under both paths. stepBatch discards the batch either way.
     var max = pi(0)
     i = 1
     while (i < n) { if (pi(i) > max) max = pi(i); i += 1 }

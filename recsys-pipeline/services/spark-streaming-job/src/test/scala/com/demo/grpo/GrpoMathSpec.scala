@@ -293,6 +293,22 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
     a.length == b.length && a.indices.forall(d =>
       java.lang.Double.doubleToRawLongBits(a(d)) == java.lang.Double.doubleToRawLongBits(b(d)))
 
+  /** `sameBits`, except that any NaN equals any other NaN.
+    *
+    * Raw bits separate NaN payloads, and the two paths genuinely produce different ones: with a
+    * NaN logit beside an infinite one, the loops yield 7ff8000000000000 and the combinators
+    * fff8000000000000 -- the sign bit, because the two take their maximum differently and the NaN
+    * then propagates through a different subtraction. Both are NaN and no consumer can tell them
+    * apart, so for NaN inputs this is the equality that means anything. Everywhere else the
+    * stricter `sameBits` is used.
+    */
+  private def sameValues(a: Array[Double], b: Array[Double]): Boolean =
+    a.length == b.length && a.indices.forall { d =>
+      val (x, y) = (a(d), b(d))
+      if (java.lang.Double.isNaN(x) && java.lang.Double.isNaN(y)) true
+      else java.lang.Double.doubleToRawLongBits(x) == java.lang.Double.doubleToRawLongBits(y)
+    }
+
   it should "match the combinator gradient bit for bit across randomized shapes" in {
     // The rewrite's whole claim is that indexed loops in the original order move no bits. Random
     // shapes are the only way to exercise the loop bounds; the enumerated cases below cover the
@@ -306,8 +322,13 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
       val rewards = Array.fill(slate)(if (rng.nextDouble() < 0.3) 1.0 else 0.0)
       GrpoMath.advantages(rewards).foreach { adv =>
         val w = Array.fill(dim)(rng.nextGaussian())
+        // 0.7 is load-bearing, not variety for its own sake. Division by a power of two is
+        // exact, so at 1.0 or 0.5 the fused `(acc / T)` before the max subtraction and a
+        // `(acc - max) / T` after it agree bit for bit -- which is precisely the ordering slip
+        // this fusion invites, and it passed the whole suite until this draw included 0.7.
+        // GRPO_TEMPERATURE accepts any positive value, so that slip is reachable in production.
         val hyper = cfg.copy(klBeta = if (rng.nextBoolean()) 0.0 else 0.02,
-                             temperature = if (rng.nextBoolean()) 1.0 else 0.5)
+                             temperature = Seq(1.0, 0.5, 0.7)(rng.nextInt(3)))
         val piSnap = GrpoMath.softmax(GrpoMath.logits(x, Array.fill(dim)(rng.nextGaussian())),
                                       hyper.temperature)
         val piOld = GrpoMath.softmax(Array.fill(slate)(rng.nextGaussian()), hyper.temperature)
@@ -337,7 +358,15 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
       ("klBeta zero", two, Array(0.3, 0.3), Array(0.1, 0.2), Array(0.5, -0.25),
        Array(1.0, -1.0), cfg.copy(klBeta = 0.0)),
       ("identical feature vectors", shared, Array(0.3, 0.3, 0.3), Array(0.2, 0.2, 0.2),
-       Array(0.5, -0.25), Array(1.0, -0.5, -0.5), cfg))
+       Array(0.5, -0.25), Array(1.0, -0.5, -0.5), cfg),
+      // Dividing by a non-power-of-two temperature is inexact, which is the only way to tell
+      // `(acc / T)` before the max subtraction from `(acc - max) / T` after it.
+      ("non-power-of-two temperature", two, Array(0.3, 0.3), Array(0.1, 0.2),
+       Array(0.5, -0.25), Array(1.0, -1.0), cfg.copy(temperature = 0.7)),
+      // Every scaled logit negative, so a max seeded at 0.0 instead of the first element would
+      // subtract the wrong value. Random draws hit this rarely.
+      ("all-negative logits", two, Array(0.3, 0.3), Array(0.1, 0.2),
+       Array(-4.0, -7.0), Array(1.0, -1.0), cfg))
 
     cases.foreach { case (label, x, snapshotLogits, loggedLogits, w, adv, hyper) =>
       val piSnap = GrpoMath.softmax(snapshotLogits, hyper.temperature)
@@ -349,16 +378,33 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
     }
   }
 
-  it should "poison the gradient when a feature is NaN, keeping divergence detectable" in {
-    // The fused loop takes its maximum with `>`, which is false against NaN, where the public
-    // softmax uses Array.max and its Ordering[Double]. The two can disagree on which element wins
-    // when a logit is NaN. Either way the gradient carries NaN, which is what stepBatch keys on:
-    // a NaN logit means the weights already diverged and the batch must be discarded.
-    val x = Array(Array(Double.NaN, 0.0), Array(0.0, 1.0))
+  it should "match the combinator gradient under NaN, and still poison the gradient" in {
+    // The fused loop takes its maximum with a strict inequality, which is false against NaN, where
+    // the public softmax uses Array.max and its Ordering[Double], under which NaN outranks
+    // everything. The two therefore pick different maxima -- but not different results: a NaN
+    // logit exponentiates to NaN, so the total is NaN and every normalized entry is NaN under
+    // both paths. The gradient is poisoned either way, which is what stepBatch keys on.
+    //
+    // Compared with sameValues, not sameBits: the NaN PAYLOADS do differ between the two paths
+    // (7ff8000000000000 against fff8000000000000 in the infinity case below), which raw bits
+    // separate and nothing else can. Every element is NaN in both, and that is the claim.
     val piSnap = GrpoMath.softmax(Array(0.3, 0.3), cfg.temperature)
     val piOld = GrpoMath.softmax(Array(0.1, 0.2), cfg.temperature)
-    val grad = GrpoMath.gradientFromPolicies(x, piSnap, piOld, Array(1.0, 1.0),
-                                             Array(1.0, -1.0), cfg)
-    grad.exists(v => java.lang.Double.isNaN(v)) shouldBe true
+    val cases = Seq(
+      ("NaN feature on the first candidate", Array(Array(Double.NaN, 0.0), Array(0.0, 1.0)),
+       Array(1.0, 1.0)),
+      ("NaN feature on a later candidate, large finite logit first",
+       Array(Array(50.0, 0.0), Array(Double.NaN, 1.0)), Array(1.0, 1.0)),
+      ("NaN weight", Array(Array(1.0, 0.0), Array(0.0, 1.0)), Array(Double.NaN, 1.0)),
+      ("NaN alongside an infinity", Array(Array(Double.NaN, 0.0), Array(Double.PositiveInfinity,
+       1.0)), Array(1.0, 1.0)))
+
+    cases.foreach { case (label, x, w) =>
+      val grad = GrpoMath.gradientFromPolicies(x, piSnap, piOld, w, Array(1.0, -1.0), cfg)
+      withClue(s"$label: ") {
+        sameValues(grad, combinatorGradient(x, piSnap, piOld, w, Array(1.0, -1.0), cfg)) shouldBe true
+        grad.forall(v => java.lang.Double.isNaN(v)) shouldBe true
+      }
+    }
   }
 }
