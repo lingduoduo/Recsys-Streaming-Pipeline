@@ -481,3 +481,198 @@ def test_main_warns_that_a_degenerate_split_makes_the_accuracies_in_sample(tmp_p
     out = capsys.readouterr().out
     assert "split degenerated" in out
     assert "IN-SAMPLE" in out
+
+
+def _eager_build_pairs(slates, events, names=None):
+    """A frozen copy of the pre-optimization implementation, as an equivalence oracle.
+
+    Deliberately duplicated rather than imported: the point is to compare the optimized join
+    against the eager one, so this must not change when slate_pairs does.
+    """
+    import ope_eval_report as oer
+    from replay_dataset import as_list
+    if names is None:
+        names = oer.feature_names(events)
+    index = {}
+    for event in events:
+        request_id = str(event.get("requestId", ""))
+        for candidate in oer.candidates_of(event):
+            predictions = candidate.get("modelPredictions") or {}
+            reference = predictions.get(slate_pairs.REFERENCE_PRED_KEY)
+            index[(request_id, str(candidate.get("item")))] = (
+                oer.candidate_features(candidate, names),
+                float(reference or 0.0),
+                reference is not None,
+            )
+    indexed_request_ids = {key[0] for key in index}
+    pairs, dropped, missing_reference_sides = [], 0, 0
+    slate_request_ids = set()
+    for slate in slates:
+        request_id = str(slate.get("request_id", ""))
+        slate_request_ids.add(request_id)
+        user = str(slate.get("user_id", ""))
+        items = as_list(slate.get("items"))
+        chosen = [item for item in items if slate_pairs.is_chosen(item)]
+        rejected = [item for item in items if not slate_pairs.is_chosen(item)]
+        for win in chosen:
+            for lose in rejected:
+                win_key = (request_id, str(win.get("item_id")))
+                lose_key = (request_id, str(lose.get("item_id")))
+                if win_key not in index or lose_key not in index:
+                    dropped += 1
+                    continue
+                win_features, win_reference, win_has = index[win_key]
+                lose_features, lose_reference, lose_has = index[lose_key]
+                missing_reference_sides += (not win_has) + (not lose_has)
+                pairs.append(slate_pairs.PreferencePair(
+                    request_id=request_id, user=user,
+                    chosen_item=win_key[1], rejected_item=lose_key[1],
+                    chosen_features=win_features, rejected_features=lose_features,
+                    chosen_reference=win_reference, rejected_reference=lose_reference))
+    return pairs, dropped, slate_pairs.JoinDiagnostics(
+        n_slate_request_ids=len(slate_request_ids),
+        n_slate_request_ids_matched=len(slate_request_ids & indexed_request_ids),
+        n_missing_reference_sides=missing_reference_sides)
+
+
+def _join_fixtures():
+    """(label, slates, events) covering every join outcome the spec enumerates."""
+    def candidate(item, prediction=0.5, **overrides):
+        entry = {"item": item, "coldStart": False, "impressions": 10, "clicks": 2,
+                 "modelPredictions": {"relevance": 0.4, "predictionScore": prediction}}
+        entry.update(overrides)
+        return entry
+
+    def event(rid, cands):
+        return {"requestId": rid, "user": "u", "action": cands[0]["item"], "reward": 1.0,
+                "clicked": 1, "modelPredictions": {"relevance": 0.5}, "actionSpace": cands}
+
+    def slate(rid, items):
+        return {"request_id": rid, "user_id": "u", "items": items}
+
+    def item(iid, clicked=0, label=None):
+        return {"item_id": iid, "clicked": clicked, "label": label}
+
+    ordinary_events = [event("r1", [candidate("a", 0.9), candidate("b", 0.2),
+                                    candidate("c", 0.1)])]
+    return [
+        ("pairs exist", [slate("r1", [item("a", clicked=1), item("b"), item("c")])],
+         ordinary_events),
+        ("two chosen, two rejected",
+         [slate("r1", [item("a", clicked=1), item("b", label=0.7), item("c")])],
+         ordinary_events),
+        ("total join failure", [slate("nope", [item("a", clicked=1), item("b")])],
+         ordinary_events),
+        ("no engagement", [slate("r1", [item("a"), item("b")])], ordinary_events),
+        ("no unengaged item", [slate("r1", [item("a", clicked=1), item("b", clicked=1)])],
+         ordinary_events),
+        ("one side missing from the replay",
+         [slate("r1", [item("a", clicked=1), item("ghost")])], ordinary_events),
+        ("null modelPredictions",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [event("r1", [candidate("a", 0.9), dict(candidate("b"), modelPredictions=None)])]),
+        ("predictionScore absent",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [event("r1", [candidate("a", 0.9),
+                       dict(candidate("b"), modelPredictions={"relevance": 0.4})])]),
+        ("no slates", [], ordinary_events),
+        ("no events", [slate("r1", [item("a", clicked=1), item("b")])], []),
+        # An event that supplies no candidate contributes no index key, so its requestId is not a
+        # match however well the ids line up -- no pair can ever be built from it. Collecting the
+        # id set while walking events rather than from the index keys is the one way this
+        # optimization could change a diagnostic, so both empty and absent actionSpace are pinned.
+        ("event with an empty actionSpace",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [{"requestId": "r1", "user": "u", "action": None, "reward": 0.0, "clicked": 0,
+           "modelPredictions": {}, "actionSpace": []}]),
+        ("event with an absent actionSpace",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [{"requestId": "r1", "user": "u", "action": None, "reward": 0.0, "clicked": 0,
+           "modelPredictions": {}, "actionSpace": None}]),
+        ("one event has candidates, another with the same id does not",
+         [slate("r1", [item("a", clicked=1), item("b")])],
+         [{"requestId": "r1", "user": "u", "action": None, "reward": 0.0, "clicked": 0,
+           "modelPredictions": {}, "actionSpace": []},
+          event("r1", [candidate("a", 0.9), candidate("b", 0.2)])]),
+    ]
+
+
+def test_build_pairs_matches_the_eager_join_on_every_outcome(tmp_path):
+    """The lazy join must be indistinguishable from the eager one it replaces."""
+    fixtures = list(_join_fixtures())
+    # The spec's acceptance list names a Parquet round trip among the cases the EQUIVALENCE
+    # comparison must cover, not merely the behavioural test above. Parquet returns nested items
+    # as an ndarray, which is why as_list exists; that call moved into the partition loop, so the
+    # oracle should see it too.
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    round_trip_slates, round_trip_events = _fixture()
+    path = tmp_path / "slates.parquet"
+    pd.DataFrame(round_trip_slates).to_parquet(path, index=False)
+    fixtures.append(("parquet round-tripped slate",
+                     pd.read_parquet(path).to_dict(orient="records"), round_trip_events))
+
+    for label, slates, events in fixtures:
+        names = ope_eval_report.feature_names(events) if events else []
+        actual_pairs, actual_dropped, actual_diag = slate_pairs.build_pairs(slates, events, names)
+        want_pairs, want_dropped, want_diag = _eager_build_pairs(slates, events, names)
+        assert actual_pairs == want_pairs, label
+        assert actual_dropped == want_dropped, label
+        assert actual_diag == want_diag, label
+
+
+def test_build_pairs_extracts_features_only_for_candidates_a_pair_uses(monkeypatch):
+    """At low click-through most candidates never reach a pair; their features cost nothing.
+
+    Fails against an index that extracts every candidate's features up front.
+    """
+    def candidate(item):
+        return {"item": item, "coldStart": False, "impressions": 3, "clicks": 1,
+                "modelPredictions": {"relevance": 0.4, "predictionScore": 0.5}}
+
+    # Two slates, one engaged: only the engaged slate's three items can form pairs.
+    events = [
+        {"requestId": "r1", "user": "u", "action": "a", "reward": 1.0, "clicked": 1,
+         "modelPredictions": {}, "actionSpace": [candidate("a"), candidate("b"), candidate("c")]},
+        {"requestId": "r2", "user": "u", "action": "d", "reward": 0.0, "clicked": 0,
+         "modelPredictions": {}, "actionSpace": [candidate("d"), candidate("e"), candidate("f")]},
+    ]
+    slates = [
+        {"request_id": "r1", "user_id": "u", "items": [
+            {"item_id": "a", "clicked": 1}, {"item_id": "b", "clicked": 0},
+            {"item_id": "c", "clicked": 0}]},
+        {"request_id": "r2", "user_id": "u", "items": [
+            {"item_id": "d", "clicked": 0}, {"item_id": "e", "clicked": 0},
+            {"item_id": "f", "clicked": 0}]},
+    ]
+    extracted = []
+    original = ope_eval_report.candidate_features
+    monkeypatch.setattr(ope_eval_report, "candidate_features",
+                        lambda cand, names: (extracted.append(cand["item"]),
+                                             original(cand, names))[1])
+
+    pairs, _, _ = slate_pairs.build_pairs(slates, events)
+
+    assert len(pairs) == 2                       # a beats b, a beats c
+    # r2 contributed nothing, so d/e/f are never extracted; `a` is on both pairs but extracted once
+    assert sorted(extracted) == ["a", "b", "c"]
+
+
+def test_build_pairs_tests_each_slate_item_for_engagement_once(monkeypatch):
+    """One partitioning pass, not a comprehension per side."""
+    events = [{"requestId": "r1", "user": "u", "action": "a", "reward": 1.0, "clicked": 1,
+               "modelPredictions": {}, "actionSpace": [
+                   {"item": i, "coldStart": False, "impressions": 1, "clicks": 0,
+                    "modelPredictions": {"predictionScore": 0.5}} for i in ("a", "b", "c", "d")]}]
+    slates = [{"request_id": "r1", "user_id": "u", "items": [
+        {"item_id": "a", "clicked": 1}, {"item_id": "b", "clicked": 0},
+        {"item_id": "c", "clicked": 0}, {"item_id": "d", "clicked": 0}]}]
+
+    calls = []
+    original = slate_pairs.is_chosen
+    monkeypatch.setattr(slate_pairs, "is_chosen",
+                        lambda item: (calls.append(item["item_id"]), original(item))[1])
+
+    slate_pairs.build_pairs(slates, events)
+
+    assert sorted(calls) == ["a", "b", "c", "d"]
