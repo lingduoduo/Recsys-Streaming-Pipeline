@@ -260,4 +260,105 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
       }
     }
   }
+
+  /** A frozen copy of the combinator-based body this rewrite replaces, as the equivalence oracle.
+    *
+    * Deliberately duplicated rather than delegating: comparing the rewritten loops against a copy
+    * of themselves would assert nothing. If GrpoMath.gradientFromPolicies is ever rewritten again,
+    * this stays as it is.
+    */
+  private def combinatorGradient(x: Array[Array[Double]], piSnap: Array[Double],
+                                 piOld: Array[Double], w: Array[Double], adv: Array[Double],
+                                 c: GrpoHyperParams): Array[Double] = {
+    val dim = w.length
+    val pi = GrpoMath.softmax(GrpoMath.logits(x, w), c.temperature)
+    val expected = Array.fill(dim)(0.0)
+    pi.indices.foreach(i => (0 until dim).foreach(d => expected(d) += pi(i) * x(i)(d)))
+    val grad = Array.fill(dim)(0.0)
+    pi.indices.foreach { i =>
+      val piSnapFloored = math.max(piSnap(i), GrpoMath.AdvantageFloor)
+      val ratio = pi(i) / piSnapFloored
+      val clipped = math.max(1.0 - c.clipEpsilon, math.min(1.0 + c.clipEpsilon, ratio))
+      val unclippedSelected = ratio * adv(i) <= clipped * adv(i)
+      val surrogateScale = if (unclippedSelected) -adv(i) / (piSnapFloored * pi.length) else 0.0
+      val klScale = c.klBeta *
+        math.log(math.max(pi(i), GrpoMath.AdvantageFloor) / math.max(piOld(i), GrpoMath.AdvantageFloor))
+      val scale = (surrogateScale + klScale) * pi(i) / c.temperature
+      (0 until dim).foreach(d => grad(d) += scale * (x(i)(d) - expected(d)))
+    }
+    grad
+  }
+
+  private def sameBits(a: Array[Double], b: Array[Double]): Boolean =
+    a.length == b.length && a.indices.forall(d =>
+      java.lang.Double.doubleToRawLongBits(a(d)) == java.lang.Double.doubleToRawLongBits(b(d)))
+
+  it should "match the combinator gradient bit for bit across randomized shapes" in {
+    // The rewrite's whole claim is that indexed loops in the original order move no bits. Random
+    // shapes are the only way to exercise the loop bounds; the enumerated cases below cover the
+    // boundaries that random draws will not reliably hit.
+    val rng = new scala.util.Random(3)
+    var compared = 0
+    (1 to 2000).foreach { _ =>
+      val slate = 2 + rng.nextInt(12)
+      val dim = 9
+      val x = Array.fill(slate)(Array.fill(dim)(rng.nextGaussian()))
+      val rewards = Array.fill(slate)(if (rng.nextDouble() < 0.3) 1.0 else 0.0)
+      GrpoMath.advantages(rewards).foreach { adv =>
+        val w = Array.fill(dim)(rng.nextGaussian())
+        val hyper = cfg.copy(klBeta = if (rng.nextBoolean()) 0.0 else 0.02,
+                             temperature = if (rng.nextBoolean()) 1.0 else 0.5)
+        val piSnap = GrpoMath.softmax(GrpoMath.logits(x, Array.fill(dim)(rng.nextGaussian())),
+                                      hyper.temperature)
+        val piOld = GrpoMath.softmax(Array.fill(slate)(rng.nextGaussian()), hyper.temperature)
+        val want = combinatorGradient(x, piSnap, piOld, w, adv, hyper)
+        val got = GrpoMath.gradientFromPolicies(x, piSnap, piOld, w, adv, hyper)
+        withClue(s"slate=$slate temperature=${hyper.temperature} klBeta=${hyper.klBeta}: ") {
+          sameBits(got, want) shouldBe true
+        }
+        compared += 1
+      }
+    }
+    compared should be > 1000   // the variance gate rejects some draws; most must survive
+  }
+
+  it should "match the combinator gradient bit for bit on the boundary cases" in {
+    val two = Array(Array(1.0, 0.0), Array(0.0, 1.0))
+    val shared = Array(Array(0.5, 0.5), Array(0.5, 0.5), Array(0.5, 0.5))
+    val cases = Seq(
+      ("two candidates", two, Array(0.3, 0.3), Array(0.1, 0.2), Array(0.5, -0.25),
+       Array(1.0, -1.0), cfg),
+      ("saturated logits", two, Array(1e6, -1e6), Array(-1e6, 1e6), Array(1e6, -1e6),
+       Array(1.0, -1.0), cfg),
+      ("zero advantage", two, Array(0.3, 0.3), Array(0.1, 0.2), Array(0.5, -0.25),
+       Array(0.0, 0.0), cfg),
+      ("non-unit temperature", two, Array(0.3, 0.3), Array(0.1, 0.2), Array(0.5, -0.25),
+       Array(1.0, -1.0), cfg.copy(temperature = 0.25)),
+      ("klBeta zero", two, Array(0.3, 0.3), Array(0.1, 0.2), Array(0.5, -0.25),
+       Array(1.0, -1.0), cfg.copy(klBeta = 0.0)),
+      ("identical feature vectors", shared, Array(0.3, 0.3, 0.3), Array(0.2, 0.2, 0.2),
+       Array(0.5, -0.25), Array(1.0, -0.5, -0.5), cfg))
+
+    cases.foreach { case (label, x, snapshotLogits, loggedLogits, w, adv, hyper) =>
+      val piSnap = GrpoMath.softmax(snapshotLogits, hyper.temperature)
+      val piOld = GrpoMath.softmax(loggedLogits, hyper.temperature)
+      withClue(s"$label: ") {
+        sameBits(GrpoMath.gradientFromPolicies(x, piSnap, piOld, w, adv, hyper),
+                 combinatorGradient(x, piSnap, piOld, w, adv, hyper)) shouldBe true
+      }
+    }
+  }
+
+  it should "poison the gradient when a feature is NaN, keeping divergence detectable" in {
+    // The fused loop takes its maximum with `>`, which is false against NaN, where the public
+    // softmax uses Array.max and its Ordering[Double]. The two can disagree on which element wins
+    // when a logit is NaN. Either way the gradient carries NaN, which is what stepBatch keys on:
+    // a NaN logit means the weights already diverged and the batch must be discarded.
+    val x = Array(Array(Double.NaN, 0.0), Array(0.0, 1.0))
+    val piSnap = GrpoMath.softmax(Array(0.3, 0.3), cfg.temperature)
+    val piOld = GrpoMath.softmax(Array(0.1, 0.2), cfg.temperature)
+    val grad = GrpoMath.gradientFromPolicies(x, piSnap, piOld, Array(1.0, 1.0),
+                                             Array(1.0, -1.0), cfg)
+    grad.exists(v => java.lang.Double.isNaN(v)) shouldBe true
+  }
 }

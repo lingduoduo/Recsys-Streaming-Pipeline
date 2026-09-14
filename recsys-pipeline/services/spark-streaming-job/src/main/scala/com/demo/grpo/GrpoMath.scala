@@ -111,29 +111,72 @@ object GrpoMath {
     * caller is `GrpoPolicyStreamingJob.applyBatch`, which holds both references fixed for a whole
     * micro-batch and would otherwise re-derive them on every inner epoch. Only `pi` depends on
     * `w`, so only `pi` is computed here.
+    *
+    * The body is written as indexed while loops over preallocated arrays rather than through
+    * `logits` and `softmax`, which stay public and unchanged for their other callers. This is the
+    * one function called per group per inner epoch, and the combinators cost about 72% of it.
     */
   private[grpo] def gradientFromPolicies(
       x: Array[Array[Double]], piSnap: Array[Double], piOld: Array[Double],
       w: Array[Double], adv: Array[Double], cfg: GrpoHyperParams): Array[Double] = {
     val dim = w.length
-    val pi = softmax(logits(x, w), cfg.temperature)
+    val n = x.length
+
+    // One row-sized workspace carries the logits, then the exponentials, then pi. Indexed while
+    // loops rather than `map`/`foldLeft`/`Range.foreach`: the combinators cost about 72% of this
+    // function -- foldLeft boxes the accumulator per feature, softmax allocates three arrays where
+    // one suffices, and each `(0 until dim).foreach` builds a Range and calls a Function1 per
+    // element. Every loop keeps the original order, so the result is bitwise identical, which is
+    // what GrpoMathSpec's randomized bit comparison against the frozen combinator body asserts.
+    val pi = new Array[Double](n)
+    var i = 0
+    while (i < n) {
+      val row = x(i)
+      var acc = 0.0
+      var k = 0
+      while (k < dim) { acc += row(k) * w(k); k += 1 }
+      pi(i) = acc / cfg.temperature
+      i += 1
+    }
+    // Subtract the max before exp, or large logits overflow. `>` is false against NaN, so a NaN
+    // logit leaves the running max in place where the public softmax's Array.max may pick it; both
+    // poison the gradient, and stepBatch discards the batch either way.
+    var max = pi(0)
+    i = 1
+    while (i < n) { if (pi(i) > max) max = pi(i); i += 1 }
+    var total = 0.0
+    i = 0
+    while (i < n) { pi(i) = math.exp(pi(i) - max); total += pi(i); i += 1 }
+    i = 0
+    while (i < n) { pi(i) = pi(i) / total; i += 1 }
 
     // Expected feature vector under pi -- the term that makes d log pi_i / dw a centred difference.
-    val expected = Array.fill(dim)(0.0)
-    pi.indices.foreach(i => (0 until dim).foreach(d => expected(d) += pi(i) * x(i)(d)))
+    val expected = new Array[Double](dim)
+    i = 0
+    while (i < n) {
+      val p = pi(i)
+      val row = x(i)
+      var d = 0
+      while (d < dim) { expected(d) += p * row(d); d += 1 }
+      i += 1
+    }
 
-    val grad = Array.fill(dim)(0.0)
-    pi.indices.foreach { i =>
+    val grad = new Array[Double](dim)
+    i = 0
+    while (i < n) {
       val piSnapFloored = math.max(piSnap(i), AdvantageFloor)
       val ratio = pi(i) / piSnapFloored                          // ratio: snapshot reference
       val clipped = math.max(1.0 - cfg.clipEpsilon, math.min(1.0 + cfg.clipEpsilon, ratio))
       // The surrogate moves with w only when min() kept the raw ratio; the clip bound is flat.
       val unclippedSelected = ratio * adv(i) <= clipped * adv(i)
-      val surrogateScale = if (unclippedSelected) -adv(i) / (piSnapFloored * pi.length) else 0.0
+      val surrogateScale = if (unclippedSelected) -adv(i) / (piSnapFloored * n) else 0.0
       val klScale = cfg.klBeta *
         math.log(math.max(pi(i), AdvantageFloor) / math.max(piOld(i), AdvantageFloor))
       val scale = (surrogateScale + klScale) * pi(i) / cfg.temperature
-      (0 until dim).foreach(d => grad(d) += scale * (x(i)(d) - expected(d)))
+      val row = x(i)
+      var d = 0
+      while (d < dim) { grad(d) += scale * (row(d) - expected(d)); d += 1 }
+      i += 1
     }
     grad
   }
