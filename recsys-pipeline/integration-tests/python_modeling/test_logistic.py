@@ -69,9 +69,6 @@ def test_fit_bounds_temporary_allocation():
     X = np.zeros((n, features))
     y = np.full(n, 0.3)
     logistic.fit(X[:2], y[:2], iters=2)  # warm up numpy outside measurement
-    # start() is a no-op when tracing is already on (PYTHONTRACEMALLOC=1, -X tracemalloc,
-    # memory plugins) and does not clear the peak, so reset it and leave an outer
-    # session's tracing as we found it.
     # Measure fit's own growth, not the process-wide peak: start() is a no-op when tracing is
     # already on (PYTHONTRACEMALLOC=1, -X tracemalloc, memory plugins) and the peak then
     # carries everything already alive. Leave an outer session's tracing as we found it.
