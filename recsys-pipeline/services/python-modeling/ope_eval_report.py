@@ -57,14 +57,28 @@ def candidates_of(event: dict) -> list[dict]:
     return [] if raw is None else list(raw)
 
 
+def _collect_numeric_pred_keys(source: dict, keys: set) -> None:
+    """Add source's numeric modelPredictions keys to the accumulating union.
+
+    Only keys not already discovered are type-checked. The result is a union, so a key
+    already admitted by an earlier numeric value cannot be dropped by a later one, and a key
+    seen non-numeric is simply re-checked when it reappears. On a replay the same handful of
+    keys repeats on every candidate, so the set difference short-circuits the per-key
+    isinstance scan almost every time -- worth it because this scan, which visits every
+    candidate of every event, dominates fitting the reward model.
+    """
+    mp = source.get("modelPredictions") or {}
+    new = mp.keys() - keys
+    if new:
+        keys.update(k for k in new if isinstance(mp[k], (int, float)))
+
+
 def _model_pred_keys(events) -> list[str]:
     keys = set()
     for e in events:
-        mp = e.get("modelPredictions") or {}
-        keys.update(k for k, v in mp.items() if isinstance(v, (int, float)))
+        _collect_numeric_pred_keys(e, keys)
         for c in candidates_of(e):
-            cmp = c.get("modelPredictions") or {}
-            keys.update(k for k, v in cmp.items() if isinstance(v, (int, float)))
+            _collect_numeric_pred_keys(c, keys)
     return sorted(keys)
 
 
@@ -130,8 +144,10 @@ class RewardModel:
 
 def fit_reward_model(events: list[dict]) -> RewardModel:
     names = feature_names(events)
-    train = [e for e in events if not is_test(e.get("requestId", ""))]
-    test = [e for e in events if is_test(e.get("requestId", ""))]
+    # One pass: is_test md5-hashes the requestId, so a comprehension per split hashes twice.
+    train, test = [], []
+    for e in events:
+        (test if is_test(e.get("requestId", "")) else train).append(e)
     if not train:
         train, test = events, events
     Xtr = np.array([taken_features(e, names) for e in train], dtype=float)
@@ -140,9 +156,15 @@ def fit_reward_model(events: list[dict]) -> RewardModel:
     w = logistic.fit(Xs, ytr, l2=1.0, lr=0.5, iters=500)
 
     if test:
-        Xte = np.array([taken_features(e, names) for e in test], dtype=float)
+        # `test is train` only on the no-train fallback above, where both splits are the same
+        # events: reuse the matrix rather than extracting every taken action's features a
+        # second time (each of which re-scans that event's candidates for the taken action).
+        same_events = test is train
+        Xte = Xtr if same_events else np.array([taken_features(e, names) for e in test],
+                                               dtype=float)
+        rte = ytr if same_events else np.array([float(e.get("reward", 0.0)) for e in test],
+                                               dtype=float)
         pte = logistic.predict_proba(logistic.apply_standardize(Xte, mean, std), w)
-        rte = np.array([float(e.get("reward", 0.0)) for e in test], dtype=float)
         clicked = [int(e.get("clicked", e.get("reward", 0.0) > 0)) for e in test]
         mse = round(float(np.mean((pte - rte) ** 2)), 4)
         auc_value = auc(list(pte), clicked)

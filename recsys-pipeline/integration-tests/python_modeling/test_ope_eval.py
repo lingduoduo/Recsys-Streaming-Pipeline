@@ -361,3 +361,89 @@ def test_bootstrap_scores_each_policy_once_regardless_of_sample_count():
 
     assert len(calls) == len(non_logging)
     assert all(row["value_ci_low"] is not None for row in rows)
+
+
+# Request ids that all hash into the held-out split, so fit_reward_model takes its
+# no-train fallback (train, test = events, events). Hardcoded rather than searched
+# with is_test() so the fixture does not depend on the function under test.
+_ALL_HELDOUT_REQUEST_IDS = ["t8", "t10", "t28", "t31", "t32", "t37", "t39", "t40"]
+
+
+def test_model_pred_keys_admits_a_key_that_is_numeric_on_any_single_source():
+    """The feature schema is the union of numeric modelPredictions keys over every source.
+
+    Pins the three cases a key-discovery shortcut could get wrong: a key seen non-numeric
+    before it is seen numeric still counts, bools count (int subclass), and None never does.
+    """
+    events = [
+        {"modelPredictions": {"late": "not-a-number"},
+         "actionSpace": [{"modelPredictions": {"cand": 1}}]},
+        {"modelPredictions": {"late": 2.0}, "actionSpace": None},
+        {"modelPredictions": {"flag": True},
+         "actionSpace": [{"modelPredictions": {"nothing": None}}]},
+        {"actionSpace": [{}]},
+    ]
+    assert ope._model_pred_keys(events) == ["cand", "flag", "late"]
+
+
+def test_model_pred_keys_inspects_a_value_only_until_its_key_is_known():
+    """A key already in the union is not type-checked again on every later candidate.
+
+    Fails if key discovery re-inspects the values of known keys, which is the cost that
+    dominates fitting the reward model: the same handful of keys repeats on every candidate
+    of every event.
+    """
+    lookups = []
+
+    class RecordingPredictions(dict):
+        def __getitem__(self, key):
+            lookups.append(key)
+            return super().__getitem__(key)
+
+    events = [{"modelPredictions": RecordingPredictions(relevance=0.5, predictionScore=0.5),
+               "actionSpace": [{"modelPredictions": RecordingPredictions(relevance=0.5)}
+                               for _ in range(5)]}
+              for _ in range(20)]
+
+    assert ope._model_pred_keys(events) == ["predictionScore", "relevance"]
+    assert sorted(lookups) == ["predictionScore", "relevance"]
+
+
+def test_fit_hashes_each_request_id_once(monkeypatch):
+    """Splitting train/test in one pass, not one pass per split.
+
+    Fails if the split reverts to a comprehension per side, which md5-hashes every
+    requestId twice.
+    """
+    events = _dataset(40)
+    calls = []
+    original = ope.is_test
+    monkeypatch.setattr(ope, "is_test",
+                        lambda rid: (calls.append(rid), original(rid))[1])
+
+    ope.fit_reward_model(events)
+
+    assert len(calls) == len(events)
+
+
+def test_fit_extracts_taken_features_once_when_every_event_is_held_out(monkeypatch):
+    """On the no-train fallback both splits are the same events, so the matrix is built once.
+
+    Fails if the held-out matrix is re-extracted from the same events, which also re-scans
+    every event's candidate list to find the taken action.
+    """
+    events = [{**event, "requestId": rid}
+              for event, rid in zip(_dataset(len(_ALL_HELDOUT_REQUEST_IDS)),
+                                    _ALL_HELDOUT_REQUEST_IDS)]
+    assert all(ope.is_test(e["requestId"]) for e in events), "fixture must be all-held-out"
+
+    calls = []
+    original = ope.taken_features
+    monkeypatch.setattr(ope, "taken_features",
+                        lambda event, names: (calls.append(event["requestId"]),
+                                              original(event, names))[1])
+
+    model = ope.fit_reward_model(events)
+
+    assert len(calls) == len(events)
+    assert model.calibration["n_test"] == len(events)
