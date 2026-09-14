@@ -235,16 +235,20 @@ class GrpoMathSpec extends AnyFlatSpec with Matchers {
     // already softmaxed. Same inputs must give the same vector, bit for bit -- the hoist in
     // applyBatch is only safe if these two cannot drift.
     val cases = Seq(
-      // (x, snapshotLogits, loggedLogits, w, rewards) - ordinary, saturated, and clipped
+      // (x, snapshotLogits, loggedLogits, w, adv) - ordinary, saturated, and clipped
       (Array(Array(1.0, 0.0), Array(0.0, 1.0)), Array(0.3, 0.3), Array(0.1, 0.2),
-       Array(0.5, -0.25), Array(1.0, 0.0)),
+       Array(0.5, -0.25), GrpoMath.advantages(Array(1.0, 0.0)).get),
       (Array(Array(1.0, 0.0), Array(0.0, 1.0)), Array(1000.0, -1000.0), Array(-800.0, 900.0),
-       Array(2.0, -3.0), Array(1.0, 0.0)),
+       Array(2.0, -3.0), GrpoMath.advantages(Array(1.0, 0.0)).get),
       (Array(Array(1.0, 0.0), Array(0.0, 1.0), Array(0.5, 0.5)), Array(0.0, 0.0, 0.0),
-       Array(5.0, -5.0, 0.0), Array(4.0, -4.0), Array(1.0, 0.0, 0.0)))
+       Array(5.0, -5.0, 0.0), Array(4.0, -4.0), GrpoMath.advantages(Array(1.0, 0.0, 0.0)).get),
+      // Zero advantage, where the surrogate contributes nothing and only the KL term drives the
+      // gradient. It has to be supplied directly: advantages() rejects zero-variance groups, so
+      // it can never return a zero vector and no rewards-derived case reaches this path.
+      (Array(Array(1.0, 0.0), Array(0.0, 1.0)), Array(0.3, 0.3), Array(0.1, 0.2),
+       Array(0.5, -0.25), Array(0.0, 0.0)))
 
-    cases.foreach { case (x, snapshot, logged, w, rewards) =>
-      val adv = GrpoMath.advantages(rewards).get
+    cases.foreach { case (x, snapshot, logged, w, adv) =>
       val expected = GrpoMath.gradient(x, snapshot, logged, w, adv, cfg)
       val actual = GrpoMath.gradientFromPolicies(
         x, GrpoMath.softmax(snapshot, cfg.temperature),

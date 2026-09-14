@@ -392,9 +392,9 @@ Expected: no `ZzBenchThrowaway.scala`, and a clean whitespace check.
 
 Observed: `git status --short` empty and `git diff --check` clean; the harness is deleted.
 
-- [ ] **Step 4: Request a read-only code review.** Ask for a review against every spec constraint, specifically: that the extracted body is line-for-line today's arithmetic in the same order; that `piSnap`/`piOld` cannot be confused for logits at the one call site; that the hoisted values are genuinely independent of `w`; and that the tests would fail if the hoist drifted. Resolve substantive findings before publishing.
+- [x] **Step 4: Request a read-only code review.** Ask for a review against every spec constraint, specifically: that the extracted body is line-for-line today's arithmetic in the same order; that `piSnap`/`piOld` cannot be confused for logits at the one call site; that the hoisted values are genuinely independent of `w`; and that the tests would fail if the hoist drifted. Resolve substantive findings before publishing.
 
-- [ ] **Step 5: Publish.** Push `optimize/ppo-training`, open a PR against `master` titled `Optimize PPO training`, and record the measured before/after, the suite counts, and the deliberate absence of a red-green performance test in the body. Fill in this plan's verification record and commit it.
+- [x] **Step 5: Publish.** Push `optimize/ppo-training`, open a PR against `master` titled `Optimize PPO training`, and record the measured before/after, the suite counts, and the deliberate absence of a red-green performance test in the body. Fill in this plan's verification record and commit it.
 
 ## Verification record
 
@@ -406,6 +406,18 @@ Observed: `git status --short` empty and `git diff --check` clean; the harness i
 - Benchmark: `applyBatch` -33% / -35% / -29% at 100 / 1,000 / 5,000 groups; `gradientFromPolicies` 929 ns/op against the public form's 1,689 ns/op, a 760 ns saving that is exactly the two 368 ns softmaxes. See Task 3 Step 2 for the full table and for why the first benchmark pass was discarded.
 - The public `gradient` is unchanged at 1,654 to 1,689 ns/op across the change, which is the intended outcome: it still softmaxes both references for its own callers.
 - As the spec states, no test asserts the softmax call count. The performance property rests on the structure plus the benchmark; correctness rests on the bitwise equivalence assertions and the pre-existing finite-difference checks.
+
+### Review outcome and the follow-up it required
+
+The independent read-only review confirmed the production change: it extracted the 18-line arithmetic block from `master` and from the branch and found both at md5 `f0629b6acf4b731c415b2ee14e39fad7` -- byte-identical, not merely equivalent -- and established the hoist's validity by showing `snapshot` is a never-written clone, that `gradientFromPolicies` writes only its own locals, that `softmax` and `logits` both return fresh arrays so no aliasing is possible, and that `GrpoSlates.toGroups` returns a strict `WrappedArray` so `prepared` really does materialize once.
+
+It then found a test-strength gap that PR #235 merged with, fixed in a follow-up:
+
+The batch-level bitwise test's fixture made BOTH reference policies uniform -- `GrpoWeightStore.initial` is all-zero weights, so `piSnap` is uniform regardless of features, and the `group` helper's default `logged` is `[0.5, 0.5, 0.5]`. A uniform softmax is temperature-invariant and bitwise equal to the other uniform reference, so the test was blind to a dropped temperature argument and to a swap of the two references. This mattered because the change moved two `cfg.hyper.temperature` uses out of `GrpoMath`, where `GrpoMathSpec` pins non-unit temperature, and into `applyBatch`, which no test exercised at `T != 1`. Independently reproduced: replacing `cfg.hyper.temperature` with `1.0` on the `piOld` softmax left all 53 `com.demo.grpo.*` tests green, and with `GRPO_TEMPERATURE=0.5` that edit would compute both references flatter than `pi`, corrupting the ratio on every candidate while the suite stayed green.
+
+The fixture now uses a non-unit temperature (0.5), distinct non-uniform `logged` per group, and non-uniform starting weights. Verified: green on correct code (53 tests), and all three previously surviving mutations now fail -- `piOld` at `T = 1.0` fails with `4587161527048530728 was not equal to 4587163444750669971`, `piSnap` at `T = 1.0` fails, and swapping the two references fails.
+
+The review also noted that the delegation test's cases all derived `adv` from `advantages`, which rejects zero-variance groups and so can never return a zero vector, leaving the spec's named zero-advantage case uncovered. A literal `Array(0.0, 0.0)` case was added. And it observed that `private[grpo]` compiles to a public JVM method, so the spec's containment rationale rests on there being one call site rather than on the modifier being enforced; the spec now says so.
 
 ### Limits of this evidence
 
