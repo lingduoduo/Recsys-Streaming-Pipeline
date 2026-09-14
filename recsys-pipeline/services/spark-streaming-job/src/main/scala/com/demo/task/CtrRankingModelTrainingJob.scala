@@ -73,13 +73,24 @@ object CtrRankingModelTrainingJob {
   }
 
   def splitByDate(df: DataFrame, holdoutDays: Int): (DataFrame, DataFrame) = {
-    val holdout = df.select(col("date").cast("string").as("date"))
-      .where(col("date").isNotNull).distinct()
+    val (train, valid, _) = splitByDateWithCount(df, holdoutDays)
+    (train, valid)
+  }
+
+  private[task] def splitByDateWithCount(
+      df: DataFrame, holdoutDays: Int
+  ): (DataFrame, DataFrame, Long) = {
+    // Count during date discovery to avoid scanning the holdout again just for its size.
+    // Only the latest observed dates and their counts reach the driver.
+    val holdoutCounts = df.select(col("date").cast("string").as("date"))
+      .where(col("date").isNotNull).groupBy("date").count()
       .orderBy(col("date").desc).limit(math.max(1, holdoutDays))
-      .collect().map(_.getString(0)).toSeq
+      .collect()
+    val holdout = holdoutCounts.map(_.getString(0)).toSeq
+    val validationRows = holdoutCounts.map(_.getLong(1)).sum
     val train = df.where(!col("date").cast("string").isin(holdout: _*))
     val valid = df.where(col("date").cast("string").isin(holdout: _*))
-    (train, valid)
+    (train, valid, validationRows)
   }
 
   def evaluate(predictions: DataFrame): Map[String, Double] = {
@@ -132,8 +143,7 @@ object CtrRankingModelTrainingJob {
   ): Map[String, Double] = {
     val raw = spark.read.parquet(inputPath)
       .where(col("user_id").isNotNull && col("item_id").isNotNull && col("impression_time").isNotNull)
-    val (trainRaw, validRaw) = splitByDate(raw, holdoutDays)
-    val validationRows = validRaw.count()
+    val (trainRaw, validRaw, validationRows) = splitByDateWithCount(raw, holdoutDays)
     val training = assembleFeatures(labelColumn(trainRaw, labelMode), numFeatures)
       .select("ctr_label", "features").persist(StorageLevel.MEMORY_AND_DISK)
     val (model, trainingRows): (Model[_], Long) = try {

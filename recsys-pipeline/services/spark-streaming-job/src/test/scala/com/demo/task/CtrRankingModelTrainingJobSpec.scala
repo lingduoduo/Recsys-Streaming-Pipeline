@@ -100,6 +100,35 @@ class CtrRankingModelTrainingJobSpec extends AnyFlatSpec with Matchers with Befo
       Array("2026-06-03")
   }
 
+  it should "count the holdout while selecting dates in a single input pass" in {
+    val s = spark; import s.implicits._
+    val scanned = spark.sparkContext.longAccumulator("ctr-split-rows")
+    val df = spark.sparkContext.parallelize(Seq(
+      ("a", "2026-06-01"), ("b", "2026-06-10"),
+      ("c", "2026-06-20"), ("d", "2026-06-20"),
+      ("undated", null.asInstanceOf[String])
+    ), 2).map { row => scanned.add(1L); row }.toDF("id", "date")
+
+    val (train, valid, validationRows) =
+      CtrRankingModelTrainingJob.splitByDateWithCount(df, holdoutDays = 2)
+
+    validationRows shouldBe 3L
+    scanned.value shouldBe 5L
+    train.select("id").as[String].collect().toSet shouldBe Set("a")
+    valid.select("id").as[String].collect().toSet shouldBe Set("b", "c", "d")
+  }
+
+  it should "count empty and minimum-sized holdouts consistently" in {
+    val s = spark; import s.implicits._
+    val undated = Seq(("a", null.asInstanceOf[String])).toDF("id", "date")
+    CtrRankingModelTrainingJob.splitByDateWithCount(undated, 1)._3 shouldBe 0L
+    CtrRankingModelTrainingJob.splitByDateWithCount(undated.limit(0), 1)._3 shouldBe 0L
+    val dated = Seq(("a", "2026-06-01"), ("b", "2026-06-02"), ("c", "2026-06-02"))
+      .toDF("id", "date")
+    CtrRankingModelTrainingJob.splitByDateWithCount(dated, 0)._3 shouldBe 2L
+    CtrRankingModelTrainingJob.splitByDateWithCount(dated, 10)._3 shouldBe 3L
+  }
+
   "evaluate" should "return auc/pr/logloss/positive_rate in valid ranges" in {
     val s = spark; import s.implicits._
     val preds = Seq(
