@@ -29,9 +29,13 @@ Allocate `residual = np.empty(n, dtype=float)` and `grad = np.empty_like(w)` bef
 4. The Python modeling suite passes, including OPE, Q/DPO, and dashboard consumers.
 5. Architecture documentation explains workspace reuse; benchmark evidence reports runtime, traced allocations, and weight differences.
 
-## Preliminary evidence and limits
+## Evidence and limits
 
-Prototype, Python 3.12 / NumPy 2.4.4, seed 7, eight features, 500 steps, median of three fits: 10,000 rows took 0.119 s before and 0.095 s after, with traced peaks 1,041,288 and 801,448 bytes. At 100,000 rows: 1.026 and 1.008 s, with peaks 10,401,264 and 8,001,448 bytes. Weights were identical.
+Measured on the delivered implementation, Python 3.12.2 / NumPy 2.5.1 / Accelerate BLAS, seed 7, eight features, 500 steps: traced peaks fall from 961,504 to 801,448 bytes at 10,000 rows and from 9,601,504 to 8,001,448 bytes at 100,000 rows, a reduction of 16.6% and 16.7%. Weights are bitwise identical to the allocating optimizer, not merely within the 1e-12 this design requires.
+
+**This is an allocation reduction, not a speedup.** Runtime is effectively unchanged: over nine fits, 0.0977 s to 0.0958 s at 10,000 rows (2.0%) and 0.9711 s to 0.9649 s at 100,000 rows (0.6%, inside the 1.3% noise band). The cost is dominated by the BLAS matrix-vector products, not by allocation.
+
+The prototype figures this design was written against reported 0.119 s to 0.095 s at 10,000 rows, a 20% gain, and traced peaks of 1,041,288 and 10,401,264 bytes before. That runtime gain did not reproduce. The delivered "after" peaks match the prototype exactly while the "before" peaks are lower, consistent with the NumPy version difference (2.5.1 versus 2.4.4). Anything citing this design should claim reduced temporary allocation only, which is what the architecture note in `Analysis_Report.md` says.
 
 This is synthetic fitting time, not end-to-end RM throughput. Tracemalloc is not process RSS and does not cover every BLAS allocation. Runtime depends on hardware and NumPy/BLAS. The design matrix remains O(rows × features).
 
