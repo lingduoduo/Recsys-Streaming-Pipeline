@@ -1,6 +1,8 @@
 package com.demo.grpo
 
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.functions.{col, udf}
+import org.apache.spark.storage.StorageLevel
 
 /** One GRPO group: the candidates of a single slate, with their features, logged logits, rewards. */
 final case class GrpoGroup(
@@ -39,50 +41,115 @@ object GrpoSlates {
     try Some(parts.map(_.toDouble)) catch { case _: NumberFormatException => None }
   }
 
-  /** KNOWN SCALING LIMITATION: this collects the whole micro-batch to the driver.
+  /** Column the gate reason is tagged under. Package-visible so the spec can look for this
+    * predicate in the executed plan of the collect, which is the only way the gate-before-collect
+    * property is observable -- every value `toGroups` returns is identical either way. */
+  private[grpo] val DropReasonColumn = "grpo_drop_reason"
+
+  /** The first gate a slate fails, or None when it survives all three.
     *
-    * The design spec calls for summing the per-slate gradient contributions with `treeAggregate`
-    * "so the driver never collects per-slate vectors". That is not what happens: `collect()` here
-    * pulls every surviving slate's feature matrix into driver memory, and
-    * `GrpoPolicyStreamingJob.applyBatch` then folds over them there. With MAX_OFFSETS_PER_TRIGGER
-    * at its 5000 default and a ten-item slate of nine doubles, a batch is on the order of a few MB,
-    * so the driver holds it comfortably — but the ceiling is the driver's heap, not the cluster's,
-    * and raising the trigger size is the operation that hits it.
+    * The single definition of the gates. Both the Spark-side filter and the driver-side group
+    * builder go through this, so the two cannot drift -- which matters now that the counts come
+    * from one side and the groups from the other: a disagreement would report a batch the job did
+    * not train on. Precedence is size, then feature version, then reward variance, and a slate
+    * failing several is counted under the first.
     *
-    * Deliberately not migrated. Doing it properly means returning a distributed collection instead
-    * of a Seq, which forces the gate counts onto Spark accumulators (they only settle after an
-    * action), turns `applyBatch` from a pure Array function into one that broadcasts the weights
-    * and launches a job per inner epoch, and rewrites both this file's spec and
-    * GrpoPolicyStreamingJobSpec, which construct `Seq[GrpoGroup]` directly and today need no Spark
-    * session to test the learning rule at all. That is a larger change than the scaling headroom
-    * currently justifies; revisit it when a batch actually outgrows the driver.
+    * Takes the two primitives the gates read rather than a GrpoJobConfig, so the UDF below closes
+    * over a String and an Int instead of shipping the Redis host, port and hyperparameters to
+    * every executor.
     */
-  def toGroups(slates: DataFrame, cfg: GrpoJobConfig): (Seq[GrpoGroup], GateCounts) = {
-    val classified = slates.select("slate_id", "items").collect().map(row => classify(row, cfg))
-    val kept = classified.collect { case Right(group) => group }.toSeq
-    val dropped = classified.collect { case Left(reason) => reason }
-      .groupBy(identity).map { case (reason, hits) => reason -> hits.length.toLong }
-    (kept, GateCounts(
-      kept = kept.size.toLong,
-      tooSmall = dropped.getOrElse(TooSmall, 0L),
-      zeroVariance = dropped.getOrElse(ZeroVariance, 0L),
-      badFeatureVersion = dropped.getOrElse(BadFeatureVersion, 0L)))
+  private[grpo] def dropReason(items: Seq[Row], featureVersion: String,
+                               dim: Int): Option[String] = {
+    if (items == null || items.size < 2) return Some(TooSmall)
+    if (featureVectors(items, featureVersion, dim).exists(_.isEmpty)) return Some(BadFeatureVersion)
+    if (GrpoMath.advantages(rewardsOf(items)).isEmpty) return Some(ZeroVariance)
+    None
   }
 
-  /** The group a slate row yields, or the first gate it fails: size, feature version, variance. */
-  private def classify(row: Row, cfg: GrpoJobConfig): Either[String, GrpoGroup] = {
-    val items = row.getSeq[Row](1)
-    if (items.size < 2) return Left(TooSmall)
-    val features = items.map(_.getAs[Map[String, String]]("item_features"))
-    val x = features.map(f => parseFeatureVector(f.getOrElse("grpo_x", null), cfg.featureVersion, cfg.dim))
-    if (x.exists(_.isEmpty)) return Left(BadFeatureVersion)
-    val rewards = items.map { item =>
-      if (item.isNullAt(item.fieldIndex("label"))) 0.0 else item.getAs[Double]("label")
+  /** An item's feature map, or empty when the struct carried none.
+    *
+    * Parquet and a null JSON field both yield a null map here. Both readers of it -- the gate's
+    * vector parse and the builder's reference score -- go through this, so neither can NPE on the
+    * null. Guarding in only one of them is how the old `classify` crashed on a null
+    * `item_features`: it checked nothing and called `getOrElse` straight on the null map.
+    */
+  private def featuresOf(item: Row): Map[String, String] = {
+    val features = item.getAs[Map[String, String]]("item_features")
+    if (features == null) Map.empty else features
+  }
+
+  private def featureVectors(items: Seq[Row], featureVersion: String,
+                             dim: Int): Seq[Option[Array[Double]]] = items.map { item =>
+    parseFeatureVector(featuresOf(item).getOrElse("grpo_x", null), featureVersion, dim)
+  }
+
+  private def rewardsOf(items: Seq[Row]): Array[Double] = items.map { item =>
+    if (item.isNullAt(item.fieldIndex("label"))) 0.0 else item.getAs[Double]("label")
+  }.toArray
+
+  /** `slate_id`, `items`, and the gate reason -- null for a slate that survives.
+    *
+    * Private: this was briefly package-visible for a test that asserted on a frame it built
+    * itself and so proved nothing about what `toGroups` collects. The property is now asserted on
+    * the executed plan of the real query, which needs no access here.
+    */
+  private def tagged(slates: DataFrame, cfg: GrpoJobConfig): DataFrame = {
+    val featureVersion = cfg.featureVersion
+    val dim = cfg.dim
+    val reason = udf((items: Seq[Row]) => dropReason(items, featureVersion, dim).orNull)
+    slates.select(col("slate_id"), col("items"))
+      .withColumn(DropReasonColumn, reason(col("items")))
+  }
+
+  /** Parse slates into groups, gating in Spark so only survivors reach the driver.
+    *
+    * PREVIOUSLY A KNOWN SCALING LIMITATION: the gates ran on the driver, after `collect()` had
+    * already pulled every slate's feature matrix across. At the click-through this job sees, the
+    * variance gate rejects most of what it was handed -- a measured 5,000-slate batch with 5%
+    * engaged keeps 250 -- so the driver was holding twenty times the data it would use, and worse
+    * as click-through falls. Gating first makes the collect carry survivors only.
+    *
+    * The design spec's `treeAggregate` -- summing per-slate gradient contributions in Spark so no
+    * slate vector ever reaches the driver -- is still not done, for the reasons it always was not:
+    * it forces the gate counts onto Spark accumulators, which only settle after an action; it
+    * turns `applyBatch` from a pure Array function into one that broadcasts the weights and
+    * launches a job per inner epoch; and it rewrites this file's spec and
+    * GrpoPolicyStreamingJobSpec, which today test the learning rule with no Spark session at all.
+    * What remains bounded by memory is the cached tagged frame, which lives on the cluster rather
+    * than the driver -- so raising MAX_OFFSETS_PER_TRIGGER now hits the cluster's ceiling.
+    */
+  def toGroups(slates: DataFrame, cfg: GrpoJobConfig): (Seq[GrpoGroup], GateCounts) = {
+    // Cached because both actions below read it: without this the parse and every gate would run
+    // twice, which would trade the driver's memory for double the executor work.
+    val frame = tagged(slates, cfg).persist(StorageLevel.MEMORY_AND_DISK)
+    try {
+      // At most four small rows reach the driver here; no slate data does.
+      val byReason = frame.groupBy(col(DropReasonColumn)).count().collect()
+        .map(row => (Option(row.getString(0)), row.getLong(1))).toMap
+      val kept = frame.filter(col(DropReasonColumn).isNull).select("slate_id", "items")
+        .collect().map(row => buildGroup(row, cfg)).toSeq
+      (kept, GateCounts(
+        // From the Seq itself, not the aggregation: this is the number the job logs as the batch
+        // it trained on, and taking it from the same value passed to stepBatch makes that
+        // identity true by construction rather than something a reader has to verify. The other
+        // three have no Seq to come from and must use the aggregation.
+        kept = kept.size.toLong,
+        tooSmall = byReason.getOrElse(Some(TooSmall), 0L),
+        zeroVariance = byReason.getOrElse(Some(ZeroVariance), 0L),
+        badFeatureVersion = byReason.getOrElse(Some(BadFeatureVersion), 0L)))
+    } finally frame.unpersist()
+  }
+
+  /** The group for a slate already known to pass every gate, so every parse here succeeds. */
+  private def buildGroup(row: Row, cfg: GrpoJobConfig): GrpoGroup = {
+    // By name, not position: the projection this reads is one line away from the withColumn that
+    // adds the reason, and a third column would silently shift the indices.
+    val items = row.getAs[Seq[Row]]("items")
+    val x = featureVectors(items, cfg.featureVersion, cfg.dim).map(_.get).toArray
+    val logged = items.map { item =>
+      try featuresOf(item).getOrElse("prediction_score", "0.0").toDouble
+      catch { case _: NumberFormatException => 0.0 }
     }.toArray
-    if (GrpoMath.advantages(rewards).isEmpty) return Left(ZeroVariance)
-    val logged = features.map { f =>
-      try f.getOrElse("prediction_score", "0.0").toDouble catch { case _: NumberFormatException => 0.0 }
-    }.toArray
-    Right(GrpoGroup(row.getString(0), x.map(_.get).toArray, logged, rewards))
+    GrpoGroup(row.getAs[String]("slate_id"), x, logged, rewardsOf(items))
   }
 }
