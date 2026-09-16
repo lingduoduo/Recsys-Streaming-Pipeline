@@ -2,7 +2,8 @@
 
 A recommendation-system playground combining streaming data pipelines, offline embedding jobs,
 online learning, and bandit-style RL ranking — Spark-based production paths, Spark/Flink learning
-notes, Kafka/Redis infrastructure, and a Spring Boot retrieval service.
+notes, and Kafka/Redis infrastructure. Recommendations are served by a separate retrieval service,
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service).
 
 ## Start here
 
@@ -24,7 +25,7 @@ Each sub-project owns its own documentation; this file is the index.
 
 | Directory | What it is | Docs |
 |---|---|---|
-| [`recsys-pipeline/`](recsys-pipeline/) | The streaming recommendation platform: Kafka → Spark → Redis for live user history, an online joiner and slate collector for training data, offline embedding trainers, and a Spring Boot retrieval service combining an ONNX model, an online-learning reward model, and a UCB/Thompson bandit policy. | [README](recsys-pipeline/README.md) |
+| [`recsys-pipeline/`](recsys-pipeline/) | The streaming recommendation platform: Kafka → Spark → Redis for live user history, an online joiner and slate collector for training data, and offline embedding trainers. Recommendations are served by a separate retrieval service, [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service), combining an ONNX model, an online-learning reward model, and a UCB/Thompson bandit policy. | [README](recsys-pipeline/README.md) |
 | [`recsys-pipeline/frontend/`](recsys-pipeline/frontend/) | Next.js (app-router) rendering of the analysis dashboard — the measurement and diagnostic sections as React components, served from a committed JSON snapshot. | [README](recsys-pipeline/frontend/README.md) |
 | [`spark-analysis/`](spark-analysis/) | Standalone Spark/Flink material: streaming concepts plus production-grade Scala jobs for user-behaviour analysis, classification, and BigQuery retention labelling. Not part of the running platform. | [README](spark-analysis/README.md) |
 

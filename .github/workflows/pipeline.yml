@@ -11,6 +11,10 @@ on:
       - recsys-pipeline/sampledata/**
       - recsys-pipeline/pytest.ini
       - recsys-pipeline/README.md
+      - recsys-pipeline/frontend/**
+      - recsys-pipeline/docs/**
+      - recsys-pipeline/recsys-streaming-pipeline-architecture.html
+      - README.md
       - .github/workflows/pipeline.yml
   pull_request:
     paths:
@@ -22,6 +26,10 @@ on:
       - recsys-pipeline/sampledata/**
       - recsys-pipeline/pytest.ini
       - recsys-pipeline/README.md
+      - recsys-pipeline/frontend/**
+      - recsys-pipeline/docs/**
+      - recsys-pipeline/recsys-streaming-pipeline-architecture.html
+      - README.md
       - .github/workflows/pipeline.yml
 
 permissions:
@@ -39,7 +47,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pyyaml numpy pandas 'pyarrow>=14,<24' kafka-python lz4 'fastavro>=1.9,<2'
+          pip install pytest pyyaml numpy pandas 'pyarrow>=14,<24' kafka-python lz4 'fastavro>=1.9,<2' redis
           pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Run the pipeline integration tests
         working-directory: recsys-pipeline
