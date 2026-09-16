@@ -61,9 +61,9 @@ real-time job path (producer + streaming jobs), and the offline embedding-traini
 ### Model Prediction Pipeline
 
 ```text
-mlp_embedding_model.onnx (bundled classpath resource) ──────────┐
+mlp_embedding_model.onnx (bundled classpath resource) ───────────────┐
 Redis: embeddings, user history, candidate lists ────────────────────┼──► retrieval service  (FeatureCache / Caffeine)
-Redis: reward stats, bandit counters ───────────────────────────┘          │
+Redis: reward stats, bandit counters ────────────────────────────────┘     │
                                                                             ├──► GET  /recommend/{user}
                                                                             ├──► GET  /embedding/{item}
                                                                             └──► GET  /predict/{user}/{item}
@@ -561,9 +561,11 @@ are the only measures that need whole ranked slates.
   not classify it — the candidate still passes through. `ContentCandidateRetriever` returns
   `unknown` for anything missing from the catalog, so a service started without a
   `RECSYS_CATALOG_PATH` covering the served items reports **100% `unknown`**. That is what
-  `run-movie-category-sim.sh` currently produces: it starts the service with the built-in demo
-  catalog (`item1`…`itemN`, inline in `application.yml`), which holds none of the sim's `movie_*`
-  ids, so no expiry, muted-genre, or muted-keyword rule ever fires. Read `unknown_share` alongside
+  `run-movie-category-sim.sh` currently measures: it no longer starts the service — it only
+  probes whatever already answers at `$SERVICE_URL` — so the live safety row reports 100%
+  `unknown` whenever that service is running with its built-in demo catalog (`item1`…`itemN`,
+  inline in the service's own `application.yml`), which holds none of the sim's `movie_*` ids, so
+  no expiry, muted-genre, or muted-keyword rule ever fires. Read `unknown_share` alongside
   `filter_decision_rate` before drawing any conclusion from either. *Known follow-up: wire the
   sim's generated catalog into the service so the live safety row exercises the real rules.*
 - **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
