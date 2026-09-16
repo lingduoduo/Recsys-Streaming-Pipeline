@@ -1,10 +1,8 @@
 package com.demo.retrieval.event;
 
+import com.demo.retrieval.support.ContractFixtures;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -14,14 +12,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
  * The Java retrieval-service module and spark-streaming-job do not share a classpath, so the only
  * way to prove serving's encoder and the joiner's decoder agree is to hand real bytes between
  * them. This test encodes a representative serving impression event and checks it against a
- * fixture committed at recsys-pipeline/schemas/fixtures/serving-impression-v3.avro; a companion
- * Scala test in spark-streaming-job decodes that same fixture through the real production decode
- * path, EventAvroCodec.decode. Drift in this encoder — the same class of bug that shipped raw JSON
- * to an Avro decoder — fails this comparison instead of silently dead-lettering in production.
+ * frozen producer-contract snapshot; a companion Scala test in spark-streaming-job decodes that
+ * fixture through the real production decode path, EventAvroCodec.decode. The pipeline-owned
+ * contract comparison verifies this snapshot against the canonical producer fixture. Drift in this
+ * encoder — the same class of bug that shipped raw JSON to an Avro decoder — fails this comparison
+ * instead of silently dead-lettering in production.
  */
 class RecsysEventFixtureTest {
-
-    private static final Path FIXTURE = Path.of("../../schemas/fixtures/serving-impression-v3.avro");
 
     /** Field values here must match the companion Scala test's assertions exactly. */
     static Map<String, Object> representativeImpressionEvent() {
@@ -48,9 +45,9 @@ class RecsysEventFixtureTest {
     }
 
     @Test
-    void encodingIsByteIdenticalToTheCommittedFixture() throws IOException {
+    void encodingIsByteIdenticalToTheFrozenContractSnapshot() {
         byte[] encoded = new RecsysEventAvroCodec().encode(representativeImpressionEvent());
-        byte[] expected = Files.readAllBytes(FIXTURE);
+        byte[] expected = ContractFixtures.bytes("serving-impression-v3.avro");
 
         assertArrayEquals(expected, encoded);
     }

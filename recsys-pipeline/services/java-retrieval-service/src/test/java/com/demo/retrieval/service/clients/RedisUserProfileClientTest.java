@@ -1,6 +1,7 @@
 package com.demo.retrieval.service.clients;
 
 import com.demo.retrieval.model.UserBehaviorProfile;
+import com.demo.retrieval.support.ContractFixtures;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -8,10 +9,6 @@ import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -135,11 +132,7 @@ class RedisUserProfileClientTest {
     }
 
     private static String profileFixture() {
-        try {
-            return Files.readString(Path.of("../../integration-tests/fixtures/user_profile_v1.json"));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return ContractFixtures.text("user_profile_v1.json");
     }
 
     private record Fixture(

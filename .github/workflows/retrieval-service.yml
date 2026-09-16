@@ -1,0 +1,42 @@
+name: Retrieval service
+
+on:
+  push:
+    paths:
+      - recsys-pipeline/services/java-retrieval-service/**
+      - recsys-pipeline/schemas/recsys-event-v3.avsc
+      - recsys-pipeline/schemas/fixtures/serving-impression-v3.avro
+      - recsys-pipeline/integration-tests/fixtures/user_profile_v1.json
+      - recsys-pipeline/integration-tests/test_retrieval_contracts.py
+      - .github/workflows/retrieval-service.yml
+  pull_request:
+    paths:
+      - recsys-pipeline/services/java-retrieval-service/**
+      - recsys-pipeline/schemas/recsys-event-v3.avsc
+      - recsys-pipeline/schemas/fixtures/serving-impression-v3.avro
+      - recsys-pipeline/integration-tests/fixtures/user_profile_v1.json
+      - recsys-pipeline/integration-tests/test_retrieval_contracts.py
+      - .github/workflows/retrieval-service.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Compare retrieval contract snapshots
+        run: python3 -m unittest discover -s recsys-pipeline/integration-tests -p test_retrieval_contracts.py -v
+      - name: Verify a service-only copy
+        run: |
+          rm -rf "$RUNNER_TEMP/retrieval-service"
+          mkdir -p "$RUNNER_TEMP/retrieval-service"
+          tar --exclude=target -C recsys-pipeline/services/java-retrieval-service -cf - . | tar -C "$RUNNER_TEMP/retrieval-service" -xf -
+          cd "$RUNNER_TEMP/retrieval-service"
+          mvn -B -ntp clean verify

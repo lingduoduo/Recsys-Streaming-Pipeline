@@ -18,6 +18,9 @@ All independently runnable application code lives under `services/`:
 
 Infrastructure, shared sample data, and orchestration scripts remain at the `recsys-pipeline` root.
 
+For a service-only build, container image, runtime configuration, and contract-update guide, see
+[the retrieval service README](services/java-retrieval-service/README.md).
+
 ## Architecture
 
 ![Recsys Streaming Pipeline](recsys-streaming-pipeline-architecture.png)
