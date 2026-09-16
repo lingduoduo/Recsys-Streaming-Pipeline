@@ -1,12 +1,7 @@
 # API
 
-REST endpoints served by the `java-retrieval-service`. From the repository root, use this working
-directory and start the service:
-
-```bash
-cd recsys-pipeline/services/java-retrieval-service
-mvn spring-boot:run
-```
+REST endpoints served by the retrieval service, a separate deployable maintained in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service).
 
 Startup requires Java 17 and Redis reachable at the configured host and port. Wait for
 `Started RetrievalServiceApplication` before sending requests. The base URL for the local service

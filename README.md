@@ -37,7 +37,7 @@ that collapses per-request Redis round-trips from O(N×features) to O(1).
 ```
 Recsys-Streaming-Pipeline/
 ├── recsys-pipeline/     # The streaming recommendation platform
-│   ├── services/            # spark-streaming-job (Scala) · java-retrieval-service · python-modeling
+│   ├── services/            # spark-streaming-job (Scala) · python-modeling (retrieval service moved to lingduoduo/Recsys-Backend-Service)
 │   ├── scripts/             # All runnable scripts; each cd's up to recsys-pipeline/
 │   ├── integration-tests/   # Cross-service tests (pytest + shell)
 │   ├── docs/                # Architecture and recommendation-flow docs

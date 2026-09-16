@@ -46,3 +46,8 @@ def references(suffixes):
 def test_no_build_file_workflow_or_script_references_the_extracted_service():
     hits = references(BUILD_SUFFIXES)
     assert not hits, f"build/CI/script files still reference the service: {hits}"
+
+
+def test_no_live_document_references_the_extracted_service():
+    hits = references(DOC_SUFFIXES)
+    assert not hits, f"live documents still reference the service: {hits}"
