@@ -63,6 +63,10 @@ jobs:
           java-version: '17'
           cache: sbt
       - uses: sbt/setup-sbt@v1
+      - name: Install redis-server (RedisSinkSpec spawns its own instance and aborts the suite without the binary)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends redis-server
       - name: Run the spark-streaming-job tests
         working-directory: recsys-pipeline/services/spark-streaming-job
         run: sbt -batch test
