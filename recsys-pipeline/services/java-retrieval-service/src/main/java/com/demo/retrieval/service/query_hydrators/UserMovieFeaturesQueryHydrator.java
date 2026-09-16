@@ -5,9 +5,21 @@ import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.service.*;
 import com.demo.retrieval.service.clients.MovieLensFeatureClient;
 
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+/**
+ * Loads the user's baseline feature record.
+ *
+ * Ordered ahead of the other feature hydrators because {@link #update} *replaces* userFeatures
+ * rather than merging into it: any hydrator that layers onto userFeatures and runs before this
+ * one has its contribution silently discarded. Classpath scanning used to place this bean tenth
+ * of twelve, which dropped the behavior preferences, demographics, served and impressed history,
+ * cached movies, inferred topics, past request timestamps and the impression bloom filter.
+ */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class UserMovieFeaturesQueryHydrator implements QueryHydrator<ScoredMoviesQuery> {
     private final MovieLensFeatureClient featureClient;
 

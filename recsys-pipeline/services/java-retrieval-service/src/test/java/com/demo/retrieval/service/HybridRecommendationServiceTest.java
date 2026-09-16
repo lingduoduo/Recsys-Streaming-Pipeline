@@ -5,17 +5,22 @@ import com.demo.retrieval.model.FeatureCache;
 import com.demo.retrieval.measurement.RecommendationMeasurementService;
 import com.demo.retrieval.model.MovieLensUserFeatures;
 import com.demo.retrieval.model.RecommendationResult;
+import com.demo.retrieval.model.ScoredMoviesQuery;
 import com.demo.retrieval.model.UserBehaviorProfile;
 import com.demo.retrieval.config.RecommendationProperties;
 import com.demo.retrieval.config.RecommendationProperties.MovieProfile;
 import com.demo.retrieval.service.clients.UserMovieHistoryClient.UserMovieHistory;
+import com.demo.retrieval.service.clients.MovieLensFeatureClient;
 import com.demo.retrieval.service.clients.UserProfileClient;
 import com.demo.retrieval.service.grpo.GrpoFeatures;
 import com.demo.retrieval.service.grpo.GrpoPolicyScorer;
 import com.demo.retrieval.service.query_hydrators.MovieLensUserHistoryQueryHydrator;
+import com.demo.retrieval.service.query_hydrators.QueryHydrator;
 import com.demo.retrieval.service.query_hydrators.UserBehaviorProfileQueryHydrator;
+import com.demo.retrieval.service.query_hydrators.UserMovieFeaturesQueryHydrator;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.SetOperations;
@@ -24,6 +29,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -175,7 +181,50 @@ class HybridRecommendationServiceTest {
             recommendForTiedGenres(userId -> Optional.empty()).recommendations());
     }
 
+    /**
+     * UserMovieFeaturesQueryHydrator loads the baseline feature record and its update *replaces*
+     * userFeatures rather than merging into it, so every hydrator that layers onto userFeatures
+     * has its contribution discarded unless the loader runs first. Spring sorts the injected
+     * hydrator list with AnnotationAwareOrderComparator over whatever order classpath scanning
+     * produced, and that order is not ours to control, so pin the outcome for every discovery
+     * order instead of the one scanning happens to hand us.
+     */
+    @Test
+    void behaviorProfileReachesScoringInEveryHydratorDiscoveryOrder() {
+        UserBehaviorProfile profile = new UserBehaviorProfile(
+            "u1", 1, "run", "now", null, 1L,
+            new UserBehaviorProfile.Preferences(
+                List.of(
+                    new UserBehaviorProfile.Preference("sci-fi", 0.9, 1L),
+                    new UserBehaviorProfile.Preference("drama", 0.3, 1L)
+                ),
+                List.of()),
+            null, List.of());
+        UserProfileClient profileClient = userId -> Optional.of(profile);
+        MovieLensFeatureClient featureClient = userId -> Optional.empty();
+
+        for (List<QueryHydrator<ScoredMoviesQuery>> discovered : List.of(
+            List.of(
+                new UserBehaviorProfileQueryHydrator(profileClient),
+                new UserMovieFeaturesQueryHydrator(featureClient)),
+            List.of(
+                new UserMovieFeaturesQueryHydrator(featureClient),
+                new UserBehaviorProfileQueryHydrator(profileClient))
+        )) {
+            List<QueryHydrator<ScoredMoviesQuery>> injected = new ArrayList<>(discovered);
+            AnnotationAwareOrderComparator.sort(injected);
+
+            assertEquals(List.of("sci-fi", "drama"), recommendForTiedGenres(injected).recommendations(),
+                "discovery order " + discovered.stream().map(h -> h.getClass().getSimpleName()).toList());
+        }
+    }
+
     private static RecommendationResult recommendForTiedGenres(UserProfileClient profileClient) {
+        return recommendForTiedGenres(List.of(new UserBehaviorProfileQueryHydrator(profileClient)));
+    }
+
+    private static RecommendationResult recommendForTiedGenres(
+        List<QueryHydrator<ScoredMoviesQuery>> hydrators) {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
         ListOperations<String, String> lists = mock(ListOperations.class);
@@ -211,7 +260,7 @@ class HybridRecommendationServiceTest {
         HybridRecommendationService service = new HybridRecommendationService(
             redis, properties,
             new OnlineLearningService(redis, properties, featureCache), featureCache,
-            List.of(new UserBehaviorProfileQueryHydrator(profileClient)));
+            hydrators);
 
         return service.recommend("u1", 2);
     }

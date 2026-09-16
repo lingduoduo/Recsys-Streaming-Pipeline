@@ -1,5 +1,6 @@
 package com.demo.retrieval;
 
+import com.demo.retrieval.support.ContractFixtures;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,13 +16,9 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -71,10 +68,6 @@ class UserProfileIntegrationTest {
     private static final String RUN_ID = "fixture-run";
     private static final String ACTIVE_RUN_KEY = "user-profile:v1:active-run";
     private static final String PROFILE_KEY = "user-profile:v1:" + RUN_ID + ":" + USER_ID;
-    private static final Path FIXTURE = Path.of(
-        "..", "..", "integration-tests", "fixtures", "user_profile_v1.json"
-    );
-
     @Container
     private static final GenericContainer<?> REDIS =
         new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
@@ -109,7 +102,7 @@ class UserProfileIntegrationTest {
         List<String> baseline = recommendationOrder("baseline-user");
         assertEquals(List.of("z-drama", "a-sci-fi"), baseline);
 
-        String fixtureJson = Files.readString(FIXTURE, StandardCharsets.UTF_8).trim();
+        String fixtureJson = ContractFixtures.text("user_profile_v1.json").trim();
         redis.opsForValue().set(PROFILE_KEY, fixtureJson);
         redis.opsForValue().set(ACTIVE_RUN_KEY, RUN_ID);
 
@@ -132,9 +125,11 @@ class UserProfileIntegrationTest {
             .andExpect(jsonPath("$.personas[0].evidence.evidence_count").value(1.0))
             .andExpect(jsonPath("$.personas[0].evidence.minimum_evidence").value(5.0));
 
+        // Ranked first, ahead of z-drama and of every catalog item the content retriever pulls
+        // in on the sci-fi/space preference. z-drama is not asserted to be present: the profile
+        // pushes it out of a top-2 slate entirely.
         List<String> personalized = recommendationOrder(USER_ID);
         assertEquals("a-sci-fi", personalized.get(0));
-        assertTrue(personalized.indexOf("a-sci-fi") < personalized.indexOf("z-drama"));
 
         redis.delete(ACTIVE_RUN_KEY);
         redis.delete(List.of(

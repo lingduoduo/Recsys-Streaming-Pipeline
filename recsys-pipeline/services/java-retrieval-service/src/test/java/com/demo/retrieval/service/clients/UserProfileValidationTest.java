@@ -3,13 +3,9 @@ package com.demo.retrieval.service.clients;
 import com.demo.retrieval.service.clients.UserProfileValidation.Invalid;
 import com.demo.retrieval.service.clients.UserProfileValidation.Result;
 import com.demo.retrieval.service.clients.UserProfileValidation.Valid;
+import com.demo.retrieval.support.ContractFixtures;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -65,10 +61,6 @@ class UserProfileValidationTest {
     }
 
     private static String fixture() {
-        try {
-            return Files.readString(Path.of("../../integration-tests/fixtures/user_profile_v1.json"));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return ContractFixtures.text("user_profile_v1.json");
     }
 }
