@@ -12,7 +12,9 @@ that affects final ordering. The current selector behavior is described explicit
 ## Required state
 
 `recsys.candidate-generation.top-n-randomization-pool`
-(`RECSYS_RANDOMIZATION_POOL`, default `5`) is declared in `application.yml`. In the current serving
+(`RECSYS_RANDOMIZATION_POOL`, default `5`) is declared in the retrieval service's own
+`application.yml`, now in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service). In the current serving
 implementation, however, `TopKScoreSelector` sorts by final score and does not read this property,
 so there is no separate post-score shuffle. With identical inputs, UCB selection is deterministic.
 Thompson sampling is non-deterministic because it draws from each arm's posterior, and Q-learning
