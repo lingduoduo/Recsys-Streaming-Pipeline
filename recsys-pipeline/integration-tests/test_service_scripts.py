@@ -392,6 +392,21 @@ def test_movie_category_sim_never_fails_on_a_missing_live_service() -> None:
     assert "set -e" not in burst
 
 
+def test_movie_category_sim_probes_a_running_service_instead_of_building_one() -> None:
+    """The service lives in Recsys-Backend-Service; the sim measures whatever is listening."""
+    script = SIM_SCRIPT.read_text(encoding="utf-8")
+
+    # it must reach the service over a configurable URL
+    assert 'SERVICE_URL="${SERVICE_URL:-http://localhost:$SERVICE_PORT}"' in script
+    # and must not build, boot or shut down a service from this checkout
+    assert "spring-boot:run" not in script
+    assert "java-retrieval-service" not in script
+    assert "MovieLensPolicyEvaluation" not in script
+    assert "kill_service" not in script
+    # the MDP card still has a path to render "Not measured"
+    assert 'MDP_CSV="$SIM_ROOT/mdp_eval.csv"' in script
+
+
 def test_archive_replay_script_requires_bounds_before_starting_python(tmp_path: Path) -> None:
     pipeline = copy_pipeline_scripts(tmp_path)
     env = base_env(tmp_path)
