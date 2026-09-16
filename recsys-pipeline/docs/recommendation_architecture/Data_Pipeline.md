@@ -26,7 +26,7 @@ producer.py (behavior, request_id key)  ──► Kafka: recsys_events ──►
 
 (default topic = recsys_events for producer + both jobs; set KAFKA_TOPIC / ONLINE_JOINER_INPUT_TOPIC to split the two streams)
 
-java-retrieval-service (own impressions, only when recsys.grpo.emit-events=true)
+retrieval service (own impressions, only when recsys.grpo.emit-events=true)
                                         ──► Kafka: $ONLINE_JOINER_INPUT_TOPIC ──► OnlineJoinerStreamingJob
 (serving reads the SAME ONLINE_JOINER_INPUT_TOPIC the joiner subscribes with; give both the same value or nothing consumes the events)
 
@@ -953,7 +953,9 @@ rather than by the driver's heap. Per-slate gradient contributions are still sum
 rather than with `treeAggregate`, which is what keeps `GrpoPolicyStreamingJob.applyBatch` a pure
 function over arrays that needs no Spark session to test.
 
-The feature vector (`GrpoFeatures`, java-retrieval-service) is 9-dimensional, wire version `v2`:
+The feature vector (`GrpoFeatures`, now maintained in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service)) is
+9-dimensional, wire version `v2`:
 bias, banditScore, estimatedReward, onlineScore, explorationBonus, coldStart, log1p(impressions),
 log1p(clicks), and smoothed CTR. It deliberately excludes the item's served position. A ranking
 policy scores candidates *before* selection assigns positions, so at scoring time a position

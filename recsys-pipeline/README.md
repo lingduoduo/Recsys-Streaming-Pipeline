@@ -8,18 +8,22 @@
 
 ## Service Layout
 
-All independently runnable application code lives under `services/`:
+All independently runnable application code in this checkout lives under `services/`:
 
 | Service | Build tool | Responsibility |
 |---|---|---|
 | `services/spark-streaming-job` | sbt | Streaming ingestion, feature joins, offline embedding training, and candidate pre-computation |
-| `services/java-retrieval-service` | Maven | Loads an ONNX model and embedding configs at startup, scores candidates, runs bandit evaluation (UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST |
 | `services/python-modeling` | pip / pytest | Synthetic event producer, replay export, post-training policy scripts, and evaluation utilities |
+
+The retrieval service is a separate deployable, maintained in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service): it
+loads an ONNX model and embedding configs at startup, scores candidates, runs bandit evaluation
+(UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST.
 
 Infrastructure, shared sample data, and orchestration scripts remain at the `recsys-pipeline` root.
 
 For a service-only build, container image, runtime configuration, and contract-update guide, see
-[the retrieval service README](services/java-retrieval-service/README.md).
+that repository's own README.
 
 ## Architecture
 
@@ -41,7 +45,8 @@ For each incoming request, the retrieval service executes nine steps in order:
 8. **Store context** — writes pending recommendation context to the replay buffer for downstream training (see [8_Store_Context.md](docs/recommendation_flows/8_Store_Context.md)).
 9. **Track metrics** — records impressions, clicks, regret-style metrics, novelty, and catalog coverage (see [9_Track_Metrics.md](docs/recommendation_flows/9_Track_Metrics.md)).
 
-Default catalog and ranking weights are in `services/java-retrieval-service/src/main/resources/application.yml`.
+Default catalog and ranking weights are in the retrieval service's `application.yml`, in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service).
 
 
 ### Data Pipeline
@@ -56,9 +61,9 @@ real-time job path (producer + streaming jobs), and the offline embedding-traini
 ### Model Prediction Pipeline
 
 ```text
-mlp_embedding_model.onnx (bundled classpath resource) ──────────┐
-Redis: embeddings, user history, candidate lists ───────────────┼──► java-retrieval-service  (FeatureCache / Caffeine)
-Redis: reward stats, bandit counters ───────────────────────────┘          │
+mlp_embedding_model.onnx (bundled classpath resource) ───────────────┐
+Redis: embeddings, user history, candidate lists ────────────────────┼──► retrieval service  (FeatureCache / Caffeine)
+Redis: reward stats, bandit counters ────────────────────────────────┘     │
                                                                             ├──► GET  /recommend/{user}
                                                                             ├──► GET  /embedding/{item}
                                                                             └──► GET  /predict/{user}/{item}
@@ -178,9 +183,10 @@ export USER_EMBEDDING_PREFIX=alsUserEmb
 
 ### Step 2 — Start the retrieval service
 
-```bash
-mvn -f services/java-retrieval-service/pom.xml spring-boot:run
-```
+The retrieval service is a separate deployable — clone and run
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service)
+(Spring Boot / Maven) alongside this checkout, connected to the same Redis. The rest of this
+workflow reads from whatever answers at `SERVICE_URL` (default `http://localhost:8080`).
 
 The service loads `mlp_embedding_model.onnx` from the classpath at startup. To use a model trained outside the JAR, set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` before starting.
 
@@ -300,8 +306,8 @@ To add the entry manually instead:
 The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`. Run `replay_export.py` standalone to inspect or back up the buffer:
 
 ```bash
-# 1. start the retrieval service
-cd services/java-retrieval-service && mvn spring-boot:run    # binds :8080
+# 1. the retrieval service is a separate deployable (lingduoduo/Recsys-Backend-Service);
+#    make sure it is already running and reachable, e.g. bound to :8080
 
 # 2. in another shell — generate recommendations + feedback
 curl 'http://localhost:8080/recommend/u_1?limit=6'
@@ -325,7 +331,9 @@ Before scoring, each request is enriched through two sequential pipelines — se
 
 ## Retrieval Service Configuration
 
-`services/java-retrieval-service/src/main/resources/application.yml` defines Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
+The retrieval service's `application.yml`, now in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service), defines
+Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
 
 ### Disk model paths
 
@@ -553,9 +561,11 @@ are the only measures that need whole ranked slates.
   not classify it — the candidate still passes through. `ContentCandidateRetriever` returns
   `unknown` for anything missing from the catalog, so a service started without a
   `RECSYS_CATALOG_PATH` covering the served items reports **100% `unknown`**. That is what
-  `run-movie-category-sim.sh` currently produces: it starts the service with the built-in demo
-  catalog (`item1`…`itemN`, inline in `application.yml`), which holds none of the sim's `movie_*`
-  ids, so no expiry, muted-genre, or muted-keyword rule ever fires. Read `unknown_share` alongside
+  `run-movie-category-sim.sh` currently measures: it no longer starts the service — it only
+  probes whatever already answers at `$SERVICE_URL` — so the live safety row reports 100%
+  `unknown` whenever that service is running with its built-in demo catalog (`item1`…`itemN`,
+  inline in the service's own `application.yml`), which holds none of the sim's `movie_*` ids, so
+  no expiry, muted-genre, or muted-keyword rule ever fires. Read `unknown_share` alongside
   `filter_decision_rate` before drawing any conclusion from either. *Known follow-up: wire the
   sim's generated catalog into the service so the live safety row exercises the real rules.*
 - **Latency is service time, not stream lag.** Endpoint/stage timers measure the request path.
@@ -578,7 +588,8 @@ are the only measures that need whole ranked slates.
 | `RECSYS_LONG_TAIL_PERCENTILE` | `0.80` | declared only | Popularity percentile below which exposure is long-tail |
 | `EXPERIENCE_COLLECTOR_OUTPUT_PATH` | unset (Parquet write disabled) | `ExperienceCollectorStreamingJob` | Directory to also write ranked slates as Parquet — the `--experiences` input; unset means slates publish only to the `training_experiences` Kafka topic |
 | `MEASUREMENT_BURST_REQUESTS` | `50` | `run-movie-category-sim.sh` | Number of `/recommend` calls the sim's service burst makes to populate live latency/freshness/safety/feedback-coverage metrics |
-| `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port the sim starts the retrieval service on for its traffic burst |
+| `RETRIEVAL_SERVICE_PORT` | `8080` | `run-movie-category-sim.sh` | Port used to build the default `SERVICE_URL` |
+| `SERVICE_URL` | `http://localhost:$RETRIEVAL_SERVICE_PORT` | `run-movie-category-sim.sh` | Retrieval service the sim measures; the latency card stays N/A when nothing answers |
 | `FEEDBACK_DELAY_SCALE` | `1.0` | live producers | Multiplies the click/order delays each slate already encodes, so a sim run can compress a ~2-minute feedback tail. *Orders* (21–120s base delay) still cross the streaming job's *default* 10-second trigger at any scale above ~0.5 (21s × 0.5 = 10.5s); *clicks* (1–20s base delay) can land inside one even at scale 1.0. The sims run with `TRIGGER_INTERVAL="2 seconds"`, so that figure — not the 10-second default — governs their cross-batch behavior |
 | `FEEDBACK_TAIL_SECONDS` | `150` | segment and category sims | Floor before a drain may end, so the sim cannot declare completion before the last deferred order has arrived |
 | `FEEDBACK_JOIN_WAIT` | `4 minutes` | `OnlineJoinerStreamingJob` | How long a slate's feedback window stays open before its training sample publishes. Feedback arriving inside the window joins its impression; feedback after it is dropped and counted. `0 seconds` restores the old per-batch behavior. The default clears the producers' longest feedback delay (a thumb, up to 180s) with a minute of margin. Both sims scale it with `FEEDBACK_DELAY_SCALE` |
@@ -639,7 +650,7 @@ commands.
 | Service | Command (from repo root) | Covers |
 |---|---|---|
 | Spark jobs (Scala) | `cd services/spark-streaming-job && sbt test` | All streaming/offline jobs incl. recall/ranking/relevance derivations, session_id passthrough, dedup, event parsing |
-| Retrieval service (Java) | `cd services/java-retrieval-service && mvn test` | Scoring, hydrators, behavioral-profile fixture contract, catalog loader, model reload; real-Redis tests skip when Docker is unavailable |
+| Retrieval service (Java) | separate repository — [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) | Scoring, hydrators, behavioral-profile fixture contract, catalog loader, model reload; real-Redis tests skip when Docker is unavailable |
 | Python | `cd recsys-pipeline && pytest -q` | Producers, replay export, the simulation harnesses, and the analysis reports (query / relevance / recall-eval / ranking-eval / analysis-dashboard) |
 
 The Scala suite includes a pure unit test for each derived-dataset job's `build*Samples` transform
@@ -720,7 +731,7 @@ Kafka: training_samples
 | `spark-streaming-job` · `OnlineJoinerStreamingJob` | Scala / Spark | Data | Joins `recsys_events` into feature+label training samples |
 | `spark-streaming-job` · `ExperienceCollectorStreamingJob` | Scala / Spark | Data | Reconstructs request-level slates (`training_experiences`) |
 | `spark-streaming-job` · Item2Vec / ALS / UserEmbedding jobs | Scala / Spark | Modeling | Train item/user embeddings from rating sequences |
-| `services/java-retrieval-service` | Java / Spring Boot | Experiment | REST API serving hybrid recommendations + bandit RL |
+| the retrieval service — [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) | Java / Spring Boot | Experiment | REST API serving hybrid recommendations + bandit RL |
 
 The platform runs as **three pipelines**. The workflow immediately below is the one canonical
 local path from a clean checkout to a populated React dashboard. Later command sequences are
@@ -967,13 +978,9 @@ rather than repeated here:
 ## Optional reference: experiment pipeline — retrieval service `:8080`
 
 This optional reference serves recommendations and runs online learning + UCB/Thompson bandit RL.
-Run the service block from the repository root.
-
-```bash
-# Start the service (binds :8080; connects to Redis :6379)
-cd recsys-pipeline/services/java-retrieval-service
-mvn spring-boot:run
-```
+The retrieval service is a separate deployable — see
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service). The
+commands below assume it is already running (binds `:8080`; connects to Redis `:6379`).
 
 ```bash
 # Ranked recommendations with per-item diagnostics + request metrics
@@ -1022,17 +1029,16 @@ cd recsys-pipeline
 # then re-picks each event's slate under logging / popularity / ctr / model:* / random
 # policies. Reports value, lift-vs-logging, and 95% bootstrap CIs, plus estimator AUC/MSE.
 REDIS_HOST=localhost python services/python-modeling/ope_eval_report.py --output ope_eval.csv
-
-# Offline MovieLens MDP: uniform-random vs greedy leave-one-user-out movie-score policy over
-# seeded finite-horizon episodes. Reports mean discounted return, mean steps, standard error,
-# and reproducible 95% bootstrap CIs. Isolated from live Redis/bandit state.
-# Needs a real MovieLens ratings.csv — the default --min-user-ratings/--min-movie-ratings
-# filters wipe out the tiny bundled sampledata/ratings.csv.
-cd services/java-retrieval-service
-mvn -q compile exec:java \
-  -Dexec.mainClass=com.demo.retrieval.evaluation.MovieLensPolicyEvaluation \
-  -Dexec.args="--ratings /path/to/movielens/ratings.csv --output mdp_eval.csv"
 ```
+
+The second evaluator — offline MovieLens MDP: uniform-random vs greedy leave-one-user-out
+movie-score policy over seeded finite-horizon episodes, reporting mean discounted return, mean
+steps, standard error, and reproducible 95% bootstrap CIs, isolated from live Redis/bandit state —
+is `MovieLensPolicyEvaluation`, which now lives in
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service). Run it
+from that repository against a real MovieLens `ratings.csv`; the default
+`--min-user-ratings`/`--min-movie-ratings` filters wipe out the tiny bundled
+`sampledata/ratings.csv`.
 
 Both intervals quantify *episode/event-sampling* uncertainty only — the OPE CIs are conditional
 on the fitted reward model, and the MDP CIs on the fixed dataset. Neither is a claim of A/B lift.
@@ -1099,7 +1105,7 @@ This path is offline only: it does not write to Redis and does not affect live r
 
 | Port | Service | Bound by | Notes |
 |------|---------|----------|-------|
-| `8080` | Retrieval service (Spring Boot) | `java-retrieval-service` (`SERVER_PORT`) | REST API: `/recommend`, `/predict`, `/feedback`, `/metrics` |
+| `8080` | Retrieval service (Spring Boot) | retrieval service (`SERVER_PORT`) | REST API: `/recommend`, `/predict`, `/feedback`, `/metrics` |
 | `9092` | Kafka — host listener | `docker-compose.yml` | Producer and Spark jobs connect here (`localhost:9092`) |
 | `29092` | Kafka — internal listener | `docker-compose.yml` | Inter-container only (`kafka:29092`) |
 | `2181` | Zookeeper | `docker-compose.yml` | Kafka coordination |

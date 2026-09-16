@@ -12,6 +12,7 @@ OUT_DIR="$SIM_ROOT/training-samples"
 SLATE_DIR="$SIM_ROOT/slates"
 LIVE_METRICS="$SIM_ROOT/live-metrics.json"
 SERVICE_PORT="${RETRIEVAL_SERVICE_PORT:-8080}"
+SERVICE_URL="${SERVICE_URL:-http://localhost:$SERVICE_PORT}"
 BURST_REQUESTS="${MEASUREMENT_BURST_REQUESTS:-50}"
 RUN_ID="${RUN_ID:-r$(date +%s)}"
 RECSYS_TOPIC="recsys_events_${RUN_ID}"
@@ -200,31 +201,18 @@ fi
 
 echo
 echo "==> SERVICE BURST (real /metrics latency, freshness, and filter decisions)"
-service_pid=""
-kill_service() {
-  kill "$service_pid" 2>/dev/null || true
-  # spring-boot:run forks its own JVM by default, so the process we backgrounded
-  # (even post-exec) may not be the one actually bound to the port. Kill by port too.
-  lsof -ti tcp:"$SERVICE_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
-}
-(cd services/java-retrieval-service && \
-  JAVA_HOME="${MEASUREMENT_JAVA_HOME:-$JAVA_HOME}" \
-  SERVER_PORT="$SERVICE_PORT" REDIS_HOST=localhost \
-  exec mvn -q -DskipTests spring-boot:run >"$SIM_ROOT/service.log" 2>&1) &
-service_pid=$!
-trap kill_service EXIT
-for _ in $(seq 1 40); do
-  curl -sf "http://localhost:$SERVICE_PORT/metrics" >/dev/null 2>&1 && break; sleep 3
-done
+# The retrieval service lives in lingduoduo/Recsys-Backend-Service. The sim measures whatever
+# is already listening on $SERVICE_URL rather than building one from this checkout, and a
+# missing service only costs the latency card -- it must never fail the run.
 
-if curl -sf "http://localhost:$SERVICE_PORT/metrics" >/dev/null 2>&1; then
+if curl -sf "$SERVICE_URL/metrics" >/dev/null 2>&1; then
   for i in $(seq 1 "$BURST_REQUESTS"); do
     user="user_$(( (i % 10) + 1 ))"
     # /recommend's "recommendations" field is a List<String> of item ids (see
     # HybridRecommendationService.recommend()), not a list of objects — but stay tolerant of an
     # {"item": ...}-shaped entry too, in case that ever changes. Extraction failures print to
     # stderr (not swallowed) so a broken response shape is visible in the sim log.
-    item="$(curl -sf "http://localhost:$SERVICE_PORT/recommend/$user?limit=6" \
+    item="$(curl -sf "$SERVICE_URL/recommend/$user?limit=6" \
       | python3 -c '
 import json, sys
 item = ""
@@ -242,41 +230,25 @@ except Exception as e:
 print(item)
 ' || true)"
     if [[ -n "$item" && $(( i % 2 )) -eq 0 ]]; then
-      curl -sf -X POST "http://localhost:$SERVICE_PORT/feedback" \
+      curl -sf -X POST "$SERVICE_URL/feedback" \
         -H 'Content-Type: application/json' \
         -d "{\"user\":\"$user\",\"item\":\"$item\",\"clicked\":true,\"reward\":1.0,\"rating\":4.5,\"dwellMillis\":12000,\"completionRate\":0.75}" \
         >/dev/null 2>&1 || true
     fi
   done
-  curl -sf "http://localhost:$SERVICE_PORT/metrics" > "$LIVE_METRICS" 2>/dev/null || true
+  curl -sf "$SERVICE_URL/metrics" > "$LIVE_METRICS" 2>/dev/null || true
   echo "   captured $(wc -c < "$LIVE_METRICS" 2>/dev/null || echo 0) bytes of live metrics"
 else
-  echo "   service did not start (see $SIM_ROOT/service.log) — latency stays N/A"
+  echo "   no service answering at $SERVICE_URL — latency stays N/A"
 fi
-kill_service
-wait "$service_pid" 2>/dev/null || true
-trap - EXIT
 
 echo
 echo "==> MDP POLICY EVALUATION (uniform vs greedy over the generated ratings)"
-# Optional: needs Maven. The ratings.csv written above clears the evaluator's default
-# --min-user-ratings 20 / --min-movie-ratings 10 filters; only the tiny bundled
-# sampledata/ratings.csv does not. Failure here must not sink a completed simulation, so the
-# card simply stays "Not measured".
+# The evaluator that produced this file moved to Recsys-Backend-Service, so this card is
+# always "Not measured" from a pipeline-only checkout. MDP_CSV stays defined because the
+# analysis report takes --mdp-csv unconditionally and the exporter guards on the file existing.
 MDP_CSV="$SIM_ROOT/mdp_eval.csv"
-if command -v mvn >/dev/null 2>&1; then
-  # Status must come from mvn, not from a pipeline tail, or the failure branch never fires.
-  if (cd services/java-retrieval-service && mvn -q compile exec:java \
-        -Dexec.mainClass=com.demo.retrieval.evaluation.MovieLensPolicyEvaluation \
-        -Dexec.args="--ratings $RATINGS_CSV --output $MDP_CSV") >"$SIM_ROOT/mdp-eval.log" 2>&1; then
-    echo "   wrote $MDP_CSV"
-  else
-    echo "   evaluator failed (see $SIM_ROOT/mdp-eval.log) — MDP card stays Not measured"
-    tail -3 "$SIM_ROOT/mdp-eval.log" | sed 's/^/   /'
-  fi
-else
-  echo "   mvn not found — skipping; MDP card stays Not measured"
-fi
+echo "   evaluator now lives in Recsys-Backend-Service — MDP card stays Not measured"
 
 echo
 echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
