@@ -106,7 +106,7 @@ The in-memory cache (`FeatureCache`) eliminates O(N × features) Redis round-tri
 
 ## Quick Start
 
-**Prerequisites:** Java 17, Apache Spark 3.5.x (Scala 2.12), sbt, Maven 3.8+, Docker Compose, Python 3.
+**Prerequisites:** Java 17, Apache Spark 3.5.x (Scala 2.12), sbt, Docker Compose, Python 3. Step 2 additionally needs Maven 3.8+, which belongs to the separate retrieval-service repository rather than to this checkout.
 
 The five steps below bring up the full stack: offline embeddings → retrieval service → clickstream producer → streaming job → API.
 

@@ -54,7 +54,7 @@ Recsys-Streaming-Pipeline/
 - Apache Spark 3.5.x
 - Apache Kafka 3.x
 - Redis 7+
-- Maven 3.8+ (retrieval service)
+- Maven 3.8+ (only to build the separate retrieval service, not this repository)
 - Docker / Docker Compose (local infrastructure)
 - Node.js 18+ / npm (frontend dashboard, optional)
 

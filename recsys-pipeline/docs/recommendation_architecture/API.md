@@ -6,7 +6,7 @@ REST endpoints served by the retrieval service, a separate deployable maintained
 Startup requires Java 17 and Redis reachable at the configured host and port. Wait for
 `Started RetrievalServiceApplication` before sending requests. The base URL for the local service
 is `http://localhost:8080`. See the canonical
-[retrieval-service workflow](../../../README.md#3-experiment-pipeline--retrieval-service-8080)
+[retrieval-service workflow](../../README.md#optional-reference-experiment-pipeline--retrieval-service-8080)
 for the surrounding local run sequence.
 
 ## `GET /recommend/{user}?limit=6`

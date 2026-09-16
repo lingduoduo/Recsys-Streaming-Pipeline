@@ -243,7 +243,7 @@ else
 fi
 
 echo
-echo "==> MDP POLICY EVALUATION (uniform vs greedy over the generated ratings)"
+echo "==> MDP POLICY EVALUATION (not measured — evaluator lives in Recsys-Backend-Service)"
 # The evaluator that produced this file moved to Recsys-Backend-Service, so this card is
 # always "Not measured" from a pipeline-only checkout. MDP_CSV stays defined because the
 # analysis report takes --mdp-csv unconditionally and the exporter guards on the file existing.
