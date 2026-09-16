@@ -1,0 +1,60 @@
+name: Pipeline
+
+on:
+  push:
+    paths:
+      - recsys-pipeline/integration-tests/**
+      - recsys-pipeline/services/python-modeling/**
+      - recsys-pipeline/services/spark-streaming-job/**
+      - recsys-pipeline/scripts/**
+      - recsys-pipeline/schemas/**
+      - recsys-pipeline/sampledata/**
+      - recsys-pipeline/pytest.ini
+      - recsys-pipeline/README.md
+      - .github/workflows/pipeline.yml
+  pull_request:
+    paths:
+      - recsys-pipeline/integration-tests/**
+      - recsys-pipeline/services/python-modeling/**
+      - recsys-pipeline/services/spark-streaming-job/**
+      - recsys-pipeline/scripts/**
+      - recsys-pipeline/schemas/**
+      - recsys-pipeline/sampledata/**
+      - recsys-pipeline/pytest.ini
+      - recsys-pipeline/README.md
+      - .github/workflows/pipeline.yml
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml numpy pandas 'pyarrow>=14,<24' kafka-python lz4 'fastavro>=1.9,<2'
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Run the pipeline integration tests
+        working-directory: recsys-pipeline
+        run: python -m pytest -q
+
+  scala:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - name: Run the spark-streaming-job tests
+        working-directory: recsys-pipeline/services/spark-streaming-job
+        run: sbt -batch test
