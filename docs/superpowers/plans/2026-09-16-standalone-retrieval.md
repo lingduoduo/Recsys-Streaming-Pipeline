@@ -36,7 +36,7 @@
 - Consumes canonical `recsys-pipeline/schemas/recsys-event-v3.avsc`, `recsys-pipeline/schemas/fixtures/serving-impression-v3.avro`, `recsys-pipeline/integration-tests/fixtures/user_profile_v1.json`.
 - Produces `ContractFixtures.bytes(String name)` and `ContractFixtures.text(String name)` for classpath snapshots, and `RETRIEVAL_SERVICE_DIR` for pipeline-side comparison.
 
-- [ ] **Step 1: Prove the extraction currently fails.** Copy only the service to a temporary directory, omitting `target`, and run:
+- [x] **Step 1: Prove the extraction currently fails.** Copy only the service to a temporary directory, omitting `target`, and run:
 
 ```sh
 mvn -B -ntp -Dtest=RecsysEventSchemaDriftTest,RecsysEventFixtureTest,UserProfileValidationTest,RedisUserProfileClientTest test
@@ -44,7 +44,7 @@ mvn -B -ntp -Dtest=RecsysEventSchemaDriftTest,RecsysEventFixtureTest,UserProfile
 
 Expected: missing `../../schemas` or `../../integration-tests` artifacts. Retain output as red-phase evidence; no new synthetic test is needed because existing assertions expose the regression.
 
-- [ ] **Step 2: Freeze resources and load them through the classpath.** Copy the three canonical artifacts into `src/test/resources/contracts/`. Implement the test helper using this pattern (UTF-8 for `text`):
+- [x] **Step 2: Freeze resources and load them through the classpath.** Copy the three canonical artifacts into `src/test/resources/contracts/`. Implement the test helper using this pattern (UTF-8 for `text`):
 
 ```java
 public static byte[] bytes(String name) {
@@ -62,16 +62,27 @@ public static String text(String name) {
 
 Replace filesystem access in the five tests with the helper, preserving all assertions. Explain that the local schema is a frozen contract snapshot, not the canonical producer checkout.
 
-- [ ] **Step 3: Preserve pipeline contract comparisons.** Use a standard-library `unittest.TestCase` discoverable by pytest too. Resolve the pipeline root using `Path(__file__).resolve().parents[1]`; resolve the service using `RETRIEVAL_SERVICE_DIR` or the current service path. Compare schema JSON objects (both production schema and test snapshot) to the canonical schema, Avro bytes to the canonical fixture, and profile JSON objects to the producer fixture. Use explicit failures for missing paths. Run the test against both default and isolated locations. Temporarily mutate each artifact category and remove a fixture in a disposable copy to verify nonzero exit; restore afterward.
+- [x] **Step 3: Preserve pipeline contract comparisons.** Use a standard-library `unittest.TestCase` discoverable by pytest too. Resolve the pipeline root using `Path(__file__).resolve().parents[1]`; resolve the service using `RETRIEVAL_SERVICE_DIR` or the current service path. Compare schema JSON objects (both production schema and test snapshot) to the canonical schema, Avro bytes to the canonical fixture, and profile JSON objects to the producer fixture. Use explicit failures for missing paths. Run the test against both default and isolated locations. Temporarily mutate each artifact category and remove a fixture in a disposable copy to verify nonzero exit; restore afterward.
 
 ```sh
 python3 -m unittest discover -s recsys-pipeline/integration-tests -p test_retrieval_contracts.py -v
 ```
 
-- [ ] **Step 4: Add standalone packaging and operation instructions.** Use a service-only multi-stage Maven/Java 17 Docker build, skip tests in the image build because separate verification runs them, run the resulting executable JAR with a non-root Java 17 runtime, and ignore build outputs/local secrets in the context. Document `mvn clean verify`, `mvn spring-boot:run`, `java -jar target/retrieval-service-0.0.1-SNAPSHOT.jar`, and `docker build -t retrieval-service .`. Document the existing env names `REDIS_HOST`, `REDIS_PORT`, `SERVER_PORT`, `RECSYS_GRPO_EMIT_EVENTS`, `KAFKA_BOOTSTRAP_SERVERS`, `ONLINE_JOINER_INPUT_TOPIC`, `ONNX_MODEL_PATH`, `ONNX_LOOKUPS_PATH`, `RECSYS_CATALOG_PATH`. Include relocation and contract-update instructions and link the guide from the pipeline README.
+- [x] **Step 4: Add standalone packaging and operation instructions.** Use a service-only multi-stage Maven/Java 17 Docker build, skip tests in the image build because separate verification runs them, run the resulting executable JAR with a non-root Java 17 runtime, and ignore build outputs/local secrets in the context. Document `mvn clean verify`, `mvn spring-boot:run`, `java -jar target/retrieval-service-0.0.1-SNAPSHOT.jar`, and `docker build -t retrieval-service .`. Document the existing env names `REDIS_HOST`, `REDIS_PORT`, `SERVER_PORT`, `RECSYS_GRPO_EMIT_EVENTS`, `KAFKA_BOOTSTRAP_SERVERS`, `ONLINE_JOINER_INPUT_TOPIC`, `ONNX_MODEL_PATH`, `ONNX_LOOKUPS_PATH`, `RECSYS_CATALOG_PATH`. Include relocation and contract-update instructions and link the guide from the pipeline README.
 
-- [ ] **Step 5: Automate the isolation check.** Add a workflow with read-only contents permissions, checkout and Java 17 setup, pipeline comparison via unittest, then copy the service into `$RUNNER_TEMP/retrieval-service` (excluding target) and run `mvn -B -ntp clean verify` there. Trigger for service, contract sources, comparison test, and workflow changes on pushes and PRs. Avoid coupling the isolated build to pipeline directories.
+- [x] **Step 5: Automate the isolation check.** Add a workflow with read-only contents permissions, checkout and Java 17 setup, pipeline comparison via unittest, then copy the service into `$RUNNER_TEMP/retrieval-service` (excluding target) and run `mvn -B -ntp clean verify` there. Trigger for service, contract sources, comparison test, and workflow changes on pushes and PRs. Avoid coupling the isolated build to pipeline directories.
 
-- [ ] **Step 6: Verify and review.** Run complete Maven verification in a fresh external copy, Python comparisons, whitespace checks, and optionally Docker build/JAR smoke test as supported by the host. Record exact totals and skips. Review spec coverage and correctness, fix material findings, then commit.
+- [x] **Step 6: Verify and review.** Run complete Maven verification in a fresh external copy, Python comparisons, whitespace checks, and optionally Docker build/JAR smoke test as supported by the host. Record exact totals and skips. Review spec coverage and correctness, fix material findings, then commit.
 
 - [ ] **Step 7: Open the requested PR.** Push the feature branch and create a PR against master with a concise behavior summary, spec/plan links, and exact validation limits. Preserve the worktree for follow-up.
+
+
+## Verification record
+
+- Before extraction: focused tests in an isolated service copy failed on missing parent-directory schemas/profile fixtures (16 errors).
+- After extraction: the same focused tests passed (16 tests, no failures/errors/skips).
+- Full `mvn -B -ntp clean verify` in a fresh external service-only directory passed: 332 tests, 0 failures, 0 errors, 1 Docker-dependent skip. All 183 Maven input files match the tested copy. Executable Spring Boot JAR packaged successfully.
+- Pipeline contract comparison passed all 3 tests against both default and relocated service paths. Individual schema, Avro, and profile mutations and a missing profile snapshot each failed as expected; restored snapshots passed.
+- Packaged JAR launched from an unrelated working directory against temporary native Redis: health UP, ONNX model metadata loaded, prediction returned a score, and seeded recommendations returned both items.
+- `actionlint` and `git diff --check` passed. Task review approved both spec compliance and code quality with no material findings.
+- Docker image build remains unverified because the local Docker daemon is unavailable. The Docker-backed integration test was skipped for the same reason.
