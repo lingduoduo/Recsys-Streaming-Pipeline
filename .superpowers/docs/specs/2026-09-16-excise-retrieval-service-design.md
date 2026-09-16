@@ -1,0 +1,71 @@
+# Excise the retrieval service design
+
+## Problem and decision
+
+The Java retrieval service has been copied into `lingduoduo/Recsys-Backend-Service` and deleted from this working tree, but only partly. Of the 187 files tracked under `recsys-pipeline/services/java-retrieval-service/`, 177 are deleted — 120 main sources, 54 test sources, the ONNX model, its lookup table, and the `src/main/resources/schemas/` directory. Ten survive: `pom.xml`, `Dockerfile`, `README.md`, `.dockerignore`, `.gitignore`, `src/main/resources/application.yml`, `src/test/resources/sequence-schema.json`, and the three `src/test/resources/contracts/` fixtures.
+
+That intermediate state is worse than either end state. `recsys-pipeline/pom.xml` still declares `services/java-retrieval-service` as its only module, so the aggregator build points at a directory with no sources. `.github/workflows/retrieval-service.yml` still copies that directory into a temporary location and runs `mvn -B -ntp clean verify` on it. `integration-tests/test_retrieval_contracts.py` still reads `src/main/resources/schemas/recsys-event-v3.avsc`, which is gone, and its `require_file` helper calls `self.fail` on a missing artifact by design. `scripts/run-movie-category-sim.sh` still boots the service with `mvn spring-boot:run` and still invokes `com.demo.retrieval.evaluation.MovieLensPolicyEvaluation` through `mvn exec:java`. A leftover `Dockerfile` and `pom.xml` with no sources beside them invite a reader to believe the service still builds here.
+
+Finish the removal. Delete the whole directory, delete the Maven aggregator that existed only to hold it, move contract verification to the repository that now owns the snapshots, and convert the one local harness that booted the service from source into one that probes a service over HTTP. This repository keeps what it produces — the canonical Avro schema, the canonical impression fixture, the canonical user-profile fixture — and stops carrying a consumer's copies of them.
+
+Contract verification moves to the consumer deliberately. The pipeline is the producer; it publishes `schemas/recsys-event-v3.avsc`, `schemas/fixtures/serving-impression-v3.avro` and `integration-tests/fixtures/user_profile_v1.json`, and those stay here unchanged. The comparison against a service's frozen snapshots belongs where the snapshots live, because that is where drift gets fixed. The alternative considered and rejected was keeping the comparison here and checking out `Recsys-Backend-Service` in this repository's CI — both repositories are public so no token would be needed, but it would hard-code another repository's directory layout and default branch into this one's CI, and a red check here would describe a defect there.
+
+## What this does and does not claim
+
+It claims that after this change nothing in this repository refers to the retrieval service as a buildable, bootable component of it, and that no unique artifact is lost. The second half is checkable rather than asserted: the deleted `src/main/resources/schemas/recsys-event-v3.avsc` hashes to `eb636a771c19cd736592e37e0a135ffef55f3f8e`, which is byte-identical to the canonical `recsys-pipeline/schemas/recsys-event-v3.avsc` that stays; the three `contracts/` fixtures are frozen copies of canonical artifacts that stay; and the ONNX model and lookups are present in the destination repository.
+
+It does not claim the destination repository works. The copy there is untracked, all 174 of its Java files still declare `package com.demo.retrieval.*` while sitting under `src/main/java/com/recsys/retrieval/`, so it cannot compile, and its `pom.xml` lacks `avro` and `spring-boot-starter-data-redis`. Making that side build is the follow-up described under Delivery and is explicitly out of scope here. Nothing in this spec should be read as evidence about the backend repository's state.
+
+It does not claim the ONNX model and lookups are durably stored. They exist in the destination as untracked files on one disk. They also remain in this repository's git history, so deleting them here is recoverable, but the follow-up must commit them there before either copy should be considered safe.
+
+It does not claim the replacement CI workflow makes this repository's tests newly correct. They already pass locally and have simply never run in CI; the workflow starts reporting a state that already held.
+
+## Global constraints
+
+- Branch and pull request only. Nothing is committed to `master` directly.
+- Producer-side canonical artifacts are untouched: `recsys-pipeline/schemas/recsys-event-v3.avsc`, `recsys-pipeline/schemas/fixtures/serving-impression-v3.avro`, `recsys-pipeline/integration-tests/fixtures/user_profile_v1.json`.
+- No source change to `spark-streaming-job` or `python-modeling`. Their behavior must be identical before and after.
+- Historical records are not rewritten. `.superpowers/docs/specs/**`, `.superpowers/docs/plans/**` and `.planning/**` are dated design records that accurately describe the repository as it was, and the five Scala comment references to `java-retrieval-service` are provenance statements about where a fixture came from, which remain true.
+- `run-movie-category-sim.sh` must still complete when no service is reachable, degrading to a "Not measured" card exactly as it already does when `mvn` is absent. A simulation run must not fail because an optional measurement was unavailable.
+- The replacement workflow must be hermetic: no Kafka, Redis, Spark cluster or Docker daemon required for it to pass.
+- `spark-streaming-job` builds under JDK 17. JDK 25 aborts every Spark-session test with a misleading `getSubject` error, so the workflow pins the version.
+
+## Implementation
+
+**Delete the service.** `git rm -r recsys-pipeline/services/java-retrieval-service/`, which stages the 177 already-deleted files and removes the 10 survivors in one commit. `recsys-pipeline/pom.xml` goes with it: its `<modules>` block lists that directory alone, so what remains would be an aggregator over nothing, and no other Maven build exists in this repository — `spark-streaming-job` is sbt and `python-modeling` is Python.
+
+**Retire the contract seam.** Delete `recsys-pipeline/integration-tests/test_retrieval_contracts.py`. Its three tests each compare a canonical pipeline artifact against the service's production copy and its frozen test snapshot, and two of those three sources now exist only in the destination repository; the `RETRIEVAL_SERVICE_DIR` environment variable it reads defaults to the in-repository path that is being deleted. Delete `.github/workflows/retrieval-service.yml` in the same commit, since its only job builds the deleted directory.
+
+**Fix the one broken Python test.** `integration-tests/test_application_config.py` holds seven tests, of which exactly one — `test_readme_documents_every_measurement_environment_variable` — reads the service's `application.yml` through its module-level `CONFIG_PATH`. That test asserts the pipeline README documents every measurement environment variable the service's configuration defines, a cross-check whose source of truth is leaving. Delete that one test and its now-unused `CONFIG_PATH` constant and imports; the other six assert only README content and are untouched.
+
+**Repoint the simulation harness.** In `scripts/run-movie-category-sim.sh`, replace the subshell that runs `mvn -q -DskipTests spring-boot:run` inside the service directory with a probe of `${SERVICE_URL:-http://localhost:8080}`. The script already polls `/metrics` in a bounded retry loop and already branches on whether that endpoint answers, so the change removes the boot and the `kill_service` trap and keeps the existing probe, burst and "Not measured" branches. The MDP card's `mvn compile exec:java` invocation of `MovieLensPolicyEvaluation` is removed rather than repointed, because that main class now lives in the destination repository and the card already has a documented "Not measured" state for when it cannot run.
+
+**Replace the workflow.** A new `.github/workflows/pipeline.yml` runs two jobs that have never had CI despite passing locally. A Python job runs `pytest` over `recsys-pipeline/integration-tests` — 555 tests in roughly thirteen seconds once this change lands, with the one Kafka-dependent test self-skipping when no broker is reachable. A Scala job runs `sbt test` for `spark-streaming-job` under JDK 17. Path filters mirror the retired workflow's shape so the jobs run when their own inputs change.
+
+**Update the live documentation.** Point the root `README.md`, `recsys-pipeline/README.md`, `recsys-pipeline/docs/recommendation_architecture/API.md`, `recsys-pipeline/docs/recommendation_architecture/Data_Pipeline.md`, `recsys-pipeline/docs/recommendation_flows/3_Cold_Start.md`, `recsys-pipeline/docs/recommendation_flows/6_Predicting_Scoring.md`, `recsys-pipeline/frontend/README.md` and `recsys-pipeline/recsys-streaming-pipeline-architecture.html` at `lingduoduo/Recsys-Backend-Service` where they currently describe an in-repository service, and adjust instructions that tell a reader to build or run it from this checkout.
+
+## Validation and acceptance
+
+1. `git status` is clean and `git ls-files recsys-pipeline/services/java-retrieval-service` is empty. No `pom.xml` remains anywhere under `recsys-pipeline/`.
+2. `python3 -m pytest recsys-pipeline/integration-tests` passes with one skip and no failure. The measured pre-change baseline is 1 failed, 558 passed and 1 skipped: `test_retrieval_contracts.py` contributes three tests, of which `test_event_schemas_match_the_canonical_producer_schema` fails on the already-deleted `src/main/resources/schemas/` while the other two still pass because the `contracts/` fixtures they read survive in the working tree. Post-change the count must be 555 passed, 1 skipped and 0 failed — the passing total drops by exactly three, being those two contract tests plus the one deleted configuration test, and the single failure disappears with the file that produced it. Any other arithmetic means something unintended was removed.
+3. The `spark-streaming-job` sbt suite passes under JDK 17 with the same result as the pre-change baseline captured before any file is touched. The change makes no Scala edit, so any difference is a signal, not a success.
+4. `grep -rn 'java-retrieval-service' --exclude-dir=.git` returns hits only in `.superpowers/docs/**`, `.planning/**` and the five Scala provenance comments. Any hit in a live document, script, workflow or build file is a miss.
+5. `run-movie-category-sim.sh` completes with no service running and reports the SERVICE BURST and MDP cards as "Not measured" rather than failing. Run once more with a service answering on `SERVICE_URL` only if one is conveniently available; the no-service path is the one that must hold.
+6. The new workflow is valid: `actionlint` is clean, and both jobs pass on the pull request.
+7. `git diff --check` is clean.
+
+## Limits
+
+This leaves the repository unable to run the recommendation stack end to end from a single checkout. That is the intended consequence of the split rather than a defect, but it is a real loss: the simulation harness's latency, freshness and filter-decision cards now require the operator to boot the backend service separately, and a fresh clone measures nothing there by default.
+
+Contract drift between the two repositories becomes undetectable from this side. Nothing here will notice if the backend's frozen snapshots diverge from the canonical schemas this repository publishes. The design accepts that because the consumer owns the comparison now, but until the follow-up actually adds that test in `Recsys-Backend-Service`, drift is detected nowhere. The window between the two pull requests is a genuine gap, and the follow-up should not be deferred indefinitely.
+
+The `test_readme_documents_every_measurement_environment_variable` deletion loses a real invariant rather than relocating it. It kept the pipeline README honest about measurement environment variables by diffing it against the service's configuration. Nothing replaces it here, and whether it is worth rebuilding in the backend repository against that repository's README is an open question this spec does not answer.
+
+Two documentation inconsistencies are noted and deliberately left. PR #241 wrote its spec and plan to `docs/superpowers/` while every other design record in this repository lives under `.superpowers/docs/`; relocating them is unrelated to the excision and would make this diff harder to read against its purpose. The five Scala comments describing `java-retrieval-service` as a "module" are now loosely worded, since it is no longer a module of this build, but each statement about where a fixture came from remains accurate and rewriting them would touch test files this change otherwise does not.
+
+## Delivery
+
+One pull request on `refactor/excise-retrieval-service` against `master`, carrying the deletions, the workflow replacement, the harness change and the documentation updates, with the baseline and post-change test counts in the description.
+
+The follow-up in `lingduoduo/Recsys-Backend-Service` is a separate pull request and a separate design: rewrite the 174 `package com.demo.retrieval` declarations and every matching import to `com.recsys.retrieval`, add the `avro` and `spring-boot-starter-data-redis` dependencies, commit the ONNX model, its lookups and the `schemas/` directory, reconcile the copied code against the 17 tracked files already under `com.recsys.application.retrieval`, and add the contract comparison this spec moves there.
