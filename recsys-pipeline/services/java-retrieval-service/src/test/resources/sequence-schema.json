@@ -1,8 +1,0 @@
-{
-  "keyPrefix": "seq",
-  "kinds": ["rating", "click", "behavior"],
-  "columns": ["item_id", "ts", "action", "rating", "genres", "release_year"],
-  "countField": "n",
-  "rowSeparator": ",",
-  "valueSeparator": "|"
-}
