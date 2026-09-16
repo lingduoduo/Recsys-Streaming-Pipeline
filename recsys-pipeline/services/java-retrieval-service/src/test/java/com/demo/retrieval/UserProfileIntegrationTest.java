@@ -19,7 +19,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -126,9 +125,11 @@ class UserProfileIntegrationTest {
             .andExpect(jsonPath("$.personas[0].evidence.evidence_count").value(1.0))
             .andExpect(jsonPath("$.personas[0].evidence.minimum_evidence").value(5.0));
 
+        // Ranked first, ahead of z-drama and of every catalog item the content retriever pulls
+        // in on the sci-fi/space preference. z-drama is not asserted to be present: the profile
+        // pushes it out of a top-2 slate entirely.
         List<String> personalized = recommendationOrder(USER_ID);
         assertEquals("a-sci-fi", personalized.get(0));
-        assertTrue(personalized.indexOf("a-sci-fi") < personalized.indexOf("z-drama"));
 
         redis.delete(ACTIVE_RUN_KEY);
         redis.delete(List.of(
