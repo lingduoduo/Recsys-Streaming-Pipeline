@@ -57,7 +57,7 @@ probe that survives retrieval-route reorganisation and lets the sim tell "up but
 - Produces: the shell variable `RETRIEVAL_BASE`, defaulting to `/api/v1/retrieval`, overridable from
   the environment. Task 3 documents it in the root README. No Python or JS symbol changes.
 
-- [ ] **Step 1: Write the two failing tests**
+- [x] **Step 1: Write the two failing tests**
 
 Append to `recsys-pipeline/integration-tests/test_service_scripts.py`:
 
@@ -87,12 +87,12 @@ def test_movie_category_sim_reports_moved_routes_differently_from_a_missing_serv
     assert "no service answering at $SERVICE_URL" in burst
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_service_scripts.py -k "one_base or moved_routes" -v`
 Expected: both FAIL on the first assertion — `RETRIEVAL_BASE` is not in the script.
 
-- [ ] **Step 3: Add the base variable**
+- [x] **Step 3: Add the base variable**
 
 In `recsys-pipeline/scripts/run-movie-category-sim.sh`, after the `SERVICE_URL` line (currently
 line 15), insert:
@@ -104,7 +104,7 @@ line 15), insert:
 RETRIEVAL_BASE="${RETRIEVAL_BASE:-/api/v1/retrieval}"
 ```
 
-- [ ] **Step 4: Route the three calls and split the gate into three outcomes**
+- [x] **Step 4: Route the three calls and split the gate into three outcomes**
 
 Replace the SERVICE BURST block's comment, `if` line, the two inner `curl` URLs, the closing
 `curl` and the `else` branch. The body of the burst loop is otherwise unchanged. The result:
@@ -147,7 +147,7 @@ else
 fi
 ```
 
-- [ ] **Step 5: Run the new tests, the two pre-existing SERVICE BURST tests, and the syntax check**
+- [x] **Step 5: Run the new tests, the two pre-existing SERVICE BURST tests, and the syntax check**
 
 Run: `bash -n recsys-pipeline/scripts/run-movie-category-sim.sh`
 Expected: no output, exit 0.
@@ -158,12 +158,12 @@ Expected: all PASS, including `test_movie_category_sim_never_fails_on_a_missing_
 `test_movie_category_sim_probes_a_running_service_instead_of_building_one` (the
 `SERVICE_URL="${SERVICE_URL:-http://localhost:$SERVICE_PORT}"` line is untouched).
 
-- [ ] **Step 6: Run the whole suite**
+- [x] **Step 6: Run the whole suite**
 
 Run: `cd recsys-pipeline && python3 -m pytest -q`
 Expected: **560 passed, 1 skipped** — the 558 baseline plus this task's two new tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add recsys-pipeline/scripts/run-movie-category-sim.sh recsys-pipeline/integration-tests/test_service_scripts.py
@@ -215,7 +215,7 @@ ignored, `!/.superpowers/docs/` negated back in), where twenty other design docu
   `main()` in the same file. `analysis_dashboard_report` loses the module-level names
   `compute_mdp` and `_mdp_section`. Task 3 consumes neither.
 
-- [ ] **Step 1: Delete the tests that assert the MDP machinery, and run to watch them go**
+- [x] **Step 1: Delete the tests that assert the MDP machinery, and run to watch them go**
 
 In `recsys-pipeline/integration-tests/python_modeling/test_analysis_dashboard.py`, delete the whole
 of `test_compute_mdp_reads_csv_and_missing_is_none` (lines 271-284). Rename
@@ -245,7 +245,7 @@ Run: `cd recsys-pipeline && python3 -m pytest integration-tests -q`
 Expected: **559 passed, 1 skipped** — one test fewer than Task 1 left, and no failures, because the
 production code still exports everything the remaining tests touch.
 
-- [ ] **Step 2: Delete the React card**
+- [x] **Step 2: Delete the React card**
 
 In `recsys-pipeline/frontend/app/page.jsx`, remove `  MdpSection,` from the import list and
 `        <MdpSection data={data.mdp} />` from the grid.
@@ -254,7 +254,7 @@ In `recsys-pipeline/frontend/components/sections.jsx`, delete lines 628-657 — 
 `export function MdpSection({ data }) { ... }`, which is the last function in the file. Leave the
 file ending after the preceding function's closing brace.
 
-- [ ] **Step 3: Delete the `mdp` key from the committed snapshot**
+- [x] **Step 3: Delete the `mdp` key from the committed snapshot**
 
 Do NOT regenerate the file. Delete the key in place, preserving the formatting of every other key:
 
@@ -280,7 +280,7 @@ diff <(python3 -c 'import json;print(json.dumps(json.load(open("frontend/data/da
 
 Expected: `diff` prints nothing.
 
-- [ ] **Step 4: Delete the exporter plumbing**
+- [x] **Step 4: Delete the exporter plumbing**
 
 In `recsys-pipeline/frontend/export_dashboard_json.py`:
 - change the `build` signature to `def build(input_dir: str, host: str, port: int,` /
@@ -293,7 +293,7 @@ In `recsys-pipeline/frontend/export_dashboard_json.py`:
   the `mdp_csv = args.mdp_csv or ...` line, and drop `mdp_csv` from the `build(...)` call so it
   reads `data = build(args.input, host, port, args.experiences, args.live_metrics, {`
 
-- [ ] **Step 5: Delete the HTML report plumbing**
+- [x] **Step 5: Delete the HTML report plumbing**
 
 In `recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`:
 - delete `compute_mdp` in its entirety (lines 288-300)
@@ -303,7 +303,7 @@ In `recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`:
   `mdp = compute_mdp(mdp_csv)`, and the `sections.append(_mdp_section(mdp) if mdp` /
   `else na_card(...))` pair
 
-- [ ] **Step 6: Delete the simulation's MDP block**
+- [x] **Step 6: Delete the simulation's MDP block**
 
 In `recsys-pipeline/scripts/run-movie-category-sim.sh`, delete the entire MDP stanza — the blank
 line, the `echo "==> MDP POLICY EVALUATION ..."` banner, the three-line comment, the
@@ -318,7 +318,7 @@ REDIS_HOST=localhost REDIS_PORT=6379 \
 
 Delete the line `[[ -s "$MDP_CSV" ]] && export_args+=(--mdp-csv "$MDP_CSV")`.
 
-- [ ] **Step 7: Move the stray spec tree and drop its guard exemption**
+- [x] **Step 7: Move the stray spec tree and drop its guard exemption**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -337,7 +337,7 @@ and in the module docstring replace `Dated design records under .superpowers/doc
 and .planning are history` with `Dated design records under .superpowers/docs and .planning are
 history`.
 
-- [ ] **Step 8: Verify every trace is gone**
+- [x] **Step 8: Verify every trace is gone**
 
 Run: `bash -n recsys-pipeline/scripts/run-movie-category-sim.sh`
 Expected: no output.
@@ -348,7 +348,7 @@ Expected: no output.
 Run: `cd /Users/linghuang/Git/Recsys-Streaming-Pipeline && git ls-files docs/ | wc -l && git ls-files .superpowers/docs/ | wc -l`
 Expected: `0` then a count two higher than before the move.
 
-- [ ] **Step 9: Run the full suite and the frontend gates**
+- [x] **Step 9: Run the full suite and the frontend gates**
 
 Run: `cd recsys-pipeline && python3 -m pytest -q`
 Expected: **559 passed, 1 skipped**, zero failures.
@@ -359,7 +359,7 @@ Expected: `dashboard.json valid: 7 measurement sections, schema 2.0`.
 Run: `cd recsys-pipeline/frontend && npm run build`
 Expected: a successful Next.js build with no unresolved-import error for `MdpSection`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add -A
@@ -399,7 +399,7 @@ is currently documented nowhere.
   `--mdp-csv` from both entry points from Task 2.
 - Produces: nothing code-level.
 
-- [ ] **Step 1: Sweep the orphaned MDP prose**
+- [x] **Step 1: Sweep the orphaned MDP prose**
 
 In `recsys-pipeline/README.md`: remove `  --mdp-csv "$IN/../mdp_eval.csv"` from the invocation
 example; in the sentence at the "off-policy and MDP cards render N/A" line, drop the MDP clause and
@@ -417,12 +417,12 @@ the diagnostic-sections parenthetical near line 71, and delete the whole `--mdp-
 example line, the two sentences about its default, and the paragraph beginning
 `run-movie-category-sim.sh no longer produces this file itself`.
 
-- [ ] **Step 2: Verify no MDP prose survives**
+- [x] **Step 2: Verify no MDP prose survives**
 
 Run: `cd /Users/linghuang/Git/Recsys-Streaming-Pipeline && grep -rni 'mdp' --include='*.md' . | grep -v '^\./\.superpowers/' | grep -v '^\./\.planning/' | grep -v node_modules`
 Expected: no output.
 
-- [ ] **Step 3: Write the canonical boundary section in the root README**
+- [x] **Step 3: Write the canonical boundary section in the root README**
 
 Add to `README.md` a section — heading `## Repository boundary` — that states in one place: this
 repository holds the streaming pipeline (Spark jobs, Python modeling, simulations, dashboard); the
@@ -432,7 +432,7 @@ service exposes its retrieval endpoints under `/api/v1/retrieval`, which the sim
 can be overridden from the environment; and that Maven is a prerequisite of that repository, not of
 this checkout.
 
-- [ ] **Step 4: Point the restating documents at it**
+- [x] **Step 4: Point the restating documents at it**
 
 In `recsys-pipeline/README.md`, `recsys-pipeline/docs/recommendation_architecture/API.md`,
 `recsys-pipeline/docs/recommendation_architecture/Data_Pipeline.md`,
@@ -445,7 +445,7 @@ needs `../../../README.md#repository-boundary` to reach the repository root.
 **Exception:** `recsys-pipeline/README.md` Quick Start Step 2 keeps its concrete clone-and-run
 instructions verbatim. A reader following numbered steps must not have to leave the page.
 
-- [ ] **Step 5: Verify the links resolve and the guarded anchors survive**
+- [x] **Step 5: Verify the links resolve and the guarded anchors survive**
 
 Run: `cd /Users/linghuang/Git/Recsys-Streaming-Pipeline && python3 - <<'PY'
 import pathlib, re
@@ -470,7 +470,7 @@ Expected: `all relative anchors resolve`.
 Run: `cd /Users/linghuang/Git/Recsys-Streaming-Pipeline && grep -n '^## Retrieval Service Configuration$' recsys-pipeline/README.md`
 Expected: one match — the heading two flow documents link to is unchanged.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Several tests assert README content, so a reword can break a test in a file this task never opens.
 
@@ -480,7 +480,7 @@ Expected: **559 passed, 1 skipped**.
 Run: `cd /Users/linghuang/Git/Recsys-Streaming-Pipeline && git diff --check`
 Expected: no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -498,13 +498,32 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
+## Deviations from this plan, as executed
+
+Two, both taken deliberately and recorded in PR #244:
+
+1. **Task 3 Step 1 said to drop the MDP paragraph from the two-evaluator discussion.** It was kept.
+   That paragraph is the "where it went" pointer — it names `MovieLensPolicyEvaluation` and the
+   repository that now owns it. Deleting it would leave a reader who wants MDP evaluation with
+   nothing, which is the opposite of what the spec intends by "deleted, not relocated".
+
+2. **Scope grew beyond the planned three documents.** Every endpoint documented in this repository
+   was written at a bare path: eight in `API.md`, ten in `recsys-pipeline/README.md`, one in
+   `9_Track_Metrics.md`, and `/actuator/profile-audit` had moved to
+   `/api/v1/retrieval/profile-audit` as well. Every copyable `curl` here would have 404d. All were
+   repointed, because claiming the codebase was consolidated while leaving them would be false.
+
+**Noted and not fixed:** nine flow documents link to `../../../README.md#recsys-pipeline`, one
+directory level too high. This predates the extraction — PR #243's spec documented the same class —
+and is out of scope for this change.
+
 ## Final verification
 
-- [ ] `cd recsys-pipeline && python3 -m pytest -q` → **559 passed, 1 skipped**
-- [ ] `cd recsys-pipeline/frontend && npm run validate:data && npm run build` → both succeed
-- [ ] `bash -n recsys-pipeline/scripts/run-movie-category-sim.sh` → clean
-- [ ] `git ls-files docs/` → empty
-- [ ] `grep -rni 'mdp' --include='*.py' --include='*.sh' --include='*.jsx' --include='*.md' --include='*.json' .` outside `.superpowers/`, `.planning/`, `node_modules/` and `__pycache__/` → no output
-- [ ] `grep -rn 'java-retrieval-service' .` → only `.superpowers/`, `.planning/`, and `.py`/`.scala` provenance comments
-- [ ] `git diff --check` → clean
-- [ ] Three commits on the branch, in order: contract, orphans, documentation
+- [x] `cd recsys-pipeline && python3 -m pytest -q` → **559 passed, 1 skipped**
+- [x] `cd recsys-pipeline/frontend && npm run validate:data && npm run build` → both succeed
+- [x] `bash -n recsys-pipeline/scripts/run-movie-category-sim.sh` → clean
+- [x] `git ls-files docs/` → empty
+- [x] `grep -rni 'mdp' --include='*.py' --include='*.sh' --include='*.jsx' --include='*.md' --include='*.json' .` outside `.superpowers/`, `.planning/`, `node_modules/` and `__pycache__/` → no output
+- [x] `grep -rn 'java-retrieval-service' .` → only `.superpowers/`, `.planning/`, and `.py`/`.scala` provenance comments
+- [x] `git diff --check` → clean
+- [x] Three commits on the branch, in order: contract, orphans, documentation
