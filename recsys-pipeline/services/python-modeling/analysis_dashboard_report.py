@@ -285,21 +285,6 @@ def compute_ope(host, port, key="replay:recommendations", limit=-1, bootstrap_sa
     return {"headline": headline, "rows": rows, "calibration": cal}
 
 
-def compute_mdp(csv_path):
-    """Load a MovieLensPolicyEvaluation CSV (policy,episodes,mean_return,...) if the Java CLI wrote one."""
-    if not csv_path or not os.path.exists(csv_path):
-        return None
-    import pandas as pd
-    df = pd.read_csv(csv_path)
-    if df.empty:
-        return None
-    best = df.loc[df["mean_return"].idxmax()]
-    worst = df.loc[df["mean_return"].idxmin()]
-    headline = (f"{best['policy']} return {best['mean_return']:.3f} vs "
-                f"{worst['policy']} {worst['mean_return']:.3f} over {int(best['episodes'])} episodes")
-    return {"headline": headline, "df": df, "path": csv_path}
-
-
 MEASUREMENT_SCHEMA_VERSION = "2.0"
 
 MEASUREMENT_DEFAULTS = {
@@ -713,18 +698,6 @@ def _ope_section(r) -> str:
     return section("Off-policy evaluation", r["headline"], body)
 
 
-def _mdp_section(r) -> str:
-    df = r["df"].copy()
-    df["ci95"] = [f"[{lo:.3f}, {hi:.3f}]" for lo, hi in zip(df["ci95_low"], df["ci95_high"])]
-    for c in ("mean_return", "mean_steps", "standard_error"):
-        df[c] = df[c].round(4)
-    body = html_table(df, ["policy", "episodes", "mean_return", "mean_steps", "standard_error", "ci95"])
-    body += (f'<p style="{_FINE_PRINT}">Finite-horizon discounted return over seeded episodes; '
-             f'95% bootstrap CIs quantify episode-sampling uncertainty for this fixed dataset. '
-             f'Source: {_esc(os.path.basename(r["path"]))}.</p>')
-    return section("MDP policy evaluation", r["headline"], body)
-
-
 def main(argv=None) -> str:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", default="/tmp/spark-recsys/movie-category-sim/training-samples")
@@ -732,8 +705,6 @@ def main(argv=None) -> str:
     ap.add_argument("--ks", default="5,10,20")
     ap.add_argument("--ope-key", default="replay:recommendations")
     ap.add_argument("--ope-bootstrap-samples", type=int, default=1000)
-    ap.add_argument("--mdp-csv", default=None,
-                    help="MovieLensPolicyEvaluation CSV; default <input>/../mdp_eval.csv")
     args = ap.parse_args(argv)
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
@@ -759,11 +730,6 @@ def main(argv=None) -> str:
     sections.append(_ope_section(ope) if ope
                     else na_card("Off-policy evaluation",
                                  "no replay-buffer events with reward in Redis"))
-    mdp_csv = args.mdp_csv or os.path.join(args.input, "..", "mdp_eval.csv")
-    mdp = compute_mdp(mdp_csv)
-    sections.append(_mdp_section(mdp) if mdp
-                    else na_card("MDP policy evaluation", f"no mdp_eval.csv at {mdp_csv}"))
-
     os.makedirs(outdir, exist_ok=True)
     out = os.path.join(outdir, "index.html")
     with open(out, "w") as fh:

@@ -4,8 +4,8 @@ These guard against a reference creeping back into a file meant to describe this
 repository as it is now.
 
 Two categories are deliberately not scanned. Dated design records under
-.superpowers/docs, docs/superpowers and .planning are history: they describe the
-repository as it was and must not be rewritten. And .py and .scala files carry
+.superpowers/docs and .planning are history: they describe the repository as it
+was and must not be rewritten. And .py and .scala files carry
 provenance comments that name the Java classes which produced a fixture or a feature
 layout -- GrpoFeatures in grpo_offline_eval.py, RecsysEventAvroCodec in
 ServingImpressionFixtureSpec.scala -- which remain true statements about where the
@@ -18,7 +18,7 @@ from pathlib import Path
 GIT_ROOT = Path(__file__).resolve().parents[2]
 NEEDLE = "java-retrieval-service"
 
-HISTORICAL_PREFIXES = (".superpowers/", "docs/superpowers/", ".planning/")
+HISTORICAL_PREFIXES = (".superpowers/", ".planning/")
 SKIP_DIRS = {
     ".git", "target", "node_modules", ".next", "__pycache__",
     ".worktrees", ".pytest_cache", ".venv", "venv",

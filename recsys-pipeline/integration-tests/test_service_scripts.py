@@ -403,8 +403,6 @@ def test_movie_category_sim_probes_a_running_service_instead_of_building_one() -
     assert "java-retrieval-service" not in script
     assert "MovieLensPolicyEvaluation" not in script
     assert "kill_service" not in script
-    # the MDP card still has a path to render "Not measured"
-    assert 'MDP_CSV="$SIM_ROOT/mdp_eval.csv"' in script
 
 
 def test_archive_replay_script_requires_bounds_before_starting_python(tmp_path: Path) -> None:

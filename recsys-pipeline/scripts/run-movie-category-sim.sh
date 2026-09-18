@@ -252,24 +252,14 @@ else
 fi
 
 echo
-echo "==> MDP POLICY EVALUATION (not measured — evaluator lives in Recsys-Backend-Service)"
-# The evaluator that produced this file moved to Recsys-Backend-Service, so this card is
-# always "Not measured" from a pipeline-only checkout. MDP_CSV stays defined because the
-# analysis report takes --mdp-csv unconditionally and the exporter guards on the file existing.
-MDP_CSV="$SIM_ROOT/mdp_eval.csv"
-echo "   evaluator now lives in Recsys-Backend-Service — MDP card stays Not measured"
-
-echo
 echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
 REDIS_HOST=localhost REDIS_PORT=6379 \
-  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" \
-    --mdp-csv "$MDP_CSV" 2>&1 \
+  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" 2>&1 \
   | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 echo
 echo "==> REACT DASHBOARD SNAPSHOT (seven measurement sections)"
 export_args=(--input "$OUT_DIR" --output "frontend/data/dashboard.json")
-[[ -s "$MDP_CSV" ]] && export_args+=(--mdp-csv "$MDP_CSV")
 [[ -d "$SLATE_DIR" ]] && export_args+=(--experiences "$SLATE_DIR")
 [[ -s "$LIVE_METRICS" ]] && export_args+=(--live-metrics "$LIVE_METRICS")
 REDIS_HOST=localhost REDIS_PORT=6379 \

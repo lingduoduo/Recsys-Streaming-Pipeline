@@ -71,7 +71,7 @@ def _bounded_slate_rows(diversity: dict) -> dict:
     return {**diversity, "rows": kept, "warnings": [*diversity["warnings"], warning]}
 
 
-def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
+def build(input_dir: str, host: str, port: int,
           experiences: str | None = None, live_metrics: str | None = None,
           config: dict | None = None) -> dict:
     df = dash.load_samples(input_dir, host, port)
@@ -109,7 +109,6 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
     recall = dash.compute_recall(df, host, port)
     ranking = dash.compute_ranking(df, host, port)
     ope = dash.compute_ope(host, port)
-    mdp = dash.compute_mdp(mdp_csv)
 
     return _json_safe({
         "schemaVersion": dash.MEASUREMENT_SCHEMA_VERSION,
@@ -122,7 +121,6 @@ def build(input_dir: str, host: str, port: int, mdp_csv: str | None,
         "recall": recall,  # {headline, rows} or None
         "ranking": {"headline": ranking["headline"], "rows": ranking["rows"]} if ranking else None,
         "ope": ope,        # {headline, rows, calibration} or None
-        "mdp": {"headline": mdp["headline"], "rows": _records(mdp["df"])} if mdp else None,
     })
 
 
@@ -130,8 +128,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", default="/tmp/spark-recsys/training-samples")
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
-    ap.add_argument("--mdp-csv", default=None,
-                    help="MovieLensPolicyEvaluation CSV; defaults to <input>/../mdp_eval.csv")
     ap.add_argument("--experiences", default=None,
                     help="slate experiences Parquet directory or JSON file (relevance/diversity)")
     ap.add_argument("--live-metrics", default=None,
@@ -148,12 +144,7 @@ def main(argv=None) -> None:
     host = os.environ.get("REDIS_HOST", "localhost")
     port = int(os.environ.get("REDIS_PORT", "6379"))
 
-    # Match analysis_dashboard_report.py, which infers the same path. Without this the MDP card
-    # stays null even when the CSV sits exactly where the HTML report finds it, and nothing says
-    # why -- the flag simply has to be passed twice, to two different programs.
-    mdp_csv = args.mdp_csv or os.path.join(args.input, "..", "mdp_eval.csv")
-
-    data = build(args.input, host, port, mdp_csv, args.experiences, args.live_metrics, {
+    data = build(args.input, host, port, args.experiences, args.live_metrics, {
         "fairness_min_support": args.fairness_min_support,
         "freshness_window_days": args.freshness_window_days,
         "long_tail_percentile": args.long_tail_percentile,
