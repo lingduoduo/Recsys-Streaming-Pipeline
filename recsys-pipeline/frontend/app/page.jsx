@@ -13,7 +13,6 @@ import {
   RecallSection,
   RankingSection,
   OpeSection,
-  MdpSection,
 } from "../components/sections";
 import { KeywordSection } from "../components/keyword-report";
 
@@ -47,7 +46,6 @@ export default function Page() {
         <RecallSection data={data.recall} />
         <RankingSection data={data.ranking} />
         <OpeSection data={data.ope} />
-        <MdpSection data={data.mdp} />
       </div>
     </main>
   );

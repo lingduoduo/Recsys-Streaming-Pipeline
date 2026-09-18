@@ -1,20 +1,21 @@
 # API
 
-REST endpoints served by the retrieval service, a separate deployable maintained in
-[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service).
+REST endpoints served by the retrieval service, which lives in a separate repository — see the
+[repository boundary](../../../README.md#repository-boundary).
 
 Startup requires Java 17 and Redis reachable at the configured host and port. Wait for
-`Started RetrievalServiceApplication` before sending requests. The base URL for the local service
-is `http://localhost:8080`. See the canonical
+`Started RetrievalServiceApplication` before sending requests. Every endpoint below sits under the
+service's versioned prefix `/api/v1/retrieval`, so the local base URL is
+`http://localhost:8080/api/v1/retrieval`. See the canonical
 [retrieval-service workflow](../../README.md#optional-reference-experiment-pipeline--retrieval-service-8080)
 for the surrounding local run sequence.
 
-## `GET /recommend/{user}?limit=6`
+## `GET /api/v1/retrieval/recommend/{user}?limit=6`
 
 Returns recent interactions, selected recommendations, per-item diagnostics, and request-level metrics.
 
 ```bash
-curl 'http://localhost:8080/recommend/user_1?limit=6'
+curl 'http://localhost:8080/api/v1/retrieval/recommend/user_1?limit=6'
 ```
 
 ```json
@@ -59,14 +60,14 @@ unavailable—the recommender fails closed to its established non-profile signal
 continues returning a normal response; a profile failure never makes recommendation serving depend
 on a partial snapshot.
 
-## `GET /users/{user}/profile`
+## `GET /api/v1/retrieval/users/{user}/profile`
 
 Returns the profile selected by `RECSYS_USER_PROFILE_KEY_PREFIX:active-run` (default prefix
 `user-profile:v1`). Preference names are normalized for serving, while list order, explicit JSON
 nulls, run metadata, persona confidence, and evidence are preserved.
 
 ```bash
-curl http://localhost:8080/users/user_1/profile
+curl http://localhost:8080/api/v1/retrieval/users/user_1/profile
 ```
 
 ```json
@@ -114,7 +115,7 @@ User IDs outside `[a-zA-Z0-9_:-]{1,64}` return HTTP 400. Profile lookups record 
 `redis_error`. Configure a non-default namespace with `RECSYS_USER_PROFILE_KEY_PREFIX`; it must
 match `USER_PROFILE_REDIS_KEY_PREFIX` used by the Spark publisher.
 
-## `GET /actuator/profile-audit`
+## `GET /api/v1/retrieval/profile-audit`
 
 Operator tool. Walks every user → has_profile → profile preferences → catalog content and returns
 a findings-only report: users with no usable profile, profiles with no usable preference, and
@@ -123,7 +124,7 @@ time; the call is synchronous and bounded by `limit` (default and maximum
 `RECSYS_PROFILE_AUDIT_MAX_USERS`, 10000).
 
 ```bash
-curl -s 'http://localhost:8080/actuator/profile-audit?limit=1000' | jq .summary
+curl -s 'http://localhost:8080/api/v1/retrieval/profile-audit?limit=1000' | jq .summary
 ```
 
 Users are discovered with a cursor SCAN over `RECSYS_PROFILE_AUDIT_USER_KEY_PATTERN` (default
@@ -180,14 +181,14 @@ Chunks are classified as they complete, with at most `RECSYS_PROFILE_AUDIT_PARAL
 resident at a time, so `max-users` bounds how much work one call does rather than how much memory
 it holds.
 
-## `GET /actuator/profile-audit/{user}`
+## `GET /api/v1/retrieval/profile-audit/{user}`
 
 The same walk for a single account: one read of the active-run pointer, one pipelined round trip
 for its profile, then one bounded probe per preference. Unguarded and executor-free, so it never
 queues behind a bulk audit.
 
 ```bash
-curl -s localhost:8080/actuator/profile-audit/user_1 | jq .
+curl -s localhost:8080/api/v1/retrieval/profile-audit/user_1 | jq .
 ```
 
 ```json
@@ -214,14 +215,14 @@ Status codes: 200; 400 if the id is outside `[a-zA-Z0-9_:-]{1,64}`; 503
 `{"status":"error","message":...}` if Redis fails. There is no 409 — only the bulk route is
 single-flight.
 
-## `GET /predict/{user}/{item}`
+## `GET /api/v1/retrieval/predict/{user}/{item}`
 
 Scores a single (user, item) pair using the offline ONNX model. These are string IDs: the service
 resolves both values through the model's user and item lookup tables before invoking ONNX. If
 either value is absent, the response contains `unknown_user_or_item`.
 
 ```bash
-curl http://localhost:8080/predict/user_employee_01/action_benefits
+curl http://localhost:8080/api/v1/retrieval/predict/user_employee_01/action_benefits
 ```
 
 ```json
@@ -234,31 +235,31 @@ lookup contains `user_employee_01..08`, `user_manager_01..08`, `user_new_hire_01
 `action_benefits`, `action_learning`, `action_onboarding`, and `action_payroll`. Unknown IDs return
 `{"error":"unknown_user_or_item", ...}` with the model's lookup sizes.
 
-## `GET /predict/id?userId=0&itemId=4`
+## `GET /api/v1/retrieval/predict/id?userId=0&itemId=4`
 
 Same as above but accepts raw, zero-based internal lookup indices directly. These values are not
 external movie IDs. Inspect the loaded model's lookup sizes before choosing indices:
 
 ```bash
-curl -s http://localhost:8080/predict/metadata
+curl -s http://localhost:8080/api/v1/retrieval/predict/metadata
 ```
 
 `userId` must be in `0..users-1`, and `itemId` must be in `0..items-1`, where `users` and `items`
 come from the metadata response. An out-of-range index returns HTTP 400.
 
 ```bash
-curl 'http://localhost:8080/predict/id?userId=0&itemId=4'
+curl 'http://localhost:8080/api/v1/retrieval/predict/id?userId=0&itemId=4'
 ```
 
-## `GET /predict/metadata`
+## `GET /api/v1/retrieval/predict/metadata`
 
 Returns model name, lookup table sizes, and ONNX input/output names for the loaded offline model.
 
 ```bash
-curl http://localhost:8080/predict/metadata
+curl http://localhost:8080/api/v1/retrieval/predict/metadata
 ```
 
-## `POST /feedback`
+## `POST /api/v1/retrieval/feedback`
 
 Records user feedback for an exposed item. All Redis writes are batched in a single `executePipelined` call (one round-trip instead of ~22). The three phases on each call:
 
@@ -270,24 +271,24 @@ Records user feedback for an exposed item. All Redis writes are batched in a sin
 3. **Invalidate** — purge affected `reward-model:*` keys from the Caffeine in-memory cache so the next `/recommend` request reads fresh stats.
 
 ```bash
-curl -X POST http://localhost:8080/feedback \
+curl -X POST http://localhost:8080/api/v1/retrieval/feedback \
   -H 'Content-Type: application/json' \
   -d '{"user":"user_1","item":"item_5","clicked":true,"reward":1.0}'
 ```
 
-## `GET /metrics`
+## `GET /api/v1/retrieval/metrics`
 
 Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view — see
 [Track Metrics](../recommendation_flows/9_Track_Metrics.md) for the full field and Redis-key tables.
 
 ```bash
-curl http://localhost:8080/metrics
+curl http://localhost:8080/api/v1/retrieval/metrics
 ```
 
-## `GET /embedding/{item}`
+## `GET /api/v1/retrieval/embedding/{item}`
 
 Returns an item embedding from Redis using key `i2vEmb:{item}`.
 
 ```bash
-curl http://localhost:8080/embedding/item_5
+curl http://localhost:8080/api/v1/retrieval/embedding/item_5
 ```

@@ -2120,28 +2120,5 @@
       "mse": 0.0,
       "auc": null
     }
-  },
-  "mdp": {
-    "headline": "uniform return 1.162 vs greedy -1.492 over 5000 episodes",
-    "rows": [
-      {
-        "policy": "uniform",
-        "episodes": 5000,
-        "mean_return": 1.162205,
-        "mean_steps": 10.0,
-        "standard_error": 0.04706,
-        "ci95_low": 1.074081,
-        "ci95_high": 1.250558
-      },
-      {
-        "policy": "greedy",
-        "episodes": 5000,
-        "mean_return": -1.492105,
-        "mean_steps": 10.0,
-        "standard_error": 0.044487,
-        "ci95_low": -1.57367,
-        "ci95_high": -1.40408
-      }
-    ]
   }
 }

@@ -189,9 +189,8 @@ there are no events whose `reward` is present.
 ## Consolidated standalone HTML
 
 `analysis_dashboard_report.py` recomputes relevance, keyword, query, recall, ranking, and live
-off-policy sections in one HTML file. It also renders the Java MovieLens policy-evaluation CSV
-when `--mdp-csv` exists. Missing Redis replay/embedding data or a missing MDP CSV becomes an
-explicit N/A card rather than a fabricated metric.
+off-policy sections in one HTML file. Missing Redis replay/embedding data becomes an explicit
+N/A card rather than a fabricated metric.
 
 Run from the repository root:
 
@@ -200,12 +199,10 @@ cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim/training-samples
 REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py \
   --input "$IN" \
-  --ks 5,10,20 \
-  --mdp-csv "$IN/../mdp_eval.csv"
+  --ks 5,10,20
 ```
 
-The output is `$IN/../report-dashboard/index.html`; use `--outdir` to override it. The default MDP
-input is already `$IN/../mdp_eval.csv`, so `--mdp-csv` is optional when the file is there.
+The output is `$IN/../report-dashboard/index.html`; use `--outdir` to override it.
 
 ## React snapshot
 

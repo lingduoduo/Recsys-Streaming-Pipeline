@@ -18,7 +18,9 @@ All independently runnable application code in this checkout lives under `servic
 The retrieval service is a separate deployable, maintained in
 [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service): it
 loads an ONNX model and embedding configs at startup, scores candidates, runs bandit evaluation
-(UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST.
+(UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST under the versioned prefix
+`/api/v1/retrieval`. See the [repository boundary](../README.md#repository-boundary) for what each
+repository owns.
 
 Infrastructure, shared sample data, and orchestration scripts remain at the `recsys-pipeline` root.
 
@@ -236,17 +238,17 @@ for input, decay, taxonomy, output, activation, metrics, and all environment var
 [API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
 contract.
 To check every user at once — who lacks a valid profile, and which preferences match no catalog
-item — call `GET /actuator/profile-audit`; for a single account, `GET
-/actuator/profile-audit/{user}`. See
+item — call `GET /api/v1/retrieval/profile-audit`; for a single account, `GET
+/api/v1/retrieval/profile-audit/{user}`. See
 [API.md](docs/recommendation_architecture/API.md#get-actuatorprofile-audit).
 
 ### Step 5 — Query the API
 
 ```bash
-curl http://localhost:8080/recommend/user_1
-curl http://localhost:8080/recommend/user_1?limit=10
-curl http://localhost:8080/users/user_1/profile
-curl http://localhost:8080/metrics
+curl http://localhost:8080/api/v1/retrieval/recommend/user_1
+curl http://localhost:8080/api/v1/retrieval/recommend/user_1?limit=10
+curl http://localhost:8080/api/v1/retrieval/users/user_1/profile
+curl http://localhost:8080/api/v1/retrieval/metrics
 ```
 
 Run the cross-service integration tests:
@@ -310,8 +312,8 @@ The `replay:recommendations` Redis list is populated by `ExperienceCollectorStre
 #    make sure it is already running and reachable, e.g. bound to :8080
 
 # 2. in another shell — generate recommendations + feedback
-curl 'http://localhost:8080/recommend/u_1?limit=6'
-curl -X POST http://localhost:8080/feedback \
+curl 'http://localhost:8080/api/v1/retrieval/recommend/u_1?limit=6'
+curl -X POST http://localhost:8080/api/v1/retrieval/feedback \
   -H 'Content-Type: application/json' \
   -d '{"user":"u_1","item":"movie_42","clicked":true,"reward":1.0}'
 
@@ -501,7 +503,7 @@ inputs by hand from `recsys-pipeline/` against a run already in progress:
 
 ```bash
 # 1. live operational measurements from the running retrieval service
-curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
+curl -s http://localhost:8080/api/v1/retrieval/metrics > /tmp/spark-recsys/live-metrics.json
 
 # 2. offline + slate + live measurements from a run's outputs
 IN=/tmp/spark-recsys/movie-category-sim
@@ -824,7 +826,7 @@ Keep Redis running after this line; the exporter still needs `movie:*:features`,
 
 ```bash
 # Optional: capture live latency/freshness/safety/feedback coverage while the service runs.
-curl -s http://localhost:8080/metrics > /tmp/spark-recsys/live-metrics.json
+curl -s http://localhost:8080/api/v1/retrieval/metrics > /tmp/spark-recsys/live-metrics.json
 
 # --experiences reads the ranked slates relevance and diversity need; the sim already wrote them
 # to Parquet under $EXPERIENCE_COLLECTOR_OUTPUT_PATH, so no manual Kafka dump is needed.
@@ -854,7 +856,7 @@ Success is a `snapshot valid:` line with positive row and L1 counts, followed by
 consumed by the React app.
 
 The snapshot carries seven measurement sections — relevance, satisfaction, freshness, diversity,
-fairness, safety, and latency — alongside the engagement/keyword/query/recall/ranking/OPE/MDP
+fairness, safety, and latency — alongside the engagement/keyword/query/recall/ranking/OPE
 diagnostics. Note the schema change at `schemaVersion: "2.0"`: `relevance` now holds the listwise
 measurement envelope (NDCG/MRR), and the engagement funnel it used to hold moved to `engagement`.
 Sections whose inputs are missing report `"status": "unavailable"` with an explicit reason and
@@ -931,13 +933,12 @@ following from the repository root:
 cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim/training-samples
 REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py \
-  --input "$IN" \
-  --mdp-csv "$IN/../mdp_eval.csv"
+  --input "$IN"
 ```
 
 The report writes to `$IN/../report-dashboard/index.html`. Recall/ranking require Redis movie
-metadata and embeddings; off-policy and MDP cards render N/A when their replay-buffer or
-`mdp_eval.csv` inputs are absent. See
+metadata and embeddings; the off-policy card renders N/A when its replay-buffer input is
+absent. See
 [Analysis Reports](docs/recommendation_architecture/Analysis_Report.md) for focused
 report commands.
 
@@ -984,28 +985,28 @@ commands below assume it is already running (binds `:8080`; connects to Redis `:
 
 ```bash
 # Ranked recommendations with per-item diagnostics + request metrics
-curl 'http://localhost:8080/recommend/u_1?limit=6'
+curl 'http://localhost:8080/api/v1/retrieval/recommend/u_1?limit=6'
 
 # Offline ONNX score for a string ID pair in the default lookup
-curl 'http://localhost:8080/predict/user_employee_01/action_benefits'
+curl 'http://localhost:8080/api/v1/retrieval/predict/user_employee_01/action_benefits'
 
 # Loaded model name, lookup-table sizes, ONNX input/output names
-curl http://localhost:8080/predict/metadata
+curl http://localhost:8080/api/v1/retrieval/predict/metadata
 
 # Raw zero-based lookup indices; inspect metadata first.
 # For the default model, users are 0..31 and items are 0..11.
-curl 'http://localhost:8080/predict/id?userId=0&itemId=4'
+curl 'http://localhost:8080/api/v1/retrieval/predict/id?userId=0&itemId=4'
 
 # Item2Vec embedding vector for an item
-curl http://localhost:8080/embedding/movie_42
+curl http://localhost:8080/api/v1/retrieval/embedding/movie_42
 
 # Record a click/reward → triggers online learning + bandit update
-curl -X POST http://localhost:8080/feedback \
+curl -X POST http://localhost:8080/api/v1/retrieval/feedback \
   -H 'Content-Type: application/json' \
   -d '{"user":"u_1","item":"movie_42","clicked":true,"reward":1.0}'
 
 # Aggregate bandit metrics (CTR, regret, novelty, coverage) per algorithm
-curl http://localhost:8080/metrics
+curl http://localhost:8080/api/v1/retrieval/metrics
 ```
 
 Use string IDs from the default MLP lookup with `/predict/{user}/{item}`: four user families

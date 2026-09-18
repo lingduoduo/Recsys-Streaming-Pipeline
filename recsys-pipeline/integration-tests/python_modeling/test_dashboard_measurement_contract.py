@@ -197,7 +197,7 @@ def test_exporter_publishes_every_measurement_section(tmp_path, monkeypatch):
     assert output["fairness"]["rows"][0]["dimension"] == "gender"
 
     # Compatibility: the pre-existing diagnostic sections are still exported.
-    assert set(output) >= {"engagement", "keyword", "query", "recall", "ranking", "ope", "mdp"}
+    assert set(output) >= {"engagement", "keyword", "query", "recall", "ranking", "ope"}
     assert output["engagement"]["funnel"] == {"impression": 4, "click": 2, "order": 2}
 
 

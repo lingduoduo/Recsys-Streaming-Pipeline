@@ -34,7 +34,7 @@ events.
 Returns aggregate online metrics for the active algorithm and a per-algorithm comparison view.
 
 ```bash
-curl http://localhost:8080/metrics
+curl http://localhost:8080/api/v1/retrieval/metrics
 ```
 
 | Field | Description |

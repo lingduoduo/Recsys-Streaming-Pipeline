@@ -624,34 +624,3 @@ export function OpeSection({ data }) {
     </Section>
   );
 }
-
-export function MdpSection({ data }) {
-  if (!data) return <NaCard title="MDP policy evaluation" id="mdp" reason="no mdp_eval.csv" />;
-  const rows = (data.rows || []).map((r) => ({ ...r, ci95: ci(r.ci95_low, r.ci95_high) }));
-  const byReturn = rankBy(rows, "mean_return");
-  const bySteps = rankBy(rows, "mean_steps", "asc");
-  return (
-    <Section title="MDP policy evaluation" headline={data.headline} id="mdp"
-      description="Finite-horizon discounted returns over seeded episodes.">
-      <MetricGrid>
-        <MetricCard label="Best mean return" value={num(byReturn[0]?.mean_return, 3)} detail={byReturn[0]?.policy} />
-        <MetricCard label="Shortest trajectory" value={num(bySteps[0]?.mean_steps, 2)} detail={bySteps[0]?.policy} />
-        <MetricCard label="Policies evaluated" value={count(rows.length)} />
-        <MetricCard label="Total episodes"
-          value={count(rows.reduce((sum, r) => sum + Number(r.episodes ?? 0), 0))} />
-      </MetricGrid>
-      <ChartGrid>
-        <BarChart title="Mean return by policy" horizontal
-          labels={rows.map((r) => r.policy)} values={rows.map((r) => r.mean_return)} />
-        <BarChart title="Mean episode length" horizontal
-          labels={rows.map((r) => r.policy)} values={rows.map((r) => r.mean_steps)} />
-      </ChartGrid>
-      <DataTable rows={rows} formatters={COUNT_COLUMNS}
-        columns={["policy", "episodes", "mean_return", "mean_steps", "standard_error", "ci95"]} />
-      <p className="fine-print">
-        Finite-horizon discounted return over seeded episodes; 95% bootstrap CIs quantify episode-sampling
-        uncertainty for this fixed dataset.
-      </p>
-    </Section>
-  );
-}

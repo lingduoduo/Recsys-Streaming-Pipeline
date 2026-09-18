@@ -13,6 +13,10 @@ SLATE_DIR="$SIM_ROOT/slates"
 LIVE_METRICS="$SIM_ROOT/live-metrics.json"
 SERVICE_PORT="${RETRIEVAL_SERVICE_PORT:-8080}"
 SERVICE_URL="${SERVICE_URL:-http://localhost:$SERVICE_PORT}"
+# The backend serves retrieval under a versioned prefix (RetrievalRecommendationController is
+# @RequestMapping("/api/v1/retrieval") in lingduoduo/Recsys-Backend-Service). SERVICE_URL stays the
+# origin so a differently-prefixed deployment overrides RETRIEVAL_BASE alone.
+RETRIEVAL_BASE="${RETRIEVAL_BASE:-/api/v1/retrieval}"
 BURST_REQUESTS="${MEASUREMENT_BURST_REQUESTS:-50}"
 RUN_ID="${RUN_ID:-r$(date +%s)}"
 RECSYS_TOPIC="recsys_events_${RUN_ID}"
@@ -201,18 +205,18 @@ fi
 
 echo
 echo "==> SERVICE BURST (real /metrics latency, freshness, and filter decisions)"
-# The retrieval service lives in lingduoduo/Recsys-Backend-Service. The sim measures whatever
-# is already listening on $SERVICE_URL rather than building one from this checkout, and a
-# missing service only costs the latency card -- it must never fail the run.
+# The retrieval service lives in lingduoduo/Recsys-Backend-Service. The sim measures whatever is
+# already listening on $SERVICE_URL$RETRIEVAL_BASE rather than building one from this checkout, and
+# neither a missing service nor a moved route may ever fail the run -- both only cost the cards.
 
-if curl -sf "$SERVICE_URL/metrics" >/dev/null 2>&1; then
+if curl -sf "$SERVICE_URL$RETRIEVAL_BASE/metrics" >/dev/null 2>&1; then
   for i in $(seq 1 "$BURST_REQUESTS"); do
     user="user_$(( (i % 10) + 1 ))"
     # /recommend's "recommendations" field is a List<String> of item ids (see
     # HybridRecommendationService.recommend()), not a list of objects — but stay tolerant of an
     # {"item": ...}-shaped entry too, in case that ever changes. Extraction failures print to
     # stderr (not swallowed) so a broken response shape is visible in the sim log.
-    item="$(curl -sf "$SERVICE_URL/recommend/$user?limit=6" \
+    item="$(curl -sf "$SERVICE_URL$RETRIEVAL_BASE/recommend/$user?limit=6" \
       | python3 -c '
 import json, sys
 item = ""
@@ -230,37 +234,32 @@ except Exception as e:
 print(item)
 ' || true)"
     if [[ -n "$item" && $(( i % 2 )) -eq 0 ]]; then
-      curl -sf -X POST "$SERVICE_URL/feedback" \
+      curl -sf -X POST "$SERVICE_URL$RETRIEVAL_BASE/feedback" \
         -H 'Content-Type: application/json' \
         -d "{\"user\":\"$user\",\"item\":\"$item\",\"clicked\":true,\"reward\":1.0,\"rating\":4.5,\"dwellMillis\":12000,\"completionRate\":0.75}" \
         >/dev/null 2>&1 || true
     fi
   done
-  curl -sf "$SERVICE_URL/metrics" > "$LIVE_METRICS" 2>/dev/null || true
+  curl -sf "$SERVICE_URL$RETRIEVAL_BASE/metrics" > "$LIVE_METRICS" 2>/dev/null || true
   echo "   captured $(wc -c < "$LIVE_METRICS" 2>/dev/null || echo 0) bytes of live metrics"
+elif curl -sf "$SERVICE_URL/health/live" >/dev/null 2>&1; then
+  # Liveness belongs to HealthController (@RequestMapping("/health")), so it survives a retrieval
+  # route reorganisation. Reaching here means the service is up and the prefix moved.
+  echo "   service is up at $SERVICE_URL but retrieval routes are not at $RETRIEVAL_BASE"
+  echo "   — contract drift; set RETRIEVAL_BASE to the current prefix. Latency stays N/A."
 else
   echo "   no service answering at $SERVICE_URL — latency stays N/A"
 fi
 
 echo
-echo "==> MDP POLICY EVALUATION (not measured — evaluator lives in Recsys-Backend-Service)"
-# The evaluator that produced this file moved to Recsys-Backend-Service, so this card is
-# always "Not measured" from a pipeline-only checkout. MDP_CSV stays defined because the
-# analysis report takes --mdp-csv unconditionally and the exporter guards on the file existing.
-MDP_CSV="$SIM_ROOT/mdp_eval.csv"
-echo "   evaluator now lives in Recsys-Backend-Service — MDP card stays Not measured"
-
-echo
 echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
 REDIS_HOST=localhost REDIS_PORT=6379 \
-  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" \
-    --mdp-csv "$MDP_CSV" 2>&1 \
+  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" 2>&1 \
   | grep -vE "INFO|WARN|^[0-9]{2}/"
 
 echo
 echo "==> REACT DASHBOARD SNAPSHOT (seven measurement sections)"
 export_args=(--input "$OUT_DIR" --output "frontend/data/dashboard.json")
-[[ -s "$MDP_CSV" ]] && export_args+=(--mdp-csv "$MDP_CSV")
 [[ -d "$SLATE_DIR" ]] && export_args+=(--experiences "$SLATE_DIR")
 [[ -s "$LIVE_METRICS" ]] && export_args+=(--live-metrics "$LIVE_METRICS")
 REDIS_HOST=localhost REDIS_PORT=6379 \

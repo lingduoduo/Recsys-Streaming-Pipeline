@@ -3,7 +3,7 @@
 A Next.js (app-router) rendering of the recsys **analysis dashboard** — the seven
 recommendation measurement sections (relevance, satisfaction, freshness, diversity,
 fairness, safety, latency) followed by the engagement / keyword / query / recall /
-ranking / off-policy / MDP diagnostics from the Python `analysis_dashboard_report.py`,
+ranking / off-policy diagnostics from the Python `analysis_dashboard_report.py`,
 as React components.
 
 The app reads a static JSON snapshot at [`data/dashboard.json`](data/dashboard.json), so
@@ -37,28 +37,18 @@ match the Python HTML dashboard; the seven measurement sections are exported for
 # EXPERIENCE_COLLECTOR_OUTPUT_PATH is set — run-movie-category-sim.sh sets it and captures both
 # inputs automatically as part of its one-command run (see recsys-pipeline/README.md).
 # Paths below are what run-movie-category-sim.sh writes; it also captures /metrics itself.
-curl -s http://localhost:8080/metrics > /tmp/spark-recsys/movie-category-sim/live-metrics.json
+curl -s http://localhost:8080/api/v1/retrieval/metrics > /tmp/spark-recsys/movie-category-sim/live-metrics.json
 
 REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --input /tmp/spark-recsys/movie-category-sim/training-samples \
   --output frontend/data/dashboard.json \
   --experiences /tmp/spark-recsys/movie-category-sim/slates \
-  --live-metrics /tmp/spark-recsys/movie-category-sim/live-metrics.json \
-  --mdp-csv /tmp/spark-recsys/movie-category-sim/mdp_eval.csv   # optional; written by MovieLensPolicyEvaluation
+  --live-metrics /tmp/spark-recsys/movie-category-sim/live-metrics.json
 ```
 
-`--mdp-csv` defaults to `<input>/../mdp_eval.csv`, so for the sim path above that is
-`/tmp/spark-recsys/movie-category-sim/mdp_eval.csv`. Writing the file anywhere else leaves the MDP
-card unpopulated even though the evaluator succeeded.
-
-The evaluator (`MovieLensPolicyEvaluation`) now lives in the retrieval service's own repository,
-[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service), so
-`run-movie-category-sim.sh` no longer produces this file itself — the MDP card stays **N/A** from
-a pipeline-only checkout. To populate it, run the evaluator from that repository against the
-`ratings.csv` the sim generates (roughly 19k ratings over 200 users and 400 movies, which clears
-the evaluator's `--min-user-ratings 20` / `--min-movie-ratings 10` filters — only the bundled
-`sampledata/ratings.csv` is too small for it, at nine rows) and write its output to
-`/tmp/spark-recsys/movie-category-sim/mdp_eval.csv`.
+The metrics URL above uses the service's versioned retrieval prefix; see the
+[repository boundary](../../README.md#repository-boundary) for how `SERVICE_URL` and
+`RETRIEVAL_BASE` compose it.
 
 Measurement configuration flags (defaults shown): `--fairness-min-support 100`,
 `--freshness-window-days 30`, `--long-tail-percentile 0.80`,
@@ -68,7 +58,7 @@ The keyword report selects from the 50 most-shown keywords, so `by_keyword` and
 `by_subkeyword` are exported 50 rows deep while the other diagnostic tables stay at 10.
 
 Sections whose inputs are unavailable serialize with `"status": "unavailable"` and an explicit
-warning, and render an **N/A** card; the diagnostic sections (recall, ranking, OPE, MDP)
+warning, and render an **N/A** card; the diagnostic sections (recall, ranking, OPE)
 serialize as `null` and do the same. Nothing is zero-filled.
 
 ## Validate the snapshot
