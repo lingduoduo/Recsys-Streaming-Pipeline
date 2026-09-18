@@ -32,7 +32,7 @@ and, when a service checkout is pointed at by `RECSYS_BACKEND_REPO`, the copies 
   unreadable. A missing sibling repository must never fail this suite.
 - The service-side change is documentation only — no Java, no test, no build file.
 - Baseline before any change: `python3 -m pytest -q` from `recsys-pipeline` gives
-  **559 passed, 1 skipped**. Expected after: **562 passed, 2 skipped** (three new tests, one of which
+  **559 passed, 1 skipped**. Expected after: **561 passed, 2 skipped** (three new tests, one of which
   skips without `RECSYS_BACKEND_REPO`).
 - All pytest commands run from the `recsys-pipeline` directory.
 
@@ -333,7 +333,7 @@ git push -u origin docs/contract-provenance
 
 ## Final verification
 
-- [ ] `cd recsys-pipeline && python3 -m pytest -q` → **562 passed, 2 skipped**
+- [ ] `cd recsys-pipeline && python3 -m pytest -q` → **561 passed, 2 skipped**
 - [ ] `RECSYS_BACKEND_REPO=/Users/linghuang/Git/Recsys-Backend-Service python3 -m pytest integration-tests/test_cross_repo_contracts.py -q` → 3 passed
 - [ ] `git diff --stat` in the pipeline shows **no change** to any of the four contract files
 - [ ] `git worktree list` → only the main checkout

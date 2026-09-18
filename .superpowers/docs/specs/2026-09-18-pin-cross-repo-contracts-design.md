@@ -112,7 +112,7 @@ remaining copy of the excised `java-retrieval-service` in this checkout.
 ## Validation and acceptance
 
 1. `git diff --stat` shows no change to any of the four contract files.
-2. `python3 -m pytest -q` from `recsys-pipeline` passes with three more tests than the 559 baseline.
+2. `python3 -m pytest -q` from `recsys-pipeline` reports 561 passed, 2 skipped -- the 559/1 baseline plus two passing tests and one that skips.
 3. Mutating any contract file by one byte makes test 1 fail, and the failure text contains the
    service path for that file. Revert after checking.
 4. Removing a row from the manifest makes test 2 fail.
