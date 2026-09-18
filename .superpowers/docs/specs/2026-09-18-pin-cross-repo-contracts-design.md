@@ -65,7 +65,8 @@ whole change is built around.
 
 ## Global constraints
 
-- Branch and pull request only in both repositories. Nothing is committed to `master` directly.
+- Branch and pull request only. Nothing is committed to `master` directly. (This repository's
+  default branch is `master`; `Recsys-Backend-Service`'s is `main`.)
 - The four contract files are not modified. Any diff touching their bytes is a defect in this change.
 - The manifest records SHA-256 over exact file bytes, with no normalization, and the current values
   are:
@@ -77,7 +78,6 @@ whole change is built around.
   touching dependencies. `pytest.ini` sets `testpaths = integration-tests`; the test goes there.
 - The opportunistic comparison SKIPS, never fails, when `RECSYS_BACKEND_REPO` is unset or does not
   point at a readable checkout. A missing sibling repository must never fail this suite.
-- The service-side change is documentation only: no Java, no test, no build file.
 - `.worktrees/standalone-retrieval` is removed. Its branch `feat/standalone-retrieval` is merged and
   stays on the remote, so nothing is lost; merged branches are NOT pruned.
 
@@ -100,11 +100,13 @@ rather than duplicating the table, so the document cannot drift from what is enf
    the service path recorded in the manifest; otherwise the test skips with a reason naming the
    variable.
 
-**The service pointer.** A `README.md` in `src/test/resources/contracts/` naming
-`lingduoduo/Recsys-Streaming-Pipeline` as the source of each file, its canonical path there, and the
-fact that the pipeline holds the comparison. This is what makes `RecsysEventSchemaDriftTest`'s
-Javadoc locatable instead of aspirational. `sequence-schema.json` sits one directory up, outside
-`contracts/`, so the README covers it explicitly by path rather than by implication.
+**The service pointer -- proposed, then dropped.** The design originally added a `README.md` to the
+service's `src/test/resources/contracts/` naming this repository as the source of each snapshot.
+It was written, opened as Recsys-Backend-Service#335, and closed unmerged: judged more
+documentation than a solo-owned test-resources directory needs. The branch
+`docs/contract-provenance` is kept there if that judgment changes. The consequence is recorded
+under Limits -- it was the only artifact that would have told someone editing the service's copy
+that a second copy exists.
 
 **The worktree.** `git worktree remove` the merged `standalone-retrieval` tree, which holds the only
 remaining copy of the excised `java-retrieval-service` in this checkout.
@@ -121,7 +123,7 @@ remaining copy of the excised `java-retrieval-service` in this checkout.
    real checkout.
 7. `git worktree list` shows only the main checkout, and `git branch -r` still lists
    `origin/feat/standalone-retrieval`.
-8. `git diff --check` clean in both repositories.
+8. `git diff --check` clean. No change is made to `Recsys-Backend-Service`.
 
 ## Limits
 
@@ -131,6 +133,12 @@ without anyone noticing is the one in the service, and the guard added here is w
 there. Closing that would require the service's CI to fetch this repository, which makes every
 service build depend on a second checkout -- a cost neither repository currently pays for a set of
 files that has not yet drifted once.
+
+Dropping the service-side README sharpens the asymmetry above rather than changing it. Nothing in
+`Recsys-Backend-Service` now records that its `contracts/` snapshots are copies, where they came
+from, or that a pairing exists at all. A reader who opens only that directory has no way to learn
+any of it, and `RecsysEventSchemaDriftTest`'s Javadoc -- which asserts a pipeline-owned comparison
+-- remains the single thread pointing here. That thread is now load-bearing.
 
 The opportunistic comparison is opt-in through an environment variable, which means in practice it
 runs when someone remembers. It is included because it is nearly free and because it is the only

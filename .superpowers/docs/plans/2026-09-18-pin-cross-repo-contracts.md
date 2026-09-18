@@ -18,7 +18,8 @@ and, when a service checkout is pointed at by `RECSYS_BACKEND_REPO`, the copies 
 
 ## Global Constraints
 
-- Branch and pull request only, in both repositories. Nothing is committed to `master` directly.
+- Branch and pull request only. Nothing is committed to `master` directly. This repository's
+  default branch is `master`; `Recsys-Backend-Service`'s is **`main`** — check before basing a PR.
 - **The four contract files are never modified.** Their bytes are the fixed point of this change;
   any diff touching them is a defect.
 - SHA-256 over exact file bytes, no normalization. Current values:
@@ -273,7 +274,15 @@ No commit — nothing tracked changed.
 
 ---
 
-### Task 3: Record provenance in the service
+### Task 3: Record provenance in the service — ~~DONE~~ REVERSED, not merged
+
+> **Outcome:** this task was completed and opened as Recsys-Backend-Service#335, then closed
+> unmerged on the user's call — more documentation than a solo-owned test-resources directory
+> needs. The branch `docs/contract-provenance` is kept there, so reopening is one click. The
+> steps below are left as executed rather than unchecked, because they did run; what changed is
+> that the result was not kept. The cost is recorded in the spec's Limits: nothing on the service
+> side now records that its snapshots are copies, so `RecsysEventSchemaDriftTest`'s Javadoc is the
+> only thread pointing back here.
 
 **Files:**
 - Create: `src/test/resources/contracts/README.md` in `/Users/linghuang/Git/Recsys-Backend-Service`
@@ -349,8 +358,8 @@ git push -u origin docs/contract-provenance
 - [x] `git diff --stat` in the pipeline shows **no change** to any of the four contract files
 - [ ] `git worktree list` → only the main checkout — **blocked, see Task 2**
 - [x] `git branch -r | grep standalone-retrieval` → still present on the remote
-- [x] `git diff --check` clean in both repositories
-- [x] Two pull requests open: contracts + test here, provenance README in the service
+- [x] `git diff --check` clean; no change lands in Recsys-Backend-Service
+- [x] One pull request open: contracts + test here. The service-side README (Recsys-Backend-Service#335) was opened and closed unmerged — see Task 3.
 
 ## Correction to this plan, as executed
 
