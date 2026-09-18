@@ -5,6 +5,30 @@ online learning, and bandit-style RL ranking — Spark-based production paths, S
 notes, and Kafka/Redis infrastructure. Recommendations are served by a separate retrieval service,
 [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service).
 
+## Repository boundary
+
+This project spans two repositories, and the split is the single most useful thing to know before
+reading any other document here.
+
+| | This repository | [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) |
+|---|---|---|
+| **Owns** | The offline and streaming path: Spark jobs, Python modeling and post-training, simulations, and the analysis dashboard | The serving path: the retrieval service, its ONNX model, online-learning reward model and bandit policy |
+| **Builds with** | sbt, Spark, Python, npm | Maven / Spring Boot |
+| **Talks to the other by** | HTTP, when a simulation measures a running service | Kafka and Redis, which this repository's jobs consume |
+
+The service exposes its retrieval endpoints under the versioned prefix **`/api/v1/retrieval`** —
+`/recommend/{user}`, `/feedback` and `/metrics`. `run-movie-category-sim.sh` composes that URL from
+two overridable variables:
+
+- `SERVICE_URL` — the origin, default `http://localhost:8080`
+- `RETRIEVAL_BASE` — the prefix, default `/api/v1/retrieval`
+
+If the service moves its routes again, the simulation says so by name rather than reporting the
+service as absent: it falls back to probing `/health/live`, which belongs to the health controller
+and survives a retrieval-route reorganisation.
+
+Maven is a prerequisite of that repository, not of this checkout. Nothing here has a `pom.xml`.
+
 ## Start here
 
 | I want to… | Go to |
