@@ -559,3 +559,28 @@ def test_sim_exit_trap_covers_every_job_pid(sim: str) -> None:
 
     missing = {v for v in pid_vars if f'"${{{v}:-}}"' not in job_trap}
     assert not missing, f"EXIT trap does not guard: {sorted(missing)}"
+
+
+def test_movie_category_sim_routes_every_retrieval_call_through_one_base() -> None:
+    """The backend serves these under /api/v1/retrieval; one variable must carry the prefix."""
+    script = SIM_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'RETRIEVAL_BASE="${RETRIEVAL_BASE:-/api/v1/retrieval}"' in script
+    # all three retrieval calls derive from the same base
+    for path in ("/metrics", "/recommend/", "/feedback"):
+        assert f"$SERVICE_URL$RETRIEVAL_BASE{path}" in script
+    # and none of them is spelled against the bare origin
+    for path in ("/metrics", "/recommend/", "/feedback"):
+        assert f'"$SERVICE_URL{path}' not in script
+
+
+def test_movie_category_sim_reports_moved_routes_differently_from_a_missing_service() -> None:
+    """A backend that is up with relocated routes must not be reported as absent."""
+    script = SIM_SCRIPT.read_text(encoding="utf-8")
+    burst = script.split("SERVICE BURST")[1]
+
+    # liveness is probed separately from the retrieval metrics endpoint
+    assert "$SERVICE_URL/health/live" in burst
+    # the two diagnoses are distinct strings, and drift names the base it tried
+    assert "retrieval routes are not at $RETRIEVAL_BASE" in burst
+    assert "no service answering at $SERVICE_URL" in burst
