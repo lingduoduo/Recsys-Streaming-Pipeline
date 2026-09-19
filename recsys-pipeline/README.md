@@ -15,8 +15,8 @@ All independently runnable application code in this checkout lives under `servic
 | `services/spark-streaming-job` | sbt | Streaming ingestion, feature joins, offline embedding training, and candidate pre-computation |
 | `services/python-modeling` | pip / pytest | Synthetic event producer, replay export, post-training policy scripts, and evaluation utilities |
 
-The retrieval service is a separate deployable, maintained in
-[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service): it
+Retrieval is served by
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service), which
 loads an ONNX model and embedding configs at startup, scores candidates, runs bandit evaluation
 (UCB, Thompson, Q-learning, SARSA), and serves recommendations via REST under the versioned prefix
 `/api/v1/retrieval`. See the [repository boundary](../README.md#repository-boundary) for what each
@@ -96,7 +96,9 @@ GET /metrics ──► cross-algorithm comparison  (UCB vs Thompson vs Q-learnin
 
 ## Storage Architecture
 
-Feature data is split across three tiers by access pattern and update frequency.
+Feature data is split across three tiers by access pattern and update frequency. This
+repository writes the Parquet samples and every Redis key below; the model artifacts and the
+in-memory tier live in the backend's process, not in this checkout.
 
 | Tier | Contents | Updated by |
 |------|----------|------------|
@@ -189,9 +191,9 @@ export USER_EMBEDDING_PREFIX=alsUserEmb
 
 ### Step 2 — Start the retrieval service
 
-The retrieval service is a separate deployable — clone and run
-[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service)
-(Spring Boot / Maven) alongside this checkout, connected to the same Redis. The rest of this
+Retrieval is served by
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) — clone
+and run it (Spring Boot / Maven) alongside this checkout, connected to the same Redis. The rest of this
 workflow reads from whatever answers at `SERVICE_URL` (default `http://localhost:8080`).
 
 The service loads `mlp_embedding_model.onnx` from the classpath at startup. To use a model trained outside the JAR, set `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` before starting.
@@ -312,8 +314,8 @@ To add the entry manually instead:
 The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`. Run `replay_export.py` standalone to inspect or back up the buffer:
 
 ```bash
-# 1. the retrieval service is a separate deployable (lingduoduo/Recsys-Backend-Service);
-#    make sure it is already running and reachable, e.g. bound to :8080
+# 1. lingduoduo/Recsys-Backend-Service serves these endpoints; make sure it is
+#    already running and reachable, e.g. bound to :8080
 
 # 2. in another shell — generate recommendations + feedback
 curl 'http://localhost:8080/api/v1/retrieval/recommend/u_1?limit=6'
@@ -337,8 +339,8 @@ Before scoring, each request is enriched through two sequential pipelines — se
 
 ## Retrieval Service Configuration
 
-The retrieval service's `application.yml`, now in
-[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service), defines
+The `application.yml` of
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) defines
 Redis connectivity, in-memory cache settings, and recommendation parameters under `recsys`.
 
 ### Disk model paths
@@ -986,7 +988,7 @@ rather than repeated here:
 ## Optional reference: experiment pipeline — retrieval service `:8080`
 
 This optional reference serves recommendations and runs online learning + UCB/Thompson bandit RL.
-The retrieval service is a separate deployable — see
+These endpoints are served by
 [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service). The
 commands below assume it is already running (binds `:8080`; connects to Redis `:6379`).
 
