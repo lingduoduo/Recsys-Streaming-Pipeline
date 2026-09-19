@@ -1,6 +1,6 @@
 # A sidebar and a page per section — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace three multi-section routes with a persistent grouped sidebar and thirteen pages, each showing exactly one section under an eyebrow, a title and a description.
 
@@ -22,6 +22,25 @@
 - `components/groups.js` imports nothing.
 - Every `var()` in `globals.css` resolves to a `:root` declaration or an inline JSX style — the #256 guard.
 - Measured baseline at this branch point: **580 passed, 2 skipped**. This change **replaces** assertions as well as adding them: `test_dashboard_routes.py` is rewritten from 10 tests to 11, so the expected final result is **581 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `feat/dashboard-sidebar-section-pages`, four commits, all steps checked.
+Final suite: **581 passed, 2 skipped**, from a 580/2 baseline, exactly as predicted.
+
+Two deviations:
+
+1. **Tasks 2 and 3 had to land as one commit.** The plan put a build gate at the end of Task 2,
+   which could never have passed: Task 1 removed `ROUTES` from `groups.js`, and `nav.jsx` -- which
+   Task 3 deletes -- still imported it, so the tree did not build in between. The route change and
+   the nav replacement are mutually dependent. This is the same ordering flaw the previous plan
+   caught and fixed with a temporary barrel; here it was not caught until the build ran.
+2. **The purity assertion matched its own documentation.** `assert "import" not in groups` fired on
+   the word "imported" in groups.js's header comment. It now matches `^import\b` statements.
+
+One environment trap, twice now: an orphaned dev server still held port 3000, so a newly started one
+took 3001 while every `curl localhost:3000` checked the stale build. Kill by pattern
+(`pkill -f 'next dev'`) and confirm the port is free before trusting any rendered-page check.
 
 ## Pre-validated facts
 
@@ -59,7 +78,7 @@ Measured before this plan was written:
 **Interfaces:**
 - Produces: `GROUPS` — `[{key, label}]` for `online` and `offline`; `SECTIONS` — `{[key]: {group, label, description}}` for all thirteen; `SECTION_ROUTE` — `{[key]: "/<group>/<key>"}`. Tasks 2, 3 and 5 import these by name.
 
-- [ ] **Step 1: Rewrite the catalogue**
+- [x] **Step 1: Rewrite the catalogue**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -145,7 +164,7 @@ node -e "import('./components/groups.js').then(m => {
 
 Expected: `groups: 2 | sections: 13` and `sample route: /online/satisfaction /offline/ope`.
 
-- [ ] **Step 2: Drop the fragment from the tile hrefs**
+- [x] **Step 2: Drop the fragment from the tile hrefs**
 
 `SECTION_ROUTE[key]` is a page now, so appending `#key` would add a redundant hash.
 
@@ -164,7 +183,7 @@ PY
 grep -n 'SECTION_ROUTE' components/scorecard.jsx
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -198,7 +217,7 @@ MSG
 - Consumes: `GROUPS`, `SECTIONS` from `./groups`.
 - Produces: `SECTION_COMPONENTS` — `{[key]: Component}` — from `./section-registry`. Task 5's guard reads it.
 
-- [ ] **Step 1: Write the registry**
+- [x] **Step 1: Write the registry**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -233,7 +252,7 @@ export const SECTION_COMPONENTS = {
 JSX
 ```
 
-- [ ] **Step 2: Write the dynamic page**
+- [x] **Step 2: Write the dynamic page**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -276,7 +295,7 @@ find app -name 'page.jsx' | sort
 
 Expected: `app/[group]/[section]/page.jsx` and `app/page.jsx`.
 
-- [ ] **Step 3: Build and confirm fourteen routes**
+- [x] **Step 3: Build and confirm fourteen routes**
 
 With **no dev server running** — a build clobbers the shared `.next`.
 
@@ -284,7 +303,7 @@ Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -24`
 Expected: a route table listing `/` and thirteen entries under `/online/…` and `/offline/…`, all
 marked as static.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -320,7 +339,7 @@ MSG
 - Consumes: `GROUPS`, `SECTIONS`, `SECTION_ROUTE` from `./groups`.
 - Produces: `Sidebar`, used only by `app/layout.jsx`.
 
-- [ ] **Step 1: Write the sidebar**
+- [x] **Step 1: Write the sidebar**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -370,7 +389,7 @@ JSX
 rm components/nav.jsx
 ```
 
-- [ ] **Step 2: Make the layout two columns**
+- [x] **Step 2: Make the layout two columns**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -404,7 +423,7 @@ export default function RootLayout({ children }) {
 JSX
 ```
 
-- [ ] **Step 3: Replace the nav CSS with the shell CSS**
+- [x] **Step 3: Replace the nav CSS with the shell CSS**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -567,12 +586,12 @@ cat >> app/globals.css <<'CSS'
 CSS
 ```
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -6`
 Expected: successful build.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -606,7 +625,7 @@ MSG
 - Consumes: nothing.
 - Produces: `Section` rendering `<section className="report-card">` with a `.section-heading` and `.section-body`, and no title.
 
-- [ ] **Step 1: Revert the disclosure**
+- [x] **Step 1: Revert the disclosure**
 
 A page holding one section has nothing to collapse, and the page header already carries the title.
 
@@ -653,7 +672,7 @@ print("Section is a flat card again")
 PY
 ```
 
-- [ ] **Step 2: Replace the summary CSS**
+- [x] **Step 2: Replace the summary CSS**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -685,7 +704,7 @@ grep -c 'section-summary' app/globals.css
 
 Expected: `0`.
 
-- [ ] **Step 3: Build and commit**
+- [x] **Step 3: Build and commit**
 
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -5`
 Expected: successful build.
@@ -721,7 +740,7 @@ MSG
 **Interfaces:**
 - Consumes: everything above.
 
-- [ ] **Step 1: Rewrite the guard module**
+- [x] **Step 1: Rewrite the guard module**
 
 Four of the ten assertions describe designs this change removed. Replacing the file states that,
 rather than leaving assertions that pass for the wrong reason.
@@ -867,7 +886,7 @@ python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 
 
 Expected: 11 passed.
 
-- [ ] **Step 2: Verify the rendered pages**
+- [x] **Step 2: Verify the rendered pages**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -884,7 +903,7 @@ printf '%-24s HTTP %s\n' "/online/nonsense" "$(curl -s -o /dev/null -w '%{http_c
 
 Expected: 200 with one `report-card` each, and 404 for the unknown section.
 
-- [ ] **Step 3: Update the README**
+- [x] **Step 3: Update the README**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -920,7 +939,7 @@ print("README routes section rewritten")
 PY
 ```
 
-- [ ] **Step 4: Run every gate**
+- [x] **Step 4: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -933,7 +952,7 @@ git -C .. diff --check && echo "diff --check clean"
 
 Expected: `581 passed, 2 skipped`; `15 passed`; `dashboard.json valid: 7 measurement sections, schema 2.0`; `snapshot untouched`; `diff --check clean`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
