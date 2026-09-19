@@ -213,8 +213,22 @@ def test_the_keyword_heatmap_degrades_when_the_grid_is_absent():
     """
     report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
     assert "grid" in report, "keyword-report.jsx must render data.keyword.grid"
-    heatmap = re.search(r"function CategoryKeywordHeatmap\((.*?)\n\}", report, re.S)
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S)
     assert heatmap, "the heatmap must be its own component"
     assert re.search(r"re-?export|fresh export|older snapshot", heatmap.group(1), re.I), (
         "an absent grid must explain itself rather than render an empty table"
+    )
+
+
+def test_the_topic_heatmap_marks_its_structural_diagonal():
+    """An item whose primary genre is Action always carries Action, so every (X, X) cell
+    is forced. Unmarked, the bright diagonal reads as a finding."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    assert "topic_grid" in report, "the section must render data.topic_grid"
+    assert "heat-forced" in report, "the diagonal needs its own class to be distinguishable"
+    css = (FRONTEND / "app" / "globals.css").read_text(encoding="utf-8")
+    assert "heat-forced" in css, "heat-forced must be styled, or the marking is invisible"
+    # The reader has to be told what the outline means.
+    assert re.search(r"forced|always carries|by construction", report, re.I), (
+        "the legend must say why those cells are outlined"
     )
