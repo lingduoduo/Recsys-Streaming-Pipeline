@@ -96,3 +96,39 @@ def test_parquet_takes_precedence_over_a_reachable_redis(tmp_path, monkeypatch):
     result = dash.compute_ope("localhost", 6399, parquet=str(path), bootstrap_samples=20)
     assert "model:dpoScore" in {row["policy"] for row in result["rows"]}
     assert result["source"].startswith("parquet:")
+
+
+def test_exporter_threads_the_ope_parquet_flag_through_to_compute(tmp_path, monkeypatch):
+    """--ope-parquet must reach compute_ope as `parquet`, not be silently dropped.
+
+    build() takes ope_parquet LAST because its only caller passes the first six
+    arguments positionally; inserting it beside the other inputs would land the
+    config dict in it.
+    """
+    import export_dashboard_json as exporter
+
+    seen = {}
+
+    def _fake_compute_ope(host, port, **kwargs):
+        seen.update(kwargs)
+        return {"headline": "h", "rows": [], "calibration": {}, "source": "parquet:x"}
+
+    monkeypatch.setattr(exporter.dash, "compute_ope", _fake_compute_ope)
+    monkeypatch.setattr(exporter.dash, "load_samples", lambda *a, **k: _frame())
+    monkeypatch.setattr(exporter.dash, "load_slates", lambda *a, **k: None)
+    monkeypatch.setattr(exporter.dash, "compute_recall", lambda *a, **k: None)
+    monkeypatch.setattr(exporter.dash, "compute_ranking", lambda *a, **k: None)
+
+    exporter.build("in", "localhost", 6399, None, None, None, str(tmp_path / "scored.parquet"))
+    assert seen.get("parquet") == str(tmp_path / "scored.parquet")
+
+
+def _frame():
+    pd = pytest.importorskip("pandas")
+    return pd.DataFrame({
+        "user_id": ["u1", "u2", "u1"],
+        "session_id": ["s1", "s2", "s1"],
+        "item_id": ["item_2", "item_2", "item_1"],
+        "label": [1.0, 0.0, 2.0],
+        "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
+    })
