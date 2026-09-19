@@ -641,7 +641,7 @@ table.rpt.compact th {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin: 0 0 1.5rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   padding-bottom: 0.75rem;
 }
 
@@ -657,7 +657,7 @@ table.rpt.compact th {
 
 .nav a:hover {
   color: var(--ink);
-  border-color: var(--border);
+  border-color: var(--line);
 }
 
 .nav a.nav-active {

@@ -83,3 +83,24 @@ def test_scorecard_tiles_link_through_the_route_map():
         "Scorecard must build tile hrefs from SECTION_ROUTE; a bare fragment only "
         "resolves when every section shares one page"
     )
+
+
+def test_every_css_variable_used_is_defined():
+    """An undefined custom property is silently dropped, and nothing catches it.
+
+    `border-bottom: 1px solid var(--border)` with no --border declared computes to no
+    border at all: the stylesheet still parses, `npm run build` still succeeds, and the
+    rule just does not apply. #255 shipped exactly that twice in the nav.
+    """
+    css = (FRONTEND / "app" / "globals.css").read_text(encoding="utf-8")
+    declared = set(re.findall(r"^\s*(--[\w-]+)\s*:", css, re.M))
+    # A property can also be declared inline from JSX -- keyword-report.jsx sets
+    # {"--token-score": t} per token -- so the stylesheet alone is not the full picture.
+    for path in sorted((FRONTEND / "components").glob("*.jsx")):
+        declared.update(re.findall(r"\"(--[\w-]+)\"\s*:", path.read_text(encoding="utf-8")))
+    used = set(re.findall(r"var\((--[\w-]+)", css))
+    undefined = sorted(used - declared)
+    assert not undefined, (
+        "these custom properties are used but never declared, so every rule using them "
+        f"is silently dropped: {', '.join(undefined)}"
+    )
