@@ -82,7 +82,7 @@ Recsys-Streaming-Pipeline/
 - Apache Kafka 3.x
 - Redis 7+
 - Docker / Docker Compose (local infrastructure)
-- Node.js 18+ / npm (frontend dashboard, optional)
+- Node.js 18+ / npm — required to view the analysis dashboard, which is the only surface that renders it. The pipeline and the JSON snapshot it exports need only Python.
 
 > **Note:** This repository is for learning and demonstration purposes. See individual sub-project
 > READMEs for production configuration guidance.

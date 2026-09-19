@@ -252,12 +252,6 @@ else
 fi
 
 echo
-echo "==> ANALYSIS DASHBOARD (recall + ranking use Redis embeddings/popularity)"
-REDIS_HOST=localhost REDIS_PORT=6379 \
-  python services/python-modeling/analysis_dashboard_report.py --input "$OUT_DIR" 2>&1 \
-  | grep -vE "INFO|WARN|^[0-9]{2}/"
-
-echo
 echo "==> REACT DASHBOARD SNAPSHOT (seven measurement sections)"
 export_args=(--input "$OUT_DIR" --output "frontend/data/dashboard.json")
 [[ -d "$SLATE_DIR" ]] && export_args+=(--experiences "$SLATE_DIR")
@@ -268,5 +262,5 @@ REDIS_HOST=localhost REDIS_PORT=6379 \
 (cd frontend && npm run validate:data)
 
 echo
-echo "==> done. CSVs under $SIM_ROOT/report-categories ; dashboard at $SIM_ROOT/report-dashboard/index.html"
+echo "==> done. CSVs under $SIM_ROOT/report-categories ; dashboard snapshot at frontend/data/dashboard.json (render it with: cd frontend && npm run dev)"
 echo "    stop infra with: docker compose down"

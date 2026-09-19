@@ -825,7 +825,7 @@ Do not export a snapshot while the harness is still draining Kafka or writing Pa
 only after the simulation prints the literal terminal line:
 
 ```text
-==> done. CSVs under /tmp/spark-recsys/movie-category-sim/report-categories ; dashboard at /tmp/spark-recsys/movie-category-sim/report-dashboard/index.html
+==> done. CSVs under /tmp/spark-recsys/movie-category-sim/report-categories ; dashboard snapshot at frontend/data/dashboard.json (render it with: cd frontend && npm run dev)
 ```
 
 Keep Redis running after this line; the exporter still needs `movie:*:features`, `i2vEmb:*`, and
@@ -930,26 +930,6 @@ has not emitted to that topic; they do not prove a consumer crash. Topic names m
 each producer and consumer. The individual derived-topic jobs above remain manually operated JSON
 pipelines; provision their `training_*` topics separately before launching them because the Avro
 catalog intentionally contains only `recsys_events` and `recsys_events.backfill`.
-
-## Optional reference: standalone HTML dashboard
-
-The simulation already writes a self-contained report at
-`/tmp/spark-recsys/movie-category-sim/report-dashboard/index.html`. To regenerate that separate
-artifact after the canonical simulation has printed `==> done`, keep Redis running and run the
-following from the repository root:
-
-```bash
-cd recsys-pipeline
-IN=/tmp/spark-recsys/movie-category-sim/training-samples
-REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py \
-  --input "$IN"
-```
-
-The report writes to `$IN/../report-dashboard/index.html`. Recall/ranking require Redis movie
-metadata and embeddings; the off-policy card renders N/A when its replay-buffer input is
-absent. See
-[Analysis Reports](docs/recommendation_architecture/Analysis_Report.md) for focused
-report commands.
 
 ## Troubleshooting the local workflow
 
