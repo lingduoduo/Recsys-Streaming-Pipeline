@@ -121,3 +121,36 @@ def test_documented_retrieval_endpoints_carry_the_service_prefix():
     assert not bare, (
         f"retrieval endpoints documented without the {PREFIX} prefix:\n" + "\n".join(bare)
     )
+
+
+BOUNDARY_SERVICE = "Recsys-Backend-Service"
+BOUNDARY_ANCHOR = "README.md#repository-boundary"
+
+FLOWS = GIT_ROOT / "recsys-pipeline" / "docs" / "recommendation_flows"
+
+
+def test_every_flow_document_marks_the_repository_boundary():
+    """Eight of the nine stages run entirely in the other repository.
+
+    A reader who opens one of these mid-narrative must be told that before they
+    read a class name, because this checkout has no Java to check it against.
+    """
+    unmarked = []
+    for path in sorted(FLOWS.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if BOUNDARY_SERVICE not in text or BOUNDARY_ANCHOR not in text:
+            unmarked.append(path.name)
+    assert not unmarked, "flow documents that do not mark the boundary: " + ", ".join(unmarked)
+
+
+def test_no_document_claims_an_in_repo_serving_side_effect_writer():
+    """served_history and impressions left with the service.
+
+    Neither key has a writer, a reader or a test in this checkout; they appear
+    only in documentation. Saying otherwise claims a capability this repository
+    does not have.
+    """
+    offenders = [
+        f"{relative}" for relative, text in live_markdown() if "in-repo serving side-effect" in text
+    ]
+    assert not offenders, "documents claiming an in-repo serving writer: " + ", ".join(offenders)
