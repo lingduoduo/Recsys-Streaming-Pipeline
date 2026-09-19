@@ -6,9 +6,10 @@ export default function Page() {
     <article className="section-page">
       <header className="page-header">
         <span className="eyebrow">Overview</span>
-        <h1>Measurement scorecard</h1>
+        <h1>Scorecard</h1>
         <p className="page-description">
-          Seven measurement envelopes at a glance. Each tile opens that section&apos;s page.
+          All thirteen sections at a glance, grouped as the sidebar groups them. Each tile opens
+          that section&apos;s page.
         </p>
       </header>
       <Scorecard data={data} />

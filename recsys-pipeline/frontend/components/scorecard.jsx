@@ -1,5 +1,5 @@
 import { MetricTile } from "./ui";
-import { SECTION_ROUTE } from "./groups";
+import { GROUPS, SECTIONS, SECTION_ROUTE } from "./groups";
 import { num, share, maxByField } from "./format";
 
 // Which single number represents each measurement on the scorecard. `field` must be a
@@ -18,15 +18,60 @@ export const HEADLINES = {
   latency: { rowIndex: 1, field: "p95", label: "p95 /recommend", format: "ms" },
 };
 
-const TITLES = {
-  relevance: "Relevance", satisfaction: "Satisfaction", freshness: "Freshness",
-  diversity: "Diversity", fairness: "Fairness", safety: "Safety", latency: "Latency",
-};
 
 // Coverage AT or below this is amber: half the envelope missing is not a green tile. The
 // safety section is the live example — with only `unsafe_label` instrumented offline, its
 // coverage lands on exactly 0.50.
 const LOW_COVERAGE = 0.5;
+
+// The seven measurement sections share one envelope, which is why HEADLINES covers them all. The
+// six diagnostics do not: two publish a scalar, four need the largest value over a named row set,
+// and the row set is not always called `rows`. `support` supplies the tile's n= -- from the section
+// for a scalar spec, from the winning row for a row spec -- so one signature covers both.
+const DIAGNOSTICS = {
+  engagement: {
+    label: "CTR", format: "pct", scalar: "ctr",
+    support: (section) => section.funnel?.impression,
+  },
+  query: {
+    label: "avg query length", format: "num", scalar: "average_query_length",
+    support: (section) => section.by_length?.length,
+  },
+  keyword: {
+    label: "largest divergence", format: "num", rows: "by_keyword", field: "divergence",
+    support: (section) => section.by_keyword?.length,
+  },
+  recall: {
+    label: "best recall@k", format: "num", rows: "rows", field: "recall_at_k",
+    support: (section, row) => row?.users_evaluated,
+  },
+  ranking: {
+    label: "best AUC", format: "num", rows: "rows", field: "auc",
+    support: (section, row) => row?.n,
+  },
+  ope: {
+    label: "best lift", format: "pct", rows: "rows", field: "lift_vs_logging",
+    support: (section, row) => row?.n_events,
+  },
+};
+
+// null when the section is absent or the field never appears, so a missing input renders an N/A
+// tile rather than a confident zero.
+function diagnosticTile(section, spec) {
+  if (!section) return null;
+  if (spec.scalar) {
+    const value = section[spec.scalar];
+    if (value === null || value === undefined) return null;
+    return { value, sampleSize: spec.support?.(section) };
+  }
+  const best = maxByField(section[spec.rows] ?? [], spec.field);
+  if (!best) return null;
+  return { value: best[spec.field], sampleSize: spec.support?.(section, best) };
+}
+
+function figure(value, format) {
+  return format === "pct" ? share(value) : num(value, 3);
+}
 
 function headlineRow(section, spec) {
   const rows = section.rows ?? [];
@@ -51,27 +96,57 @@ export function headlineValue(section, spec) {
   return num(value, 3);
 }
 
+// One tile per section. A measurement section resolves through HEADLINES and carries coverage, so
+// it can read "low"; a diagnostic resolves through DIAGNOSTICS and is either present or absent.
+function tile(key, data) {
+  const section = data[key];
+  const title = SECTIONS[key].label;
+  const common = { key, href: SECTION_ROUTE[key], title };
+
+  const measurement = HEADLINES[key];
+  if (measurement) {
+    const available = section?.status === "available";
+    const published = available && headlineFieldPublished(section, measurement);
+    const status = !published ? "na" : (section.coverage ?? 1) <= LOW_COVERAGE ? "low" : "ok";
+    return (
+      <MetricTile
+        {...common}
+        value={published ? headlineValue(section, measurement) : "N/A"}
+        label={measurement.label}
+        sampleSize={section?.sampleSize}
+        status={status}
+        reason={published ? null : section?.warnings?.[0] || "measurement unavailable"}
+      />
+    );
+  }
+
+  const spec = DIAGNOSTICS[key];
+  const resolved = diagnosticTile(section, spec);
+  return (
+    <MetricTile
+      {...common}
+      value={resolved ? figure(resolved.value, spec.format) : "N/A"}
+      label={spec.label}
+      sampleSize={resolved?.sampleSize}
+      status={resolved ? "ok" : "na"}
+      reason={resolved ? null : "no input for this section"}
+    />
+  );
+}
+
 export function Scorecard({ data }) {
   return (
-    <section className="scorecard">
-      {Object.entries(HEADLINES).map(([key, spec]) => {
-        const section = data[key];
-        const available = section?.status === "available";
-        const published = available && headlineFieldPublished(section, spec);
-        const status = !published ? "na" : (section.coverage ?? 1) <= LOW_COVERAGE ? "low" : "ok";
-        return (
-          <MetricTile
-            key={key}
-            href={SECTION_ROUTE[key]}
-            title={TITLES[key]}
-            value={published ? headlineValue(section, spec) : "N/A"}
-            label={spec.label}
-            sampleSize={section?.sampleSize}
-            status={status}
-            reason={published ? null : section?.warnings?.[0] || "measurement unavailable"}
-          />
-        );
-      })}
-    </section>
+    <div className="scorecard-groups">
+      {GROUPS.map(({ key: group, label }) => (
+        <section className="scorecard-group" key={group}>
+          <h2 className="scorecard-label">{label}</h2>
+          <div className="scorecard">
+            {Object.entries(SECTIONS)
+              .filter(([, catalogue]) => catalogue.group === group)
+              .map(([key]) => tile(key, data))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
