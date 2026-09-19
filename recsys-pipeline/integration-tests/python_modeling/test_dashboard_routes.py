@@ -144,3 +144,18 @@ def test_na_cards_are_not_disclosures():
     assert "<details" not in na.group(1), (
         "NaCard must stay a flat card: opening it would reveal nothing"
     )
+
+
+def test_the_hash_target_is_opened():
+    """A scorecard tile links to /online#satisfaction.
+
+    With sections collapsed, that anchor would otherwise land a reader on a closed row.
+    Nav already runs on every route and is already a client component, so it is where
+    the eight lines of DOM work belong rather than in a second client boundary.
+    """
+    nav = (FRONTEND / "components" / "nav.jsx").read_text(encoding="utf-8")
+    assert "hashchange" in nav, "Nav must react to hashchange, not only to the first load"
+    assert re.search(r"\.open\s*=\s*true", nav), (
+        "Nav must set open on the <details> the hash names, or a tile click lands on a "
+        "collapsed section"
+    )
