@@ -3,8 +3,8 @@
 A Next.js (app-router) rendering of the recsys **analysis dashboard** — the seven
 recommendation measurement sections (relevance, satisfaction, freshness, diversity,
 fairness, safety, latency) followed by the engagement / keyword / query / recall /
-ranking / off-policy diagnostics from the Python `analysis_dashboard_report.py`,
-as React components.
+ranking / off-policy diagnostics, computed by the Python
+`analysis_dashboard_report.py` and rendered here as React components.
 
 The app reads a static JSON snapshot at [`data/dashboard.json`](data/dashboard.json), so
 `npm run dev` works out of the box without Redis or Spark. Regenerate that snapshot from a
@@ -25,9 +25,8 @@ HTML since the data is read at build time).
 ## Refresh the data
 
 `export_dashboard_json.py` reuses the pure `compute_*` functions from
-`recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`. The diagnostic sections
-match the Python HTML dashboard; the seven measurement sections are exported for this app only
-(`analysis_dashboard_report.py`'s HTML report does not render them):
+`recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`, which computes the
+metrics and renders nothing. This app is the only surface that renders them:
 
 ```bash
 # from recsys-pipeline/ (Redis up; a run's training_samples Parquet available)

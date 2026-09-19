@@ -15,11 +15,9 @@ The commands here assume that workflow has already reached its literal `==> done
 | Recall evaluation CSV | `recall_eval_report.py` | `<input>/../report-recall-eval/recall_eval.csv` |
 | Ranking evaluation CSV | `ranking_eval_report.py` | `<input>/../report-ranking-eval/ranking_eval.csv` |
 | Off-policy evaluation CSV | `ope_eval_report.py --output <file>` | the exact `--output` path |
-| Standalone self-contained HTML | `analysis_dashboard_report.py` | `<input>/../report-dashboard/index.html` |
 | React dashboard snapshot | `frontend/export_dashboard_json.py` | `frontend/data/dashboard.json` (from `recsys-pipeline/`) |
 
-The standalone HTML can be opened directly. The React app renders a static JSON snapshot and does
-not query Spark or Redis in the browser.
+The React app renders a static JSON snapshot and does not query Spark or Redis in the browser.
 
 ## Shared definitions
 
@@ -185,24 +183,6 @@ value/lift interval bounds. `--bootstrap-samples 0` disables intervals; `--boots
 controls deterministic resampling. To evaluate an exported replay dataset instead of live Redis,
 replace `--key ...` with `--parquet /path/to/replay.parquet`. The script exits without output when
 there are no events whose `reward` is present.
-
-## Consolidated standalone HTML
-
-`analysis_dashboard_report.py` recomputes relevance, keyword, query, recall, ranking, and live
-off-policy sections in one HTML file. Missing Redis replay/embedding data becomes an explicit
-N/A card rather than a fabricated metric.
-
-Run from the repository root:
-
-```bash
-cd recsys-pipeline
-IN=/tmp/spark-recsys/movie-category-sim/training-samples
-REDIS_HOST=localhost python services/python-modeling/analysis_dashboard_report.py \
-  --input "$IN" \
-  --ks 5,10,20
-```
-
-The output is `$IN/../report-dashboard/index.html`; use `--outdir` to override it.
 
 ## React snapshot
 
