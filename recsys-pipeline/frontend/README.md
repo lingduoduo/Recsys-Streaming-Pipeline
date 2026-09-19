@@ -17,17 +17,19 @@ a title and a description.
 
 | Route | Sidebar group | Shows |
 |---|---|---|
-| `/` | — | The scorecard, seven tiles, each linking to that section's page |
-| `/online/<section>` | Online prediction | What the serving path did: intents, keyword gap, engagement, satisfaction, freshness, diversity, fairness, safety, latency |
-| `/offline/<section>` | Offline prediction | Models re-scored afterwards: recall, ranking, relevance, off-policy evaluation |
+| `/` | — | The scorecard: one tile per section, grouped, each linking to that section's page |
+| `/demand/<section>` | Demand & content | What users asked for and what the catalog offers: intents, keyword gap |
+| `/serving/<section>` | Serving & outcomes | What was served and what followed: engagement funnel, satisfaction, freshness, diversity, fairness, safety, latency |
+| `/models/<section>` | Model evaluation | How the models score when re-run: candidate recall, ranking quality, relevance, off-policy evaluation |
 
 All thirteen come from one file, `app/[group]/[section]/page.jsx`, with `generateStaticParams`
 enumerating the catalogue in `components/groups.js`. That catalogue is pure data with no imports,
 because the sidebar is a client component; `components/section-registry.jsx` holds the
 key-to-component map and is imported only by the server page.
 
-Only `latency` is purely live telemetry — satisfaction, freshness and safety are offline rows with
-live ones merged in when a backend was running.
+The groups say what question a section answers, not where its data came from. On that second
+question: only `latency` is purely live telemetry, and satisfaction, freshness and safety are offline
+rows with live ones merged in when a backend was running.
 
 ## Run
 
