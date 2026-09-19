@@ -1,6 +1,6 @@
 # Split the dashboard into online and offline prediction analysis — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace the single thirteen-section page with three routes — an overview scorecard, an online prediction analysis page, and an offline one — driven by a single map of section to route.
 
@@ -21,6 +21,25 @@
 - `HEADLINES`, `TITLES` and `LOW_COVERAGE` keep their exact names and shapes: six contract tests parse them out of the component sources by name.
 - Only `components/nav.jsx` is a client component. The pages and every section stay server components.
 - Measured baseline at this branch point: **570 passed, 2 skipped**. This plan adds four tests, so the final expected result is **574 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `feat/dashboard-online-offline-routes`, five commits, all steps checked.
+Final suite: **574 passed, 2 skipped**, from a 570/2 baseline — exactly the four tests predicted.
+
+The reordering worked: every commit built and every commit's tests passed. No deviations to the
+plan's steps.
+
+One environment trap worth recording, which cost a diagnosis mid-task. Running `npm run build`
+while `next dev` is serving clobbers the shared `.next` directory: the dev server then answers
+`GET /online 500` with `MODULE_NOT_FOUND` in `.next/server/app/online/page.js`, and the rendered
+HTML loses every section — which looks exactly like the split having dropped them. It had not.
+`rm -rf .next` and a dev restart fixed it, after which all thirteen anchor ids were present and
+every scorecard tile resolved. **Run `build` or `dev`, never both against the same checkout.**
+
+The acceptance gate "grep -rn 'sections.jsx' returns nothing" is satisfied except for one
+deliberate mention: `_component_sources()`'s docstring names the retired file to explain why the
+helper reads every component. That is the right place for the history.
 
 ## Pre-validated facts
 
@@ -65,7 +84,7 @@ Measured against the current file before this plan was written — do not re-der
 - Consumes: the component files created in Task 1.
 - Produces: a module-level `_component_sources()` helper the six sites call.
 
-- [ ] **Step 1: Record what the six tests assert today**
+- [x] **Step 1: Record what the six tests assert today**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_measurement_contract.py -q 2>&1 | tail -2`
 Expected: 15 passed. This task changes *where* those tests read from, not what they assert, so the
@@ -73,7 +92,7 @@ count must be identical before and after. It goes first precisely because it is 
 split: `_component_sources()` concatenates `components/*.jsx`, which is `sections.jsx` now and the four
 new files after Task 2.
 
-- [ ] **Step 2: Add the concatenating helper and repoint the six reads**
+- [x] **Step 2: Add the concatenating helper and repoint the six reads**
 
 The assertion each test makes is "the dashboard's components declare this column", not "this one file does". Joining with newlines keeps line-anchored patterns honest.
 
@@ -125,12 +144,12 @@ grep -c '_component_sources()' integration-tests/python_modeling/test_dashboard_
 
 Expected: `7` — the definition plus six call sites.
 
-- [ ] **Step 3: Run the contract tests to verify they pass**
+- [x] **Step 3: Run the contract tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_measurement_contract.py -q 2>&1 | tail -2`
 Expected: 15 passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -165,7 +184,7 @@ MSG
 - Consumes: nothing.
 - Produces: `ROUTES` (array of `{href, label}`) and `SECTION_ROUTE` (object mapping the 13 section keys to `"/online"` or `"/offline"`) from `./groups`; the formatters from `./format`; `Scorecard` from `./scorecard`; the seven measurement components from `./measurements`; the five diagnostic components from `./diagnostics`. Tasks 2, 3 and 5 import these by exactly these names.
 
-- [ ] **Step 1: Write the mapping module**
+- [x] **Step 1: Write the mapping module**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -206,7 +225,7 @@ node -e "import('./components/groups.js').then(m => console.log('sections mapped
 
 Expected: `sections mapped: 13 | routes: 3`
 
-- [ ] **Step 2: Extract the four ranges**
+- [x] **Step 2: Extract the four ranges**
 
 The ranges are contiguous and verified; each extraction asserts its own first line before writing, so a drifted file fails loudly instead of producing a scrambled module.
 
@@ -277,7 +296,7 @@ Expected: four files, roughly 41, 76, 346 and 167 lines, plus `sections.jsx` red
 Then confirm this commit still builds: `npm run build 2>&1 | tail -4` succeeds, because `app/page.jsx`
 resolves through the barrel.
 
-- [ ] **Step 3: Verify every moved component is still exported exactly once**
+- [x] **Step 3: Verify every moved component is still exported exactly once**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -291,7 +310,7 @@ done
 
 Expected: `1` for all thirteen.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -330,7 +349,7 @@ MSG
 - Consumes: `ROUTES` from `./groups`; `Scorecard` from `./scorecard`; the seven from `./measurements`; the five from `./diagnostics`; `KeywordSection` from `./keyword-report`.
 - Produces: the routes `/`, `/online`, `/offline`. Task 5's guard scans `app/**/page.jsx` for component names.
 
-- [ ] **Step 1: Write the nav**
+- [x] **Step 1: Write the nav**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -361,7 +380,7 @@ export function Nav() {
 JSX
 ```
 
-- [ ] **Step 2: Move the hero into the shared layout**
+- [x] **Step 2: Move the hero into the shared layout**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -400,7 +419,7 @@ export default function RootLayout({ children }) {
 JSX
 ```
 
-- [ ] **Step 3: Write the three pages**
+- [x] **Step 3: Write the three pages**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -475,7 +494,7 @@ export default function Page() {
 JSX
 ```
 
-- [ ] **Step 4: Add the nav and subheading styles**
+- [x] **Step 4: Add the nav and subheading styles**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -529,14 +548,14 @@ grep -c 'nav-active\|group-heading' app/globals.css
 
 Expected: `2` or more.
 
-- [ ] **Step 5: Verify the build and the route list**
+- [x] **Step 5: Verify the build and the route list**
 
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -20`
 Expected: a successful build whose route table lists `/`, `/online` and `/offline`.
 
 If a build error names a missing import, the extraction in Task 1 got a dependency wrong — fix the import header in the file named, do not add the symbol back to `format.js`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -571,12 +590,12 @@ MSG
 - Consumes: `SECTION_ROUTE` from `./groups`, already imported by Task 1's header.
 - Produces: nothing.
 
-- [ ] **Step 1: Confirm the anchors are currently page-local**
+- [x] **Step 1: Confirm the anchors are currently page-local**
 
 Run: `cd recsys-pipeline/frontend && grep -n 'href=' components/scorecard.jsx`
 Expected: `href={`#${key}`}` — a bare fragment, which resolved when every section was on one page and now reaches nothing for twelve of the thirteen.
 
-- [ ] **Step 2: Derive the href from the mapping**
+- [x] **Step 2: Derive the href from the mapping**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -595,7 +614,7 @@ grep -n 'SECTION_ROUTE' components/scorecard.jsx
 
 Expected: the import from Task 1 and the new href line.
 
-- [ ] **Step 3: Verify each tile resolves to the page that holds its section**
+- [x] **Step 3: Verify each tile resolves to the page that holds its section**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -609,12 +628,12 @@ import('./components/groups.js').then(({ SECTION_ROUTE }) => {
 
 Expected: `relevance → /offline#relevance`, the other six → `/online#<key>`.
 
-- [ ] **Step 4: Rebuild**
+- [x] **Step 4: Rebuild**
 
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -6`
 Expected: successful build.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -645,7 +664,7 @@ MSG
 - Consumes: `SECTION_ROUTE` from `components/groups.js`, parsed out of the source; the pages from Task 2.
 - Produces: nothing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 """Every dashboard section is mounted on exactly one page, on the page its route names.
@@ -734,12 +753,12 @@ def test_scorecard_tiles_link_through_the_route_map():
     )
 ```
 
-- [ ] **Step 2: Run the tests to verify they pass against Tasks 1-3**
+- [x] **Step 2: Run the tests to verify they pass against Tasks 1-3**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q`
 Expected: 4 passed. These guard work already done, so they pass on first run; step 3 proves they can fail.
 
-- [ ] **Step 3: Prove the guard catches a dropped section**
+- [x] **Step 3: Prove the guard catches a dropped section**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -757,7 +776,7 @@ python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 
 
 Expected: a failure naming `ope: groups.js says /offline, but /offline does not mount <OpeSection`, then 4 passed after restoring.
 
-- [ ] **Step 4: Update the frontend README**
+- [x] **Step 4: Update the frontend README**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -798,7 +817,7 @@ print("README updated")
 PY
 ```
 
-- [ ] **Step 5: Run every gate**
+- [x] **Step 5: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -811,7 +830,7 @@ git -C .. diff --name-only origin/master | grep -x 'recsys-pipeline/frontend/dat
 
 Expected: `574 passed, 2 skipped`; `5 passed`; `dashboard.json valid: 7 measurement sections, schema 2.0`; a build listing `/`, `/online`, `/offline`; no `sections.jsx` references; `snapshot untouched`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
