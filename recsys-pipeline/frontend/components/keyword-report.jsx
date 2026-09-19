@@ -22,6 +22,64 @@ function Select({ label, value, onChange, options }) {
   );
 }
 
+// Categories down the side, keywords across the top, CTR as heat. A pair the run never
+// served is absent from the rows and renders hatched rather than at the cold end of the
+// ramp -- never served and served-but-never-clicked are different facts.
+function CategoryKeywordHeatmap({ rows }) {
+  if (!rows?.length) {
+    return (
+      <p className="fine-print">
+        No category grid in this snapshot — it predates the grid, so re-export to populate it.
+      </p>
+    );
+  }
+  const categories = [...new Set(rows.map((r) => r.category))].sort();
+  const keywords = [...new Set(rows.map((r) => r.keyword))].sort();
+  const cells = new Map();
+  for (const r of rows) {
+    if (!cells.has(r.category)) cells.set(r.category, new Map());
+    cells.get(r.category).set(r.keyword, r);
+  }
+  // Heat is relative to the busiest cell in this grid, so the ramp always spans it.
+  const max = Math.max(...rows.map((r) => r.ctr ?? 0), 0);
+
+  return (
+    <div className="table-shell">
+      <table className="rpt compact heat-grid">
+        <thead>
+          <tr>
+            <th>category</th>
+            {keywords.map((k) => <th key={k} className="num">{k}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {categories.map((category) => (
+            <tr key={category}>
+              <th scope="row">{category}</th>
+              {keywords.map((keyword) => {
+                const cell = cells.get(category)?.get(keyword);
+                if (!cell) {
+                  return (
+                    <td key={keyword} className="num heat-absent"
+                      title={`${category} / ${keyword}: never served`} />
+                  );
+                }
+                const t = max === 0 ? 0 : (cell.ctr ?? 0) / max;
+                return (
+                  <td key={keyword} className="num heat-cell" style={{ "--token-score": t }}
+                    title={`${category} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`}>
+                    {share(cell.ctr)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function TokenHeatmap({ items, labelKey, scoreKey, selectedKey, onSelect }) {
   const scores = items.map((i) => i[scoreKey]).filter((s) => s !== null && s !== undefined);
   const min = scores.length ? Math.min(...scores) : 0;
@@ -160,6 +218,9 @@ export function KeywordSection({ data }) {
           movie_impressions: count, query_clicks: count, query_orders: count,
           ctr: share, cvr: share, divergence: (v) => num(v, 4),
         }} />
+
+      <h3 className="report-subtitle">Relevance by category and keyword</h3>
+      <CategoryKeywordHeatmap rows={data.grid} />
 
       {["l1", "l2", "l3"].map((level) => {
         const rows = data.tops?.[level] ?? [];

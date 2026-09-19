@@ -779,3 +779,26 @@ table.rpt.compact th {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* The category x keyword heatmap. Same ramp as .token-chip, capped at 70% of the hue so
+   dark ink stays at 5.18:1 across the scale. */
+table.rpt.heat-grid th[scope="row"] {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+table.rpt.heat-grid td.heat-cell {
+  background: color-mix(in oklab, var(--accent) calc(var(--token-score) * 70%), var(--accent-soft));
+  font-variant-numeric: tabular-nums;
+}
+
+/* Never served, which is not the same as served and never clicked. */
+table.rpt.heat-grid td.heat-absent {
+  background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 4px, #eef2f7 4px, #eef2f7 8px);
+}
