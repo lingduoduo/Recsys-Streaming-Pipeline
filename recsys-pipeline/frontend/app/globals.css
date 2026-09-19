@@ -645,56 +645,7 @@ table.rpt.compact th {
   color: var(--muted);
 }
 
-/* The collapsed row of a section. It carries the title and that section's headline number,
-   so a closed page is still a readable report. */
-.section-summary {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 20px 28px;
-  cursor: pointer;
-  list-style: none;
-}
-
-/* Replace the default disclosure marker with one that renders identically everywhere. */
-.section-summary::-webkit-details-marker {
-  display: none;
-}
-
-.section-summary::before {
-  content: "";
-  flex: none;
-  width: 0;
-  height: 0;
-  border-left: 7px solid var(--muted);
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  transition: transform 120ms ease;
-}
-
-details[open] > .section-summary::before {
-  transform: rotate(90deg);
-}
-
-details[open] > .section-summary {
-  border-bottom: 1px solid var(--line);
-}
-
-.section-summary-main {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  min-width: 0;
-}
-
-.section-summary h2 {
-  margin: 0;
-  font-size: 1.3rem;
-  letter-spacing: -0.02em;
-}
-
-/* The figure in a collapsed measurement row. Those seven sections carry prose headlines
+/* The figure in a section's heading. The seven measurement sections carry prose headlines
    from the calculator, so the number comes from the same spec the scorecard tiles use. */
 .section-metric {
   margin: 0;
@@ -845,4 +796,13 @@ details[open] > .section-summary {
   .app-main {
     padding: 24px 18px;
   }
+}
+
+/* A section's heading now carries only its headline, figure and description: the page
+   header above the card owns the title. */
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px 14px;
 }
