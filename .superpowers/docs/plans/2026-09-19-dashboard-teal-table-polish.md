@@ -1,6 +1,6 @@
 # Teal accent and denser tables — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Adopt the reference design's visual treatment — teal accent, right-aligned numerics, em-dash for a missing cell, tighter rows — without changing structure, content or interactivity.
 
@@ -19,6 +19,25 @@
 - `num()`, `pct()`, `share()`, `ci()` and `count()` in `format.js` are unchanged — only table cells become em-dashes.
 - The `--series-*` chart palette is unchanged.
 - Measured baseline: **581 passed, 2 skipped**. This change adds no tests and removes none, so the expected result is **581 passed, 2 skipped** — it is CSS and one display string.
+
+## Execution record
+
+Executed 2026-09-19 on `feat/dashboard-teal-table-polish`, three commits, all steps checked.
+Final suite: **581 passed, 2 skipped**, unchanged as predicted.
+
+Three deviations, each caught by a check rather than by review:
+
+1. **Nine occurrences, not seven.** The pre-validated fact came from `grep -c`, which counts matching
+   *lines*; two lines hold `var(--indigo…)` twice inside a `color-mix()`. The rename's assertion
+   refused to run on the wrong premise, which is exactly what it was for.
+2. **Seven dead CSS blocks, not four.** `.hero` and `.report-badge` also appear inside the
+   `@media (max-width: 700px)` block, and `.page-shell` was orphaned by #257 when `.app-shell`
+   replaced it. The plan scanned for top-level selectors only.
+3. **The em-dash tested the wrong value.** `missing` was computed from the *formatted* cell, but
+   `num()` and `share()` already return the string `"N/A"` for a null, so every formatted column kept
+   printing `N/A` -- 25 of them on `/online/latency`. Testing the raw value fixed it: 50 dashes, zero
+   `N/A` cells. Only found by fetching a page that actually has missing data; the first page checked
+   had none, and had it been the only check this would have shipped broken.
 
 ## Pre-validated facts
 
@@ -51,12 +70,12 @@ Read out of the files before this plan was written:
 **Interfaces:**
 - Produces: `--accent` (`#0d9488`) and `--accent-soft` (`#f0fdfa`). Task 2 relies on the hover rule already pointing at `--accent-soft` through this rename.
 
-- [ ] **Step 1: Confirm the guard currently passes**
+- [x] **Step 1: Confirm the guard currently passes**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py::test_every_css_variable_used_is_defined -q 2>&1 | tail -1`
 Expected: 1 passed. This is the assertion that will catch an incomplete rename, so it has to be green before it can mean anything.
 
-- [ ] **Step 2: Rename and recolour**
+- [x] **Step 2: Rename and recolour**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -90,7 +109,7 @@ grep -n '\-\-accent\|#115e59\|series-0' app/globals.css | head -6
 
 Expected: the two declarations, the insight ink, and `--series-0: #4f46e5` still present.
 
-- [ ] **Step 3: Prove the rename is complete**
+- [x] **Step 3: Prove the rename is complete**
 
 ```bash
 cd recsys-pipeline
@@ -101,7 +120,7 @@ python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 
 Expected: `0`, then 11 passed. A missed use site would leave `var(--indigo)` undeclared and the
 guard would name it.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -140,7 +159,7 @@ MSG
 - Consumes: `--accent-soft` from Task 1, already in the hover rule.
 - Produces: a `.num` class on numeric cells.
 
-- [ ] **Step 1: Tighten the rows and add the alignment class**
+- [x] **Step 1: Tighten the rows and add the alignment class**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -182,7 +201,7 @@ print("rows tightened, .num added")
 PY
 ```
 
-- [ ] **Step 2: Mark numeric cells and render the em-dash**
+- [x] **Step 2: Mark numeric cells and render the em-dash**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -216,7 +235,7 @@ print("DataTable marks numeric cells and renders the em-dash")
 PY
 ```
 
-- [ ] **Step 3: Align the headers of numeric columns too**
+- [x] **Step 3: Align the headers of numeric columns too**
 
 A right-aligned column with a left-aligned header reads as a mistake.
 
@@ -242,7 +261,7 @@ print("numeric headers align with their columns")
 PY
 ```
 
-- [ ] **Step 4: Run the suite and build**
+- [x] **Step 4: Run the suite and build**
 
 ```bash
 cd recsys-pipeline
@@ -253,7 +272,7 @@ cd frontend && npm run build 2>&1 | tail -4
 Expected: `581 passed, 2 skipped` — unchanged — and a successful build. The six contract tests parse
 `columns={[...]}` at the call sites, which this does not touch.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -291,7 +310,7 @@ MSG
 **Interfaces:**
 - Consumes: nothing. Produces: nothing.
 
-- [ ] **Step 1: Confirm the rules are unreferenced**
+- [x] **Step 1: Confirm the rules are unreferenced**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -303,7 +322,7 @@ done
 
 Expected: `hero 0`, `report-badge 0`, `eyebrow 1` or more — `.eyebrow` stays.
 
-- [ ] **Step 2: Remove them**
+- [x] **Step 2: Remove them**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -324,7 +343,7 @@ grep -c 'hero\|report-badge' app/globals.css
 
 Expected: `0`.
 
-- [ ] **Step 3: Rebuild and verify the rendered result**
+- [x] **Step 3: Rebuild and verify the rendered result**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -341,7 +360,7 @@ pkill -f 'next dev'; pkill -f 'next-server'
 Expected: a non-zero count for each. The ranking table has `auc` and `logloss` columns that are
 `null` for unscored signals, so both the alignment class and the dash appear on that page.
 
-- [ ] **Step 4: Run every gate**
+- [x] **Step 4: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -353,7 +372,7 @@ git -C .. diff --check && echo "diff --check clean"
 
 Expected: `581 passed, 2 skipped`; the data contract valid; exactly two frontend files listed; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
