@@ -28,15 +28,25 @@ export const COUNT_COLUMNS = {
 };
 export const RATE_COLUMNS = { ctr: share, cvr: share, coverage: share, positive_rate: share };
 
+// The extremal row by one field. `select` is "max", "min", or "abs" for the largest magnitude,
+// which is what a signed field like keyword divergence needs: −0.0182 is a bigger gap than
+// +0.0137, and taking the maximum would report the smaller one.
+//
+// A row whose field is null or undefined is skipped rather than treated as zero. Treating it as
+// zero would let "worst AUC" name a signal that was never scored.
+export function pickByField(rows, field, select = "max") {
+  const rank = select === "abs" ? (value) => Math.abs(value) : (value) => value;
+  const better = select === "min" ? (a, b) => a < b : (a, b) => a > b;
+  return (rows ?? []).reduce((best, row) => {
+    const value = row?.[field];
+    if (value === null || value === undefined) return best;
+    return best === null || better(rank(value), rank(best[field])) ? row : best;
+  }, null);
+}
+
 // The row a section's headline is read from, when it is not a fixed index. Fairness emits one
 // row per demographic dimension in DEFAULT_DIMENSIONS order, not in gap order, so rows[0] is
 // whichever dimension sorts first — never "the largest gap" the tile claims to show.
 export function maxByField(rows, field) {
-  return rows.reduce(
-    (best, row) =>
-      row?.[field] !== null && row?.[field] !== undefined && (best === null || row[field] > best[field])
-        ? row
-        : best,
-    null,
-  );
+  return pickByField(rows, field, "max");
 }
