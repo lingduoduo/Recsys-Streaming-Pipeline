@@ -11,24 +11,19 @@ const finite = (v) => {
 
 export function Section({ title, headline, metric, description, actions, id, children }) {
   return (
-    // A native disclosure: the browser owns the open state, the keyboard handling and the
-    // screen-reader semantics, so no section has to become a client component. Collapsed by
-    // default -- the summary carries the headline, so a closed page still reads as a report
-    // rather than a table of contents.
-    <details className="report-card" id={id}>
-      <summary className="section-summary">
-        <div className="section-summary-main">
-          <h2>{title}</h2>
-          {headline ? <p className="insight">{headline}</p> : null}
-          {metric ? <p className="section-metric">{metric}</p> : null}
-        </div>
-      </summary>
-      <div className="section-body">
+    // One section per page, so there is nothing to collapse: #256 made this a disclosure
+    // when nine sections shared a route, and that is the wrong shape here. `title` stays in
+    // the signature because six contract tests parse it out of the call sites, but the page
+    // header renders it -- showing it here as well would print every title twice.
+    <section className="report-card" id={id}>
+      <div className="section-heading">
+        {headline ? <p className="insight">{headline}</p> : null}
+        {metric ? <p className="section-metric">{metric}</p> : null}
         {description ? <p className="section-description">{description}</p> : null}
         {actions ? <div className="section-actions">{actions}</div> : null}
-        {children}
       </div>
-    </details>
+      <div className="section-body">{children}</div>
+    </section>
   );
 }
 
