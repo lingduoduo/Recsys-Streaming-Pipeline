@@ -7,6 +7,20 @@ from pathlib import Path
 import pytest
 
 _REPO = Path(__file__).parents[3]
+
+
+def _component_sources() -> str:
+    """Every dashboard component's source, concatenated.
+
+    These tests check that the React sections declare the columns the Python exporter
+    publishes -- a cross-language contract with no compiler to enforce it. They used to
+    read components/sections.jsx, which was split by responsibility; the contract is
+    about what the components declare, not which file declares it, so they read all of
+    them. Joined with newlines so line-anchored patterns stay honest.
+    """
+    components = sorted((_REPO / "recsys-pipeline" / "frontend" / "components").glob("*.jsx"))
+    assert components, "no dashboard components found"
+    return "\n".join(path.read_text(encoding="utf-8") for path in components)
 sys.path.insert(0, str(_REPO / "recsys-pipeline" / "services" / "python-modeling"))
 sys.path.insert(0, str(_REPO / "recsys-pipeline" / "frontend"))
 
@@ -274,7 +288,7 @@ def test_dashboard_columns_match_the_published_measurement_keys(tmp_path, monkey
     output = _export(tmp_path, experiences=tmp_path / "experiences", live=tmp_path / "live.json",
                      extra_args=["--fairness-min-support", "1"])
 
-    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
+    sections = _component_sources()
 
     def columns_after(anchor):
         block = re.search(re.escape(anchor) + r"[\s\S]*?columns=\{\[(.*?)\]\}", sections, re.S)
@@ -323,9 +337,9 @@ def test_scorecard_headline_fields_exist_in_the_published_rows(tmp_path, monkeyp
     output = _export(tmp_path, experiences=tmp_path / "experiences", live=tmp_path / "live.json",
                      extra_args=["--fairness-min-support", "1"])
 
-    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
+    sections = _component_sources()
     headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
-    assert headlines, "sections.jsx must declare a HEADLINES map"
+    assert headlines, "the dashboard components must declare a HEADLINES map"
 
     declared = re.findall(r'(\w+):\s*\{\s*rowIndex:\s*(\d+),\s*field:\s*"([^"]+)"', headlines.group(1))
     assert {key for key, _, _ in declared} == MEASUREMENT_KEYS
@@ -348,9 +362,9 @@ def test_relevance_publishes_the_denominator_its_ndcg_mean_is_taken_over():
     breaks the global "every rate carries its denominator" rule, so the column and the KPI
     both have to surface it.
     """
-    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
+    sections = _component_sources()
     relevance = re.search(r'title="Relevance"([\s\S]*?)\n    />', sections)
-    assert relevance, "no Relevance section in sections.jsx"
+    assert relevance, "no Relevance section in the dashboard components"
 
     columns = re.search(r"columns=\{\[(.*?)\]\}", relevance.group(1), re.S)
     assert "ndcg_evaluated_slate_count" in re.findall(r'"([^"]+)"', columns.group(1))
@@ -382,7 +396,7 @@ def test_fairness_scorecard_headlines_the_widest_gap_not_the_first_dimension(tmp
     assert rows[0]["dimension"] == "gender" and gaps["gender"] == 0.0
     assert gaps["subscription"] == 1.0
 
-    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
+    sections = _component_sources()
     headlines = re.search(r"const HEADLINES = \{(.*?)\n\};", sections, re.S)
     fairness = re.search(r"fairness:\s*\{([^}]*)\}", headlines.group(1))
     assert 'select: "max"' in fairness.group(1), (
@@ -428,9 +442,9 @@ def test_satisfaction_coverage_chart_omits_the_series_that_cannot_show_coverage(
     "coverage" is its rate. Plotted next to dwell and completion coverage it reads as "not
     instrumented" for a signal that is instrumented. It stays in the table beside its rate.
     """
-    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
+    sections = _component_sources()
     satisfaction = re.search(r'title="Satisfaction"([\s\S]*?)\n    >', sections)
-    assert satisfaction, "no Satisfaction section in sections.jsx"
+    assert satisfaction, "no Satisfaction section in the dashboard components"
 
     chart = re.search(r"chart=\{(.*?)\n      \}\}", satisfaction.group(1), re.S)
     fields = re.search(r"const fields = \[(.*?)\]", chart.group(1), re.S)
@@ -484,7 +498,7 @@ def test_scorecard_treats_exactly_half_coverage_as_low_not_ok():
     ])
     assert dash.build_measurement_dashboard(samples, None, None, None)["safety"]["coverage"] == 0.5
 
-    sections = (_REPO / "recsys-pipeline" / "frontend" / "components" / "sections.jsx").read_text()
+    sections = _component_sources()
     assert "<= LOW_COVERAGE" in sections, "coverage of exactly 0.50 must read as low, not ok"
     # The amber border is not perceivable to every reader, so the text has to agree too.
     assert "at or below 50%" in (_REPO / "recsys-pipeline" / "frontend" / "components" / "ui.jsx").read_text()
