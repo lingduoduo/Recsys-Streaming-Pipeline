@@ -33,3 +33,23 @@ def test_compute_module_exposes_no_html_rendering():
         "analysis_dashboard_report is the dashboard's compute layer; these rendering "
         f"symbols are back: {', '.join(present)}"
     )
+
+
+def test_simulation_still_writes_the_react_snapshot():
+    script = SIM.read_text()
+    assert "export_dashboard_json.py" in script, (
+        "run-movie-category-sim.sh no longer exports frontend/data/dashboard.json -- "
+        "that snapshot is the dashboard's only data source"
+    )
+
+
+def test_simulation_does_not_run_a_second_renderer():
+    script = SIM.read_text()
+    offenders = [
+        needle for needle in ("analysis_dashboard_report.py", "report-dashboard")
+        if needle in script
+    ]
+    assert not offenders, (
+        "run-movie-category-sim.sh names the deleted HTML renderer or its output "
+        f"directory: {', '.join(offenders)}"
+    )
