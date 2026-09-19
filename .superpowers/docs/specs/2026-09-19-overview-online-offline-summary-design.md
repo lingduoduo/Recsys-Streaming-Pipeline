@@ -56,8 +56,12 @@ kind of fabricated measure the dashboard avoids elsewhere.
 - Three commits: the diagnostic spec, the grouped overview, the guard.
 - Only `frontend/components/scorecard.jsx`, `frontend/app/page.jsx` and the guard test change.
 - `frontend/data/dashboard.json` is **not** regenerated and not edited.
-- `HEADLINES`, `TITLES` and `LOW_COVERAGE` keep their exact names and shapes: six contract tests parse
-  them out of the component sources by name.
+- `HEADLINES` and `LOW_COVERAGE` keep their exact names and shapes: the contract tests parse
+  `const HEADLINES = {` and the string `<= LOW_COVERAGE` out of the component sources.
+- `TITLES` is **removed**. No test parses it, `Scorecard` is its only reader, and its seven labels are
+  byte-identical to the catalogue's -- so once the tiles read `SECTIONS[key].label` it is a second
+  source of truth for the same names. An earlier draft of this spec said to keep it; that was written
+  before checking which constants the tests actually read.
 - `MetricTile` keeps its current props and markup.
 - Every section keeps its `SECTION_ROUTE` link, so a tile still opens that section's page.
 - The overview stays a server component.
