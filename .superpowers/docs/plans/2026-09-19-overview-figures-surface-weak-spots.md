@@ -1,6 +1,6 @@
 # Overview figures that surface weak spots — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Change three of the four row-based overview figures so they point at weaknesses rather than flattering, and fix one that was selecting on the wrong side of a signed field.
 
@@ -20,6 +20,22 @@
 - `DIAGNOSTICS` keeps its name; the #260 guard parses it.
 - Every tile keeps its `SECTION_ROUTE` link and its `support` count.
 - Measured baseline: **582 passed, 2 skipped**. This plan adds one test, so the expected result is **583 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `fix/overview-figures-surface-weak-spots`, three commits, all steps checked.
+Final suite: **583 passed, 2 skipped**, from 582 — exactly the one test predicted. No deviations.
+
+Both predictions the plan made about its own checks held. The `maxByField` parity check returned
+true, so the three callers that depend on it — the fairness tile and two fairness KPIs — were
+unaffected, confirmed again by the rendered Fairness tile still reading `0.049 largest CTR gap`.
+And Task 3's guard fired on `ope` as written, whose maximum is correct; stating it turned an
+inherited default into a recorded judgement.
+
+Worth noting what the original request would have produced. "Use the worst instead of the best"
+applied to all four would have made two figures *more* misleading: recall's minimum would have
+reported k=5 rather than any quality signal, and off-policy's worst lift answers a question nobody
+asks. Checking each against the data before implementing is what caught that.
 
 ## Pre-validated facts
 
@@ -49,7 +65,7 @@ Measured against the committed snapshot and the sources before writing:
 **Interfaces:**
 - Produces: `pickByField(rows, field, select = "max")` returning the extremal row or `null`. `select` is `"max"`, `"min"` or `"abs"`. Task 2 calls it.
 
-- [ ] **Step 1: Generalise the selector**
+- [x] **Step 1: Generalise the selector**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -97,7 +113,7 @@ print("pickByField added; maxByField delegates")
 PY
 ```
 
-- [ ] **Step 2: Prove all three modes against the snapshot, and that maxByField is unchanged**
+- [x] **Step 2: Prove all three modes against the snapshot, and that maxByField is unchanged**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -116,7 +132,7 @@ console.log('  maxByField parity', maxByField(fair, 'ctr_max_min_gap') === pickB
 Expected: `max auc popularity 0.5595`, `min auc position 0.5058`, `abs divergence Documentary -0.0182`,
 `maxByField parity true`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -150,7 +166,7 @@ MSG
 - Consumes: `pickByField` from `./format`.
 - Produces: `DIAGNOSTICS` entries carrying optional `select` and `where`.
 
-- [ ] **Step 1: Teach diagnosticTile the two new keys**
+- [x] **Step 1: Teach diagnosticTile the two new keys**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -178,7 +194,7 @@ print("diagnosticTile honours where and select")
 PY
 ```
 
-- [ ] **Step 2: Change the three rules**
+- [x] **Step 2: Change the three rules**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -229,7 +245,7 @@ grep -n 'select:\|where:' components/scorecard.jsx
 Expected: `select: "abs"` on keyword, `where` on recall, `select: "min"` on ranking. `ope` shows
 neither and defaults to `"max"`.
 
-- [ ] **Step 3: Verify the rendered tiles**
+- [x] **Step 3: Verify the rendered tiles**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -251,7 +267,7 @@ Expected: `Ranking quality 0.506 worst AUC`, `Keyword gap -0.018 largest gap`,
 `Candidate recall 0.036 best recall@10`, `Off-policy evaluation 0.0% best lift`, and
 `Fairness 0.049 largest CTR gap` — the last proving `maxByField` still behaves as before.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -286,7 +302,7 @@ MSG
 **Files:**
 - Modify: `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -317,7 +333,7 @@ def test_row_based_tiles_declare_which_extremum_they_take():
     )
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -2`
 Expected: FAIL naming `ope` — it is row-based and declares neither key.
@@ -325,7 +341,7 @@ Expected: FAIL naming `ope` — it is row-based and declares neither key.
 This is the assertion doing its job on a real case: `ope`'s maximum is correct, but that is a
 judgement the entry should state rather than inherit from a default.
 
-- [ ] **Step 3: Make ope's maximum explicit**
+- [x] **Step 3: Make ope's maximum explicit**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -352,7 +368,7 @@ cd .. && python3 -m pytest integration-tests/python_modeling/test_dashboard_rout
 
 Expected: 13 passed.
 
-- [ ] **Step 4: Run every gate**
+- [x] **Step 4: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -366,7 +382,7 @@ git -C .. diff --check && echo "diff --check clean"
 Expected: `583 passed, 2 skipped`; `15 passed`; the data contract valid and a successful build; three
 files listed; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
