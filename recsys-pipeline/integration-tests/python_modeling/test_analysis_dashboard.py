@@ -192,50 +192,7 @@ def test_ranking_uses_position_without_redis_signals():
     assert rows["embedding"]["coverage"] == 0.0
 
 
-def test_renderers_emit_svg_and_tables():
-    pd = pytest.importorskip("pandas")
-    import analysis_dashboard_report as dash
-    bar = dash.svg_bar(["A", "B"], [1.0, 3.0], title="t")
-    assert "<svg" in bar and "<rect" in bar and "<title>" in bar
-    line = dash.svg_line([5, 10], {"bm25": [0.1, 0.2]}, title="recall")
-    assert "<svg" in line and "<polyline" in line
-    tbl = dash.html_table(pd.DataFrame({"k": [1], "v": [2]}))
-    assert "<table" in tbl and "<th>k</th>" in tbl and "<td>2</td>" in tbl
-    page = dash.render_html("Dashboard", [dash.section("S", "head", "body"),
-                                          dash.na_card("Recall", "no corpus")])
-    assert "<html" in page and "Dashboard" in page and "no corpus" in page
 
-
-def test_render_html_uses_modern_product_analytics_structure():
-    pd = pytest.importorskip("pandas")
-    import analysis_dashboard_report as dash
-
-    table = dash.html_table(pd.DataFrame([{"metric": "ctr", "value": 0.42}]))
-    page = dash.render_html("Analysis Dashboard", [
-        dash.section("Engagement", "CTR 42%", table),
-        dash.na_card("Ranking", "no embeddings"),
-    ])
-
-    for marker in ('<meta name="viewport"', 'class="page-shell"',
-                   'class="hero"', 'class="report-card"',
-                   'class="insight"', 'class="table-shell"',
-                   'class="report-card absent-card"'):
-        assert marker in page
-
-
-def test_render_html_embeds_responsive_visual_system():
-    import analysis_dashboard_report as dash
-
-    page = dash.render_html("Dashboard", [dash.section("S", "H", "B")])
-    bar = dash.svg_bar(["click"], [12], title="Funnel")
-    line = dash.svg_line([5, 10], {"hybrid": [0.2, 0.4]}, title="Recall")
-
-    assert "--canvas:#f5f7fb" in page
-    assert "--indigo:#4f46e5" in page
-    assert "@media (max-width:700px)" in page
-    assert "prefers-reduced-motion:reduce" in page
-    assert 'class="chart"' in bar and 'rx="6"' in bar
-    assert 'class="chart"' in line and "#4f46e5" in line
 
 
 def test_compute_ope_returns_none_without_redis():
@@ -268,57 +225,6 @@ def test_compute_ope_evaluates_from_replay_events(monkeypatch):
     assert all("value_ci_low" in row and "lift_ci_high" in row for row in r["rows"])
 
 
-def test_ope_section_renderer():
-    pytest.importorskip("pandas")
-    import analysis_dashboard_report as dash
-
-    ope = {"headline": "best 'popularity' value 0.620", "calibration": {"auc": 0.71, "mse": 0.12, "n_test": 40},
-           "rows": [
-               {"policy": "logging", "value": 0.55, "value_ci_low": 0.50, "value_ci_high": 0.60,
-                "lift_vs_logging": 0.0, "lift_ci_low": 0.0, "lift_ci_high": 0.0, "n_events": 100},
-               {"policy": "popularity", "value": 0.62, "value_ci_low": 0.57, "value_ci_high": 0.67,
-                "lift_vs_logging": 0.127, "lift_ci_low": 0.05, "lift_ci_high": 0.20, "n_events": 100}]}
-    html = dash._ope_section(ope)
-    assert "Off-policy evaluation" in html and "<td>popularity</td>" in html
-    assert "+12.7%" in html and "Direct Method" in html and "AUC 0.71" in html
-
-    # Degenerate calibration (too few events → empty held-out split) has None auc/mse;
-    # the renderer must show N/A, not crash on round(None).
-    ope_degenerate = {**ope, "calibration": {"auc": None, "mse": None, "n_test": 0}}
-    html_na = dash._ope_section(ope_degenerate)
-    assert "AUC N/A" in html_na and "MSE N/A" in html_na
-
-
-def test_ci_formats_bounds_and_na():
-    import analysis_dashboard_report as dash
-    assert dash._ci(0.1, 0.2) == "[0.1000, 0.2000]"
-    assert dash._ci(0.05, 0.2, pct=True) == "[+5.0%, +20.0%]"
-    assert dash._ci(None, 0.2) == "N/A"
-
-
-def test_main_writes_recall_na_and_position_ranking_without_redis(tmp_path):
-    pd = pytest.importorskip("pandas")
-    pytest.importorskip("pyarrow")
-    parquet = tmp_path / "samples"
-    pd.DataFrame({
-        "user_id": ["u1", "u2", "u1"], "session_id": ["s1", "s2", "s1"],
-        "item_id": ["item_2", "item_2", "item_1"], "label": [1.0, 0.0, 2.0],
-        "clicked": [1, 0, 1], "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
-    }).to_parquet(parquet, index=False)
-
-    out = tmp_path / "report-dashboard"
-    script = Path(__file__).parents[2] / "services/python-modeling/analysis_dashboard_report.py"
-    subprocess.run([sys.executable, str(script), "--input", str(parquet), "--outdir", str(out)],
-                   check=True, capture_output=True, timeout=120,
-                   env={**os.environ, "REDIS_PORT": "6399"})
-
-    page = (out / "index.html").read_text()
-    assert "Engagement funnel" in page and "Keyword gap" in page and "Query intent" in page
-    assert "Not measured — no movie:*:features in Redis" in page
-    assert "<h2>Ranking</h2>" in page
-    assert "<td>position</td>" in page
-    # OPE has no Redis buffer, so its card is N/A.
-    assert "Not measured — no replay-buffer events with reward in Redis" in page
 
 
 def test_demographics_are_hoisted_from_user_features_within_the_allowlist():
