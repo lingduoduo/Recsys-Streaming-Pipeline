@@ -311,7 +311,7 @@ To add the entry manually instead:
 
 ### Replay Buffer Export
 
-The `replay:recommendations` Redis list is populated by `ExperienceCollectorStreamingJob`. Run `replay_export.py` standalone to inspect or back up the buffer:
+The `replay:recommendations` Redis list is written by the serving path in [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service), from its feedback handler; nothing in this repository writes it. `ExperienceCollectorStreamingJob` writes the `training_experiences` Kafka topic and, when `EXPERIENCE_COLLECTOR_OUTPUT_PATH` is set, a Parquet slate sink. Run `replay_export.py` standalone to inspect or back up the buffer:
 
 ```bash
 # 1. lingduoduo/Recsys-Backend-Service serves these endpoints; make sure it is

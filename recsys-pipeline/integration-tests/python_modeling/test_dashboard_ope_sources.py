@@ -11,6 +11,7 @@ it and every Python reference is a reader -- so the Redis source is populated by
 serving path in lingduoduo/Recsys-Backend-Service, not from here.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -132,3 +133,38 @@ def _frame():
         "label": [1.0, 0.0, 2.0],
         "genres": [["Drama"], ["Drama"], ["Sci-Fi", "Action"]],
     })
+
+
+def test_no_live_document_credits_the_collector_with_the_replay_buffer():
+    """ExperienceCollectorStreamingJob writes Kafka and an optional Parquet slate sink.
+
+    It performs no Redis write. README.md:314 said it populates
+    replay:recommendations, which credited this repository with a writer it does not
+    contain -- the same defect class as the served_history claim corrected in #247.
+
+    The check is sentence-bounded, not line-bounded: a markdown paragraph is one long
+    line, so "the list is written by the serving path. The collector writes Kafka
+    instead." puts both tokens on one line while asserting the opposite. Only a
+    sentence claiming both is a claim. Prose contriving to split a single false
+    assertion across two sentences would still pass -- that is the limit of a
+    prose-level guard, and the claim it must catch is the one that existed.
+    """
+    offenders = []
+    for path in sorted((REPO.parent).rglob("*.md")):
+        relative = path.relative_to(REPO.parent)
+        if relative.as_posix().startswith((".superpowers/", ".planning/")):
+            continue
+        # Same exclusions as test_retrieval_service_extracted.py: .worktrees holds whole
+        # second checkouts, whose docs are not this one's live documentation.
+        if set(relative.parts) & {".git", "target", "node_modules", ".next", "__pycache__",
+                                  ".worktrees", ".pytest_cache", ".venv", "venv"}:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for sentence in re.split(r"(?<=\.)\s+", line):
+                if ("ExperienceCollectorStreamingJob" in sentence
+                        and "replay:recommendations" in sentence):
+                    offenders.append(f"{relative}:{number}")
+    assert not offenders, (
+        "these lines claim ExperienceCollectorStreamingJob writes replay:recommendations, "
+        f"which it does not: {', '.join(offenders)}"
+    )
