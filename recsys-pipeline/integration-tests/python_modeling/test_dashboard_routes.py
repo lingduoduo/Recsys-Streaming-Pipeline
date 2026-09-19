@@ -136,3 +136,22 @@ def test_every_css_variable_used_is_defined():
         "these custom properties are used but never declared, so every rule using them "
         f"is silently dropped: {', '.join(undefined)}"
     )
+
+
+def test_every_section_has_a_tile_on_the_overview():
+    """A section added to the catalogue must not skip the summary.
+
+    The overview is the only page showing every section at once, so a section with no
+    tile is invisible there while looking complete -- nothing else would fail.
+    """
+    scorecard = (FRONTEND / "components" / "scorecard.jsx").read_text(encoding="utf-8")
+    specced = set()
+    for name in ("HEADLINES", "DIAGNOSTICS"):
+        body = re.search(rf"const {name} = \{{(.*?)\n\}};", scorecard, re.S)
+        assert body, f"scorecard.jsx must declare a {name} map"
+        specced.update(re.findall(r"^  (\w+):", body.group(1), re.M))
+    catalogue = set(_catalogue())
+    missing = sorted(catalogue - specced)
+    assert not missing, (
+        "these sections are in the catalogue but have no overview tile: " + ", ".join(missing)
+    )
