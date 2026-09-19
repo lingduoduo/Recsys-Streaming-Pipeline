@@ -132,6 +132,12 @@ signal has only one observed class; embedding metrics are empty when no rows hav
 
 ## Off-policy evaluation
 
+The dashboard's off-policy section and `ope_eval_report.py` share this estimator and read the same
+two sources: the `replay:recommendations` Redis list, written by the serving path, and a scored
+replay Parquet from `post_train_dpo.py` / `post_train_q.py --output-parquet`, which is the only
+source carrying `dpoScore`, `tabQ`, `fqiQ` and `grpoScore`. Pass `--ope-parquet` to the exporter or
+`--parquet` to `ope_eval_report.py`; both name the source they used.
+
 `ope_eval_report.py` fits a dependency-light logistic reward model to logged taken-action features,
 then re-picks every event under logging, popularity, CTR, deterministic random, and available
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events

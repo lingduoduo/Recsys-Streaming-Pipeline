@@ -73,7 +73,7 @@ def _bounded_slate_rows(diversity: dict) -> dict:
 
 def build(input_dir: str, host: str, port: int,
           experiences: str | None = None, live_metrics: str | None = None,
-          config: dict | None = None) -> dict:
+          config: dict | None = None, ope_parquet: str | None = None) -> dict:
     df = dash.load_samples(input_dir, host, port)
     slates = dash.load_slates(experiences, host, port)
     live = json.loads(Path(live_metrics).read_text()) if live_metrics else None
@@ -108,7 +108,7 @@ def build(input_dir: str, host: str, port: int,
 
     recall = dash.compute_recall(df, host, port)
     ranking = dash.compute_ranking(df, host, port)
-    ope = dash.compute_ope(host, port)
+    ope = dash.compute_ope(host, port, parquet=ope_parquet)
 
     return _json_safe({
         "schemaVersion": dash.MEASUREMENT_SCHEMA_VERSION,
@@ -130,6 +130,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--experiences", default=None,
                     help="slate experiences Parquet directory or JSON file (relevance/diversity)")
+    ap.add_argument("--ope-parquet", default=None,
+                    help="scored replay Parquet from post_train_dpo.py / post_train_q.py "
+                         "--output-parquet; the only source carrying the post-training arms. "
+                         "Without it the off-policy section reads Redis, which this repository "
+                         "does not write")
     ap.add_argument("--live-metrics", default=None,
                     help="JSON captured from the retrieval service /metrics endpoint (latency)")
     ap.add_argument("--fairness-min-support", type=int, default=100)
@@ -149,7 +154,7 @@ def main(argv=None) -> None:
         "freshness_window_days": args.freshness_window_days,
         "long_tail_percentile": args.long_tail_percentile,
         "safety_policy_version": args.safety_policy_version,
-    })
+    }, args.ope_parquet)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as fh:

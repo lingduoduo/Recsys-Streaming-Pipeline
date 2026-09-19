@@ -588,7 +588,7 @@ export function RankingSection({ data }) {
 }
 
 export function OpeSection({ data }) {
-  if (!data) return <NaCard title="Off-policy evaluation" id="ope" reason="no replay-buffer events with reward in Redis" />;
+  if (!data) return <NaCard title="Off-policy evaluation" id="ope" reason="no replay events with reward — this repository writes no replay:recommendations (the serving path does); pass --ope-parquet to read a scored replay from post-training instead" />;
   const rows = data.rows || [];
   const cal = data.calibration || {};
   const byValue = rankBy(rows, "value");
@@ -618,7 +618,8 @@ export function OpeSection({ data }) {
       </ChartGrid>
       <DataTable rows={disp} columns={["policy", "value", "value_95ci", "lift_vs_logging", "lift_95ci", "n"]} />
       <p className="fine-print">
-        Direct Method · reward estimator AUC {num(cal.auc)} MSE {num(cal.mse)} (n_test {count(cal.n_test)}). 95%
+        Direct Method · source {data.source ?? "unrecorded (snapshot predates source tracking)"} · reward
+        estimator AUC {num(cal.auc)} MSE {num(cal.mse)} (n_test {count(cal.n_test)}). 95%
         event-bootstrap CIs are conditional on the fixed reward model; model-fit uncertainty excluded.
       </p>
     </Section>

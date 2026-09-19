@@ -257,15 +257,29 @@ def compute_ranking(df, host: str, port: int):
     return {"headline": headline, "rows": rows}
 
 
-def compute_ope(host, port, key="replay:recommendations", limit=-1, bootstrap_samples=1000):
-    """Direct-Method off-policy evaluation over the Redis replay buffer (reuses ope_eval_report)."""
-    try:
-        import redis
-        import ope_support as replay_buffer
-        client = redis.Redis(host=host, port=port, decode_responses=False)
-        events = replay_buffer.load_from_redis(client, key, limit)
-    except Exception:  # noqa: BLE001 — Redis unreachable / no buffer
-        return None
+def compute_ope(host, port, key="replay:recommendations", limit=-1, bootstrap_samples=1000,
+                parquet=None):
+    """Direct-Method off-policy evaluation over a replay buffer (reuses ope_eval_report).
+
+    Two sources, with the same precedence as replay_dataset.load_events: `parquet` wins when
+    given. Redis holds what the serving path scored -- this repository writes no
+    replay:recommendations. The Parquet is what post_train_dpo.py / post_train_q.py write with
+    --output-parquet, and is the only source carrying the post-training arms (dpoScore, tabQ,
+    fqiQ, grpoScore). A missing Parquet path raises: it was asked for explicitly, unlike Redis,
+    whose absence is an ordinary N/A.
+    """
+    import ope_support as replay_buffer
+    if parquet:
+        events = replay_buffer.load_from_parquet(parquet)
+        source = f"parquet:{parquet}"
+    else:
+        try:
+            import redis
+            client = redis.Redis(host=host, port=port, decode_responses=False)
+            events = replay_buffer.load_from_redis(client, key, limit)
+        except Exception:  # noqa: BLE001 — Redis unreachable / no buffer
+            return None
+        source = f"redis:{key}"
     events = [e for e in events if e.get("reward") is not None]
     if not events:
         return None
@@ -283,7 +297,7 @@ def compute_ope(host, port, key="replay:recommendations", limit=-1, bootstrap_sa
     headline = (f"best '{best['policy']}' value {best['value']:.3f}"
                 + (f" vs logging {log_val:.3f}" if log_val is not None else "")
                 + f" · est AUC {auc}")
-    return {"headline": headline, "rows": rows, "calibration": cal}
+    return {"headline": headline, "rows": rows, "calibration": cal, "source": source}
 
 
 MEASUREMENT_SCHEMA_VERSION = "2.0"
