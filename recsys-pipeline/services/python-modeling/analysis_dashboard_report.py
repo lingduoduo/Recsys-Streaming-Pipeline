@@ -157,13 +157,28 @@ def compute_keyword(df) -> dict:
                        .rank(method="first", ascending=False).astype(int))
         return g[g["rank"] <= 10].sort_values([level, "rank"])
 
+    # The heatmap's cross-tab: every observed (family, genre) pair, with no rank cap.
+    # top_keywords caps at ten per level because its consumers are top-ten tables; a
+    # heatmap with a truncated row would read as "these are the only genres served".
+    # Bounded by the genre vocabulary at 6 families x 18 genres, so it stays small
+    # enough to ship in the snapshot -- which is not true of l2 (18x18) or l3 (~180x18).
+    def category_grid():
+        ex = lv[["l1", "genres", "label"]].explode("genres").dropna(subset=["genres"])
+        ex = ex.assign(clk=(ex["label"] >= 1).astype(int))
+        g = (ex.groupby(["l1", "genres"])
+               .agg(movie_impressions=("clk", "size"), query_clicks=("clk", "sum"))
+               .reset_index()
+               .rename(columns={"l1": "category", "genres": "keyword"}))
+        g["ctr"] = (g["query_clicks"] / g["movie_impressions"]).round(4)
+        return g.sort_values(["category", "keyword"]).reset_index(drop=True)
+
     tops = {lvl: top_keywords(lvl) for lvl in ("l1", "l2", "l3")}
     top_div = by_keyword.reindex(by_keyword["divergence"].abs().sort_values(ascending=False).index)
     lead = top_div.iloc[0] if len(top_div) else None
     headline = ("no keywords" if lead is None else
                 f"'{lead['keyword']}' diverges most: shown {lead['movie_share']:.0%} vs clicked {lead['query_share']:.0%}")
     return {"headline": headline, "by_keyword": by_keyword,
-            "by_subkeyword": by_subkeyword, "tops": tops}
+            "by_subkeyword": by_subkeyword, "tops": tops, "grid": category_grid()}
 
 
 SHORT_MAX_CHARS = 10

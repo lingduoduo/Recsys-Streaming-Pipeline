@@ -96,6 +96,9 @@ def build(input_dir: str, host: str, port: int,
         "by_keyword": _records(kw["by_keyword"].head(50)),
         "by_subkeyword": _records(kw["by_subkeyword"].head(50)),
         "tops": {lvl: _records(kw["tops"][lvl].head(10)) for lvl in ("l1", "l2", "l3")},
+        # No head(): the heatmap needs every cell, and the grid is bounded at 6 x 18
+        # by the genre vocabulary. The tops above stay truncated -- they feed tables.
+        "grid": _records(kw["grid"]),
     }
 
     qy = dash.compute_query(df)

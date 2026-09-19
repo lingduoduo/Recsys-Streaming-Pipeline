@@ -203,3 +203,18 @@ def test_no_spread_object_carries_a_react_key():
     assert not offenders, (
         "React keys must be passed directly to the element:\n" + "\n".join(offenders)
     )
+
+
+def test_the_keyword_heatmap_degrades_when_the_grid_is_absent():
+    """Every snapshot exported before the grid existed lacks it.
+
+    An empty table would read as "no genres were served"; the section has to say the
+    snapshot predates the grid instead.
+    """
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    assert "grid" in report, "keyword-report.jsx must render data.keyword.grid"
+    heatmap = re.search(r"function CategoryKeywordHeatmap\((.*?)\n\}", report, re.S)
+    assert heatmap, "the heatmap must be its own component"
+    assert re.search(r"re-?export|fresh export|older snapshot", heatmap.group(1), re.I), (
+        "an absent grid must explain itself rather than render an empty table"
+    )

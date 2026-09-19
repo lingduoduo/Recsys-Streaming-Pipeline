@@ -407,3 +407,54 @@ def test_compute_ranking_reports_a_null_positive_rate_when_nothing_was_scored():
 
     # `position` is derived from the frame, so it is always scorable.
     assert rows["position"]["positive_rate"] == round(2 / 3, 4)
+
+
+def test_compute_keyword_grid_crosses_category_with_keyword():
+    """The heatmap's axes. `keyword` is a genre; `category` is that genre's family.
+
+    A row is exploded across its genres, so a film tagged Action and Comedy contributes
+    to both keyword columns under its own category -- the same convention top_keywords
+    uses, so the heatmap and the taxonomy tables agree.
+    """
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2", "u3"],
+        "session_id": ["s1", "s2", "s3"],
+        "item_id": ["i1", "i2", "i3"],
+        "label": [1.0, 0.0, 1.0],
+        "genres": [["Action", "Comedy"], ["Action"], ["Documentary"]],
+    })
+    grid = dash.compute_keyword(df)["grid"]
+    rows = {(r["category"], r["keyword"]): r for _, r in grid.iterrows()}
+
+    # Action is the primary genre of rows 1 and 2, so their family is Action&Adventure.
+    assert ("Action&Adventure", "Action") in rows
+    assert ("Action&Adventure", "Comedy") in rows, "the exploded second genre must appear"
+    assert ("Other", "Documentary") in rows, "Documentary's family is Other"
+
+    action = rows[("Action&Adventure", "Action")]
+    assert action["movie_impressions"] == 2 and action["query_clicks"] == 1
+    assert action["ctr"] == 0.5
+
+
+def test_compute_keyword_grid_is_not_rank_capped():
+    """tops caps at ten per family for its tables; the grid must not, or the heatmap
+    would show a truncated row and look like a measurement."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    genres = ["Action", "Adventure", "War", "Western", "Comedy", "Children",
+              "Crime", "Thriller", "Mystery", "Film-Noir", "Horror", "Drama"]
+    # Every row's primary genre is Action, so all twelve keywords land in one family.
+    df = pd.DataFrame({
+        "user_id": [f"u{i}" for i in range(len(genres))],
+        "session_id": [f"s{i}" for i in range(len(genres))],
+        "item_id": [f"i{i}" for i in range(len(genres))],
+        "label": [1.0] * len(genres),
+        "genres": [["Action", g] if g != "Action" else ["Action"] for g in genres],
+    })
+    grid = dash.compute_keyword(df)["grid"]
+    in_family = grid[grid["category"] == "Action&Adventure"]
+    assert len(in_family) > 10, f"expected more than ten keywords, got {len(in_family)}"
