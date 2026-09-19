@@ -62,7 +62,7 @@ export function Scorecard({ data }) {
         return (
           <MetricTile
             key={key}
-            href={`${SECTION_ROUTE[key]}#${key}`}
+            href={SECTION_ROUTE[key]}
             title={TITLES[key]}
             value={published ? headlineValue(section, spec) : "N/A"}
             label={spec.label}
