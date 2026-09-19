@@ -763,3 +763,19 @@ table.rpt.compact th {
   flex-wrap: wrap;
   gap: 10px 14px;
 }
+
+/* The overview's two tile blocks. The heading reuses the sidebar's small-caps treatment rather
+   than introducing a second one. */
+.scorecard-groups {
+  display: grid;
+  gap: 26px;
+}
+
+.scorecard-label {
+  margin: 0 0 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
