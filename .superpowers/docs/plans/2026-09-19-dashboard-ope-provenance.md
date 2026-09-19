@@ -1,6 +1,6 @@
 # Make the off-policy section reachable and honest — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Give the dashboard's off-policy section the Parquet input its sibling `ope_eval_report.py` already has, so the four post-training arms can appear; state which source produced the rows; and stop the N/A text and one README line from claiming things that are not true.
 
@@ -21,6 +21,30 @@
 - Every consumer treats `source` as optional, because the committed snapshot predates it.
 - Historical records under `.superpowers/docs/**` and `.planning/**` are not rewritten.
 - Measured baseline at this branch point: **563 passed, 2 skipped**. This plan adds five tests, so the final expected result is **568 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `fix/dashboard-ope-provenance`, four commits, all steps checked.
+Final suite: **569 passed, 2 skipped**, from a 563/2 baseline.
+
+Three deviations:
+
+1. **Six tests, not five.** The Global Constraints line said five; the tasks define six (four data
+   path, one exporter, one guard). 563 + 6 = 569, not the 568 predicted. Counting the tasks rather
+   than trusting the summary line would have caught it.
+2. **The guard had to become sentence-bounded.** The plan's version flagged any line containing both
+   `ExperienceCollectorStreamingJob` and `replay:recommendations`. A markdown paragraph is one long
+   line, so it fired on the *corrected* text too -- two sentences asserting the opposite of the false
+   claim still put both tokens on one line. Now it splits on sentence boundaries. Verified both ways:
+   it fails on the sentence removed and passes on the replacement.
+3. **The skip set was incomplete.** The plan skipped only `node_modules` and `.git`, so the guard
+   flagged `.worktrees/standalone-retrieval/` -- a whole second checkout, including historical
+   `.superpowers` docs. Aligned with `test_retrieval_service_extracted.py`'s established
+   `SKIP_DIRS`. A new repository-wide scan should copy that set rather than invent one.
+
+Also worth recording: the acceptance command `git diff --name-only origin/master | grep 'dashboard.json'`
+gives a false positive, because `export_dashboard_json.py` contains that substring. Use `grep -x` with
+the full path.
 
 ## Pre-validated facts
 
@@ -53,7 +77,7 @@ These were measured before the plan was written, by running the real functions �
 - Consumes: nothing.
 - Produces: `compute_ope(host, port, key="replay:recommendations", limit=-1, bootstrap_samples=1000, parquet=None)` returning `{"headline": str, "rows": list[dict], "calibration": dict, "source": str}` where `source` is `f"parquet:{parquet}"` or `f"redis:{key}"`. Task 2 passes `parquet=` and reads `source`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `recsys-pipeline/integration-tests/python_modeling/test_dashboard_ope_sources.py`. The fixture mirrors `test_compute_ope_evaluates_from_replay_events` in `test_analysis_dashboard.py`, with two post-training keys added.
 
@@ -158,12 +182,12 @@ def test_parquet_takes_precedence_over_a_reachable_redis(tmp_path, monkeypatch):
     assert result["source"].startswith("parquet:")
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_ope_sources.py -q`
 Expected: FAIL — three with `TypeError: compute_ope() got an unexpected keyword argument 'parquet'`, and `test_redis_source_is_named_in_the_payload` with `KeyError: 'source'`.
 
-- [ ] **Step 3: Add the Parquet source and the provenance key**
+- [x] **Step 3: Add the Parquet source and the provenance key**
 
 The Redis path keeps its `except Exception: return None` for an unreachable Redis. A Parquet path that does not exist is a caller error, not a missing optional input, so its exception propagates — matching `ope_eval_report.py --parquet`.
 
@@ -219,12 +243,12 @@ sed -n '259,268p' services/python-modeling/analysis_dashboard_report.py
 
 Expected: the new signature and docstring.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_ope_sources.py integration-tests/python_modeling/test_analysis_dashboard.py -q`
 Expected: PASS — 4 new + 21 existing = 25 passed. The two existing `compute_ope` tests still pass because `parquet` defaults to `None`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -267,7 +291,7 @@ MSG
 - Consumes: `compute_ope(..., parquet=...)` and the `source` key from Task 1.
 - Produces: `build(input_dir, host, port, experiences=None, live_metrics=None, config=None, ope_parquet=None)` and the `--ope-parquet` CLI flag.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_ope_sources.py`:
 
@@ -308,12 +332,12 @@ def _frame():
     })
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_ope_sources.py::test_exporter_threads_the_ope_parquet_flag_through_to_compute -q`
 Expected: FAIL with `TypeError: build() takes from 3 to 6 positional arguments but 7 were given`.
 
-- [ ] **Step 3: Thread the parameter and the flag**
+- [x] **Step 3: Thread the parameter and the flag**
 
 ```bash
 cd recsys-pipeline
@@ -360,12 +384,12 @@ python3 frontend/export_dashboard_json.py --help | grep -A4 'ope-parquet'
 
 Expected: the flag and its help text appear.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_ope_sources.py integration-tests/python_modeling/test_dashboard_measurement_contract.py -q`
 Expected: PASS — 5 new + 15 contract tests.
 
-- [ ] **Step 5: Replace the two strings in OpeSection**
+- [x] **Step 5: Replace the two strings in OpeSection**
 
 The current N/A reason describes an empty buffer. The replacement names the absent writer and the offline route. The fine print gains the source, tolerating its absence because the committed snapshot predates the key.
 
@@ -394,12 +418,12 @@ grep -n 'replay:recommendations\|data.source' frontend/components/sections.jsx
 
 Expected: both new strings present.
 
-- [ ] **Step 6: Verify the frontend still builds against the unregenerated snapshot**
+- [x] **Step 6: Verify the frontend still builds against the unregenerated snapshot**
 
 Run: `cd recsys-pipeline/frontend && npm run validate:data && npm run build 2>&1 | tail -5`
 Expected: `dashboard.json valid: 7 measurement sections, schema 2.0`, then a successful build. The snapshot has no `source`, so the fallback text is what renders — which is the point of the `??`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -439,7 +463,7 @@ MSG
 - Consumes: `REPO` from Task 1.
 - Produces: nothing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_ope_sources.py`:
 
@@ -471,12 +495,12 @@ def test_no_live_document_credits_the_collector_with_the_replay_buffer():
     )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_ope_sources.py::test_no_live_document_credits_the_collector_with_the_replay_buffer -q`
 Expected: FAIL naming `recsys-pipeline/README.md:314`.
 
-- [ ] **Step 3: Correct the claim**
+- [x] **Step 3: Correct the claim**
 
 ```bash
 cd recsys-pipeline
@@ -497,12 +521,12 @@ PY
 sed -n '312,318p' README.md
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_ope_sources.py -q`
 Expected: 6 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -538,7 +562,7 @@ MSG
 - Consumes: the `--ope-parquet` flag from Task 2.
 - Produces: nothing.
 
-- [ ] **Step 1: Document the flag beside its siblings**
+- [x] **Step 1: Document the flag beside its siblings**
 
 ```bash
 cd recsys-pipeline
@@ -565,7 +589,7 @@ print("frontend/README.md documented")
 PY
 ```
 
-- [ ] **Step 2: Document the two sources in the analysis reference**
+- [x] **Step 2: Document the two sources in the analysis reference**
 
 ```bash
 cd recsys-pipeline
@@ -587,7 +611,7 @@ print("Analysis_Report.md documented")
 PY
 ```
 
-- [ ] **Step 3: Run every gate**
+- [x] **Step 3: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -600,7 +624,7 @@ git -C .. diff --name-only origin/master | grep 'dashboard.json' && echo "FAIL: 
 
 Expected: `568 passed, 2 skipped`; `4 passed`; `dashboard.json valid: 7 measurement sections, schema 2.0`; `old N/A text gone`; `snapshot untouched`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
