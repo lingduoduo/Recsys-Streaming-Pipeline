@@ -825,7 +825,8 @@ Do not export a snapshot while the harness is still draining Kafka or writing Pa
 only after the simulation prints the literal terminal line:
 
 ```text
-==> done. CSVs under /tmp/spark-recsys/movie-category-sim/report-categories ; dashboard snapshot at frontend/data/dashboard.json (render it with: cd frontend && npm run dev)
+==> done. CSVs under /tmp/spark-recsys/movie-category-sim/report-categories ; dashboard snapshot at recsys-pipeline/frontend/data/dashboard.json
+    render it from the repository root with: cd recsys-pipeline/frontend && npm run dev
 ```
 
 Keep Redis running after this line; the exporter still needs `movie:*:features`, `i2vEmb:*`, and

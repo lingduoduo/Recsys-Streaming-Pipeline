@@ -582,3 +582,27 @@ def test_movie_category_sim_reports_moved_routes_differently_from_a_missing_serv
     # the two diagnoses are distinct strings, and drift names the base it tried
     assert "retrieval routes are not at $RETRIEVAL_BASE" in burst
     assert "no service answering at $SERVICE_URL" in burst
+
+
+def test_movie_category_sim_prints_instructions_runnable_from_where_it_was_launched() -> None:
+    """A closing banner is read from wherever the operator launched the script.
+
+    The script cd's into recsys-pipeline internally, which does not change the caller's
+    shell. An echoed `cd frontend` therefore points at a directory that does not exist
+    from the repository root, and npm answers `Missing script: "dev"`. Echoed paths are
+    repository-root relative for that reason; paths inside the script's own commands are
+    not, and are not scanned here.
+    """
+    script = SIM_SCRIPT.read_text(encoding="utf-8")
+    unrunnable = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("echo "):
+            continue
+        for match in re.finditer(r"cd ([\w./-]+)", stripped):
+            if not match.group(1).startswith("recsys-pipeline/"):
+                unrunnable.append(f"cd {match.group(1)}  in:  {stripped}")
+    assert not unrunnable, (
+        "echoed instructions must be runnable from the repository root:\n"
+        + "\n".join(unrunnable)
+    )

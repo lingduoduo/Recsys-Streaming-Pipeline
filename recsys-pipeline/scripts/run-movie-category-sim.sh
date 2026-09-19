@@ -262,5 +262,6 @@ REDIS_HOST=localhost REDIS_PORT=6379 \
 (cd frontend && npm run validate:data)
 
 echo
-echo "==> done. CSVs under $SIM_ROOT/report-categories ; dashboard snapshot at frontend/data/dashboard.json (render it with: cd frontend && npm run dev)"
+echo "==> done. CSVs under $SIM_ROOT/report-categories ; dashboard snapshot at recsys-pipeline/frontend/data/dashboard.json"
+echo "    render it from the repository root with: cd recsys-pipeline/frontend && npm run dev"
 echo "    stop infra with: docker compose down"
