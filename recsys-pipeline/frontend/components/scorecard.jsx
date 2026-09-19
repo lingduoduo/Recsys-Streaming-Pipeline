@@ -28,6 +28,55 @@ const TITLES = {
 // coverage lands on exactly 0.50.
 const LOW_COVERAGE = 0.5;
 
+// The seven measurement sections share one envelope, which is why HEADLINES covers them all. The
+// six diagnostics do not: two publish a scalar, four need the largest value over a named row set,
+// and the row set is not always called `rows`. `support` supplies the tile's n= -- from the section
+// for a scalar spec, from the winning row for a row spec -- so one signature covers both.
+const DIAGNOSTICS = {
+  engagement: {
+    label: "CTR", format: "pct", scalar: "ctr",
+    support: (section) => section.funnel?.impression,
+  },
+  query: {
+    label: "avg query length", format: "num", scalar: "average_query_length",
+    support: (section) => section.by_length?.length,
+  },
+  keyword: {
+    label: "largest divergence", format: "num", rows: "by_keyword", field: "divergence",
+    support: (section) => section.by_keyword?.length,
+  },
+  recall: {
+    label: "best recall@k", format: "num", rows: "rows", field: "recall_at_k",
+    support: (section, row) => row?.users_evaluated,
+  },
+  ranking: {
+    label: "best AUC", format: "num", rows: "rows", field: "auc",
+    support: (section, row) => row?.n,
+  },
+  ope: {
+    label: "best lift", format: "pct", rows: "rows", field: "lift_vs_logging",
+    support: (section, row) => row?.n_events,
+  },
+};
+
+// null when the section is absent or the field never appears, so a missing input renders an N/A
+// tile rather than a confident zero.
+function diagnosticTile(section, spec) {
+  if (!section) return null;
+  if (spec.scalar) {
+    const value = section[spec.scalar];
+    if (value === null || value === undefined) return null;
+    return { value, sampleSize: spec.support?.(section) };
+  }
+  const best = maxByField(section[spec.rows] ?? [], spec.field);
+  if (!best) return null;
+  return { value: best[spec.field], sampleSize: spec.support?.(section, best) };
+}
+
+function figure(value, format) {
+  return format === "pct" ? share(value) : num(value, 3);
+}
+
 function headlineRow(section, spec) {
   const rows = section.rows ?? [];
   const selected = spec.select === "max" ? maxByField(rows, spec.field) : null;
