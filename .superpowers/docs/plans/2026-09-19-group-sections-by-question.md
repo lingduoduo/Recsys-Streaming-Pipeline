@@ -1,6 +1,6 @@
 # Group the sections by the question they answer — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace "Online prediction" and "Offline prediction" with three groups that describe what a reader is asking, so no group claims that descriptive analytics are model predictions.
 
@@ -20,6 +20,22 @@
 - `groups.js` keeps importing nothing.
 - **No test file is edited.** If a guard fails, that is a finding about the guard — stop and report it rather than editing the test to match.
 - Measured baseline: **583 passed, 2 skipped**. This plan adds no tests, so the expected result is **583 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `refactor/group-sections-by-question`, two commits, all steps checked.
+Final suite: **583 passed, 2 skipped**, unchanged, with **no test edited**. No deviations.
+
+Task 1 step 3 was the point of the exercise and it held. Thirteen sections changed group and every
+route prefix changed, and not one guard failed — they read group membership from the catalogue
+rather than naming a group, which is what #257's design intended and what this is the first change
+to actually test.
+
+One verification bug of my own, worth recording because it nearly passed as evidence: the first
+attempt to list the sidebar's hrefs matched `class="sidebar-link…" href=…`, but React emits `href`
+before `className`, so the pattern found nothing and printed an empty result. An empty result read
+as "no links" when the truth was "wrong pattern". Corrected, all fourteen links resolve under the
+new prefixes.
 
 ## Pre-validated facts
 
@@ -45,7 +61,7 @@
 **Interfaces:**
 - Produces: `GROUPS` = `[{key: "demand"|"serving"|"models", label}]`; `SECTIONS[key].group` ∈ those keys; `SECTION_ROUTE` derived as `/<group>/<key>`.
 
-- [ ] **Step 1: Rewrite the catalogue**
+- [x] **Step 1: Rewrite the catalogue**
 
 The section entries keep their labels and descriptions exactly; only `group` changes, and the order
 follows the new groups so the sidebar and overview read top to bottom.
@@ -160,14 +176,14 @@ node -e "import('./components/groups.js').then(m => {
 Expected: `groups: demand, serving, models`, `{"demand":2,"serving":7,"models":4}`, and
 `/demand/query /serving/satisfaction /models/ope`.
 
-- [ ] **Step 2: Confirm the em-dash survived**
+- [x] **Step 2: Confirm the em-dash survived**
 
 The relevance description contains an em-dash, which the heredoc above writes as an escape.
 
 Run: `cd recsys-pipeline/frontend && grep -n 'Graded relevance' components/groups.js`
 Expected: `Graded relevance — NDCG and MRR — across labeled slates.` with real em-dashes, not `—`.
 
-- [ ] **Step 3: Run the suite with no test edited**
+- [x] **Step 3: Run the suite with no test edited**
 
 Run: `cd recsys-pipeline && python3 -m pytest -q 2>&1 | tail -2`
 Expected: `583 passed, 2 skipped`.
@@ -176,7 +192,7 @@ This is the step that matters most. The guards were written to read group member
 catalogue rather than to name a group; if any of them hardcoded `"online"`, it fails here — and the
 fix is the guard, not the catalogue. Stop and report rather than editing a test to match.
 
-- [ ] **Step 4: Build and check the routes**
+- [x] **Step 4: Build and check the routes**
 
 ```bash
 cd recsys-pipeline/frontend && npm run build 2>&1 | tail -12
@@ -185,7 +201,7 @@ cd recsys-pipeline/frontend && npm run build 2>&1 | tail -12
 Expected: `● /[group]/[section]` with thirteen prerendered paths under `/demand`, `/serving` and
 `/models`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -223,7 +239,7 @@ MSG
 **Interfaces:**
 - Consumes: the group keys and labels from Task 1.
 
-- [ ] **Step 1: Rewrite the Routes table**
+- [x] **Step 1: Rewrite the Routes table**
 
 It also still says the scorecard has seven tiles, which #260 made thirteen.
 
@@ -260,7 +276,7 @@ PY
 sed -n '/^## Routes/,/^## Run/p' README.md | head -14
 ```
 
-- [ ] **Step 2: Verify nothing still points at the old routes**
+- [x] **Step 2: Verify nothing still points at the old routes**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -270,7 +286,7 @@ python3 -m pytest integration-tests/test_doc_links.py -q 2>&1 | tail -1
 
 Expected: `no stale route references`, then 5 passed.
 
-- [ ] **Step 3: Verify the rendered result**
+- [x] **Step 3: Verify the rendered result**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -290,7 +306,7 @@ pkill -f 'next dev'; pkill -f 'next-server'
 Expected: 13 tiles, 3 group headings, 14 sidebar links (Overview plus thirteen), 200 for the three
 new routes and **404 for `/online/query`**.
 
-- [ ] **Step 4: Run every gate**
+- [x] **Step 4: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -302,7 +318,7 @@ git -C .. diff --check && echo "diff --check clean"
 
 Expected: `583 passed, 2 skipped`; the data contract valid; exactly two frontend files; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
