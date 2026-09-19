@@ -1,6 +1,6 @@
 # Collapse every dashboard section to its headline — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make every dashboard section a native `<details>` disclosure whose collapsed row carries the section's headline number, so a route reads as a one-screen outline that still shows every key figure.
 
@@ -21,6 +21,30 @@
 - The six contract tests in `test_dashboard_measurement_contract.py` must keep passing **unmodified** — they parse call sites, which this change does not touch.
 - `.report-card` keeps its class name.
 - Measured baseline at this branch point: **574 passed, 2 skipped**. This plan adds five tests — one in Task 1, three in Task 2, one in Task 3 — so the final expected result is **579 passed, 2 skipped**. The spec says four and 578; counting the tasks rather than trusting that summary line is what caught it.
+
+## Execution record
+
+Executed 2026-09-19 on `feat/dashboard-collapsible-sections`, four commits, all steps checked.
+Final suite: **580 passed, 2 skipped**, from a 574/2 baseline.
+
+Three deviations, all found by running the thing rather than by review:
+
+1. **The CSS guard was too narrow and flagged working code.** It compared `var()` uses against
+   `:root` declarations only, and so reported `--token-score` alongside the real defect.
+   `keyword-report.jsx:39` sets `{"--token-score": t}` inline per token, which is a legitimate
+   declaration the stylesheet cannot show. The guard now also collects inline declarations from
+   `components/*.jsx`. Had I "fixed" the CSS instead, I would have broken the keyword heatmap.
+2. **Collapsed measurement rows showed prose, not numbers** — six tests, not the planned five.
+   The seven measurement sections carry calculator prose as their headline ("Observed user
+   satisfaction"), unlike the six diagnostics whose headlines are computed figures. Closed, they
+   reported nothing, which defeats the purpose. `MeasurementSection` now reuses the `HEADLINES`
+   spec that `scorecard.jsx` already had, which required exporting three helpers from it and adding
+   a `metric` prop to `Section` — a deviation from the constraint that `Section` keep its exact
+   prop list, taken because the alternative was shipping the outcome the change existed to prevent.
+   Only found by fetching the rendered page and reading the summary rows.
+3. `HEADLINES` stayed in `scorecard.jsx` rather than moving to a shared `.js` module, because
+   `_component_sources()` globs `components/*.jsx` and a `.js` file would have fallen outside it,
+   breaking the contract test that parses `HEADLINES` by name.
 
 ## Pre-validated facts
 
@@ -54,7 +78,7 @@ Measured before this plan was written — do not re-derive:
 - Consumes: `FRONTEND` from the existing module.
 - Produces: nothing later tasks use.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -76,12 +100,12 @@ def test_every_css_variable_used_is_defined():
     )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py::test_every_css_variable_used_is_defined -q 2>&1 | grep -E 'silently dropped|passed|failed'`
 Expected: FAIL naming `--border`.
 
-- [ ] **Step 3: Use the variable that exists**
+- [x] **Step 3: Use the variable that exists**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -96,12 +120,12 @@ PY
 grep -n 'var(--line)' app/globals.css | tail -3
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -1`
 Expected: 5 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -137,7 +161,7 @@ MSG
 - Consumes: nothing.
 - Produces: `<details className="report-card" id={id}>` with `<summary className="section-summary">` and `<div className="section-body">`. Tasks 3 and 4 depend on that structure.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -182,12 +206,12 @@ def test_na_cards_are_not_disclosures():
     )
 ```
 
-- [ ] **Step 2: Run the tests to verify two fail**
+- [x] **Step 2: Run the tests to verify two fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -4`
 Expected: 2 failed (`test_sections_are_collapsible_disclosures`, `test_a_collapsed_section_still_shows_its_headline`), 6 passed — `test_na_cards_are_not_disclosures` already holds.
 
-- [ ] **Step 3: Rewrite Section**
+- [x] **Step 3: Rewrite Section**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -241,7 +265,7 @@ print("Section is now a disclosure")
 PY
 ```
 
-- [ ] **Step 4: Style the summary**
+- [x] **Step 4: Style the summary**
 
 `.section-heading` no longer wraps the title, so its `h2` rules are restated for the summary. The
 default marker is replaced by a triangle that rotates when open, which renders the same across
@@ -302,7 +326,7 @@ details[open] > .section-summary {
 CSS
 ```
 
-- [ ] **Step 5: Run the tests and build**
+- [x] **Step 5: Run the tests and build**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py integration-tests/python_modeling/test_dashboard_measurement_contract.py -q 2>&1 | tail -2`
 Expected: 23 passed — the eight route assertions and the fifteen contract tests, the latter unmodified.
@@ -311,7 +335,7 @@ Then, with **no dev server running** (a build clobbers the shared `.next`):
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -8`
 Expected: successful build listing `/`, `/online`, `/offline`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -348,7 +372,7 @@ MSG
 - Consumes: the `<details id=…>` structure from Task 2.
 - Produces: nothing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -368,12 +392,12 @@ def test_the_hash_target_is_opened():
     )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py::test_the_hash_target_is_opened -q 2>&1 | grep -E 'hashchange|passed|failed'`
 Expected: FAIL on the `hashchange` assertion.
 
-- [ ] **Step 3: Open the target in Nav**
+- [x] **Step 3: Open the target in Nav**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -408,7 +432,7 @@ print("Nav opens the hash target")
 PY
 ```
 
-- [ ] **Step 4: Run the test and rebuild**
+- [x] **Step 4: Run the test and rebuild**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -1`
 Expected: 9 passed.
@@ -416,7 +440,7 @@ Expected: 9 passed.
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | tail -5`
 Expected: successful build.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -451,7 +475,7 @@ MSG
 - Consumes: everything above.
 - Produces: nothing.
 
-- [ ] **Step 1: Count disclosures on the rendered routes**
+- [x] **Step 1: Count disclosures on the rendered routes**
 
 A build was run last, so `.next` holds a production build; start the dev server fresh.
 
@@ -472,7 +496,7 @@ Note: if a section is currently rendering as `NaCard` because its data is unavai
 `<section>` and not counted. Check the count against how many of that route's sections are
 `"available"` in the snapshot before treating a lower number as a failure.
 
-- [ ] **Step 2: Document the collapsed default**
+- [x] **Step 2: Document the collapsed default**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -493,7 +517,7 @@ print("README documents the collapsed default")
 PY
 ```
 
-- [ ] **Step 3: Run every gate**
+- [x] **Step 3: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -506,7 +530,7 @@ git -C .. diff --check && echo "diff --check clean"
 Expected: `579 passed, 2 skipped`; `dashboard.json valid: 7 measurement sections, schema 2.0`;
 `snapshot untouched`; `diff --check clean`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
