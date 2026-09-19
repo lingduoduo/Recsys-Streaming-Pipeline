@@ -4,7 +4,13 @@
 
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
-For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+> **Where this runs:** this stage executes in the retrieval service, now in
+> [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) — see
+> the [repository boundary](../../../README.md#repository-boundary). The Redis key contract below is
+> owned by this repository and is authoritative. The class and bean names are as of the split and
+> may have been renamed there; nothing in either repository detects that.
+
+For the complete local startup sequence, follow the [canonical finite local workflow](../../README.md#canonical-finite-local-workflow).
 
 After scoring and final selection, the retrieval service writes pending recommendation context for
 each served user-item pair, so a later `/feedback` call can join it into a labeled replay example.
@@ -13,7 +19,7 @@ The context is stored at `replay:pending:{user}:{item}`; the `/feedback` write p
 
 ## Required state
 
-A successful `GET /recommend/{user}` with at least one selected item writes:
+A successful `GET /api/v1/retrieval/recommend/{user}` with at least one selected item writes:
 
 - `replay:pending:{user}:{item}` strings containing request, state, candidate snapshot, selected
   action, policy, prediction, and timestamp context, with the configured pending TTL;
@@ -22,7 +28,7 @@ A successful `GET /recommend/{user}` with at least one selected item writes:
 - `bandit:item:{item}:impressions`, `bandit:last_served:{item}`, and the exposed-item set used by
   metrics.
 
-`POST /feedback` depends on the matching pending key to reconstruct the full labeled event, then
+`POST /api/v1/retrieval/feedback` depends on the matching pending key to reconstruct the full labeled event, then
 deletes it and appends the reward to `replay:recommendations`. If the pending key is absent or has
 expired, feedback still writes a minimal replay event and reward/click aggregates, but the original
 state, candidate slate, propensity, and model predictions are unavailable; a tabular Q update also

@@ -4,7 +4,13 @@
 
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
-For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+> **Where this runs:** this stage executes in the retrieval service, now in
+> [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) — see
+> the [repository boundary](../../../README.md#repository-boundary). The Redis key contract below is
+> owned by this repository and is authoritative. The class and bean names are as of the split and
+> may have been renamed there; nothing in either repository detects that.
+
+For the complete local startup sequence, follow the [canonical finite local workflow](../../README.md#canonical-finite-local-workflow).
 
 This stage documents the intended post-score randomization control and the policy-level randomness
 that affects final ordering. The current selector behavior is described explicitly below.
@@ -13,9 +19,7 @@ that affects final ordering. The current selector behavior is described explicit
 
 `recsys.candidate-generation.top-n-randomization-pool`
 (`RECSYS_RANDOMIZATION_POOL`, default `5`) is declared in the retrieval service's own
-`application.yml`, now in
-[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) (see the
-[repository boundary](../../../README.md#repository-boundary)). In the current serving
+`application.yml`. In the current serving
 implementation, however, `TopKScoreSelector` sorts by final score and does not read this property,
 so there is no separate post-score shuffle. With identical inputs, UCB selection is deterministic.
 Thompson sampling is non-deterministic because it draws from each arm's posterior, and Q-learning

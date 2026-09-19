@@ -4,7 +4,13 @@
 
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
-For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+> **Where this runs:** this stage executes in the retrieval service, now in
+> [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) — see
+> the [repository boundary](../../../README.md#repository-boundary). The Redis key contract below is
+> owned by this repository and is authoritative. The class and bean names are as of the split and
+> may have been renamed there; nothing in either repository detects that.
+
+For the complete local startup sequence, follow the [canonical finite local workflow](../../README.md#canonical-finite-local-workflow).
 
 Before candidate retrieval and scoring, the service enriches each request with Redis-backed user
 state.
@@ -25,8 +31,9 @@ Spring injects the available `QueryHydrator<ScoredMoviesQuery>` beans into
 - `UserEventStreamingJob` is the writer for the columnar behavior sequence `seq:{id}:behavior:{day}`,
   read under the separate `recsys.sequence.behavior-mode` switch. It also still writes the legacy
   `seq:{id}:click:{day}` sequence, which nothing in this repository reads.
-- The in-repo serving side-effect writer maintains `user:{id}:served_history` and
-  `user:{id}:impressions` after a request selects at least one item.
+- The retrieval service maintains `user:{id}:served_history` and `user:{id}:impressions` itself,
+  after a request selects at least one item. The writer left with the service: neither key has a
+  writer, a reader, or a test in this checkout, and both appear here only as documentation.
 - The retrieval service reads `user:{id}:recent` and `user:{id}:rated` lists plus
   `user:{id}:request_history`, `user:{id}:bloom_filter`, and `user:{id}:cached_movies` hashes, but
   this repository contains no writer for those keys. They must be externally populated or

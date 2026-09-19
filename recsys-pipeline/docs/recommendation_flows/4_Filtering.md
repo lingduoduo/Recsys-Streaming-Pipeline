@@ -4,7 +4,13 @@
 
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
-For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+> **Where this runs:** this stage executes in the retrieval service, now in
+> [lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service) — see
+> the [repository boundary](../../../README.md#repository-boundary). The Redis key contract below is
+> owned by this repository and is authoritative. The class and bean names are as of the split and
+> may have been renamed there; nothing in either repository detects that.
+
+For the complete local startup sequence, follow the [canonical finite local workflow](../../README.md#canonical-finite-local-workflow).
 
 After candidate generation, `ContentCandidateRetriever` removes known-history items and applies
 catalog-based expiry and muted-value checks before scoring.

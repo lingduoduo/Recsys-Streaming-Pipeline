@@ -62,6 +62,8 @@ real-time job path (producer + streaming jobs), and the offline embedding-traini
 
 ### Model Prediction Pipeline
 
+Paths are relative to the service prefix `/api/v1/retrieval`.
+
 ```text
 mlp_embedding_model.onnx (bundled classpath resource) ───────────────┐
 Redis: embeddings, user history, candidate lists ────────────────────┼──► retrieval service  (FeatureCache / Caffeine)
@@ -74,6 +76,8 @@ Redis: reward stats, bandit counters ──────────────�
 ---
 
 ### Experiment Pipeline
+
+Paths are relative to the service prefix `/api/v1/retrieval`.
 
 ```text
 GET /recommend/{user} ──► bandit arm selection ──► impression logged → Redis bandit:metrics:{algo}
@@ -228,19 +232,19 @@ USER_PROFILE_OUTPUT_PATH=/path/to/user-profiles/run-2026-08-06 \
 ```
 
 The retrieval service uses the active profile for content affinity and exposes it at
-`GET /users/{user}/profile`. When profile data is missing, invalid, stale-version, or unreachable,
+`GET /api/v1/retrieval/users/{user}/profile`. When profile data is missing, invalid, stale-version, or unreachable,
 the service falls back to the established recommendation signals. Keep
 `USER_PROFILE_REDIS_KEY_PREFIX` on the Spark job and `RECSYS_USER_PROFILE_KEY_PREFIX` on the
 service equal (both default to `user-profile:v1`). Profile values default to a one-day TTL; the
 active-run pointer does not expire.
 See [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#behavioral-user-profile-snapshots)
 for input, decay, taxonomy, output, activation, metrics, and all environment variables, and
-[API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
+[API.md](docs/recommendation_architecture/API.md#get-apiv1retrievalusersuserprofile) for the response and 404
 contract.
 To check every user at once — who lacks a valid profile, and which preferences match no catalog
 item — call `GET /api/v1/retrieval/profile-audit`; for a single account, `GET
 /api/v1/retrieval/profile-audit/{user}`. See
-[API.md](docs/recommendation_architecture/API.md#get-actuatorprofile-audit).
+[API.md](docs/recommendation_architecture/API.md#get-apiv1retrievalprofile-audit).
 
 ### Step 5 — Query the API
 
@@ -678,6 +682,8 @@ See [3_Cold_Start.md](docs/recommendation_flows/3_Cold_Start.md) for the cold-st
 
 ## End-to-end flow
 
+Paths are relative to the service prefix `/api/v1/retrieval`.
+
 ```
 Serving path
 ────────────
@@ -955,7 +961,7 @@ the remaining diagnostics use the paths shown.
 | Dashboard exporter says no samples | `find /tmp/spark-recsys/movie-category-sim/training-samples -name '*.parquet'` | simulation not finished | wait for `==> done` |
 | Keyword Gap is `unknown`; L1/L2/L3 empty | `docker compose exec -T redis redis-cli --scan --pattern 'movie:*:features' \| wc -l` | snapshot exported without movie metadata | keep Redis running and export from the movie-category path |
 | Dashboard still shows old row count | inspect `input` and `rows` in `frontend/data/dashboard.json` | stale static snapshot/browser | rerun exporter, hard-refresh, or restart `npm run dev` |
-| ONNX Gather index error | `GET /predict/metadata` | raw numeric ID exceeds lookup size | use string IDs or indices within metadata bounds |
+| ONNX Gather index error | `GET /api/v1/retrieval/predict/metadata` | raw numeric ID exceeds lookup size | use string IDs or indices within metadata bounds |
 | Producer prints `connected`, then `KafkaTimeoutError: Failed to update metadata` | `docker logs <kafka-container> \| grep "Fatal error during KafkaServer startup"` | Kafka was recreated while ZooKeeper kept the previous broker's ephemeral `/brokers/ids` node, so the broker died on startup and is restarting. The port is published, so TCP connect succeeds and the client reports `connected`, but no broker is registered and no metadata exists | wait for the restart to settle, or bring both down together: `docker compose down -v && docker compose up -d zookeeper kafka redis`. The sims already do this — it is why they start with `docker compose down -v` |
 | Same error, but the broker log is clean | `docker compose exec -T kafka kafka-topics --bootstrap-server localhost:29092 --list` | the topic does not exist; auto-creation is disabled and the checked-in catalog covers only `recsys_events{,.backfill}` | create it, or use a launcher that provisions it |
 | `UserProfileIntegrationTest` skipped; `Could not find a valid Docker environment` | `docker version --format '{{.Server.MinAPIVersion}}'` | the daemon is Docker 25+ (Colima included) and requires API >= 1.44, while docker-java 3.x requests 1.32; `disabledWithoutDocker` turns the rejected handshake into a skip | expected — accepted limitation, not a broken test. Every other Java test runs. Needs an upstream Testcontainers/docker-java fix, or a pre-25 daemon. See the comment on the test before attempting a fix |
