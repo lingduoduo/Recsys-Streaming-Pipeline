@@ -1,6 +1,6 @@
 import { MetricTile } from "./ui";
 import { GROUPS, SECTIONS, SECTION_ROUTE } from "./groups";
-import { num, share, maxByField } from "./format";
+import { num, share, maxByField, pickByField } from "./format";
 
 // Which single number represents each measurement on the scorecard. `field` must be a
 // key the calculator actually publishes — the contract test enforces that. `select: "max"`
@@ -38,15 +38,16 @@ const DIAGNOSTICS = {
     support: (section) => section.by_length?.length,
   },
   keyword: {
-    label: "largest divergence", format: "num", rows: "by_keyword", field: "divergence",
+    label: "largest gap", format: "num", rows: "by_keyword", field: "divergence", select: "abs",
     support: (section) => section.by_keyword?.length,
   },
   recall: {
-    label: "best recall@k", format: "num", rows: "rows", field: "recall_at_k",
+    label: "best recall@10", format: "num", rows: "rows", field: "recall_at_k",
+    where: (row) => row.k === 10,
     support: (section, row) => row?.users_evaluated,
   },
   ranking: {
-    label: "best AUC", format: "num", rows: "rows", field: "auc",
+    label: "worst AUC", format: "num", rows: "rows", field: "auc", select: "min",
     support: (section, row) => row?.n,
   },
   ope: {
@@ -64,7 +65,11 @@ function diagnosticTile(section, spec) {
     if (value === null || value === undefined) return null;
     return { value, sampleSize: spec.support?.(section) };
   }
-  const best = maxByField(section[spec.rows] ?? [], spec.field);
+  // `where` narrows before the extremum is taken. Recall publishes one row per method per k, and
+  // recall@k rises with k by construction, so an extremum over the unfiltered set reports which k
+  // it picked rather than how retrieval performed.
+  const rows = (section[spec.rows] ?? []).filter(spec.where ?? (() => true));
+  const best = pickByField(rows, spec.field, spec.select ?? "max");
   if (!best) return null;
   return { value: best[spec.field], sampleSize: spec.support?.(section, best) };
 }
