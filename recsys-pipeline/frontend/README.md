@@ -21,6 +21,13 @@ Three pages, split by what a number means rather than where its data came from:
 | `/offline` | Models re-scored afterwards: recall@k, ranking AUC, relevance NDCG/MRR, off-policy evaluation |
 
 `components/groups.js` maps each section to its route; moving one is a one-line change there.
+
+Sections are collapsed by default. Each row carries a figure — CTR, p95, fresh share, recall@10 — so
+a route reads as an outline that still reports something, and a click opens the charts and tables.
+The seven measurement sections get theirs from the same `HEADLINES` spec the scorecard tiles use,
+because their own headlines are prose ("Observed user satisfaction") rather than numbers. Clicking a
+scorecard tile opens the section it points at. The open state is not remembered: every visit starts
+collapsed.
 Only `latency` is purely live telemetry — satisfaction, freshness and safety are offline rows with
 live ones merged in when a backend was running.
 

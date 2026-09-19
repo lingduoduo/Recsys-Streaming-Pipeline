@@ -3,17 +3,26 @@ import {
   MetricGrid, MetricCard, ChartGrid,
 } from "./ui";
 import { num, share, maxByField } from "./format";
+import { HEADLINES, headlineFieldPublished, headlineValue } from "./scorecard";
 
 // One consistent presentation for every measurement envelope: headline, the support it
 // was calculated from, any warnings, then the rows. Never invents a value for N/A.
 function MeasurementSection({ title, data, columns, kpis, chart, description, children }) {
+  const key = title.toLowerCase();
   if (!data || data.status !== "available") {
-    return <NaCard title={title} id={title.toLowerCase()} reason={data?.warnings?.[0] || "measurement unavailable"} />;
+    return <NaCard title={title} id={key} reason={data?.warnings?.[0] || "measurement unavailable"} />;
   }
   const rows = data.rows || [];
   const values = kpis ? kpis(rows) : [];
+  // These seven sections carry prose headlines from the calculator -- "Observed user
+  // satisfaction" -- so the collapsed row would show no figure. Reuse the number the
+  // scorecard tile shows for the same section, so a closed section still reports something.
+  const spec = HEADLINES[key];
+  const metric = spec && headlineFieldPublished(data, spec)
+    ? `${spec.label} ${headlineValue(data, spec)}`
+    : null;
   return (
-    <Section title={title} headline={data.headline} description={description} id={title.toLowerCase()}>
+    <Section title={title} headline={data.headline} metric={metric} description={description} id={key}>
       <p className="fine-print">
         sample size {data.sampleSize?.toLocaleString() ?? "N/A"} · coverage {share(data.coverage)}
         {data.window ? ` · window ${data.window}` : ""}
