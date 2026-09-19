@@ -1,6 +1,6 @@
 # Drop the HTML dashboard renderer — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Delete the second dashboard renderer — the 249 lines of `analysis_dashboard_report.py` that build a self-contained `index.html` for six of the dashboard's thirteen sections — leaving the React app reading `frontend/data/dashboard.json` as the single surface.
 
@@ -19,6 +19,26 @@
 - `import os` stays (used at line 57). `import argparse` goes. `pandas`, `numpy` and `redis` are lazy imports inside functions.
 - Historical records under `.superpowers/docs/**` and `.planning/**` are not rewritten.
 - Measured baseline at this branch point: **565 passed, 2 skipped**. This plan deletes five tests and adds three, so the final expected result is **563 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `refactor/drop-html-dashboard-renderer`, three commits, all steps checked.
+Final suite: **562 passed, 2 skipped**, from a 565/2 baseline.
+
+Two deviations, one of them arithmetic that cancelled out:
+
+1. **Six renderer tests, not five.** `test_ci_formats_bounds_and_na` exercises `dash._ci`, which
+   lives inside the deleted block because its only caller was `_ope_section`. The plan's list of
+   doomed tests missed it, and the deletion turned it red. Confirmed by reading it -- three
+   assertions, all against `_ci` -- before removing it.
+2. The predicted count was 563 (five deleted, three added). With the sixth deletion it is 562,
+   which is what the spec said before this plan revised it upward. The plan's reasoning for a third
+   guard test still stands; the two corrections simply offset.
+
+Lesson worth keeping: the plan derived its doomed-test list by reading test *names* for renderer
+words. `test_ci_formats_bounds_and_na` does not contain "render", "html", "svg" or "section", so
+name-matching missed it. Deriving the list from the deleted symbols instead -- grep each removed
+symbol in the test file -- would have found it.
 
 ## Deviation from the spec
 
@@ -49,7 +69,7 @@ Note the arithmetic: the spec says "deletes five tests and adds two" for 562. Th
 - Consumes: nothing.
 - Produces: `RENDERING_SYMBOLS`, `REPO`, `MODELING`, `SIM` module constants in the new test file. Task 2 appends to the same file and reuses `SIM`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `recsys-pipeline/integration-tests/python_modeling/test_dashboard_single_renderer.py`. Note the module-level `sys.path.insert` — that is how every test in this directory reaches the modeling code; there is no `conftest.py`.
 
@@ -91,12 +111,12 @@ def test_compute_module_exposes_no_html_rendering():
     )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_single_renderer.py -q`
 Expected: FAIL listing all seven symbols — `render_html, svg_bar, svg_line, html_table, na_card, section, main`.
 
-- [ ] **Step 3: Delete the renderer block**
+- [x] **Step 3: Delete the renderer block**
 
 Everything from `def _esc` to end of file is rendering plus `main`. Verified symbol by symbol: no reference to any of it exists above line 494.
 
@@ -115,7 +135,7 @@ wc -l services/python-modeling/analysis_dashboard_report.py
 
 Expected: `493` or fewer (trailing blank lines are trimmed).
 
-- [ ] **Step 4: Drop the orphaned import and rewrite the docstring**
+- [x] **Step 4: Drop the orphaned import and rewrite the docstring**
 
 `argparse` was used only by the deleted `main`. The docstring describes the deleted half.
 
@@ -157,7 +177,7 @@ python3 -c "import sys; sys.path.insert(0, 'services/python-modeling'); import a
 
 Expected: the new docstring, no `import argparse`, and `imports clean`.
 
-- [ ] **Step 5: Delete the five renderer tests**
+- [x] **Step 5: Delete the five renderer tests**
 
 ```bash
 cd recsys-pipeline
@@ -185,7 +205,7 @@ grep -c '^def test_' integration-tests/python_modeling/test_analysis_dashboard.p
 
 Expected: `22` (was 27).
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_single_renderer.py integration-tests/python_modeling/test_analysis_dashboard.py integration-tests/python_modeling/test_dashboard_measurement_contract.py -q`
 Expected: PASS — 1 + 22 + 15 = 38 passed, 0 failed.
@@ -194,7 +214,7 @@ Then prove the exporter's import surface survived:
 Run: `cd recsys-pipeline/frontend && python3 export_dashboard_json.py --help`
 Expected: usage text, exit 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -232,7 +252,7 @@ MSG
 - Consumes: `SIM` from Task 1.
 - Produces: nothing.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_single_renderer.py`:
 
@@ -257,12 +277,12 @@ def test_simulation_does_not_run_a_second_renderer():
     )
 ```
 
-- [ ] **Step 2: Run the tests to verify one fails**
+- [x] **Step 2: Run the tests to verify one fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_single_renderer.py -q`
 Expected: 2 passed, 1 failed — `test_simulation_does_not_run_a_second_renderer` naming both `analysis_dashboard_report.py` (the invocation at line 257) and `report-dashboard` (the closing banner at line 271).
 
-- [ ] **Step 3: Remove the ANALYSIS DASHBOARD step**
+- [x] **Step 3: Remove the ANALYSIS DASHBOARD step**
 
 ```bash
 cd recsys-pipeline
@@ -285,7 +305,7 @@ grep -n 'DASHBOARD' scripts/run-movie-category-sim.sh
 
 Expected: only the `REACT DASHBOARD SNAPSHOT` line remains.
 
-- [ ] **Step 4: Rewrite the closing banner**
+- [x] **Step 4: Rewrite the closing banner**
 
 The banner named the deleted artifact. It now names the one that exists and says what renders it.
 
@@ -306,12 +326,12 @@ tail -3 scripts/run-movie-category-sim.sh
 
 Expected: `syntax clean` and the new banner.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_single_renderer.py integration-tests/test_service_scripts.py integration-tests/python_modeling/test_movie_category_sim.py -q`
 Expected: PASS, 0 failed. `test_service_scripts.py` asserts the `SERVICE BURST` properties and the `--experiences` / `--live-metrics` flags, all of which are in untouched parts of the script.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -346,7 +366,7 @@ MSG
 - Consumes: the banner text written in Task 2, Step 4 — the quoted sample output must match it verbatim.
 - Produces: nothing.
 
-- [ ] **Step 1: Delete the two standalone-HTML sections**
+- [x] **Step 1: Delete the two standalone-HTML sections**
 
 Neither heading has an inbound link — verified by grepping for `optional-reference-standalone-html-dashboard` and `consolidated-standalone-html` across live markdown. `test_doc_links.py` (added in #247) will confirm on the next run.
 
@@ -375,7 +395,7 @@ PY
 
 Expected: two `dropped N lines` lines.
 
-- [ ] **Step 2: Update the remaining inline references**
+- [x] **Step 2: Update the remaining inline references**
 
 ```bash
 cd recsys-pipeline
@@ -421,7 +441,7 @@ PY
 
 Expected: three lines confirming 2, 1 and 2 edits.
 
-- [ ] **Step 3: Correct the Node-optional claim**
+- [x] **Step 3: Correct the Node-optional claim**
 
 Viewing the dashboard now requires npm. The line says so, and says what still does not need it.
 
@@ -441,7 +461,7 @@ grep -n 'Node.js' README.md
 
 Expected: the new line.
 
-- [ ] **Step 4: Verify no live reference to the deleted artifact survives**
+- [x] **Step 4: Verify no live reference to the deleted artifact survives**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -453,7 +473,7 @@ echo "--- only test_dashboard_single_renderer.py should appear above ---"
 
 Expected: matches only in `recsys-pipeline/integration-tests/python_modeling/test_dashboard_single_renderer.py`, whose docstring and `RENDERING_SYMBOLS` name them on purpose.
 
-- [ ] **Step 5: Run every gate**
+- [x] **Step 5: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -466,7 +486,7 @@ wc -l services/python-modeling/analysis_dashboard_report.py
 
 Expected: `563 passed, 2 skipped`; `4 passed` for the doc-link guard; `validate:data` exits 0; `sim syntax clean`; the compute module at 493 lines or fewer.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
