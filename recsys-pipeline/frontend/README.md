@@ -10,6 +10,20 @@ The app reads a static JSON snapshot at [`data/dashboard.json`](data/dashboard.j
 `npm run dev` works out of the box without Redis or Spark. Regenerate that snapshot from a
 real run with the export script.
 
+## Routes
+
+Three pages, split by what a number means rather than where its data came from:
+
+| Route | Contents |
+|---|---|
+| `/` | The scorecard — seven tiles, each linking into the page that holds its section |
+| `/online` | What the serving path did: intents, keyword gap, engagement, satisfaction, freshness, diversity, fairness, safety, latency |
+| `/offline` | Models re-scored afterwards: recall@k, ranking AUC, relevance NDCG/MRR, off-policy evaluation |
+
+`components/groups.js` maps each section to its route; moving one is a one-line change there.
+Only `latency` is purely live telemetry — satisfaction, freshness and safety are offline rows with
+live ones merged in when a backend was running.
+
 ## Run
 
 ```bash
@@ -88,7 +102,12 @@ frontend/
 ├── components/
 │   ├── ui.jsx            # Section, NaCard, MetricTile, MetricGrid/MetricCard,
 │   │                     #   ChartGrid, BarChart, GroupedBarChart, DataTable
-│   ├── sections.jsx      # Scorecard + the measurement and diagnostic sections
+│   ├── groups.js         # SECTION_ROUTE: which route renders each section
+│   ├── format.js         # num / pct / share / ci / count / rankBy
+│   ├── scorecard.jsx     # the overview tiles, linked through SECTION_ROUTE
+│   ├── measurements.jsx  # the seven measurement sections
+│   ├── diagnostics.jsx   # engagement / query / recall / ranking / off-policy
+│   ├── nav.jsx           # route nav (the only client component)
 │   └── keyword-report.jsx # "use client": the Top-K keyword report
 ├── data/dashboard.json   # committed snapshot (regenerate with export_dashboard_json.py)
 ├── validate_measurements.mjs  # data-contract gate for `npm run build`

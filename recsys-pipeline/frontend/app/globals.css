@@ -633,3 +633,46 @@ table.rpt.compact th {
     grid-template-columns: 1fr;
   }
 }
+
+/* Route nav in the shared layout. Three links; the active one is marked by class and by
+   aria-current, because a colour change alone does not reach a screen reader. */
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+
+.nav a {
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.nav a:hover {
+  color: var(--ink);
+  border-color: var(--border);
+}
+
+.nav a.nav-active {
+  color: #ffffff;
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+/* Groups the sections within a route. Sits in the report grid, spanning its full width. */
+.group-heading {
+  grid-column: 1 / -1;
+  margin: 1.5rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
