@@ -138,6 +138,64 @@ replay Parquet from `post_train_dpo.py` / `post_train_q.py --output-parquet`, wh
 source carrying `dpoScore`, `tabQ`, `fqiQ` and `grpoScore`. Pass `--ope-parquet` to the exporter or
 `--parquet` to `ope_eval_report.py`; both name the source they used.
 
+### Populating the off-policy section
+
+On a default run this section is N/A, and no amount of local work changes that: **nothing in this
+repository writes `replay:recommendations`**. The serving path writes it from its feedback handler,
+and the `requestId`s in a slate only share a namespace with the replay buffer's when the backend runs
+with `RECSYS_GRPO_EMIT_EVENTS=true` — producer-generated slates never join. Both halves of the input
+therefore come from a running
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service).
+
+Three steps, from `recsys-pipeline/`:
+
+**1. Run the backend so it writes the buffer with joinable ids.**
+
+```bash
+# in the backend checkout, against the same Redis this pipeline uses
+RECSYS_GRPO_EMIT_EVENTS=true RECSYS_GRPO_MODE=shadow ./mvnw spring-boot:run
+```
+
+`ONLINE_JOINER_INPUT_TOPIC` must match what `OnlineJoinerStreamingJob` is given, or the impressions
+are published and nothing consumes them — with no error either side. Then drive some traffic:
+`run-movie-category-sim.sh` does it, or call `/api/v1/retrieval/recommend/{user}` and
+`/api/v1/retrieval/feedback` directly. Feedback is what completes an event with a reward, and
+`ope_eval_report.py` skips events that have none.
+
+**2. Score the replay with the post-training arms, chaining them.**
+
+Each arm writes the events it loaded — mutated in place with its own scores — so feeding one arm's
+output into the next accumulates them. Running them separately gives two files, each carrying one
+arm, and the dashboard reads only one:
+
+```bash
+IN=/tmp/spark-recsys/movie-category-sim
+python3 services/python-modeling/post-training/post_train_q.py \
+  --output-parquet "$IN/replay-q.parquet"                      # adds tabQ, fqiQ
+
+python3 services/python-modeling/post-training/post_train_dpo.py \
+  --parquet "$IN/replay-q.parquet" \
+  --slates "$IN/slates" \
+  --output-parquet "$IN/replay-scored.parquet"                 # adds dpoScore
+```
+
+`post_train_dpo.py` requires `--slates`, the Parquet `ExperienceCollectorStreamingJob` writes when
+`EXPERIENCE_COLLECTOR_OUTPUT_PATH` is set; `post_train_q.py` does not. Both read Redis when
+`--parquet` is omitted, which is what the first command does.
+
+**3. Point the exporter at the scored replay.**
+
+```bash
+REDIS_HOST=localhost python3 frontend/export_dashboard_json.py \
+  --input "$IN/training-samples" \
+  --output frontend/data/dashboard.json \
+  --ope-parquet "$IN/replay-scored.parquet"
+```
+
+The section then reports `model:tabQ`, `model:fqiQ` and `model:dpoScore` beside the serving scores,
+and names its source as `parquet:<path>`. Without `--ope-parquet` it reads Redis and reports
+`redis:replay:recommendations`, which is the serving path's own scores rather than the arms'.
+
 `ope_eval_report.py` fits a dependency-light logistic reward model to logged taken-action features,
 then re-picks every event under logging, popularity, CTR, deterministic random, and available
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events

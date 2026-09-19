@@ -71,6 +71,11 @@ it is N/A unless a backend has been running. With `--ope-parquet` it reads the s
 the post-training arms (`dpoScore`, `tabQ`, `fqiQ`, `grpoScore`). The section names whichever source
 it used.
 
+On a default run it is N/A: nothing in this repository writes `replay:recommendations`, and slate and
+replay `requestId`s only join when the backend runs with `RECSYS_GRPO_EMIT_EVENTS=true`. See
+[Populating the off-policy section](../docs/recommendation_architecture/Analysis_Report.md#populating-the-off-policy-section)
+for the three steps that fill it.
+
 The metrics URL above uses the service's versioned retrieval prefix; see the
 [repository boundary](../../README.md#repository-boundary) for how `SERVICE_URL` and
 `RETRIEVAL_BASE` compose it.
