@@ -1,6 +1,6 @@
 # An overview covering both groups — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Show all thirteen sections on the overview, grouped as Online and Offline, instead of seven measurement tiles that cover only part of one group.
 
@@ -21,6 +21,16 @@
 - Every tile keeps its `SECTION_ROUTE` link.
 - The overview stays a server component.
 - Measured baseline: **581 passed, 2 skipped**. This plan adds one test, so the expected result is **582 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `feat/overview-online-offline-summary`, three commits, all steps checked.
+Final suite: **582 passed, 2 skipped**, from 581 — exactly the one test predicted. No deviations.
+
+Task 1 step 2 earned its place: resolving all six specs against the committed snapshot before any
+rendering confirmed each field exists, and a wrong name would have surfaced as a silent N/A tile
+rather than an error. It also confirmed `ope`'s figure is a flat `0`, which the spec had predicted
+and which the rendered overview now shows as `best lift 0.0%`.
 
 ## Pre-validated facts
 
@@ -53,7 +63,7 @@ Read out of the snapshot and the sources before this plan was written:
 - Consumes: `maxByField`, `num`, `share` from `./format`; `SECTIONS` from `./groups`.
 - Produces: `DIAGNOSTICS` — `{[key]: {label, format, scalar?, rows?, field?, support?}}` — and `diagnosticTile(section, spec)` returning `{value, sampleSize}` or `null`. Task 2 renders from both.
 
-- [ ] **Step 1: Add the spec and its reader**
+- [x] **Step 1: Add the spec and its reader**
 
 `support` is a function in every entry so one signature covers both shapes: a scalar spec reads the
 section, a row spec reads the winning row.
@@ -123,7 +133,7 @@ PY
 grep -n 'const DIAGNOSTICS\|function diagnosticTile\|function figure' components/scorecard.jsx
 ```
 
-- [ ] **Step 2: Check every spec resolves against the real snapshot**
+- [x] **Step 2: Check every spec resolves against the real snapshot**
 
 This is the step that catches a wrong field name, which would otherwise render as a silent N/A.
 
@@ -156,7 +166,7 @@ for (const [key, [scalar, rowSpec]] of Object.entries(specs)) {
 Expected: a value for all six — `ctr = 0.2172`, `average_query_length = 14.98`, and four maxima.
 A `undefined` means the spec names a field the snapshot does not have.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -193,7 +203,7 @@ MSG
 - Consumes: `DIAGNOSTICS`, `diagnosticTile`, `figure` from Task 1; `GROUPS`, `SECTIONS`, `SECTION_ROUTE` from `./groups`.
 - Produces: an overview rendering thirteen tiles under two headings.
 
-- [ ] **Step 1: Import the catalogue and render by group**
+- [x] **Step 1: Import the catalogue and render by group**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -299,7 +309,7 @@ print("Scorecard renders by group; TITLES removed")
 PY
 ```
 
-- [ ] **Step 2: Update the page header and add the group heading style**
+- [x] **Step 2: Update the page header and add the group heading style**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -340,7 +350,7 @@ cat >> app/globals.css <<'CSS'
 CSS
 ```
 
-- [ ] **Step 3: Build and check the rendered overview**
+- [x] **Step 3: Build and check the rendered overview**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -358,7 +368,7 @@ pkill -f 'next dev'; pkill -f 'next-server'
 Expected: 13 tiles, 2 headings, and thirteen distinct hrefs — nine `/online/...` and four
 `/offline/...`.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `cd recsys-pipeline && python3 -m pytest -q 2>&1 | tail -2`
 Expected: `581 passed, 2 skipped` — unchanged; Task 3 adds the new assertion.
@@ -366,7 +376,7 @@ Expected: `581 passed, 2 skipped` — unchanged; Task 3 adds the new assertion.
 The contract tests must be among the passes: they parse `const HEADLINES = {` and `<= LOW_COVERAGE`,
 both still present.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -402,7 +412,7 @@ MSG
 **Interfaces:**
 - Consumes: `FRONTEND` and `_catalogue()` from the existing module.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -426,13 +436,13 @@ def test_every_section_has_a_tile_on_the_overview():
     )
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -2`
 Expected: 12 passed. The assertion holds once Tasks 1 and 2 have landed, so step 3 is what proves it
 can fail.
 
-- [ ] **Step 3: Prove the guard catches a missing tile**
+- [x] **Step 3: Prove the guard catches a missing tile**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -453,7 +463,7 @@ python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 
 
 Expected: a failure naming `ope`, then 12 passed after restoring.
 
-- [ ] **Step 4: Run every gate**
+- [x] **Step 4: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -466,7 +476,7 @@ git -C .. diff --check && echo "diff --check clean"
 
 Expected: `582 passed, 2 skipped`; `15 passed`; the data contract valid; four files listed; clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
