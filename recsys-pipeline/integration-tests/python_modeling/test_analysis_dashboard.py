@@ -458,3 +458,46 @@ def test_compute_keyword_grid_is_not_rank_capped():
     grid = dash.compute_keyword(df)["grid"]
     in_family = grid[grid["category"] == "Action&Adventure"]
     assert len(in_family) > 10, f"expected more than ten keywords, got {len(in_family)}"
+
+
+def test_compute_keyword_topic_grid_crosses_primary_genre_with_keyword():
+    """`topic` is the item's primary genre (l2); `keyword` is any genre it carries."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2"],
+        "session_id": ["s1", "s2"],
+        "item_id": ["i1", "i2"],
+        "label": [1.0, 0.0],
+        # Primary genre is the first: Comedy, then Horror.
+        "genres": [["Comedy", "Romance"], ["Horror"]],
+    })
+    grid = dash.compute_keyword(df)["topic_grid"]
+    rows = {(r["topic"], r["keyword"]): r for _, r in grid.iterrows()}
+
+    assert ("Comedy", "Comedy") in rows, "the forced diagonal cell"
+    assert ("Comedy", "Romance") in rows, "the co-carried genre"
+    assert ("Horror", "Horror") in rows
+    # The topic axis is the PRIMARY genre, so Romance never becomes a topic here.
+    assert not any(t == "Romance" for t, _ in rows), "Romance is secondary, not a topic"
+    assert rows[("Comedy", "Romance")]["ctr"] == 1.0
+
+
+def test_compute_keyword_topic_grid_is_not_rank_capped():
+    """324 cells is shippable; a capped row would read as the only genres served."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    others = ["Adventure", "War", "Western", "Comedy", "Children", "Crime",
+              "Thriller", "Mystery", "Film-Noir", "Horror", "Drama", "Romance"]
+    df = pd.DataFrame({
+        "user_id": [f"u{i}" for i in range(len(others))],
+        "session_id": [f"s{i}" for i in range(len(others))],
+        "item_id": [f"i{i}" for i in range(len(others))],
+        "label": [1.0] * len(others),
+        "genres": [["Action", g] for g in others],
+    })
+    grid = dash.compute_keyword(df)["topic_grid"]
+    action = grid[grid["topic"] == "Action"]
+    assert len(action) > 10, f"expected more than ten keywords, got {len(action)}"
