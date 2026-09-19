@@ -167,7 +167,11 @@ export function DataTable({ rows = [], columns, formatters = {}, compact = false
         <thead>
           <tr>
             {cols.map((c) => (
-              <th key={c}>{c.replaceAll("_", " ")}</th>
+              // A header sits over its column, so it takes the column's alignment. The first row
+              // decides: every row of a table column holds the same kind of value.
+              <th key={c} className={typeof rows[0]?.[c] === "number" ? "num" : undefined}>
+                {c.replaceAll("_", " ")}
+              </th>
             ))}
           </tr>
         </thead>
@@ -177,7 +181,21 @@ export function DataTable({ rows = [], columns, formatters = {}, compact = false
               {cols.map((c) => {
                 const format = formatters[c];
                 const value = format ? format(r[c], r) : formatCell(r[c]);
-                return <td key={c}>{value === null || value === undefined || value === "" ? "N/A" : value}</td>;
+                // Test the RAW value, not the formatted one: num() and share() in format.js
+                // already turn a null into the string "N/A", so a formatted column would never
+                // look missing here and would keep printing N/A inside the table.
+                const raw = r[c];
+                const missing = raw === null || raw === undefined || raw === "";
+                // Right-align on the raw type, not the formatted string: a formatter may return
+                // "21.7%" or "103.8 ms", which are still numbers to a reader scanning a column.
+                const numeric = typeof r[c] === "number";
+                return (
+                  <td key={c} className={numeric ? "num" : undefined}>
+                    {/* An em-dash reads better than N/A inside a dense table and means the same.
+                        Headline cards keep the explicit N/A -- see num() in format.js. */}
+                    {missing ? "—" : value}
+                  </td>
+                );
               })}
             </tr>
           ))}
