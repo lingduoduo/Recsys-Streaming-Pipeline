@@ -154,3 +154,28 @@ def test_no_document_claims_an_in_repo_serving_side_effect_writer():
         f"{relative}" for relative, text in live_markdown() if "in-repo serving side-effect" in text
     ]
     assert not offenders, "documents claiming an in-repo serving writer: " + ", ".join(offenders)
+
+
+def test_no_document_tells_a_reader_to_cd_into_a_path_only_valid_one_level_down():
+    """A bare `cd frontend` moves the reader's shell to a path relative to
+    recsys-pipeline/, which is wrong from the repository root -- where readers
+    actually are, since that is where the repository is cloned and where the
+    simulation scripts are launched from.
+
+    It failed three times in practice: npm then resolves upward, finds some other
+    package.json, and reports a missing script or an ENOENT naming a directory the
+    reader never mentioned.
+
+    The subshell form `(cd frontend && ...)` is fine and is not flagged: it does not
+    change the reader's shell, and step 4 of the local-workflow walkthrough already
+    uses it for the sbt build for that reason.
+    """
+    offenders = []
+    for relative, text in live_markdown():
+        for number, line in enumerate(text.splitlines(), 1):
+            if re.match(r"cd (frontend|services|scripts|docs)\b", line.strip()):
+                offenders.append(f"{relative}:{number}  {line.strip()}")
+    assert not offenders, (
+        "these instructions cd into a path that only resolves from recsys-pipeline/; "
+        "write it from the repository root, or wrap it in a subshell:\n" + "\n".join(offenders)
+    )

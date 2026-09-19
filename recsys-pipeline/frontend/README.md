@@ -13,8 +13,8 @@ real run with the export script.
 ## Run
 
 ```bash
-# from recsys-pipeline/
-cd frontend
+# from the repository root
+cd recsys-pipeline/frontend
 npm install
 npm run dev            # http://localhost:3000
 ```

@@ -858,7 +858,7 @@ assert data["keyword"]["tops"]["l1"], "empty Keyword Gap L1 table"
 print("snapshot valid:", data["rows"], "rows;", len(data["keyword"]["tops"]["l1"]), "L1 entries")
 PY
 
-cd frontend && npm run validate:data      # measurement-contract gate (also runs in `npm run build`)
+(cd frontend && npm run validate:data)    # measurement-contract gate (also runs in `npm run build`)
 ```
 
 Success is a `snapshot valid:` line with positive row and L1 counts, followed by
@@ -877,7 +877,8 @@ caveats, and configuration variables.
 ### 8. Launch and refresh the React dashboard
 
 ```bash
-cd frontend
+# from the repository root
+cd recsys-pipeline/frontend
 npm install
 npm run dev
 ```
