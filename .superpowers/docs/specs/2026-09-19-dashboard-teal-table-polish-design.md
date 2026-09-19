@@ -4,10 +4,14 @@
 
 The dashboard's structure now matches the reference design shared in this session -- a grouped
 sidebar, a page per section, an eyebrow and title above one card. Its visual treatment does not.
-The reference uses a teal accent, small-caps column headers, right-aligned tabular numerics, an
-em-dash for a missing cell, and rows tight enough to show roughly eighteen at a glance. This
-dashboard uses an indigo accent, sentence-case headers, left-aligned numbers, the string `N/A`, and
-comfortable row spacing.
+The reference uses a teal accent, right-aligned numerics, an em-dash for a missing cell, and rows
+tight enough to show roughly eighteen at a glance. This dashboard uses an indigo accent,
+left-aligned numbers, the string `N/A`, and looser row spacing.
+
+Two differences I expected are not there. `table.rpt th` already sets `text-transform: uppercase`
+with `letter-spacing: 0.045em` at `0.68rem` in a muted grey, and `table.rpt` already sets
+`font-variant-numeric: tabular-nums`. So the small-caps headers and the tabular figures are already
+in place; the real gap in the tables is alignment, density and the missing-value string.
 
 Adopt the treatment. Nothing structural changes: no route moves, no section changes what it
 computes or displays, and no new interactivity appears.
@@ -64,9 +68,12 @@ the teal equivalent.
 
 ### Commit 2 -- the tables
 
-In `globals.css`: `th` becomes uppercase with letter-spacing in `var(--muted)` at a smaller size;
-`td` and `th` padding tightens; a `.num` class right-aligns a cell and applies
-`font-variant-numeric: tabular-nums` so digits align down a column.
+In `globals.css`: `td` and `th` padding tightens from `10px 13px` / `11px 13px` to `7px 12px` /
+`8px 12px`; a `.num` class right-aligns a cell. The header casing and the tabular figures are
+already correct and are not touched -- `table.rpt` sets `font-variant-numeric: tabular-nums` on the
+whole table, so `.num` only has to handle alignment.
+
+`tbody tr:hover` picks up the new accent through the rename in commit 1.
 
 In `ui.jsx`, `DataTable` marks a cell `.num` when its raw value is a number, and renders `—` rather
 than `N/A` when the value is null, undefined or an empty string. Column headers keep their existing
