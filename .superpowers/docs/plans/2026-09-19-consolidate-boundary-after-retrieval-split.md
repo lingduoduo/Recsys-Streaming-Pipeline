@@ -1,6 +1,6 @@
 # Consolidate the repository boundary after the retrieval split — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Correct every broken link, stale endpoint path and false ownership claim the retrieval-service split left in this repository's live documentation, and add the guard that makes all three regressions fail CI instead of shipping.
 
@@ -19,6 +19,26 @@
 - `## Repository boundary` in the root README stays the canonical statement. The flow documents link to it; none of them restates it.
 - Historical records under `.superpowers/docs/**` and `.planning/**` are not rewritten. `.py`/`.scala` provenance comments naming Java classes are left alone.
 - Measured baseline at this branch point: **561 passed, 2 skipped**. This plan adds four tests and deletes none, so the final expected result is **565 passed, 2 skipped**.
+
+## Execution record
+
+Executed 2026-09-19 on `docs/consolidate-boundary-after-retrieval-split`, four commits, all steps
+checked. Final suite: **565 passed, 2 skipped**, matching the predicted 561 + 4.
+
+Three deviations, all surfaced by the guards rather than by review:
+
+1. **Twenty-six bare paths, not twenty.** Task 2's test found six the audit had missed: three
+   double-spaced arrows (`GET  /recommend`) in a diagram the audit's `grep -E '(GET|POST) /'` could
+   not match, plus `README.md` 703 and 958. Seventeen were backticked prose and took the prefix
+   inline; nine were inside fences.
+2. **Three ASCII fences, not two.** The block at `README.md:66-72` is a third, and the architecture
+   block extends further than the audit read. The plan's insertion script named its two targets by
+   marker string; that was replaced with a pass that notes *every* fence containing a bare path, so
+   a fourth diagram would be handled without editing the script.
+3. The spec's commit order was already reordered by this plan, recorded below.
+
+Both 1 and 2 are the same lesson the guard exists for: the hand grep that sized the work was looser
+than the test that verifies it, and the test is the one that counted.
 
 ## Deviation from the spec
 
@@ -49,7 +69,7 @@ The spec ordered three commits as corrections, boundary notes, guard — guard l
 **Interfaces:**
 - Produces: `live_markdown()` yielding `(relative_path, text)` pairs, `slugs(path)` returning the GitHub-style anchor set of a markdown file, and the module constants `GIT_ROOT`, `HISTORICAL_PREFIXES`, `SKIP_DIRS`. Tasks 2 and 3 add tests to this same file and reuse all of them.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `recsys-pipeline/integration-tests/test_doc_links.py`:
 
@@ -137,12 +157,12 @@ def test_every_relative_documentation_link_resolves():
     assert not broken, "broken documentation links:\n" + "\n".join(broken)
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_doc_links.py -q`
 Expected: FAIL, listing exactly 12 broken links — `recsys-pipeline/README.md:238` and `:243` (no such heading), the eight `#recsys-pipeline` links in flow docs 1-8, `9_Track_Metrics.md:8`, and `Data_Pipeline.md:473`.
 
-- [ ] **Step 3: Retarget the two API anchors**
+- [x] **Step 3: Retarget the two API anchors**
 
 The headings these describe were renamed by #244; the anchors move to the headings, not the reverse.
 
@@ -160,7 +180,7 @@ p.write_text(t)
 PY
 ```
 
-- [ ] **Step 4: Retarget the ten startup links**
+- [x] **Step 4: Retarget the ten startup links**
 
 All ten describe "the complete local startup sequence", which is `## Canonical finite local workflow` at `recsys-pipeline/README.md:744` — two directories up from the flow and architecture folders, not three. The link text stops saying "root" because the target is not the root README.
 
@@ -191,12 +211,12 @@ PY
 
 Expected output: `flow links retargeted: 9`
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_doc_links.py -q`
 Expected: PASS (1 passed)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add recsys-pipeline/integration-tests/test_doc_links.py recsys-pipeline/README.md \
@@ -231,7 +251,7 @@ MSG
 - Consumes: `live_markdown()` and `GIT_ROOT` from Task 1.
 - Produces: the module constants `PREFIX` (`"/api/v1/retrieval"`) and `PREFIX_NOTE` (`"Paths are relative to the service prefix"`). Task 3 does not use them.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/test_doc_links.py`:
 
@@ -278,12 +298,12 @@ def test_documented_retrieval_endpoints_carry_the_service_prefix():
     )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_doc_links.py -q`
 Expected: FAIL, listing 20 bare paths — 4 in `6_Predicting_Scoring.md`, 2 in `8_Store_Context.md`, 8 in `9_Track_Metrics.md`, 1 in `Analysis_Report.md`, and 5 in `recsys-pipeline/README.md` (lines 79, 83, 89, 231, 698).
 
-- [ ] **Step 3: Prefix the sixteen prose paths**
+- [x] **Step 3: Prefix the sixteen prose paths**
 
 Every prose occurrence is inside backticks; the four inside the ASCII fences are not. A lookbehind on the backtick is what keeps this pass out of the diagrams.
 
@@ -316,7 +336,7 @@ Expected output: `6_Predicting_Scoring.md: 4`, `8_Store_Context.md: 2`, `9_Track
 
 Note this also rewrites the heading `## \`GET /metrics\`` at `9_Track_Metrics.md:32` to `## \`GET /api/v1/retrieval/metrics\``. That is intended and safe: no file links to `#get-metrics` (verified by grep), and from this commit forward Task 1's test would catch it if one did.
 
-- [ ] **Step 4: Note the prefix above the two ASCII fences**
+- [x] **Step 4: Note the prefix above the two ASCII fences**
 
 ```bash
 cd recsys-pipeline
@@ -338,7 +358,7 @@ sed -n '76,82p' README.md
 
 Expected: the note appears immediately above the ```` ```text ```` fence, with the diagram's arrows unchanged.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_doc_links.py -q`
 Expected: PASS (2 passed)
@@ -347,7 +367,7 @@ Then confirm the diagrams did not move:
 Run: `git diff --stat recsys-pipeline/README.md` and `git diff recsys-pipeline/README.md | grep -c '^[-+].*──►'`
 Expected: `0` — no arrow line is added or removed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add recsys-pipeline/integration-tests/test_doc_links.py recsys-pipeline/README.md \
@@ -378,7 +398,7 @@ MSG
 - Consumes: `GIT_ROOT` from Task 1.
 - Produces: nothing later tasks use.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/test_doc_links.py`:
 
@@ -416,12 +436,12 @@ def test_no_document_claims_an_in_repo_serving_side_effect_writer():
     assert not offenders, "documents claiming an in-repo serving writer: " + ", ".join(offenders)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_doc_links.py -q`
 Expected: FAIL twice — the boundary test naming the eight documents other than `7_Shuffling.md`, and the writer test naming `recsys-pipeline/docs/recommendation_flows/1_Query_Hydration.md`.
 
-- [ ] **Step 3: Correct the false claim**
+- [x] **Step 3: Correct the false claim**
 
 `1_Query_Hydration.md` currently carries two adjacent bullets: one asserting an in-repo writer for `served_history` and `impressions`, one listing the keys the service reads that this repository does not write. The first is false, so the keys move into the second.
 
@@ -447,7 +467,7 @@ p.write_text(t.replace(old, new))
 PY
 ```
 
-- [ ] **Step 4: Add the boundary block to all nine documents**
+- [x] **Step 4: Add the boundary block to all nine documents**
 
 The block goes directly under the `**References:**` line, which every one of the nine has.
 
@@ -472,7 +492,7 @@ PY
 
 Expected: nine `marked ...` lines.
 
-- [ ] **Step 5: Strip the clause the block now duplicates in 7_Shuffling.md**
+- [x] **Step 5: Strip the clause the block now duplicates in 7_Shuffling.md**
 
 `7_Shuffling.md` already said where the property lives. The property-specific half is unique to that document and stays; only the repository-and-boundary clause goes, because the block above now carries it.
 
@@ -495,12 +515,12 @@ p.write_text(t.replace(old, new))
 PY
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/test_doc_links.py -q`
 Expected: PASS (4 passed). The link test passing here also proves the nine new `#repository-boundary` links resolve at their depth.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add recsys-pipeline/integration-tests/test_doc_links.py recsys-pipeline/docs/recommendation_flows
@@ -532,12 +552,12 @@ MSG
 **Interfaces:**
 - Consumes: nothing. Produces: nothing.
 
-- [ ] **Step 1: Confirm the fact is already stated canonically**
+- [x] **Step 1: Confirm the fact is already stated canonically**
 
 Run: `grep -n 'Maven' README.md`
 Expected: line 16 (the boundary table's "Builds with" row), line 30 ("Maven is a prerequisite of that repository, not of this checkout. Nothing here has a `pom.xml`"), and line 81 (the Requirements entry). Line 30 is what makes line 81 redundant rather than merely stale.
 
-- [ ] **Step 2: Delete the Requirements entry**
+- [x] **Step 2: Delete the Requirements entry**
 
 ```bash
 python3 - <<'PY'
@@ -553,22 +573,22 @@ grep -n 'Maven' README.md
 
 Expected: lines 16 and 30 only.
 
-- [ ] **Step 3: Verify nothing else claimed it**
+- [x] **Step 3: Verify nothing else claimed it**
 
 Run: `git ls-files '*.xml' | grep -c pom || true` and `git ls-files '*.java' | wc -l`
 Expected: `0` and `0`. The Requirements list was the last place this repository asked for a tool it cannot use.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `cd recsys-pipeline && python3 -m pytest -q`
 Expected: `565 passed, 2 skipped` — the 561/2 baseline plus this plan's four new tests. Zero failures.
 
-- [ ] **Step 5: Confirm the diff touched only documentation and one test**
+- [x] **Step 5: Confirm the diff touched only documentation and one test**
 
 Run: `git diff --stat origin/master -- . | tail -3` and `git diff --name-only origin/master | grep -vE '\.md$|test_doc_links\.py$'`
 Expected: the second command prints nothing. No `.scala`, `.jsx`, `.json`, `.sh` or `.yml` file changed, so no build or frontend verification is required.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add README.md
