@@ -108,7 +108,9 @@ export function headlineValue(section, spec) {
 function tile(key, data) {
   const section = data[key];
   const title = SECTIONS[key].label;
-  const common = { key, href: SECTION_ROUTE[key], title };
+  // `key` is deliberately NOT in here: React requires it passed directly to the element,
+  // and spreading an object that carries one is a runtime error rather than a warning.
+  const common = { href: SECTION_ROUTE[key], title };
 
   const measurement = HEADLINES[key];
   if (measurement) {
@@ -117,6 +119,7 @@ function tile(key, data) {
     const status = !published ? "na" : (section.coverage ?? 1) <= LOW_COVERAGE ? "low" : "ok";
     return (
       <MetricTile
+        key={key}
         {...common}
         value={published ? headlineValue(section, measurement) : "N/A"}
         label={measurement.label}
@@ -131,6 +134,7 @@ function tile(key, data) {
   const resolved = diagnosticTile(section, spec);
   return (
     <MetricTile
+      key={key}
       {...common}
       value={resolved ? figure(resolved.value, spec.format) : "N/A"}
       label={spec.label}

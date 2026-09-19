@@ -180,3 +180,26 @@ def test_row_based_tiles_declare_which_extremum_they_take():
         "these row-based tiles take an extremum without saying which, so they default to "
         f"the flattering maximum: {', '.join(undeclared)}"
     )
+
+
+def test_no_spread_object_carries_a_react_key():
+    """React requires `key` passed directly to an element, never through a spread.
+
+    #260 built `const common = { key, href, title }` and spread it into <MetricTile>,
+    which React rejects at render time. Nothing here caught it: the Python guards read
+    source text, and `npm run build` prerendered the broken page without complaint. It
+    surfaced only when someone opened the dashboard.
+
+    This checks the shape rather than the behaviour -- an object literal that is spread
+    into JSX must not define `key`.
+    """
+    offenders = []
+    for path in sorted((FRONTEND / "components").glob("*.jsx")):
+        source = path.read_text(encoding="utf-8")
+        for name in sorted(set(re.findall(r"\{\.\.\.(\w+)\}", source))):
+            body = re.search(rf"const {name} = \{{(.*?)\}};", source, re.S)
+            if body and re.search(r"(^|[{,\s])key\s*[,:]", body.group(1)):
+                offenders.append(f"{path.name}: `{name}` is spread into JSX and defines `key`")
+    assert not offenders, (
+        "React keys must be passed directly to the element:\n" + "\n".join(offenders)
+    )
