@@ -137,7 +137,7 @@ signal has only one observed class; embedding metrics are empty when no rows hav
 `ope_eval_report.py` fits a dependency-light logistic reward model to logged taken-action features,
 then re-picks every event under logging, popularity, CTR, deterministic random, and available
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events
-are normally written to `replay:recommendations` by later `POST /feedback` calls.
+are normally written to `replay:recommendations` by later `POST /api/v1/retrieval/feedback` calls.
 Each event is scored once under every policy against the fixed estimator; the bootstrap resamples
 those per-event scores rather than re-picking and re-scoring the slate in every replicate.
 Reward-model fitting reuses per-fit NumPy workspaces across gradient steps, preserving the existing

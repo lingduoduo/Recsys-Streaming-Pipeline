@@ -13,7 +13,7 @@ The context is stored at `replay:pending:{user}:{item}`; the `/feedback` write p
 
 ## Required state
 
-A successful `GET /recommend/{user}` with at least one selected item writes:
+A successful `GET /api/v1/retrieval/recommend/{user}` with at least one selected item writes:
 
 - `replay:pending:{user}:{item}` strings containing request, state, candidate snapshot, selected
   action, policy, prediction, and timestamp context, with the configured pending TTL;
@@ -22,7 +22,7 @@ A successful `GET /recommend/{user}` with at least one selected item writes:
 - `bandit:item:{item}:impressions`, `bandit:last_served:{item}`, and the exposed-item set used by
   metrics.
 
-`POST /feedback` depends on the matching pending key to reconstruct the full labeled event, then
+`POST /api/v1/retrieval/feedback` depends on the matching pending key to reconstruct the full labeled event, then
 deletes it and appends the reward to `replay:recommendations`. If the pending key is absent or has
 expired, feedback still writes a minimal replay event and reward/click aggregates, but the original
 state, candidate slate, propensity, and model predictions are unavailable; a tabular Q update also

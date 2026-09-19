@@ -14,7 +14,7 @@ Candidate items are scored through three stages, each with a different learning 
   is created. `ONNX_MODEL_PATH` and `ONNX_LOOKUPS_PATH` override the default classpath pair
   `mlp_embedding_model.onnx` and `mlp_embedding_lookups.json`; an absent, unreadable, malformed, or
   invalid artifact aborts application startup with `Failed to load deep learning prediction
-  artifacts`. This service backs the standalone `GET /predict/*` endpoints (see
+  artifacts`. This service backs the standalone `GET /api/v1/retrieval/predict/*` endpoints (see
   [API.md](../recommendation_architecture/API.md)); it is not part of the `offlineScore` /
   `onlineScore` / `banditScore` pipeline below.
 - Hybrid relevance reads Redis vectors at
@@ -23,9 +23,9 @@ Candidate items are scored through three stages, each with a different learning 
   `reward-model:global`, `reward-model:item:*`, `reward-model:genre:*`, and
   `reward-model:tag:*`; bandit scoring reads item impression/click counters and, for tabular
   policies, `q-learning:q:{stateKey}` or `sarsa:q:{stateKey}`.
-- Raw numeric calls to `GET /predict/id` must use zero-based internal lookup indices:
+- Raw numeric calls to `GET /api/v1/retrieval/predict/id` must use zero-based internal lookup indices:
   `userId` in `0..users-1` and `itemId` in `0..items-1`, using the sizes from
-  `GET /predict/metadata`. External IDs should use `GET /predict/{user}/{item}` so the lookup table
+  `GET /api/v1/retrieval/predict/metadata`. External IDs should use `GET /api/v1/retrieval/predict/{user}/{item}` so the lookup table
   resolves them.
 
 If Redis vectors or reward counters are absent, the affected score components fall back to empty

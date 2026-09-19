@@ -79,3 +79,45 @@ def test_every_relative_documentation_link_resolves():
             if fragment and resolved.suffix == ".md" and fragment.lower() not in slugs(resolved):
                 broken.append(f"{relative}:{line} -> {target} (no such heading)")
     assert not broken, "broken documentation links:\n" + "\n".join(broken)
+
+
+PREFIX = "/api/v1/retrieval"
+
+# The two aligned ASCII blocks in recsys-pipeline/README.md carry this note above the
+# fence instead of the prefix inline: expanding the paths inside them would shift
+# every arrow on the line out of alignment.
+PREFIX_NOTE = "Paths are relative to the service prefix"
+
+ENDPOINTS = "recommend|feedback|metrics|predict|embedding|users"
+BARE_ENDPOINT = re.compile(rf"(?:(?:GET|POST)\s+|localhost:8080)/(?:{ENDPOINTS})\b")
+
+
+def noted_fence_lines(text):
+    """Line numbers inside a fenced block whose note above the fence declares the prefix."""
+    lines = text.splitlines()
+    noted, inside, declared = set(), False, False
+    for index, line in enumerate(lines):
+        if line.startswith("```"):
+            if inside:
+                inside = False
+            else:
+                inside = True
+                declared = any(PREFIX_NOTE in before for before in lines[max(0, index - 3): index])
+            continue
+        if inside and declared:
+            noted.add(index + 1)
+    return noted
+
+
+def test_documented_retrieval_endpoints_carry_the_service_prefix():
+    bare = []
+    for relative, text in live_markdown():
+        noted = noted_fence_lines(text)
+        for match in BARE_ENDPOINT.finditer(text):
+            line = text[: match.start()].count("\n") + 1
+            if line in noted:
+                continue
+            bare.append(f"{relative}:{line} -> {match.group(0)}")
+    assert not bare, (
+        f"retrieval endpoints documented without the {PREFIX} prefix:\n" + "\n".join(bare)
+    )
