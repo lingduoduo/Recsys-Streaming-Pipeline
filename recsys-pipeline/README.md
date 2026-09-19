@@ -235,12 +235,12 @@ service equal (both default to `user-profile:v1`). Profile values default to a o
 active-run pointer does not expire.
 See [Data_Pipeline.md](docs/recommendation_architecture/Data_Pipeline.md#behavioral-user-profile-snapshots)
 for input, decay, taxonomy, output, activation, metrics, and all environment variables, and
-[API.md](docs/recommendation_architecture/API.md#get-usersuserprofile) for the response and 404
+[API.md](docs/recommendation_architecture/API.md#get-apiv1retrievalusersuserprofile) for the response and 404
 contract.
 To check every user at once — who lacks a valid profile, and which preferences match no catalog
 item — call `GET /api/v1/retrieval/profile-audit`; for a single account, `GET
 /api/v1/retrieval/profile-audit/{user}`. See
-[API.md](docs/recommendation_architecture/API.md#get-actuatorprofile-audit).
+[API.md](docs/recommendation_architecture/API.md#get-apiv1retrievalprofile-audit).
 
 ### Step 5 — Query the API
 

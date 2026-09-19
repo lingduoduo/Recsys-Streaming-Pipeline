@@ -470,7 +470,7 @@ Persona thresholds can be overridden with `USER_PROFILE_GENRE_ENTHUSIAST_THRESHO
 
 ## Real-Time Path
 
-The canonical [finite local workflow](../../../README.md#canonical-finite-local-workflow)
+The canonical [finite local workflow](../../README.md#canonical-finite-local-workflow)
 owns the full setup sequence. Run the bootstrap block below from the repository root; after
 `cd recsys-pipeline`, the remaining commands execute in that subdirectory. Start the local
 dependencies, check their readiness, install the Python producer requirements once, and assemble

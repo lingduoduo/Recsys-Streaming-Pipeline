@@ -4,7 +4,7 @@
 
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
-For the complete local startup sequence, follow the [root quick start](../../../README.md#recsys-pipeline).
+For the complete local startup sequence, follow the [canonical finite local workflow](../../README.md#canonical-finite-local-workflow).
 
 Before candidate retrieval and scoring, the service enriches each request with Redis-backed user
 state.

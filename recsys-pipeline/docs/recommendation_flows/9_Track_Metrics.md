@@ -5,7 +5,7 @@
 **References:** [API](../recommendation_architecture/API.md) · [Data pipeline](../recommendation_architecture/Data_Pipeline.md)
 
 For the complete local startup sequence, follow the
-[root quick start](../../../README.md#canonical-finite-local-workflow).
+[canonical finite local workflow](../../README.md#canonical-finite-local-workflow).
 
 Recommendation serving records the request count, item impressions, estimated reward,
 regret-style metrics, novelty, and catalog coverage. A later `POST /feedback` call for that
