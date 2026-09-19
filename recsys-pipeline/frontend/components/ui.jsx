@@ -11,21 +11,23 @@ const finite = (v) => {
 
 export function Section({ title, headline, description, actions, id, children }) {
   return (
-    <section className="report-card" id={id}>
-      {/* The flex row is its own element: `.section-heading` is shared with NaCard,
-          whose heading is a plain h2 + paragraph that must keep stacking. */}
-      <div className="section-heading">
-        <div className="section-heading-row">
-          <div className="section-heading-main">
-            <h2>{title}</h2>
-            {headline ? <p className="insight">{headline}</p> : null}
-            {description ? <p className="section-description">{description}</p> : null}
-          </div>
-          {actions ? <div className="section-actions">{actions}</div> : null}
+    // A native disclosure: the browser owns the open state, the keyboard handling and the
+    // screen-reader semantics, so no section has to become a client component. Collapsed by
+    // default -- the summary carries the headline, so a closed page still reads as a report
+    // rather than a table of contents.
+    <details className="report-card" id={id}>
+      <summary className="section-summary">
+        <div className="section-summary-main">
+          <h2>{title}</h2>
+          {headline ? <p className="insight">{headline}</p> : null}
         </div>
+      </summary>
+      <div className="section-body">
+        {description ? <p className="section-description">{description}</p> : null}
+        {actions ? <div className="section-actions">{actions}</div> : null}
+        {children}
       </div>
-      <div className="section-body">{children}</div>
-    </section>
+    </details>
   );
 }
 

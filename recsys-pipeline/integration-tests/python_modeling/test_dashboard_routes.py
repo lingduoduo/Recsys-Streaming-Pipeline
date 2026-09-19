@@ -104,3 +104,43 @@ def test_every_css_variable_used_is_defined():
         "these custom properties are used but never declared, so every rule using them "
         f"is silently dropped: {', '.join(undefined)}"
     )
+
+
+def test_sections_are_collapsible_disclosures():
+    """Thirteen full-height sections stacked in one column is what this replaced.
+
+    Every card renders through Section, so one component decides it for all of them.
+    """
+    ui = (FRONTEND / "components" / "ui.jsx").read_text(encoding="utf-8")
+    section = re.search(r"export function Section\(\{(.*?)\n\}", ui, re.S)
+    assert section, "ui.jsx must export a Section component"
+    body = section.group(1)
+    assert "<details" in body and "<summary" in body, (
+        "Section must render a <details>/<summary> disclosure; a plain <section> is the "
+        "stacked layout this replaced"
+    )
+
+
+def test_a_collapsed_section_still_shows_its_headline():
+    """Collapsing without the headline turns the page into a contents list.
+
+    Every section computes a headline -- "CTR 4.2%", "p95 42 ms" -- and the collapsed
+    row is where it has to appear for the closed page to still read as a report.
+    """
+    ui = (FRONTEND / "components" / "ui.jsx").read_text(encoding="utf-8")
+    summary = re.search(r"<summary[^>]*>(.*?)</summary>", ui, re.S)
+    assert summary, "Section's disclosure must have a summary"
+    assert "headline" in summary.group(1), (
+        "the summary must render {headline}; without it a collapsed section shows only "
+        "its title"
+    )
+
+
+def test_na_cards_are_not_disclosures():
+    """A section with no measurement has nothing to expand into."""
+    ui = (FRONTEND / "components" / "ui.jsx").read_text(encoding="utf-8")
+    na = re.search(r"export function NaCard\(\{(.*?)\n\}", ui, re.S)
+    assert na, "ui.jsx must export a NaCard component"
+    assert "<details" not in na.group(1), (
+        "NaCard must stay a flat card: opening it would reveal nothing"
+    )
