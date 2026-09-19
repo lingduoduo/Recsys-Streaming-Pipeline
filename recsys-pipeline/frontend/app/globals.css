@@ -144,7 +144,7 @@ table.rpt {
 table.rpt th {
   position: sticky;
   top: 0;
-  padding: 11px 13px;
+  padding: 8px 12px;
   background: #f8fafc;
   color: #475569;
   text-align: left;
@@ -154,9 +154,16 @@ table.rpt th {
 }
 
 table.rpt td {
-  padding: 10px 13px;
+  padding: 7px 12px;
   border-top: 1px solid var(--line);
   white-space: nowrap;
+}
+
+/* Numbers read down a column, so they align right. The table already sets
+   font-variant-numeric: tabular-nums, which keeps the digits themselves in step. */
+table.rpt td.num,
+table.rpt th.num {
+  text-align: right;
 }
 
 table.rpt tbody tr:nth-child(even) {
