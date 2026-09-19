@@ -159,3 +159,26 @@ def test_the_hash_target_is_opened():
         "Nav must set open on the <details> the hash names, or a tile click lands on a "
         "collapsed section"
     )
+
+
+def test_a_collapsed_measurement_row_shows_a_number():
+    """The seven measurement sections carry prose headlines, not figures.
+
+    build_measurement_dashboard sets satisfaction's headline to "Observed user
+    satisfaction", so collapsing them would have shown a label and no number -- while the
+    six diagnostics, whose headlines are computed strings like "CTR 22% · CVR 5%", would.
+    MeasurementSection reuses the HEADLINES spec the scorecard tiles use, so both halves
+    of a closed page report something.
+    """
+    measurements = (FRONTEND / "components" / "measurements.jsx").read_text(encoding="utf-8")
+    assert "headlineValue" in measurements, (
+        "MeasurementSection must compute the same figure the scorecard shows"
+    )
+    assert re.search(r"metric=\{metric\}", measurements), (
+        "MeasurementSection must pass that figure to Section as `metric`"
+    )
+    ui = (FRONTEND / "components" / "ui.jsx").read_text(encoding="utf-8")
+    summary = re.search(r"<summary[^>]*>(.*?)</summary>", ui, re.S)
+    assert summary and "metric" in summary.group(1), (
+        "Section's summary must render {metric}, or the figure never reaches the row"
+    )

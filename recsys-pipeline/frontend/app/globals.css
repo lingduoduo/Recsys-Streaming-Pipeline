@@ -725,3 +725,13 @@ details[open] > .section-summary {
   font-size: 1.3rem;
   letter-spacing: -0.02em;
 }
+
+/* The figure in a collapsed measurement row. Those seven sections carry prose headlines
+   from the calculator, so the number comes from the same spec the scorecard tiles use. */
+.section-metric {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}

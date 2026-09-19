@@ -9,7 +9,7 @@ const finite = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-export function Section({ title, headline, description, actions, id, children }) {
+export function Section({ title, headline, metric, description, actions, id, children }) {
   return (
     // A native disclosure: the browser owns the open state, the keyboard handling and the
     // screen-reader semantics, so no section has to become a client component. Collapsed by
@@ -20,6 +20,7 @@ export function Section({ title, headline, description, actions, id, children })
         <div className="section-summary-main">
           <h2>{title}</h2>
           {headline ? <p className="insight">{headline}</p> : null}
+          {metric ? <p className="section-metric">{metric}</p> : null}
         </div>
       </summary>
       <div className="section-body">
