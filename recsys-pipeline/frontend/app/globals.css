@@ -4,8 +4,8 @@
   --ink: #111827;
   --muted: #64748b;
   --line: #e2e8f0;
-  --indigo: #4f46e5;
-  --indigo-soft: #eef2ff;
+  --accent: #0d9488;
+  --accent-soft: #f0fdfa;
   --amber: #b45309;
   --amber-soft: #fffbeb;
   --shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
@@ -102,8 +102,8 @@ body {
   margin: 0;
   padding: 7px 11px;
   border-radius: 9px;
-  background: var(--indigo-soft);
-  color: #3730a3;
+  background: var(--accent-soft);
+  color: #115e59;
   font-size: 0.92rem;
   font-weight: 700;
 }
@@ -164,7 +164,7 @@ table.rpt tbody tr:nth-child(even) {
 }
 
 table.rpt tbody tr:hover {
-  background: var(--indigo-soft);
+  background: var(--accent-soft);
 }
 
 /* An input that was never supplied. Neutral on purpose — see NaCard in components/ui.jsx. */
@@ -531,7 +531,7 @@ table.rpt.compact th {
   /* Sequential ramp capped at 70% of the hue: dark ink stays at 5.18:1 or better
      across the whole scale, so the chip needs no ink flip. Going to full --indigo
      would drop label contrast to 2.8:1. */
-  background: color-mix(in oklab, var(--indigo) calc(var(--token-score) * 70%), var(--indigo-soft));
+  background: color-mix(in oklab, var(--accent) calc(var(--token-score) * 70%), var(--accent-soft));
   color: var(--ink);
   font-size: 0.82rem;
   font-weight: 600;
@@ -566,8 +566,8 @@ table.rpt.compact th {
   max-width: 190px;
   height: 9px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--indigo-soft),
-              color-mix(in oklab, var(--indigo) 70%, var(--indigo-soft)));
+  background: linear-gradient(90deg, var(--accent-soft),
+              color-mix(in oklab, var(--accent) 70%, var(--accent-soft)));
 }
 
 .keyword-detail-panel {
@@ -685,7 +685,7 @@ table.rpt.compact th {
   height: 34px;
   flex: none;
   border-radius: 10px;
-  background: var(--indigo);
+  background: var(--accent);
   color: #ffffff;
   font-size: 0.78rem;
   font-weight: 700;
@@ -734,7 +734,7 @@ table.rpt.compact th {
 
 .sidebar-link.sidebar-active {
   color: var(--ink);
-  background: var(--indigo-soft);
+  background: var(--accent-soft);
   font-weight: 600;
 }
 

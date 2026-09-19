@@ -25,7 +25,9 @@
 Read out of the files before this plan was written:
 
 - `:root` declares `--canvas`, `--surface`, `--ink`, `--muted`, `--line`, `--indigo: #4f46e5`, `--indigo-soft: #eef2ff`, `--amber`, `--amber-soft`, `--shadow`, `--series-0: #4f46e5`, `--series-1`, `--series-2`.
-- `var(--indigo` appears **7 times**: lines 105, 167, 534, 569, 570, 688, 737.
+- `var(--indigo…)` appears **9 times across 7 lines** — 105, 167, 534, 569, 570, 688, 737, with
+  534 and 570 each holding two inside a `color-mix()`. `grep -c` reports 7 because it counts
+  matching lines; the rename asserts on occurrences, so the assertion must say 9.
 - `.insight` hardcodes `color: #3730a3` at line 106 — indigo ink for the indigo-soft background.
 - `table.rpt th` already sets `text-transform: uppercase; letter-spacing: 0.045em; font-size: 0.68rem;` with `color: #475569`, and `table.rpt` already sets `font-variant-numeric: tabular-nums`. Neither needs changing.
 - `table.rpt th` padding is `11px 13px`; `table.rpt td` padding is `10px 13px`; `td` has no `text-align`.
@@ -64,7 +66,7 @@ p = Path("app/globals.css")
 t = p.read_text()
 
 before = t.count("var(--indigo")
-assert before == 7, f"expected 7 var(--indigo…) uses, found {before}"
+assert before == 9, f"expected 9 var(--indigo…) occurrences, found {before}"
 
 assert t.count("  --indigo: #4f46e5;") == 1
 assert t.count("  --indigo-soft: #eef2ff;") == 1
