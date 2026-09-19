@@ -181,7 +181,11 @@ export function DataTable({ rows = [], columns, formatters = {}, compact = false
               {cols.map((c) => {
                 const format = formatters[c];
                 const value = format ? format(r[c], r) : formatCell(r[c]);
-                const missing = value === null || value === undefined || value === "";
+                // Test the RAW value, not the formatted one: num() and share() in format.js
+                // already turn a null into the string "N/A", so a formatted column would never
+                // look missing here and would keep printing N/A inside the table.
+                const raw = r[c];
+                const missing = raw === null || raw === undefined || raw === "";
                 // Right-align on the raw type, not the formatted string: a formatter may return
                 // "21.7%" or "103.8 ms", which are still numbers to a reader scanning a column.
                 const numeric = typeof r[c] === "number";
