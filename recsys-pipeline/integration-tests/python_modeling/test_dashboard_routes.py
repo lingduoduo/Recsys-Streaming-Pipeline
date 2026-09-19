@@ -155,3 +155,28 @@ def test_every_section_has_a_tile_on_the_overview():
     assert not missing, (
         "these sections are in the catalogue but have no overview tile: " + ", ".join(missing)
     )
+
+
+def test_row_based_tiles_declare_which_extremum_they_take():
+    """A default of "max" is the flattering choice, and it should be deliberate.
+
+    Three of the four row-based tiles were wrong in #260: ranking reported its best
+    AUC while a signal sat near random, keyword took the maximum of a signed field and
+    so reported the smaller mismatch, and recall took an extremum over rows that vary
+    by k, which reported k rather than quality. Each now says which extremum it means.
+    """
+    scorecard = (FRONTEND / "components" / "scorecard.jsx").read_text(encoding="utf-8")
+    body = re.search(r"const DIAGNOSTICS = \{(.*?)\n\};", scorecard, re.S)
+    assert body, "scorecard.jsx must declare a DIAGNOSTICS map"
+    entries = re.split(r"\n  (?=\w+: \{)", body.group(1))
+    undeclared = []
+    for entry in entries:
+        name = re.match(r"\s*(\w+):", entry)
+        if not name or "rows:" not in entry:
+            continue
+        if "select:" not in entry and "where:" not in entry:
+            undeclared.append(name.group(1))
+    assert not undeclared, (
+        "these row-based tiles take an extremum without saying which, so they default to "
+        f"the flattering maximum: {', '.join(undeclared)}"
+    )

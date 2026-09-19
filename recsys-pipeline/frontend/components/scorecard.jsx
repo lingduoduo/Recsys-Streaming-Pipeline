@@ -51,7 +51,9 @@ const DIAGNOSTICS = {
     support: (section, row) => row?.n,
   },
   ope: {
-    label: "best lift", format: "pct", rows: "rows", field: "lift_vs_logging",
+    // "max" on purpose: the section asks whether any policy beats logging, so the best
+    // candidate is the answer and the worst one is noise.
+    label: "best lift", format: "pct", rows: "rows", field: "lift_vs_logging", select: "max",
     support: (section, row) => row?.n_events,
   },
 };
