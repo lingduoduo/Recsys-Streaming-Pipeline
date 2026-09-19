@@ -45,6 +45,13 @@ REDIS_HOST=localhost python frontend/export_dashboard_json.py \
   --live-metrics /tmp/spark-recsys/movie-category-sim/live-metrics.json
 ```
 
+The off-policy section reads one of two sources. Without `--ope-parquet` it reads the
+`replay:recommendations` Redis list, which the serving path writes and this repository does not, so
+it is N/A unless a backend has been running. With `--ope-parquet` it reads the scored replay that
+`post_train_dpo.py` or `post_train_q.py --output-parquet` writes, which is the only source carrying
+the post-training arms (`dpoScore`, `tabQ`, `fqiQ`, `grpoScore`). The section names whichever source
+it used.
+
 The metrics URL above uses the service's versioned retrieval prefix; see the
 [repository boundary](../../README.md#repository-boundary) for how `SERVICE_URL` and
 `RETRIEVAL_BASE` compose it.
