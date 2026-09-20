@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Section, NaCard, BarChart, DataTable, MetricGrid, MetricCard, ChartGrid } from "./ui";
+import { heatDomain, heatScore } from "./heat-domain.mjs";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const share = (v) => (v === null || v === undefined ? "N/A" : `${(v * 100).toFixed(1)}%`);
@@ -29,7 +30,7 @@ function Select({ label, value, onChange, options }) {
 // markDiagonal outlines cells whose row value equals their keyword. On the topic grid those
 // are forced: an item whose primary genre is Action always carries Action. The value is true,
 // so the cell keeps it, but it is filled by construction rather than measured.
-function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
+function RelevanceHeatmap({ rows, rowKey, rowLabel, domain, markDiagonal = false }) {
   if (!rows?.length) {
     return (
       <p className="fine-print">
@@ -44,9 +45,6 @@ function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
     if (!cells.has(r[rowKey])) cells.set(r[rowKey], new Map());
     cells.get(r[rowKey]).set(r.keyword, r);
   }
-  // Heat is relative to the busiest cell in this grid, so the ramp always spans it.
-  const max = Math.max(...rows.map((r) => r.ctr ?? 0), 0);
-
   return (
     <div className="table-shell">
       <table className="rpt compact heat-grid">
@@ -68,7 +66,7 @@ function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
                       title={`${category} / ${keyword}: never served`} />
                   );
                 }
-                const t = max === 0 ? 0 : (cell.ctr ?? 0) / max;
+                const t = heatScore(cell.ctr, domain);
                 const forced = markDiagonal && category === keyword;
                 return (
                   <td key={keyword} className={forced ? "num heat-cell heat-forced" : "num heat-cell"}
@@ -180,6 +178,8 @@ export function KeywordSection({ data }) {
 
   const selected = keywords.find((r) => r.keyword === selectedKeyword) ?? keywords[0] ?? null;
   const best = keywords[0];
+  // One domain for both grids: they sit in the same section and get read against each other.
+  const domain = heatDomain([data.grid, data.topic_grid]);
   const impressions = keywords.reduce((sum, r) => sum + Number(r.movie_impressions ?? 0), 0);
   const byDivergence = [...keywords].sort((a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0));
 
@@ -226,7 +226,12 @@ export function KeywordSection({ data }) {
         }} />
 
       <h3 className="report-subtitle">Relevance by category and keyword</h3>
-      <RelevanceHeatmap rows={data.grid} rowKey="category" rowLabel="category" />
+      <p className="fine-print">
+        Colour spans CTR {share(domain[0])}–{share(domain[1])}, the 5th–95th percentile across both
+        grids below; cells outside that range saturate. Each cell prints its own rate. Both grids
+        share one scale, so a shade means the same thing in either.
+      </p>
+      <RelevanceHeatmap rows={data.grid} rowKey="category" rowLabel="category" domain={domain} />
 
       <h3 className="report-subtitle">Relevance by topic and keyword</h3>
       <p className="fine-print">
@@ -234,7 +239,8 @@ export function KeywordSection({ data }) {
         genre is Action always carries Action, so those cells are filled by construction rather
         than measured.
       </p>
-      <RelevanceHeatmap rows={data.topic_grid} rowKey="topic" rowLabel="topic" markDiagonal />
+      <RelevanceHeatmap rows={data.topic_grid} rowKey="topic" rowLabel="topic" domain={domain}
+        markDiagonal />
 
       {["l1", "l2", "l3"].map((level) => {
         const rows = data.tops?.[level] ?? [];

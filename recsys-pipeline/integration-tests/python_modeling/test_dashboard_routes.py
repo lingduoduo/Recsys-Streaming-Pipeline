@@ -232,3 +232,27 @@ def test_the_topic_heatmap_marks_its_structural_diagonal():
     assert re.search(r"forced|always carries|by construction", report, re.I), (
         "the legend must say why those cells are outlined"
     )
+
+
+def test_both_heatmaps_share_one_heat_domain():
+    """Per-grid domains would give the same shade two meanings across two figures that
+    sit in the same section and get read against each other."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    assert "heatDomain" in report and "heatScore" in report, "the mapping module must be used"
+    # One call, built from both grids.
+    calls = re.findall(r"heatDomain\(([^)]*)\)", report)
+    assert len(calls) == 1, f"expected exactly one heatDomain call, found {len(calls)}"
+    assert "grid" in calls[0] and "topic_grid" in calls[0], (
+        f"the domain must pool both grids, got heatDomain({calls[0]})"
+    )
+    assert "r.ctr ?? 0) / max" not in report, "the old ctr/max mapping must be gone"
+
+
+def test_the_heatmap_legend_states_its_domain():
+    """The endpoints are no longer implicit, and the extreme cells saturate, so the reader
+    has to be told what the colour actually spans."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    assert re.search(r"saturat", report, re.I), "the legend must say cells outside the domain saturate"
+    # The stated range has to come from the domain, not be a hardcoded string.
+    assert re.search(r"share\(\s*domain\[0\]\s*\)", report), "the legend must print the real low end"
+    assert re.search(r"share\(\s*domain\[1\]\s*\)", report), "the legend must print the real high end"
