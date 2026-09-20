@@ -268,7 +268,7 @@ def test_the_heatmap_fallback_does_not_hardcode_one_axis_name():
     assert "category" not in fallback.group(1), (
         "the fallback names a specific axis; it renders for the topic grid too"
     )
-    assert "rowLabel" in fallback.group(1), "it should name the axis it was given"
+    assert "crossLabel" in fallback.group(1), "it should name the axis it was given"
 
 
 def test_heatmap_column_headers_are_scoped():
@@ -277,3 +277,24 @@ def test_heatmap_column_headers_are_scoped():
     heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S).group(1)
     assert 'scope="row"' in heatmap, "row headers must stay scoped"
     assert 'scope="col"' in heatmap, "column headers must be scoped too"
+
+
+def test_keywords_are_the_heatmap_row_axis():
+    """Keywords go down the side, not across the top.
+
+    The keyword vocabulary is the axis that grows: a new genre in the catalog adds one more.
+    On the column axis each addition widens the table and pushes it further into horizontal
+    scroll, and the labels have to stay short. On the row axis it adds a row, which costs
+    nothing and keeps full-length labels readable. The crossing axis (6 families, 18 primary
+    genres) is the bounded one, so it belongs across the top.
+    """
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S).group(1)
+    body = re.search(r"<tbody>(.*?)</tbody>", heatmap, re.S)
+    assert body, "the heatmap must render a tbody"
+    assert re.search(r"keywords\.map", body.group(1)), (
+        "tbody must iterate keywords -- they are the row axis, so the grid grows downward"
+    )
+    head = re.search(r"<thead>(.*?)</thead>", heatmap, re.S).group(1)
+    assert re.search(r"crossValues\.map", head), "the bounded crossing axis belongs in thead"
+    assert not re.search(r"keywords\.map", head), "keywords must not be column headers"

@@ -34,8 +34,13 @@ genres, so an item tagged Action and Comedy counts under both keywords:
 
 | heatmap | rows | columns | cells |
 |---|---|---|---|
-| Relevance by category and keyword | genre family (`l1`) | genre | up to 6 × 18 |
-| Relevance by topic and keyword | primary genre (`l2`) | genre | up to 18 × 18 |
+| Relevance by category and keyword | genre | genre family (`l1`) | up to 18 × 6 |
+| Relevance by topic and keyword | genre | primary genre (`l2`) | up to 18 × 18 |
+
+Keywords run down the side on purpose. The keyword vocabulary is the axis that grows, so a new genre
+in the catalog adds a row — one line of vertical scroll, with its label still readable at full
+length — rather than another column pushing the table sideways. The crossing axis is bounded at six
+families or eighteen primary genres.
 
 Three things in them are easy to misread:
 
