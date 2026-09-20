@@ -1,6 +1,6 @@
 # Heatmap ramp contrast — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Map CTR to colour over a shared, robust p5–p95 domain instead of `ctr / max`, changing no value.
 
@@ -10,6 +10,8 @@
 
 **Spec:** `.superpowers/docs/specs/2026-09-19-heatmap-ramp-contrast-design.md`
 
+**Status:** executed on this branch as #267. Every task below is complete.
+
 ## Global Constraints
 
 - Branch and PR only. `test "$(git branch --show-current)" != "master" || exit 1` in the same shell invocation as every commit.
@@ -17,7 +19,7 @@
 - No change to cell values, titles, hatching, the forced-diagonal outline, or the 70% accent cap.
 - A dev server may be running on port 3000. Do not `rm -rf .next`.
 - CI's python job has no `setup-node`, though ubuntu-latest ships one. The node-driven test must therefore **skip** when `node` is absent, never fail.
-- Measured baseline on master: **590 passed, 2 skipped**. This plan adds 4 tests → expect **594 passed, 2 skipped** (595/1 skipped ratio shifts if node is missing).
+- Measured baseline on master: **590 passed, 2 skipped**. This plan adds 4 node tests plus 2 route guards → expect **596 passed, 2 skipped** (an earlier draft of this line said 594, having counted only the node tests) (595/1 skipped ratio shifts if node is missing).
 
 ## Pre-validated facts
 
@@ -49,7 +51,7 @@
 **Interfaces:**
 - Produces: `percentile(sorted, p)`, `heatDomain(groups, loPct?, hiPct?)`, `heatScore(ctr, domain)`. Task 2 imports all three.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `recsys-pipeline/integration-tests/python_modeling/test_heat_domain.py`:
 
@@ -113,12 +115,12 @@ def test_heat_score_is_zero_for_a_degenerate_domain():
     assert run_js('console.log(JSON.stringify(heatScore(null, [0.1, 0.2])))') == 0
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_heat_domain.py -q 2>&1 | tail -3`
 Expected: 4 failed — the module does not exist, so node exits non-zero and the assert on `returncode` fires.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -173,7 +175,7 @@ python3 -m pytest integration-tests/python_modeling/test_heat_domain.py -q 2>&1 
 
 Expected: 4 passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -194,7 +196,7 @@ git commit -m "feat(dashboard): a shared robust domain for heat"
 **Interfaces:**
 - Consumes: `heatDomain`, `heatScore`.
 
-- [ ] **Step 1: Write the failing guards**
+- [x] **Step 1: Write the failing guards**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -223,12 +225,12 @@ def test_the_heatmap_legend_states_its_domain():
     assert re.search(r"share\(\s*domain\[1\]\s*\)", report), "the legend must print the real high end"
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q -k "heat_domain or legend" 2>&1 | tail -3`
 Expected: 2 failed.
 
-- [ ] **Step 3: Wire it through**
+- [x] **Step 3: Wire it through**
 
 Four edits to `keyword-report.jsx`:
 
@@ -247,7 +249,7 @@ Four edits to `keyword-report.jsx`:
 </p>
 ```
 
-- [ ] **Step 4: Verify the guards and the whole route file**
+- [x] **Step 4: Verify the guards and the whole route file**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -256,7 +258,7 @@ python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 
 
 Expected: 18 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -272,14 +274,14 @@ git commit -m "fix(dashboard): spread heat over a shared robust domain"
 
 **Files:** none modified — this task proves the change worked.
 
-- [ ] **Step 1: Build**
+- [x] **Step 1: Build**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
 npm run build 2>&1 | grep -E 'Compiled|Failed|error' | head -3
 ```
 
-- [ ] **Step 2: Measure both grids from the rendered HTML**
+- [x] **Step 2: Measure both grids from the rendered HTML**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -305,7 +307,7 @@ Expected: category 10/10 with crowding ≤ 20%; topic still 10/10 and no worse t
 **If the category grid does not reach 10/10, stop** — the change failed its primary acceptance case
 and the domain choice needs revisiting rather than the numbers being explained away.
 
-- [ ] **Step 3: Prove no data moved**
+- [x] **Step 3: Prove no data moved**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -314,7 +316,7 @@ git diff --quiet master -- recsys-pipeline/frontend/data/dashboard.json \
   || { echo "FAIL: the snapshot moved; this PR must not touch it"; exit 1; }
 ```
 
-- [ ] **Step 4: Full gates**
+- [x] **Step 4: Full gates**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
