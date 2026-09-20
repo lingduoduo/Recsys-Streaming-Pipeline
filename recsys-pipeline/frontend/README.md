@@ -27,6 +27,31 @@ enumerating the catalogue in `components/groups.js`. That catalogue is pure data
 because the sidebar is a client component; `components/section-registry.jsx` holds the
 key-to-component map and is imported only by the server page.
 
+### Reading the keyword gap heatmaps
+
+`/demand/keyword` carries two cross-tabs of click-through rate, both exploded over an item's
+genres, so an item tagged Action and Comedy counts under both keywords:
+
+| heatmap | rows | columns | cells |
+|---|---|---|---|
+| Relevance by category and keyword | genre family (`l1`) | genre | up to 6 × 18 |
+| Relevance by topic and keyword | primary genre (`l2`) | genre | up to 18 × 18 |
+
+Three things in them are easy to misread:
+
+- **A hatched cell was never served.** It is not a zero rate. Never-served and
+  served-but-never-clicked are different facts, so they do not share a shade.
+- **The topic heatmap's outlined diagonal is forced, not a finding.** An item whose primary genre
+  is Action always carries Action, so every `(X, X)` cell is populated by construction and is
+  normally the highest-support cell in its row.
+- **Colour carries the rate, not the support behind it.** A rate over 184 impressions is shaded
+  like one over 919; the impression count is in each cell's tooltip.
+
+There is deliberately no query × keyword heatmap. `query_of(genres)` joins an item's genre list, so
+the query *is* the keywords — crossing them would show string containment filled by construction
+rather than anything measured. There is no genre × decade grid either: `release_year` is absent from
+these samples, so the decade resolves to `unknown`.
+
 The groups say what question a section answers, not where its data came from. On that second
 question: only `latency` is purely live telemetry, and satisfaction, freshness and safety are offline
 rows with live ones merged in when a backend was running.
