@@ -36,6 +36,7 @@ genres, so an item tagged Action and Comedy counts under both keywords:
 |---|---|---|---|
 | Relevance by category and keyword | genre | genre family (`l1`) | up to 18 × 6 |
 | Relevance by topic and keyword | genre | primary genre (`l2`) | up to 18 × 18 |
+| Relevance by decade and keyword | genre | release decade | up to 18 × 5 |
 
 Keywords run down the side on purpose. The keyword vocabulary is the axis that grows, so a new genre
 in the catalog adds a row — one line of vertical scroll, with its label still readable at full
@@ -46,6 +47,10 @@ Three things in them are easy to misread:
 
 - **A hatched cell was never served.** It is not a zero rate. Never-served and
   served-but-never-clicked are different facts, so they do not share a shade.
+- **The decade heatmap has no forced cells.** Release decade comes from `releaseYear`, not from the
+  genre string, so it is the one axis here independent of the keywords it is crossed with — each cell
+  is a real joint observation. `by_decade` reports the same metric set as `by_keyword`, so the two
+  breakdowns can be read against each other.
 - **The topic heatmap's outlined diagonal is forced, not a finding.** An item whose primary genre
   is Action always carries Action, so every `(X, X)` cell is populated by construction and is
   normally the highest-support cell in its row.
