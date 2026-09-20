@@ -250,18 +250,42 @@ item — call `GET /api/v1/retrieval/profile-audit`; for a single account, `GET
 
 ### Step 5 — Query the API
 
+Step 2 started the service from
+[lingduoduo/Recsys-Backend-Service](https://github.com/lingduoduo/Recsys-Backend-Service). These
+routes are served there; nothing in this checkout answers on port 8080.
+
 ```bash
 curl http://localhost:8080/api/v1/retrieval/recommend/user_1
-curl http://localhost:8080/api/v1/retrieval/recommend/user_1?limit=10
+# Quote any URL carrying a query string: zsh — the macOS default shell — treats a bare `?` as a
+# glob and refuses the command with "no matches found" before curl ever runs.
+curl "http://localhost:8080/api/v1/retrieval/recommend/user_1?limit=10"
 curl http://localhost:8080/api/v1/retrieval/users/user_1/profile
 curl http://localhost:8080/api/v1/retrieval/metrics
 ```
 
-Run the cross-service integration tests:
+The `/api/v1/retrieval` prefix is the default of `RETRIEVAL_BASE`. If the backend re-mounts its
+controller elsewhere, `/health/live` keeps answering while all four of these return 404 — that
+combination means the prefix moved, not that the service is down.
+
+Run this repository's test suite:
 
 ```bash
 pytest -q
 ```
+
+**It does not test the service.** No test here opens a connection to port 8080, so a green suite
+says nothing about whether the endpoints above work. What it does check across the repository
+boundary is that the four contract files shared with the backend still match the hashes recorded
+in [schemas/CONTRACTS.md](schemas/CONTRACTS.md).
+
+Comparing those copies against a real service checkout is the only check that can catch drift
+originating in the backend, and it is opt-in:
+
+```bash
+RECSYS_BACKEND_REPO=/path/to/Recsys-Backend-Service pytest -q
+```
+
+Without that variable the comparison skips, which is one of the two skips in a normal run.
 
 ---
 
