@@ -256,3 +256,24 @@ def test_the_heatmap_legend_states_its_domain():
     # The stated range has to come from the domain, not be a hardcoded string.
     assert re.search(r"share\(\s*domain\[0\]\s*\)", report), "the legend must print the real low end"
     assert re.search(r"share\(\s*domain\[1\]\s*\)", report), "the legend must print the real high end"
+def test_the_heatmap_fallback_does_not_hardcode_one_axis_name():
+    """RelevanceHeatmap draws both the category and the topic grid. A message naming one of
+    them would be wrong on the other -- the hazard of generalising a component but not its copy.
+    """
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S)
+    assert heatmap, "the heatmap must be its own component"
+    fallback = re.search(r"if \(!rows\?\.length\) \{(.*?)\n  \}", heatmap.group(1), re.S)
+    assert fallback, "the empty-rows fallback must be present"
+    assert "category" not in fallback.group(1), (
+        "the fallback names a specific axis; it renders for the topic grid too"
+    )
+    assert "rowLabel" in fallback.group(1), "it should name the axis it was given"
+
+
+def test_heatmap_column_headers_are_scoped():
+    """Both axes carry meaning, so a cell needs its column header associated as well as its row."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S).group(1)
+    assert 'scope="row"' in heatmap, "row headers must stay scoped"
+    assert 'scope="col"' in heatmap, "column headers must be scoped too"
