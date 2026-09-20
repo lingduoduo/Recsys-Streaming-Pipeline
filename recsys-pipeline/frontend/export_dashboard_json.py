@@ -99,6 +99,7 @@ def build(input_dir: str, host: str, port: int,
         # No head(): the heatmap needs every cell, and the grid is bounded at 6 x 18
         # by the genre vocabulary. The tops above stay truncated -- they feed tables.
         "grid": _records(kw["grid"]),
+        "topic_grid": _records(kw["topic_grid"]),
     }
 
     qy = dash.compute_query(df)

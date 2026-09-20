@@ -802,3 +802,9 @@ table.rpt.heat-grid td.heat-cell {
 table.rpt.heat-grid td.heat-absent {
   background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 4px, #eef2f7 4px, #eef2f7 8px);
 }
+
+/* The forced diagonal: row value == keyword. True, but not a measurement. */
+table.rpt.heat-grid td.heat-forced {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}

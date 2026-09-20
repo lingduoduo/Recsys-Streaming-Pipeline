@@ -89,8 +89,8 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1377,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 414.6141,
-        "median_content_age_days": 414.8647,
+        "mean_content_age_days": 414.625,
+        "median_content_age_days": 414.8756,
         "fresh_ctr": 0.1501,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1507,
@@ -2272,6 +2272,1667 @@
         "movie_impressions": 1126,
         "query_clicks": 201,
         "ctr": 0.1785
+      }
+    ],
+    "topic_grid": [
+      {
+        "topic": "Action",
+        "keyword": "Action",
+        "movie_impressions": 5337,
+        "query_clicks": 966,
+        "ctr": 0.181
+      },
+      {
+        "topic": "Action",
+        "keyword": "Adventure",
+        "movie_impressions": 214,
+        "query_clicks": 37,
+        "ctr": 0.1729
+      },
+      {
+        "topic": "Action",
+        "keyword": "Animation",
+        "movie_impressions": 232,
+        "query_clicks": 43,
+        "ctr": 0.1853
+      },
+      {
+        "topic": "Action",
+        "keyword": "Children",
+        "movie_impressions": 221,
+        "query_clicks": 49,
+        "ctr": 0.2217
+      },
+      {
+        "topic": "Action",
+        "keyword": "Comedy",
+        "movie_impressions": 887,
+        "query_clicks": 157,
+        "ctr": 0.177
+      },
+      {
+        "topic": "Action",
+        "keyword": "Documentary",
+        "movie_impressions": 867,
+        "query_clicks": 162,
+        "ctr": 0.1869
+      },
+      {
+        "topic": "Action",
+        "keyword": "Drama",
+        "movie_impressions": 231,
+        "query_clicks": 45,
+        "ctr": 0.1948
+      },
+      {
+        "topic": "Action",
+        "keyword": "Fantasy",
+        "movie_impressions": 458,
+        "query_clicks": 83,
+        "ctr": 0.1812
+      },
+      {
+        "topic": "Action",
+        "keyword": "Horror",
+        "movie_impressions": 435,
+        "query_clicks": 86,
+        "ctr": 0.1977
+      },
+      {
+        "topic": "Action",
+        "keyword": "Musical",
+        "movie_impressions": 230,
+        "query_clicks": 38,
+        "ctr": 0.1652
+      },
+      {
+        "topic": "Action",
+        "keyword": "Mystery",
+        "movie_impressions": 252,
+        "query_clicks": 44,
+        "ctr": 0.1746
+      },
+      {
+        "topic": "Action",
+        "keyword": "Romance",
+        "movie_impressions": 251,
+        "query_clicks": 52,
+        "ctr": 0.2072
+      },
+      {
+        "topic": "Action",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 400,
+        "query_clicks": 75,
+        "ctr": 0.1875
+      },
+      {
+        "topic": "Action",
+        "keyword": "Thriller",
+        "movie_impressions": 184,
+        "query_clicks": 30,
+        "ctr": 0.163
+      },
+      {
+        "topic": "Action",
+        "keyword": "War",
+        "movie_impressions": 206,
+        "query_clicks": 36,
+        "ctr": 0.1748
+      },
+      {
+        "topic": "Action",
+        "keyword": "Western",
+        "movie_impressions": 648,
+        "query_clicks": 119,
+        "ctr": 0.1836
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Action",
+        "movie_impressions": 446,
+        "query_clicks": 69,
+        "ctr": 0.1547
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Adventure",
+        "movie_impressions": 3760,
+        "query_clicks": 659,
+        "ctr": 0.1753
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Animation",
+        "movie_impressions": 645,
+        "query_clicks": 114,
+        "ctr": 0.1767
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Children",
+        "movie_impressions": 420,
+        "query_clicks": 58,
+        "ctr": 0.1381
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Crime",
+        "movie_impressions": 190,
+        "query_clicks": 34,
+        "ctr": 0.1789
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Drama",
+        "movie_impressions": 225,
+        "query_clicks": 42,
+        "ctr": 0.1867
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Fantasy",
+        "movie_impressions": 464,
+        "query_clicks": 78,
+        "ctr": 0.1681
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Film-Noir",
+        "movie_impressions": 244,
+        "query_clicks": 41,
+        "ctr": 0.168
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Horror",
+        "movie_impressions": 454,
+        "query_clicks": 77,
+        "ctr": 0.1696
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Musical",
+        "movie_impressions": 229,
+        "query_clicks": 51,
+        "ctr": 0.2227
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "Mystery",
+        "movie_impressions": 210,
+        "query_clicks": 38,
+        "ctr": 0.181
+      },
+      {
+        "topic": "Adventure",
+        "keyword": "War",
+        "movie_impressions": 210,
+        "query_clicks": 34,
+        "ctr": 0.1619
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Adventure",
+        "movie_impressions": 437,
+        "query_clicks": 69,
+        "ctr": 0.1579
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Animation",
+        "movie_impressions": 5240,
+        "query_clicks": 940,
+        "ctr": 0.1794
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Children",
+        "movie_impressions": 473,
+        "query_clicks": 86,
+        "ctr": 0.1818
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Documentary",
+        "movie_impressions": 453,
+        "query_clicks": 91,
+        "ctr": 0.2009
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Drama",
+        "movie_impressions": 486,
+        "query_clicks": 65,
+        "ctr": 0.1337
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Fantasy",
+        "movie_impressions": 437,
+        "query_clicks": 76,
+        "ctr": 0.1739
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Film-Noir",
+        "movie_impressions": 499,
+        "query_clicks": 92,
+        "ctr": 0.1844
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Horror",
+        "movie_impressions": 426,
+        "query_clicks": 66,
+        "ctr": 0.1549
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Musical",
+        "movie_impressions": 461,
+        "query_clicks": 85,
+        "ctr": 0.1844
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Mystery",
+        "movie_impressions": 212,
+        "query_clicks": 42,
+        "ctr": 0.1981
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Romance",
+        "movie_impressions": 261,
+        "query_clicks": 52,
+        "ctr": 0.1992
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 444,
+        "query_clicks": 77,
+        "ctr": 0.1734
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Thriller",
+        "movie_impressions": 694,
+        "query_clicks": 139,
+        "ctr": 0.2003
+      },
+      {
+        "topic": "Animation",
+        "keyword": "War",
+        "movie_impressions": 220,
+        "query_clicks": 39,
+        "ctr": 0.1773
+      },
+      {
+        "topic": "Animation",
+        "keyword": "Western",
+        "movie_impressions": 224,
+        "query_clicks": 41,
+        "ctr": 0.183
+      },
+      {
+        "topic": "Children",
+        "keyword": "Adventure",
+        "movie_impressions": 234,
+        "query_clicks": 31,
+        "ctr": 0.1325
+      },
+      {
+        "topic": "Children",
+        "keyword": "Children",
+        "movie_impressions": 4514,
+        "query_clicks": 616,
+        "ctr": 0.1365
+      },
+      {
+        "topic": "Children",
+        "keyword": "Comedy",
+        "movie_impressions": 475,
+        "query_clicks": 72,
+        "ctr": 0.1516
+      },
+      {
+        "topic": "Children",
+        "keyword": "Crime",
+        "movie_impressions": 207,
+        "query_clicks": 36,
+        "ctr": 0.1739
+      },
+      {
+        "topic": "Children",
+        "keyword": "Documentary",
+        "movie_impressions": 473,
+        "query_clicks": 60,
+        "ctr": 0.1268
+      },
+      {
+        "topic": "Children",
+        "keyword": "Fantasy",
+        "movie_impressions": 700,
+        "query_clicks": 94,
+        "ctr": 0.1343
+      },
+      {
+        "topic": "Children",
+        "keyword": "Film-Noir",
+        "movie_impressions": 445,
+        "query_clicks": 83,
+        "ctr": 0.1865
+      },
+      {
+        "topic": "Children",
+        "keyword": "Horror",
+        "movie_impressions": 231,
+        "query_clicks": 28,
+        "ctr": 0.1212
+      },
+      {
+        "topic": "Children",
+        "keyword": "Musical",
+        "movie_impressions": 244,
+        "query_clicks": 39,
+        "ctr": 0.1598
+      },
+      {
+        "topic": "Children",
+        "keyword": "Romance",
+        "movie_impressions": 232,
+        "query_clicks": 48,
+        "ctr": 0.2069
+      },
+      {
+        "topic": "Children",
+        "keyword": "Thriller",
+        "movie_impressions": 207,
+        "query_clicks": 36,
+        "ctr": 0.1739
+      },
+      {
+        "topic": "Children",
+        "keyword": "War",
+        "movie_impressions": 234,
+        "query_clicks": 22,
+        "ctr": 0.094
+      },
+      {
+        "topic": "Children",
+        "keyword": "Western",
+        "movie_impressions": 698,
+        "query_clicks": 96,
+        "ctr": 0.1375
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Action",
+        "movie_impressions": 435,
+        "query_clicks": 57,
+        "ctr": 0.131
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Adventure",
+        "movie_impressions": 236,
+        "query_clicks": 32,
+        "ctr": 0.1356
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Animation",
+        "movie_impressions": 455,
+        "query_clicks": 73,
+        "ctr": 0.1604
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Children",
+        "movie_impressions": 426,
+        "query_clicks": 56,
+        "ctr": 0.1315
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Comedy",
+        "movie_impressions": 4620,
+        "query_clicks": 634,
+        "ctr": 0.1372
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Crime",
+        "movie_impressions": 225,
+        "query_clicks": 40,
+        "ctr": 0.1778
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Documentary",
+        "movie_impressions": 225,
+        "query_clicks": 40,
+        "ctr": 0.1778
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Drama",
+        "movie_impressions": 219,
+        "query_clicks": 28,
+        "ctr": 0.1279
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Film-Noir",
+        "movie_impressions": 236,
+        "query_clicks": 29,
+        "ctr": 0.1229
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Horror",
+        "movie_impressions": 444,
+        "query_clicks": 59,
+        "ctr": 0.1329
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Musical",
+        "movie_impressions": 848,
+        "query_clicks": 123,
+        "ctr": 0.145
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Romance",
+        "movie_impressions": 245,
+        "query_clicks": 37,
+        "ctr": 0.151
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Thriller",
+        "movie_impressions": 446,
+        "query_clicks": 58,
+        "ctr": 0.13
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Western",
+        "movie_impressions": 203,
+        "query_clicks": 28,
+        "ctr": 0.1379
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Action",
+        "movie_impressions": 440,
+        "query_clicks": 68,
+        "ctr": 0.1545
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Adventure",
+        "movie_impressions": 215,
+        "query_clicks": 19,
+        "ctr": 0.0884
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Animation",
+        "movie_impressions": 230,
+        "query_clicks": 43,
+        "ctr": 0.187
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Comedy",
+        "movie_impressions": 205,
+        "query_clicks": 32,
+        "ctr": 0.1561
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Crime",
+        "movie_impressions": 4754,
+        "query_clicks": 700,
+        "ctr": 0.1472
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Documentary",
+        "movie_impressions": 218,
+        "query_clicks": 37,
+        "ctr": 0.1697
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Drama",
+        "movie_impressions": 941,
+        "query_clicks": 146,
+        "ctr": 0.1552
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Fantasy",
+        "movie_impressions": 243,
+        "query_clicks": 42,
+        "ctr": 0.1728
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Horror",
+        "movie_impressions": 470,
+        "query_clicks": 69,
+        "ctr": 0.1468
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Musical",
+        "movie_impressions": 226,
+        "query_clicks": 34,
+        "ctr": 0.1504
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Mystery",
+        "movie_impressions": 210,
+        "query_clicks": 30,
+        "ctr": 0.1429
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Romance",
+        "movie_impressions": 684,
+        "query_clicks": 111,
+        "ctr": 0.1623
+      },
+      {
+        "topic": "Crime",
+        "keyword": "War",
+        "movie_impressions": 256,
+        "query_clicks": 37,
+        "ctr": 0.1445
+      },
+      {
+        "topic": "Crime",
+        "keyword": "Western",
+        "movie_impressions": 210,
+        "query_clicks": 30,
+        "ctr": 0.1429
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Action",
+        "movie_impressions": 668,
+        "query_clicks": 93,
+        "ctr": 0.1392
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Adventure",
+        "movie_impressions": 856,
+        "query_clicks": 95,
+        "ctr": 0.111
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Children",
+        "movie_impressions": 481,
+        "query_clicks": 51,
+        "ctr": 0.106
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Comedy",
+        "movie_impressions": 239,
+        "query_clicks": 31,
+        "ctr": 0.1297
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Crime",
+        "movie_impressions": 223,
+        "query_clicks": 31,
+        "ctr": 0.139
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Documentary",
+        "movie_impressions": 6839,
+        "query_clicks": 806,
+        "ctr": 0.1179
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Drama",
+        "movie_impressions": 479,
+        "query_clicks": 63,
+        "ctr": 0.1315
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Film-Noir",
+        "movie_impressions": 426,
+        "query_clicks": 53,
+        "ctr": 0.1244
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Horror",
+        "movie_impressions": 243,
+        "query_clicks": 34,
+        "ctr": 0.1399
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Musical",
+        "movie_impressions": 454,
+        "query_clicks": 57,
+        "ctr": 0.1256
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Mystery",
+        "movie_impressions": 656,
+        "query_clicks": 76,
+        "ctr": 0.1159
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Romance",
+        "movie_impressions": 608,
+        "query_clicks": 77,
+        "ctr": 0.1266
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 470,
+        "query_clicks": 63,
+        "ctr": 0.134
+      },
+      {
+        "topic": "Documentary",
+        "keyword": "War",
+        "movie_impressions": 213,
+        "query_clicks": 29,
+        "ctr": 0.1362
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Adventure",
+        "movie_impressions": 214,
+        "query_clicks": 27,
+        "ctr": 0.1262
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Animation",
+        "movie_impressions": 429,
+        "query_clicks": 49,
+        "ctr": 0.1142
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Children",
+        "movie_impressions": 242,
+        "query_clicks": 35,
+        "ctr": 0.1446
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Comedy",
+        "movie_impressions": 413,
+        "query_clicks": 56,
+        "ctr": 0.1356
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Crime",
+        "movie_impressions": 221,
+        "query_clicks": 35,
+        "ctr": 0.1584
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Documentary",
+        "movie_impressions": 449,
+        "query_clicks": 58,
+        "ctr": 0.1292
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Drama",
+        "movie_impressions": 6617,
+        "query_clicks": 898,
+        "ctr": 0.1357
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Fantasy",
+        "movie_impressions": 415,
+        "query_clicks": 69,
+        "ctr": 0.1663
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Film-Noir",
+        "movie_impressions": 638,
+        "query_clicks": 92,
+        "ctr": 0.1442
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Horror",
+        "movie_impressions": 424,
+        "query_clicks": 55,
+        "ctr": 0.1297
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Musical",
+        "movie_impressions": 427,
+        "query_clicks": 56,
+        "ctr": 0.1311
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Mystery",
+        "movie_impressions": 216,
+        "query_clicks": 25,
+        "ctr": 0.1157
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Romance",
+        "movie_impressions": 210,
+        "query_clicks": 28,
+        "ctr": 0.1333
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Thriller",
+        "movie_impressions": 443,
+        "query_clicks": 61,
+        "ctr": 0.1377
+      },
+      {
+        "topic": "Drama",
+        "keyword": "War",
+        "movie_impressions": 437,
+        "query_clicks": 47,
+        "ctr": 0.1076
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Western",
+        "movie_impressions": 887,
+        "query_clicks": 122,
+        "ctr": 0.1375
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Animation",
+        "movie_impressions": 654,
+        "query_clicks": 127,
+        "ctr": 0.1942
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Children",
+        "movie_impressions": 713,
+        "query_clicks": 133,
+        "ctr": 0.1865
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Comedy",
+        "movie_impressions": 226,
+        "query_clicks": 33,
+        "ctr": 0.146
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Crime",
+        "movie_impressions": 667,
+        "query_clicks": 121,
+        "ctr": 0.1814
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Documentary",
+        "movie_impressions": 445,
+        "query_clicks": 75,
+        "ctr": 0.1685
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Drama",
+        "movie_impressions": 230,
+        "query_clicks": 38,
+        "ctr": 0.1652
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Fantasy",
+        "movie_impressions": 6304,
+        "query_clicks": 1149,
+        "ctr": 0.1823
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Film-Noir",
+        "movie_impressions": 436,
+        "query_clicks": 81,
+        "ctr": 0.1858
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Horror",
+        "movie_impressions": 210,
+        "query_clicks": 45,
+        "ctr": 0.2143
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Musical",
+        "movie_impressions": 204,
+        "query_clicks": 38,
+        "ctr": 0.1863
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Romance",
+        "movie_impressions": 905,
+        "query_clicks": 167,
+        "ctr": 0.1845
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 459,
+        "query_clicks": 89,
+        "ctr": 0.1939
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Thriller",
+        "movie_impressions": 225,
+        "query_clicks": 40,
+        "ctr": 0.1778
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "War",
+        "movie_impressions": 891,
+        "query_clicks": 178,
+        "ctr": 0.1998
+      },
+      {
+        "topic": "Fantasy",
+        "keyword": "Western",
+        "movie_impressions": 669,
+        "query_clicks": 121,
+        "ctr": 0.1809
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Action",
+        "movie_impressions": 210,
+        "query_clicks": 32,
+        "ctr": 0.1524
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Adventure",
+        "movie_impressions": 237,
+        "query_clicks": 46,
+        "ctr": 0.1941
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Animation",
+        "movie_impressions": 216,
+        "query_clicks": 31,
+        "ctr": 0.1435
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Children",
+        "movie_impressions": 223,
+        "query_clicks": 36,
+        "ctr": 0.1614
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Crime",
+        "movie_impressions": 456,
+        "query_clicks": 65,
+        "ctr": 0.1425
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Documentary",
+        "movie_impressions": 478,
+        "query_clicks": 68,
+        "ctr": 0.1423
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Drama",
+        "movie_impressions": 216,
+        "query_clicks": 23,
+        "ctr": 0.1065
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Fantasy",
+        "movie_impressions": 441,
+        "query_clicks": 69,
+        "ctr": 0.1565
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Film-Noir",
+        "movie_impressions": 4871,
+        "query_clicks": 749,
+        "ctr": 0.1538
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Horror",
+        "movie_impressions": 1318,
+        "query_clicks": 212,
+        "ctr": 0.1608
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Musical",
+        "movie_impressions": 443,
+        "query_clicks": 60,
+        "ctr": 0.1354
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Mystery",
+        "movie_impressions": 434,
+        "query_clicks": 67,
+        "ctr": 0.1544
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Romance",
+        "movie_impressions": 248,
+        "query_clicks": 38,
+        "ctr": 0.1532
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 447,
+        "query_clicks": 76,
+        "ctr": 0.17
+      },
+      {
+        "topic": "Film-Noir",
+        "keyword": "Western",
+        "movie_impressions": 232,
+        "query_clicks": 30,
+        "ctr": 0.1293
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Action",
+        "movie_impressions": 231,
+        "query_clicks": 38,
+        "ctr": 0.1645
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Crime",
+        "movie_impressions": 268,
+        "query_clicks": 30,
+        "ctr": 0.1119
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Drama",
+        "movie_impressions": 206,
+        "query_clicks": 25,
+        "ctr": 0.1214
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Fantasy",
+        "movie_impressions": 206,
+        "query_clicks": 25,
+        "ctr": 0.1214
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Film-Noir",
+        "movie_impressions": 448,
+        "query_clicks": 85,
+        "ctr": 0.1897
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Horror",
+        "movie_impressions": 4812,
+        "query_clicks": 722,
+        "ctr": 0.15
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Mystery",
+        "movie_impressions": 727,
+        "query_clicks": 96,
+        "ctr": 0.132
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 230,
+        "query_clicks": 44,
+        "ctr": 0.1913
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Thriller",
+        "movie_impressions": 464,
+        "query_clicks": 65,
+        "ctr": 0.1401
+      },
+      {
+        "topic": "Horror",
+        "keyword": "War",
+        "movie_impressions": 431,
+        "query_clicks": 65,
+        "ctr": 0.1508
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Western",
+        "movie_impressions": 242,
+        "query_clicks": 31,
+        "ctr": 0.1281
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Animation",
+        "movie_impressions": 451,
+        "query_clicks": 66,
+        "ctr": 0.1463
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Comedy",
+        "movie_impressions": 241,
+        "query_clicks": 25,
+        "ctr": 0.1037
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Crime",
+        "movie_impressions": 879,
+        "query_clicks": 126,
+        "ctr": 0.1433
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Drama",
+        "movie_impressions": 238,
+        "query_clicks": 39,
+        "ctr": 0.1639
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Fantasy",
+        "movie_impressions": 197,
+        "query_clicks": 29,
+        "ctr": 0.1472
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Film-Noir",
+        "movie_impressions": 457,
+        "query_clicks": 66,
+        "ctr": 0.1444
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Musical",
+        "movie_impressions": 5371,
+        "query_clicks": 724,
+        "ctr": 0.1348
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Mystery",
+        "movie_impressions": 682,
+        "query_clicks": 97,
+        "ctr": 0.1422
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Romance",
+        "movie_impressions": 201,
+        "query_clicks": 22,
+        "ctr": 0.1095
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 421,
+        "query_clicks": 55,
+        "ctr": 0.1306
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Thriller",
+        "movie_impressions": 227,
+        "query_clicks": 32,
+        "ctr": 0.141
+      },
+      {
+        "topic": "Musical",
+        "keyword": "War",
+        "movie_impressions": 212,
+        "query_clicks": 29,
+        "ctr": 0.1368
+      },
+      {
+        "topic": "Musical",
+        "keyword": "Western",
+        "movie_impressions": 709,
+        "query_clicks": 98,
+        "ctr": 0.1382
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Action",
+        "movie_impressions": 413,
+        "query_clicks": 54,
+        "ctr": 0.1308
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Adventure",
+        "movie_impressions": 675,
+        "query_clicks": 108,
+        "ctr": 0.16
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Animation",
+        "movie_impressions": 229,
+        "query_clicks": 30,
+        "ctr": 0.131
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Comedy",
+        "movie_impressions": 445,
+        "query_clicks": 77,
+        "ctr": 0.173
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Drama",
+        "movie_impressions": 433,
+        "query_clicks": 66,
+        "ctr": 0.1524
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Horror",
+        "movie_impressions": 436,
+        "query_clicks": 57,
+        "ctr": 0.1307
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Mystery",
+        "movie_impressions": 3994,
+        "query_clicks": 567,
+        "ctr": 0.142
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "War",
+        "movie_impressions": 685,
+        "query_clicks": 82,
+        "ctr": 0.1197
+      },
+      {
+        "topic": "Mystery",
+        "keyword": "Western",
+        "movie_impressions": 452,
+        "query_clicks": 52,
+        "ctr": 0.115
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Action",
+        "movie_impressions": 444,
+        "query_clicks": 56,
+        "ctr": 0.1261
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Adventure",
+        "movie_impressions": 442,
+        "query_clicks": 54,
+        "ctr": 0.1222
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Animation",
+        "movie_impressions": 676,
+        "query_clicks": 88,
+        "ctr": 0.1302
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Children",
+        "movie_impressions": 695,
+        "query_clicks": 98,
+        "ctr": 0.141
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Crime",
+        "movie_impressions": 245,
+        "query_clicks": 41,
+        "ctr": 0.1673
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Documentary",
+        "movie_impressions": 660,
+        "query_clicks": 96,
+        "ctr": 0.1455
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Drama",
+        "movie_impressions": 225,
+        "query_clicks": 25,
+        "ctr": 0.1111
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Fantasy",
+        "movie_impressions": 893,
+        "query_clicks": 110,
+        "ctr": 0.1232
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Horror",
+        "movie_impressions": 228,
+        "query_clicks": 34,
+        "ctr": 0.1491
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Romance",
+        "movie_impressions": 5818,
+        "query_clicks": 761,
+        "ctr": 0.1308
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 461,
+        "query_clicks": 53,
+        "ctr": 0.115
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Thriller",
+        "movie_impressions": 686,
+        "query_clicks": 85,
+        "ctr": 0.1239
+      },
+      {
+        "topic": "Romance",
+        "keyword": "War",
+        "movie_impressions": 637,
+        "query_clicks": 67,
+        "ctr": 0.1052
+      },
+      {
+        "topic": "Romance",
+        "keyword": "Western",
+        "movie_impressions": 233,
+        "query_clicks": 36,
+        "ctr": 0.1545
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Action",
+        "movie_impressions": 481,
+        "query_clicks": 52,
+        "ctr": 0.1081
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Adventure",
+        "movie_impressions": 522,
+        "query_clicks": 69,
+        "ctr": 0.1322
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Animation",
+        "movie_impressions": 248,
+        "query_clicks": 33,
+        "ctr": 0.1331
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Comedy",
+        "movie_impressions": 217,
+        "query_clicks": 40,
+        "ctr": 0.1843
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Crime",
+        "movie_impressions": 436,
+        "query_clicks": 71,
+        "ctr": 0.1628
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Documentary",
+        "movie_impressions": 433,
+        "query_clicks": 66,
+        "ctr": 0.1524
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Drama",
+        "movie_impressions": 215,
+        "query_clicks": 35,
+        "ctr": 0.1628
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Fantasy",
+        "movie_impressions": 215,
+        "query_clicks": 35,
+        "ctr": 0.1628
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Film-Noir",
+        "movie_impressions": 232,
+        "query_clicks": 45,
+        "ctr": 0.194
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Horror",
+        "movie_impressions": 231,
+        "query_clicks": 37,
+        "ctr": 0.1602
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Mystery",
+        "movie_impressions": 251,
+        "query_clicks": 43,
+        "ctr": 0.1713
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Romance",
+        "movie_impressions": 240,
+        "query_clicks": 53,
+        "ctr": 0.2208
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 4164,
+        "query_clicks": 682,
+        "ctr": 0.1638
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "War",
+        "movie_impressions": 242,
+        "query_clicks": 39,
+        "ctr": 0.1612
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Western",
+        "movie_impressions": 233,
+        "query_clicks": 39,
+        "ctr": 0.1674
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Action",
+        "movie_impressions": 216,
+        "query_clicks": 37,
+        "ctr": 0.1713
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Children",
+        "movie_impressions": 426,
+        "query_clicks": 65,
+        "ctr": 0.1526
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Comedy",
+        "movie_impressions": 242,
+        "query_clicks": 33,
+        "ctr": 0.1364
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Documentary",
+        "movie_impressions": 647,
+        "query_clicks": 93,
+        "ctr": 0.1437
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Drama",
+        "movie_impressions": 660,
+        "query_clicks": 91,
+        "ctr": 0.1379
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Musical",
+        "movie_impressions": 214,
+        "query_clicks": 39,
+        "ctr": 0.1822
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Romance",
+        "movie_impressions": 708,
+        "query_clicks": 113,
+        "ctr": 0.1596
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 230,
+        "query_clicks": 32,
+        "ctr": 0.1391
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Thriller",
+        "movie_impressions": 3780,
+        "query_clicks": 564,
+        "ctr": 0.1492
+      },
+      {
+        "topic": "Thriller",
+        "keyword": "Western",
+        "movie_impressions": 451,
+        "query_clicks": 75,
+        "ctr": 0.1663
+      },
+      {
+        "topic": "War",
+        "keyword": "Animation",
+        "movie_impressions": 443,
+        "query_clicks": 77,
+        "ctr": 0.1738
+      },
+      {
+        "topic": "War",
+        "keyword": "Comedy",
+        "movie_impressions": 669,
+        "query_clicks": 99,
+        "ctr": 0.148
+      },
+      {
+        "topic": "War",
+        "keyword": "Documentary",
+        "movie_impressions": 215,
+        "query_clicks": 28,
+        "ctr": 0.1302
+      },
+      {
+        "topic": "War",
+        "keyword": "Fantasy",
+        "movie_impressions": 218,
+        "query_clicks": 34,
+        "ctr": 0.156
+      },
+      {
+        "topic": "War",
+        "keyword": "Film-Noir",
+        "movie_impressions": 897,
+        "query_clicks": 136,
+        "ctr": 0.1516
+      },
+      {
+        "topic": "War",
+        "keyword": "Horror",
+        "movie_impressions": 208,
+        "query_clicks": 32,
+        "ctr": 0.1538
+      },
+      {
+        "topic": "War",
+        "keyword": "Musical",
+        "movie_impressions": 406,
+        "query_clicks": 65,
+        "ctr": 0.1601
+      },
+      {
+        "topic": "War",
+        "keyword": "Mystery",
+        "movie_impressions": 887,
+        "query_clicks": 128,
+        "ctr": 0.1443
+      },
+      {
+        "topic": "War",
+        "keyword": "Romance",
+        "movie_impressions": 650,
+        "query_clicks": 98,
+        "ctr": 0.1508
+      },
+      {
+        "topic": "War",
+        "keyword": "War",
+        "movie_impressions": 4389,
+        "query_clicks": 690,
+        "ctr": 0.1572
+      },
+      {
+        "topic": "War",
+        "keyword": "Western",
+        "movie_impressions": 211,
+        "query_clicks": 31,
+        "ctr": 0.1469
+      },
+      {
+        "topic": "Western",
+        "keyword": "Action",
+        "movie_impressions": 471,
+        "query_clicks": 83,
+        "ctr": 0.1762
+      },
+      {
+        "topic": "Western",
+        "keyword": "Animation",
+        "movie_impressions": 240,
+        "query_clicks": 31,
+        "ctr": 0.1292
+      },
+      {
+        "topic": "Western",
+        "keyword": "Children",
+        "movie_impressions": 421,
+        "query_clicks": 61,
+        "ctr": 0.1449
+      },
+      {
+        "topic": "Western",
+        "keyword": "Crime",
+        "movie_impressions": 218,
+        "query_clicks": 27,
+        "ctr": 0.1239
+      },
+      {
+        "topic": "Western",
+        "keyword": "Documentary",
+        "movie_impressions": 743,
+        "query_clicks": 116,
+        "ctr": 0.1561
+      },
+      {
+        "topic": "Western",
+        "keyword": "Film-Noir",
+        "movie_impressions": 206,
+        "query_clicks": 38,
+        "ctr": 0.1845
+      },
+      {
+        "topic": "Western",
+        "keyword": "Mystery",
+        "movie_impressions": 487,
+        "query_clicks": 65,
+        "ctr": 0.1335
+      },
+      {
+        "topic": "Western",
+        "keyword": "Romance",
+        "movie_impressions": 447,
+        "query_clicks": 67,
+        "ctr": 0.1499
+      },
+      {
+        "topic": "Western",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 247,
+        "query_clicks": 34,
+        "ctr": 0.1377
+      },
+      {
+        "topic": "Western",
+        "keyword": "Western",
+        "movie_impressions": 4621,
+        "query_clicks": 696,
+        "ctr": 0.1506
       }
     ]
   },

@@ -22,10 +22,14 @@ function Select({ label, value, onChange, options }) {
   );
 }
 
-// Categories down the side, keywords across the top, CTR as heat. A pair the run never
+// A row axis down the side, keywords across the top, CTR as heat. A pair the run never
 // served is absent from the rows and renders hatched rather than at the cold end of the
 // ramp -- never served and served-but-never-clicked are different facts.
-function CategoryKeywordHeatmap({ rows }) {
+//
+// markDiagonal outlines cells whose row value equals their keyword. On the topic grid those
+// are forced: an item whose primary genre is Action always carries Action. The value is true,
+// so the cell keeps it, but it is filled by construction rather than measured.
+function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
   if (!rows?.length) {
     return (
       <p className="fine-print">
@@ -33,12 +37,12 @@ function CategoryKeywordHeatmap({ rows }) {
       </p>
     );
   }
-  const categories = [...new Set(rows.map((r) => r.category))].sort();
+  const categories = [...new Set(rows.map((r) => r[rowKey]))].sort();
   const keywords = [...new Set(rows.map((r) => r.keyword))].sort();
   const cells = new Map();
   for (const r of rows) {
-    if (!cells.has(r.category)) cells.set(r.category, new Map());
-    cells.get(r.category).set(r.keyword, r);
+    if (!cells.has(r[rowKey])) cells.set(r[rowKey], new Map());
+    cells.get(r[rowKey]).set(r.keyword, r);
   }
   // Heat is relative to the busiest cell in this grid, so the ramp always spans it.
   const max = Math.max(...rows.map((r) => r.ctr ?? 0), 0);
@@ -48,7 +52,7 @@ function CategoryKeywordHeatmap({ rows }) {
       <table className="rpt compact heat-grid">
         <thead>
           <tr>
-            <th>category</th>
+            <th>{rowLabel}</th>
             {keywords.map((k) => <th key={k} className="num">{k}</th>)}
           </tr>
         </thead>
@@ -65,8 +69,10 @@ function CategoryKeywordHeatmap({ rows }) {
                   );
                 }
                 const t = max === 0 ? 0 : (cell.ctr ?? 0) / max;
+                const forced = markDiagonal && category === keyword;
                 return (
-                  <td key={keyword} className="num heat-cell" style={{ "--token-score": t }}
+                  <td key={keyword} className={forced ? "num heat-cell heat-forced" : "num heat-cell"}
+                    style={{ "--token-score": t }}
                     title={`${category} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`}>
                     {share(cell.ctr)}
                   </td>
@@ -220,7 +226,15 @@ export function KeywordSection({ data }) {
         }} />
 
       <h3 className="report-subtitle">Relevance by category and keyword</h3>
-      <CategoryKeywordHeatmap rows={data.grid} />
+      <RelevanceHeatmap rows={data.grid} rowKey="category" rowLabel="category" />
+
+      <h3 className="report-subtitle">Relevance by topic and keyword</h3>
+      <p className="fine-print">
+        Topic is the item&apos;s primary genre. Outlined cells are forced: an item whose primary
+        genre is Action always carries Action, so those cells are filled by construction rather
+        than measured.
+      </p>
+      <RelevanceHeatmap rows={data.topic_grid} rowKey="topic" rowLabel="topic" markDiagonal />
 
       {["l1", "l2", "l3"].map((level) => {
         const rows = data.tops?.[level] ?? [];
