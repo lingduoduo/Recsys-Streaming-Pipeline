@@ -47,6 +47,13 @@ Three things in them are easy to misread:
 - **Colour carries the rate, not the support behind it.** A rate over 184 impressions is shaded
   like one over 919; the impression count is in each cell's tooltip.
 
+Both heatmaps share one colour scale: the 5th–95th percentile of the rates present across both,
+with the ends clipped, so a shade means the same rate in either figure. The legend on the page states
+the range it currently spans, and rates outside it saturate — the cost of using the whole ramp on
+data whose real spread is narrow. Colour stays linear in the rate, so equal steps of colour are equal
+steps of CTR; a rank-based scale would have spread the cells more evenly but would have given two
+cells differing by a hundredth of a point visibly different shades.
+
 There is deliberately no query × keyword heatmap. `query_of(genres)` joins an item's genre list, so
 the query *is* the keywords — crossing them would show string containment filled by construction
 rather than anything measured. There is no genre × decade grid either: `release_year` is absent from
