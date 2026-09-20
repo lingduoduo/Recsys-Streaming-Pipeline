@@ -33,7 +33,7 @@ function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
   if (!rows?.length) {
     return (
       <p className="fine-print">
-        No category grid in this snapshot — it predates the grid, so re-export to populate it.
+        No {rowLabel} grid in this snapshot — it predates the grid, so re-export to populate it.
       </p>
     );
   }
@@ -52,8 +52,8 @@ function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
       <table className="rpt compact heat-grid">
         <thead>
           <tr>
-            <th>{rowLabel}</th>
-            {keywords.map((k) => <th key={k} className="num">{k}</th>)}
+            <th scope="col">{rowLabel}</th>
+            {keywords.map((k) => <th key={k} scope="col" className="num">{k}</th>)}
           </tr>
         </thead>
         <tbody>
