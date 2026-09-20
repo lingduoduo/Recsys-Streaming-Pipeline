@@ -100,6 +100,8 @@ def build(input_dir: str, host: str, port: int,
         # by the genre vocabulary. The tops above stay truncated -- they feed tables.
         "grid": _records(kw["grid"]),
         "topic_grid": _records(kw["topic_grid"]),
+        "by_decade": _records(kw["by_decade"]),
+        "decade_grid": _records(kw["decade_grid"]),
     }
 
     qy = dash.compute_query(df)

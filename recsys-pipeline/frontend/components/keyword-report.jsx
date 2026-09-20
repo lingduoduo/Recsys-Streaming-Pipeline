@@ -184,7 +184,7 @@ export function KeywordSection({ data }) {
   const selected = keywords.find((r) => r.keyword === selectedKeyword) ?? keywords[0] ?? null;
   const best = keywords[0];
   // One domain for both grids: they sit in the same section and get read against each other.
-  const domain = heatDomain([data.grid, data.topic_grid]);
+  const domain = heatDomain([data.grid, data.topic_grid, data.decade_grid]);
   const impressions = keywords.reduce((sum, r) => sum + Number(r.movie_impressions ?? 0), 0);
   const byDivergence = [...keywords].sort((a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0));
 
@@ -246,6 +246,25 @@ export function KeywordSection({ data }) {
       </p>
       <RelevanceHeatmap rows={data.topic_grid} crossKey="topic" crossLabel="topic" domain={domain}
         markDiagonal />
+
+      <h3 className="report-subtitle">Relevance by decade and keyword</h3>
+      <p className="fine-print">
+        Release decade is the one dimension here that is not derived from the genre string, so no
+        cell is forced — each is a real joint observation. Absent pairs are genres the catalog never
+        offered in that decade.
+      </p>
+      <RelevanceHeatmap rows={data.decade_grid} crossKey="decade" crossLabel="decade"
+        domain={domain} />
+
+      <h3 className="report-subtitle">Exposure and clicks by decade</h3>
+      <DataTable rows={data.by_decade ?? []} compact
+        columns={["decade", "movie_impressions", "query_clicks", "query_orders", "mean_score",
+                  "movie_share", "query_share", "divergence", "ctr", "cvr"]}
+        formatters={{
+          movie_impressions: count, query_clicks: count, query_orders: count,
+          mean_score: (v) => num(v, 4), movie_share: share, query_share: share,
+          divergence: (v) => num(v, 4), ctr: share, cvr: share,
+        }} />
 
       {["l1", "l2", "l3"].map((level) => {
         const rows = data.tops?.[level] ?? [];

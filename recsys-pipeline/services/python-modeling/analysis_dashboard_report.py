@@ -35,13 +35,25 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
     if "genres" not in df.columns:
         df["genres"] = [[] for _ in range(len(df))]
     df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
+    # One Redis scan serves both hydrations. The year matters because l3 is
+    # primary_genre x decade, and without it every l3 value ends in `unknown` -- which made l3 a
+    # relabelled copy of l2 for as long as it has existed. fetch_movie_meta already returned the
+    # year; this function used to project it away.
     missing_genres = ~df["genres"].map(bool)
-    if missing_genres.any():
+    need_year = "release_year" not in df.columns
+    if missing_genres.any() or need_year:
         from feature_derivations import fetch_movie_meta
-        meta = {m["item_id"]: m["genres"] for m in fetch_movie_meta(host, port)}
-        enriched = df.loc[missing_genres, "item_id"].astype(str).map(lambda i: meta.get(i, []))
-        for idx, genres in enriched.items():
-            df.at[idx, "genres"] = list(genres)
+        meta = {str(m["item_id"]): m for m in fetch_movie_meta(host, port)}
+        if missing_genres.any():
+            enriched = df.loc[missing_genres, "item_id"].astype(str).map(
+                lambda i: (meta.get(i) or {}).get("genres") or [])
+            for idx, genres in enriched.items():
+                df.at[idx, "genres"] = list(genres)
+        if need_year:
+            # .get, not [...]: a caller's fake metadata need not carry the key, and an
+            # unreachable Redis yields {} -- both must leave the year None, not raise.
+            df["release_year"] = df["item_id"].astype(str).map(
+                lambda i: (meta.get(i) or {}).get("release_year"))
     return df
 
 
@@ -114,8 +126,13 @@ def compute_relevance(df) -> dict:
 def compute_keyword(df) -> dict:
     import feature_derivations as mc
 
+    # Defined here rather than beside `lv` below, because `d` needs it too: decade is a dimension
+    # in its own right, not only the second half of l3.
+    year = df["release_year"] if "release_year" in df.columns else [None] * len(df)
+
     d = df.assign(keyword=df["genres"].apply(mc.primary_genre),
-                  subkeyword=df["genres"].apply(mc.secondary_genre))
+                  subkeyword=df["genres"].apply(mc.secondary_genre),
+                  decade=[mc.decade(y) for y in year])
 
     def dist(col):
         agg = (d.assign(clk=(d["label"] >= 1).astype(int),
@@ -138,12 +155,14 @@ def compute_keyword(df) -> dict:
 
     by_keyword = dist("keyword")
     by_subkeyword = dist("subkeyword")
+    # Same metric set as by_keyword, so the two breakdowns are directly comparable.
+    by_decade = dist("decade")
 
-    year = df["release_year"] if "release_year" in df.columns else [None] * len(df)
     lv = df.assign(
         l1=df["genres"].apply(mc.l1),
         l2=df["genres"].apply(mc.l2),
         l3=[mc.l3(g, y) for g, y in zip(df["genres"], year)],
+        dec=[mc.decade(y) for y in year],
     )
 
     def top_keywords(level):
@@ -181,8 +200,13 @@ def compute_keyword(df) -> dict:
     # ~180 x 18 and does not, which is why no l3 grid exists.
     return {"headline": headline, "by_keyword": by_keyword,
             "by_subkeyword": by_subkeyword, "tops": tops,
+            "by_decade": by_decade,
             "grid": cross_tab("l1", "category"),
-            "topic_grid": cross_tab("l2", "topic")}
+            "topic_grid": cross_tab("l2", "topic"),
+            # Decade is the only axis here not derived from the genre string, so this grid has no
+            # forced diagonal: a cell is a real joint observation rather than a shared derivation
+            # showing through. 5 decades x 18 genres at most.
+            "decade_grid": cross_tab("dec", "decade")}
 
 
 SHORT_MAX_CHARS = 10

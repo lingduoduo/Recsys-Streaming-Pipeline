@@ -411,3 +411,27 @@ def test_zero_strength_makes_the_stream_immune_to_the_preferred_family(monkeypat
     monkeypatch.setattr(producer, "user_preferred_family",
                         lambda user: permuted[families[producer._user_index(user) % len(families)]])
     assert generate() == first_run          # permuting preferred family changes nothing
+
+
+def test_the_sim_scopes_the_event_archive_to_its_own_run():
+    """A shared archive path makes the sim fail on its SECOND run, not its first.
+
+    OnlineJoinerStreamingJob archives canonical events to RECSYS_EVENT_ARCHIVE_PATH, default
+    `/tmp/spark-recsys/recsys-events-archive` -- outside SIM_ROOT, so `rm -rf "$SIM_ROOT"` never
+    clears it. A later run then re-commits batch 0 against the previous run's inventory and dies
+    with "commit inventory mismatch", killing the Parquet sink with it. The visible symptom is a
+    drain sitting at count=0/0 for its whole timeout, about twenty minutes from the cause.
+
+    Scoping the path under SIM_ROOT makes the existing wipe cover it.
+    """
+    import re
+
+    script = (Path(__file__).parents[2] / "scripts" / "run-movie-category-sim.sh").read_text(
+        encoding="utf-8")
+    assert "RECSYS_EVENT_ARCHIVE_PATH" in script, (
+        "the sim must set the archive path, or it inherits a shared one across runs"
+    )
+    assigned = re.search(r'RECSYS_EVENT_ARCHIVE_PATH=([^\s"]*"?[^"\s]*)', script)
+    assert assigned and "SIM_ROOT" in assigned.group(1), (
+        f"the archive must live under SIM_ROOT so the existing wipe clears it, got {assigned and assigned.group(1)}"
+    )

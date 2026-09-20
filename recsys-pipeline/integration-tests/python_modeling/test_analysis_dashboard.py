@@ -501,3 +501,152 @@ def test_compute_keyword_topic_grid_is_not_rank_capped():
     grid = dash.compute_keyword(df)["topic_grid"]
     action = grid[grid["topic"] == "Action"]
     assert len(action) > 10, f"expected more than ten keywords, got {len(action)}"
+
+
+def test_load_samples_carries_release_year_from_redis(tmp_path, monkeypatch):
+    """The year was never missing -- it was projected away. l3 depends on it."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1", "u2"], "session_id": ["s1", "s2"],
+        "item_id": ["item_1", "item_2"], "label": [1.0, 0.0],
+        "genres": [["Action"], ["Comedy"]],
+    }).to_parquet(parquet, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": "item_1", "genres": ["Action"], "release_year": 1994},
+        {"item_id": "item_2", "genres": ["Comedy"], "release_year": 2011},
+    ])
+
+    out = dash.load_samples(str(parquet), "redis.test", 6380)
+    assert out["release_year"].tolist() == [1994, 2011]
+
+
+def test_l3_carries_a_real_decade_when_metadata_is_available(tmp_path, monkeypatch):
+    """Acceptance for the whole change: l3 stops being a relabelled copy of l2."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1", "u2"], "session_id": ["s1", "s2"],
+        "item_id": ["item_1", "item_2"], "label": [1.0, 1.0],
+        "genres": [["Action"], ["Action"]],
+    }).to_parquet(parquet, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": "item_1", "genres": ["Action"], "release_year": 1994},
+        {"item_id": "item_2", "genres": ["Action"], "release_year": 2011},
+    ])
+
+    df = dash.load_samples(str(parquet), "redis.test", 6380)
+    l3 = set(dash.compute_keyword(df)["tops"]["l3"]["l3"])
+    assert l3 == {"Action·1990s", "Action·2010s"}, f"got {l3}"
+    assert not any("unknown" in v for v in l3)
+
+
+def test_l3_still_falls_back_to_unknown_without_metadata(tmp_path, monkeypatch):
+    """The fix adds a capability, not a dependency: no Redis, same behaviour as before."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1"], "session_id": ["s1"], "item_id": ["item_1"],
+        "label": [1.0], "genres": [["Action"]],
+    }).to_parquet(parquet, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [])
+
+    df = dash.load_samples(str(parquet), "redis.test", 6380)
+    assert list(dash.compute_keyword(df)["tops"]["l3"]["l3"]) == ["Action·unknown"]
+
+
+def test_carrying_the_year_leaves_l1_and_l2_untouched(tmp_path, monkeypatch):
+    """L1/L2 derive from genres alone and must not move."""
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+
+    parquet = tmp_path / "samples"
+    pd.DataFrame({
+        "user_id": ["u1", "u2"], "session_id": ["s1", "s2"],
+        "item_id": ["item_1", "item_2"], "label": [1.0, 0.0],
+        "genres": [["Action", "Comedy"], ["Documentary"]],
+    }).to_parquet(parquet, index=False)
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": "item_1", "genres": ["Action", "Comedy"], "release_year": 1994},
+        {"item_id": "item_2", "genres": ["Documentary"], "release_year": 2011},
+    ])
+
+    df = dash.load_samples(str(parquet), "redis.test", 6380)
+    kw = dash.compute_keyword(df)
+    assert set(kw["tops"]["l1"]["l1"]) == {"Action&Adventure", "Other"}
+    assert set(kw["tops"]["l2"]["l2"]) == {"Action", "Documentary"}
+
+
+def test_decade_grouping_is_independent_of_genre():
+    """Decade is the only dimension here not derived from the genre string. Two items sharing a
+    decade must group together whatever their genres, and an item's decade must not move when its
+    genres do -- which is what makes a decade x keyword cell a real joint observation rather than
+    structure imposed by a shared derivation."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2", "u3"], "session_id": ["s1", "s2", "s3"],
+        "item_id": ["i1", "i2", "i3"], "label": [1.0, 1.0, 0.0],
+        "genres": [["Action"], ["Documentary"], ["Action"]],
+        "release_year": [1994, 1997, 2011],
+    })
+    kw = dash.compute_keyword(df)
+
+    by = {r["decade"]: r for _, r in kw["by_decade"].iterrows()}
+    # Action 1994 and Documentary 1997 share a decade despite sharing no genre or family.
+    assert by["1990s"]["movie_impressions"] == 2
+    assert by["2010s"]["movie_impressions"] == 1
+
+    # The same genre spans two decades, so the axis is not a genre relabelling.
+    grid = kw["decade_grid"]
+    action = {r["decade"] for _, r in grid.iterrows() if r["keyword"] == "Action"}
+    assert action == {"1990s", "2010s"}
+
+    # And no cell is forced: unlike topic_grid, decade and keyword share no derivation.
+    assert not any(r["decade"] == r["keyword"] for _, r in grid.iterrows())
+
+
+def test_by_decade_reports_the_same_metrics_as_by_keyword():
+    """Standalone means comparable: the decade breakdown carries the keyword column set."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2"], "session_id": ["s1", "s2"], "item_id": ["i1", "i2"],
+        "label": [2.0, 0.0], "genres": [["Action"], ["Comedy"]],
+        "release_year": [1994, 2011],
+    })
+    kw = dash.compute_keyword(df)
+    shared = set(kw["by_keyword"].columns) - {"keyword"}
+    assert shared <= set(kw["by_decade"].columns), (
+        f"by_decade is missing {sorted(shared - set(kw['by_decade'].columns))}"
+    )
+
+
+def test_decade_uses_the_shared_derivation():
+    """decade() is reused, not reimplemented, so bucketing cannot drift between callers."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    import feature_derivations as fd
+
+    df = pd.DataFrame({
+        "user_id": ["u1"], "session_id": ["s1"], "item_id": ["i1"],
+        "label": [1.0], "genres": [["Action"]], "release_year": [2007],
+    })
+    got = list(dash.compute_keyword(df)["by_decade"]["decade"])
+    assert got == [fd.decade(2007)] == ["2000s"]
