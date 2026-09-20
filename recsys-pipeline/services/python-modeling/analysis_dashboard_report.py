@@ -35,13 +35,25 @@ def load_samples(input_dir: str, host: str = "localhost", port: int = 6379):
     if "genres" not in df.columns:
         df["genres"] = [[] for _ in range(len(df))]
     df["genres"] = df["genres"].apply(lambda g: list(g) if g is not None else [])
+    # One Redis scan serves both hydrations. The year matters because l3 is
+    # primary_genre x decade, and without it every l3 value ends in `unknown` -- which made l3 a
+    # relabelled copy of l2 for as long as it has existed. fetch_movie_meta already returned the
+    # year; this function used to project it away.
     missing_genres = ~df["genres"].map(bool)
-    if missing_genres.any():
+    need_year = "release_year" not in df.columns
+    if missing_genres.any() or need_year:
         from feature_derivations import fetch_movie_meta
-        meta = {m["item_id"]: m["genres"] for m in fetch_movie_meta(host, port)}
-        enriched = df.loc[missing_genres, "item_id"].astype(str).map(lambda i: meta.get(i, []))
-        for idx, genres in enriched.items():
-            df.at[idx, "genres"] = list(genres)
+        meta = {str(m["item_id"]): m for m in fetch_movie_meta(host, port)}
+        if missing_genres.any():
+            enriched = df.loc[missing_genres, "item_id"].astype(str).map(
+                lambda i: (meta.get(i) or {}).get("genres") or [])
+            for idx, genres in enriched.items():
+                df.at[idx, "genres"] = list(genres)
+        if need_year:
+            # .get, not [...]: a caller's fake metadata need not carry the key, and an
+            # unreachable Redis yields {} -- both must leave the year None, not raise.
+            df["release_year"] = df["item_id"].astype(str).map(
+                lambda i: (meta.get(i) or {}).get("release_year"))
     return df
 
 
