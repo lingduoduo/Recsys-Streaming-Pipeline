@@ -141,9 +141,15 @@ echo "==> building Spark job jar"
 start_job com.demo.process.MovieLensContextCollectorStreamingJob ctx-ckpt redis \
   "MOVIELENS_CONTEXT_INPUT_TOPIC=$CONTEXT_TOPIC"
 CTX_PID="$LAST_JOB_PID"
+# RECSYS_EVENT_ARCHIVE_PATH defaults to /tmp/spark-recsys/recsys-events-archive, which is OUTSIDE
+# SIM_ROOT and so survives the wipe above. A second run then re-commits batch 0 against the previous
+# run's inventory, dies with "commit inventory mismatch", and takes the Parquet sink down with it --
+# surfacing twenty minutes later as a drain stuck at count=0/0. Scoping it under SIM_ROOT puts it
+# back inside the wipe.
 start_job com.demo.process.OnlineJoinerStreamingJob oj-ckpt parquet \
   "ONLINE_JOINER_HDFS_OUTPUT_PATH=$OUT_DIR" "ONLINE_JOINER_INPUT_TOPIC=$RECSYS_TOPIC" \
   "ONLINE_JOINER_OUTPUT_TOPIC=$SAMPLES_TOPIC" \
+  "RECSYS_EVENT_ARCHIVE_PATH=$SIM_ROOT/events-archive" \
   "FEEDBACK_JOIN_WAIT=$FEEDBACK_JOIN_WAIT_SECONDS seconds"
 OJ_PID="$LAST_JOB_PID"
 
