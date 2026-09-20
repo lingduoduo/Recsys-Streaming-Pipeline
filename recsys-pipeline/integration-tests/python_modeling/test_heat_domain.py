@@ -17,8 +17,14 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not i
 def run_js(body: str):
     """Import the real module in node and return whatever the snippet prints as JSON."""
     script = f'import {{ percentile, heatDomain, heatScore }} from "{MODULE.as_uri()}";\n{body}'
-    out = subprocess.run(["node", "--input-type=module", "-e", script],
-                         capture_output=True, text=True)
+    # timeout is not optional: without it a wedged node blocks the whole suite with no
+    # diagnostic, which is indistinguishable from pytest hanging. Nothing else in this
+    # suite waits on an external process, so this is the one place it could happen.
+    try:
+        out = subprocess.run(["node", "--input-type=module", "-e", script],
+                             capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        pytest.fail("node did not return within 30s evaluating the heat-domain module")
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 
