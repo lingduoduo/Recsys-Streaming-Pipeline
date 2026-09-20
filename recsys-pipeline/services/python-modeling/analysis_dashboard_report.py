@@ -126,8 +126,13 @@ def compute_relevance(df) -> dict:
 def compute_keyword(df) -> dict:
     import feature_derivations as mc
 
+    # Defined here rather than beside `lv` below, because `d` needs it too: decade is a dimension
+    # in its own right, not only the second half of l3.
+    year = df["release_year"] if "release_year" in df.columns else [None] * len(df)
+
     d = df.assign(keyword=df["genres"].apply(mc.primary_genre),
-                  subkeyword=df["genres"].apply(mc.secondary_genre))
+                  subkeyword=df["genres"].apply(mc.secondary_genre),
+                  decade=[mc.decade(y) for y in year])
 
     def dist(col):
         agg = (d.assign(clk=(d["label"] >= 1).astype(int),
@@ -150,12 +155,14 @@ def compute_keyword(df) -> dict:
 
     by_keyword = dist("keyword")
     by_subkeyword = dist("subkeyword")
+    # Same metric set as by_keyword, so the two breakdowns are directly comparable.
+    by_decade = dist("decade")
 
-    year = df["release_year"] if "release_year" in df.columns else [None] * len(df)
     lv = df.assign(
         l1=df["genres"].apply(mc.l1),
         l2=df["genres"].apply(mc.l2),
         l3=[mc.l3(g, y) for g, y in zip(df["genres"], year)],
+        dec=[mc.decade(y) for y in year],
     )
 
     def top_keywords(level):
@@ -193,8 +200,13 @@ def compute_keyword(df) -> dict:
     # ~180 x 18 and does not, which is why no l3 grid exists.
     return {"headline": headline, "by_keyword": by_keyword,
             "by_subkeyword": by_subkeyword, "tops": tops,
+            "by_decade": by_decade,
             "grid": cross_tab("l1", "category"),
-            "topic_grid": cross_tab("l2", "topic")}
+            "topic_grid": cross_tab("l2", "topic"),
+            # Decade is the only axis here not derived from the genre string, so this grid has no
+            # forced diagonal: a cell is a real joint observation rather than a shared derivation
+            # showing through. 5 decades x 18 genres at most.
+            "decade_grid": cross_tab("dec", "decade")}
 
 
 SHORT_MAX_CHARS = 10

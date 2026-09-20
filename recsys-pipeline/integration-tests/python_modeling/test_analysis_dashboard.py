@@ -589,3 +589,64 @@ def test_carrying_the_year_leaves_l1_and_l2_untouched(tmp_path, monkeypatch):
     kw = dash.compute_keyword(df)
     assert set(kw["tops"]["l1"]["l1"]) == {"Action&Adventure", "Other"}
     assert set(kw["tops"]["l2"]["l2"]) == {"Action", "Documentary"}
+
+
+def test_decade_grouping_is_independent_of_genre():
+    """Decade is the only dimension here not derived from the genre string. Two items sharing a
+    decade must group together whatever their genres, and an item's decade must not move when its
+    genres do -- which is what makes a decade x keyword cell a real joint observation rather than
+    structure imposed by a shared derivation."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2", "u3"], "session_id": ["s1", "s2", "s3"],
+        "item_id": ["i1", "i2", "i3"], "label": [1.0, 1.0, 0.0],
+        "genres": [["Action"], ["Documentary"], ["Action"]],
+        "release_year": [1994, 1997, 2011],
+    })
+    kw = dash.compute_keyword(df)
+
+    by = {r["decade"]: r for _, r in kw["by_decade"].iterrows()}
+    # Action 1994 and Documentary 1997 share a decade despite sharing no genre or family.
+    assert by["1990s"]["movie_impressions"] == 2
+    assert by["2010s"]["movie_impressions"] == 1
+
+    # The same genre spans two decades, so the axis is not a genre relabelling.
+    grid = kw["decade_grid"]
+    action = {r["decade"] for _, r in grid.iterrows() if r["keyword"] == "Action"}
+    assert action == {"1990s", "2010s"}
+
+    # And no cell is forced: unlike topic_grid, decade and keyword share no derivation.
+    assert not any(r["decade"] == r["keyword"] for _, r in grid.iterrows())
+
+
+def test_by_decade_reports_the_same_metrics_as_by_keyword():
+    """Standalone means comparable: the decade breakdown carries the keyword column set."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2"], "session_id": ["s1", "s2"], "item_id": ["i1", "i2"],
+        "label": [2.0, 0.0], "genres": [["Action"], ["Comedy"]],
+        "release_year": [1994, 2011],
+    })
+    kw = dash.compute_keyword(df)
+    shared = set(kw["by_keyword"].columns) - {"keyword"}
+    assert shared <= set(kw["by_decade"].columns), (
+        f"by_decade is missing {sorted(shared - set(kw['by_decade'].columns))}"
+    )
+
+
+def test_decade_uses_the_shared_derivation():
+    """decade() is reused, not reimplemented, so bucketing cannot drift between callers."""
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    import feature_derivations as fd
+
+    df = pd.DataFrame({
+        "user_id": ["u1"], "session_id": ["s1"], "item_id": ["i1"],
+        "label": [1.0], "genres": [["Action"]], "release_year": [2007],
+    })
+    got = list(dash.compute_keyword(df)["by_decade"]["decade"])
+    assert got == [fd.decade(2007)] == ["2000s"]
