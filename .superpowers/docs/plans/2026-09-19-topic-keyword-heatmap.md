@@ -1,6 +1,6 @@
 # A topic × keyword relevance heatmap — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A second heatmap crossing primary genre (`l2`) with keyword, beside the category grid, with its structural diagonal marked.
 
@@ -9,6 +9,8 @@
 **Tech Stack:** pandas, React client component, plain CSS.
 
 **Spec:** `.superpowers/docs/specs/2026-09-19-topic-keyword-heatmap-design.md`
+
+**Status:** executed and merged as #266. Every task below is complete.
 
 ## Global Constraints
 
@@ -50,7 +52,7 @@
 **Interfaces:**
 - Produces: `compute_keyword(df)["topic_grid"]` — columns `topic`, `keyword`, `movie_impressions`, `query_clicks`, `ctr`, sorted by topic then keyword.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_compute_keyword_topic_grid_crosses_primary_genre_with_keyword():
@@ -96,12 +98,12 @@ def test_compute_keyword_topic_grid_is_not_rank_capped():
     assert len(action) > 10, f"expected more than ten keywords, got {len(action)}"
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_analysis_dashboard.py -q -k topic_grid 2>&1 | tail -3`
 Expected: 2 failed, `KeyError: 'topic_grid'`.
 
-- [ ] **Step 3: Generalise the grid helper**
+- [x] **Step 3: Generalise the grid helper**
 
 The `category_grid()` closure added in #264 becomes one helper taking the level and its output name,
 so the two grids cannot drift apart:
@@ -152,7 +154,7 @@ python3 -m pytest integration-tests/python_modeling/test_analysis_dashboard.py -
 Expected: 25 passed — the 23 on master plus these 2. The two `grid` tests from #264 must still pass,
 proving the refactor preserved the l1 behaviour.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -169,7 +171,7 @@ git commit -m "feat(dashboard): cross primary genre with keyword as topic_grid"
 **Files:**
 - Modify: `recsys-pipeline/frontend/export_dashboard_json.py`
 
-- [ ] **Step 1: Add the key**
+- [x] **Step 1: Add the key**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -187,7 +189,7 @@ PY
 python3 export_dashboard_json.py --help >/dev/null && echo "exporter still parses"
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -208,7 +210,7 @@ git commit -m "feat(dashboard): export topic_grid untruncated"
 **Interfaces:**
 - Consumes: `data.grid`, `data.topic_grid`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_the_topic_heatmap_marks_its_structural_diagonal():
@@ -225,12 +227,12 @@ def test_the_topic_heatmap_marks_its_structural_diagonal():
     )
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q -k diagonal 2>&1 | tail -3`
 Expected: FAIL on `topic_grid`.
 
-- [ ] **Step 3: Parameterise the component**
+- [x] **Step 3: Parameterise the component**
 
 Rename `CategoryKeywordHeatmap` to `RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal })`:
 - `rowKey` — `"category"` or `"topic"`; replaces the hardcoded `r.category`.
@@ -239,7 +241,7 @@ Rename `CategoryKeywordHeatmap` to `RelevanceHeatmap({ rows, rowKey, rowLabel, m
 
 Keep the empty-rows fallback exactly as it is; it is what the #264 guard tests.
 
-- [ ] **Step 4: Both call sites**
+- [x] **Step 4: Both call sites**
 
 Below the existing category heatmap:
 
@@ -253,7 +255,7 @@ Below the existing category heatmap:
 <RelevanceHeatmap rows={data.topic_grid} rowKey="topic" rowLabel="topic" markDiagonal />
 ```
 
-- [ ] **Step 5: Style the marking**
+- [x] **Step 5: Style the marking**
 
 ```css
 /* The forced diagonal: row value == keyword. True, but not a measurement. */
@@ -263,7 +265,7 @@ table.rpt.heat-grid td.heat-forced {
 }
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -1
@@ -272,7 +274,7 @@ cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_d
 Expected: 16 passed. Do not build yet — the snapshot has no `topic_grid`, so the topic heatmap
 correctly shows its fallback note. Build once, in Task 4, after the data lands.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -289,7 +291,7 @@ git commit -m "feat(dashboard): a topic x keyword heatmap with its diagonal mark
 **Files:**
 - Modify: `recsys-pipeline/frontend/data/dashboard.json`
 
-- [ ] **Step 1: Confirm the inputs are still there**
+- [x] **Step 1: Confirm the inputs are still there**
 
 ```bash
 find /tmp/spark-recsys/movie-category-sim/training-samples -name '*.parquet' | wc -l
@@ -299,7 +301,7 @@ docker ps --format '{{.Names}}' | grep redis || echo "REDIS DOWN - a fresh sim w
 If the Parquet is gone or Redis is down, stop and say so: the fallback is a full
 `run-movie-category-sim.sh` (~25 min), which also churns every other number.
 
-- [ ] **Step 2: Run the exporter alone**
+- [x] **Step 2: Run the exporter alone**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
@@ -311,7 +313,7 @@ REDIS_HOST=localhost REDIS_PORT=6379 python3 frontend/export_dashboard_json.py "
 (cd frontend && npm run validate:data)
 ```
 
-- [ ] **Step 3: Confirm the new key, and that nothing else moved**
+- [x] **Step 3: Confirm the new key, and that nothing else moved**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -337,7 +339,7 @@ PY
 Expected: 324 or fewer cells, 18 forced diagonal cells, and the only changed sections being
 freshness-age fields. Report precisely which sections moved.
 
-- [ ] **Step 4: Build and inspect the rendered page**
+- [x] **Step 4: Build and inspect the rendered page**
 
 The dev server on port 3000 shares `.next`; it will recompile after this. Do not delete `.next`.
 
@@ -353,7 +355,7 @@ echo -n "fallback notes (want 0): "; grep -c 'predates the grid' "$f" || true
 
 Expected: forced diagonal 18, no fallback notes.
 
-- [ ] **Step 5: Commit the snapshot alone, then run every gate**
+- [x] **Step 5: Commit the snapshot alone, then run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline

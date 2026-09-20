@@ -1,6 +1,6 @@
 # A category × keyword relevance heatmap — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Emit the category × keyword cross-tab that `compute_keyword` already builds and discards, and render it as a 6 × 18 heatmap in the Keyword gap section.
 
@@ -9,6 +9,8 @@
 **Tech Stack:** pandas in `analysis_dashboard_report.py`, React client component, plain CSS, and one `run-movie-category-sim.sh` run for the snapshot.
 
 **Spec:** `.superpowers/docs/specs/2026-09-19-keyword-category-heatmap-design.md`
+
+**Status:** executed and merged as #264/#265. Every task below is complete.
 
 ## Global Constraints
 
@@ -53,7 +55,7 @@
 **Interfaces:**
 - Produces: `compute_keyword(df)["grid"]` — a DataFrame with columns `category`, `keyword`, `movie_impressions`, `query_clicks`, `ctr`, sorted by category then keyword. Task 2 exports it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_analysis_dashboard.py`:
 
@@ -109,12 +111,12 @@ def test_compute_keyword_grid_is_not_rank_capped():
     assert len(in_family) > 10, f"expected more than ten keywords, got {len(in_family)}"
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_analysis_dashboard.py -q -k grid 2>&1 | tail -3`
 Expected: 2 failed with `KeyError: 'grid'`.
 
-- [ ] **Step 3: Emit the grid**
+- [x] **Step 3: Emit the grid**
 
 ```bash
 cd recsys-pipeline
@@ -156,7 +158,7 @@ python3 -m pytest integration-tests/python_modeling/test_analysis_dashboard.py -
 
 Expected: 2 passed.
 
-- [ ] **Step 4: Run the whole file, then commit**
+- [x] **Step 4: Run the whole file, then commit**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_analysis_dashboard.py -q 2>&1 | tail -2`
 Expected: 23 passed — the 21 existing plus these 2.
@@ -194,7 +196,7 @@ MSG
 - Consumes: `compute_keyword(df)["grid"]`.
 - Produces: `data.keyword.grid` — an array of `{category, keyword, movie_impressions, query_clicks, ctr}`.
 
-- [ ] **Step 1: Export it untruncated**
+- [x] **Step 1: Export it untruncated**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -214,7 +216,7 @@ PY
 python3 export_dashboard_json.py --help >/dev/null && echo "exporter still parses"
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -244,7 +246,7 @@ MSG
 **Interfaces:**
 - Consumes: `data.keyword.grid`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `recsys-pipeline/integration-tests/python_modeling/test_dashboard_routes.py`:
 
@@ -264,12 +266,12 @@ def test_the_keyword_heatmap_degrades_when_the_grid_is_absent():
     )
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py::test_the_keyword_heatmap_degrades_when_the_grid_is_absent -q 2>&1 | tail -2`
 Expected: FAIL — no such component.
 
-- [ ] **Step 3: Add the heatmap component**
+- [x] **Step 3: Add the heatmap component**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -346,7 +348,7 @@ PY
 grep -n 'CategoryKeywordHeatmap\|heat-cell\|heat-absent' components/keyword-report.jsx | head
 ```
 
-- [ ] **Step 4: Style the cells**
+- [x] **Step 4: Style the cells**
 
 ```bash
 cd recsys-pipeline/frontend
@@ -377,7 +379,7 @@ table.rpt.heat-grid td.heat-absent {
 CSS
 ```
 
-- [ ] **Step 5: Verify against the current snapshot, which has no grid**
+- [x] **Step 5: Verify against the current snapshot, which has no grid**
 
 ```bash
 cd recsys-pipeline && python3 -m pytest integration-tests/python_modeling/test_dashboard_routes.py -q 2>&1 | tail -1
@@ -387,7 +389,7 @@ cd frontend && npm run build 2>&1 | tail -3
 Expected: 15 passed, and a successful build. The snapshot has no `grid`, so the section shows the
 re-export note — which is the fallback path working.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -417,7 +419,7 @@ MSG
 **Files:**
 - Modify: `recsys-pipeline/frontend/data/dashboard.json`
 
-- [ ] **Step 1: Confirm nothing is holding the ports**
+- [x] **Step 1: Confirm nothing is holding the ports**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -429,7 +431,7 @@ docker ps --format '{{.Names}}' | head -5 || echo "no containers"
 The simulation begins with `docker compose down -v`, so leftover containers are handled — but a dev
 server on 3000 is not, and the exporter step writes the file it would be serving.
 
-- [ ] **Step 2: Run the simulation**
+- [x] **Step 2: Run the simulation**
 
 Run from `recsys-pipeline`: `bash scripts/run-movie-category-sim.sh 2>&1 | tail -40`
 
@@ -438,7 +440,7 @@ This takes several minutes and brings up Kafka, ZooKeeper and Redis, runs Spark 
 snapshot. If it fails, stop — a half-written snapshot is worse than the old one, and `git checkout`
 restores it.
 
-- [ ] **Step 3: Confirm the grid arrived**
+- [x] **Step 3: Confirm the grid arrived**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -458,7 +460,7 @@ npm run validate:data
 
 Expected: more than one category, and `tops.l1` still ten rows.
 
-- [ ] **Step 4: See it rendered**
+- [x] **Step 4: See it rendered**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline/frontend
@@ -474,7 +476,7 @@ pkill -f 'next dev'; pkill -f 'next-server'
 
 Expected: a non-zero heat-cell count, and zero errors.
 
-- [ ] **Step 5: Commit the snapshot alone**
+- [x] **Step 5: Commit the snapshot alone**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -498,7 +500,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 6: Run every gate**
+- [x] **Step 6: Run every gate**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline/recsys-pipeline
