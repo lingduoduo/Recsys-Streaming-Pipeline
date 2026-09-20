@@ -232,3 +232,69 @@ def test_the_topic_heatmap_marks_its_structural_diagonal():
     assert re.search(r"forced|always carries|by construction", report, re.I), (
         "the legend must say why those cells are outlined"
     )
+
+
+def test_both_heatmaps_share_one_heat_domain():
+    """Per-grid domains would give the same shade two meanings across two figures that
+    sit in the same section and get read against each other."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    assert "heatDomain" in report and "heatScore" in report, "the mapping module must be used"
+    # One call, built from both grids.
+    calls = re.findall(r"heatDomain\(([^)]*)\)", report)
+    assert len(calls) == 1, f"expected exactly one heatDomain call, found {len(calls)}"
+    assert "grid" in calls[0] and "topic_grid" in calls[0], (
+        f"the domain must pool both grids, got heatDomain({calls[0]})"
+    )
+    assert "r.ctr ?? 0) / max" not in report, "the old ctr/max mapping must be gone"
+
+
+def test_the_heatmap_legend_states_its_domain():
+    """The endpoints are no longer implicit, and the extreme cells saturate, so the reader
+    has to be told what the colour actually spans."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    assert re.search(r"saturat", report, re.I), "the legend must say cells outside the domain saturate"
+    # The stated range has to come from the domain, not be a hardcoded string.
+    assert re.search(r"share\(\s*domain\[0\]\s*\)", report), "the legend must print the real low end"
+    assert re.search(r"share\(\s*domain\[1\]\s*\)", report), "the legend must print the real high end"
+def test_the_heatmap_fallback_does_not_hardcode_one_axis_name():
+    """RelevanceHeatmap draws both the category and the topic grid. A message naming one of
+    them would be wrong on the other -- the hazard of generalising a component but not its copy.
+    """
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S)
+    assert heatmap, "the heatmap must be its own component"
+    fallback = re.search(r"if \(!rows\?\.length\) \{(.*?)\n  \}", heatmap.group(1), re.S)
+    assert fallback, "the empty-rows fallback must be present"
+    assert "category" not in fallback.group(1), (
+        "the fallback names a specific axis; it renders for the topic grid too"
+    )
+    assert "crossLabel" in fallback.group(1), "it should name the axis it was given"
+
+
+def test_heatmap_column_headers_are_scoped():
+    """Both axes carry meaning, so a cell needs its column header associated as well as its row."""
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S).group(1)
+    assert 'scope="row"' in heatmap, "row headers must stay scoped"
+    assert 'scope="col"' in heatmap, "column headers must be scoped too"
+
+
+def test_keywords_are_the_heatmap_row_axis():
+    """Keywords go down the side, not across the top.
+
+    The keyword vocabulary is the axis that grows: a new genre in the catalog adds one more.
+    On the column axis each addition widens the table and pushes it further into horizontal
+    scroll, and the labels have to stay short. On the row axis it adds a row, which costs
+    nothing and keeps full-length labels readable. The crossing axis (6 families, 18 primary
+    genres) is the bounded one, so it belongs across the top.
+    """
+    report = (FRONTEND / "components" / "keyword-report.jsx").read_text(encoding="utf-8")
+    heatmap = re.search(r"function RelevanceHeatmap\((.*?)\n\}", report, re.S).group(1)
+    body = re.search(r"<tbody>(.*?)</tbody>", heatmap, re.S)
+    assert body, "the heatmap must render a tbody"
+    assert re.search(r"keywords\.map", body.group(1)), (
+        "tbody must iterate keywords -- they are the row axis, so the grid grows downward"
+    )
+    head = re.search(r"<thead>(.*?)</thead>", heatmap, re.S).group(1)
+    assert re.search(r"crossValues\.map", head), "the bounded crossing axis belongs in thead"
+    assert not re.search(r"keywords\.map", head), "keywords must not be column headers"

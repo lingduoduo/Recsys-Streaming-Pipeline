@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Section, NaCard, BarChart, DataTable, MetricGrid, MetricCard, ChartGrid } from "./ui";
+import { heatDomain, heatScore } from "./heat-domain.mjs";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const share = (v) => (v === null || v === undefined ? "N/A" : `${(v * 100).toFixed(1)}%`);
@@ -29,51 +30,53 @@ function Select({ label, value, onChange, options }) {
 // markDiagonal outlines cells whose row value equals their keyword. On the topic grid those
 // are forced: an item whose primary genre is Action always carries Action. The value is true,
 // so the cell keeps it, but it is filled by construction rather than measured.
-function RelevanceHeatmap({ rows, rowKey, rowLabel, markDiagonal = false }) {
+function RelevanceHeatmap({ rows, crossKey, crossLabel, domain, markDiagonal = false }) {
   if (!rows?.length) {
     return (
       <p className="fine-print">
-        No category grid in this snapshot — it predates the grid, so re-export to populate it.
+        No {crossLabel} grid in this snapshot — it predates the grid, so re-export to populate it.
       </p>
     );
   }
-  const categories = [...new Set(rows.map((r) => r[rowKey]))].sort();
+  // Keywords run down the side and the crossing axis across the top, because the keyword
+  // vocabulary is the one that grows. A new genre in the catalog then adds a row -- which costs
+  // a line of vertical scroll and keeps its label readable at full length -- instead of another
+  // column pushing the table sideways. The crossing axis is bounded: 6 families or 18 primary
+  // genres.
   const keywords = [...new Set(rows.map((r) => r.keyword))].sort();
+  const crossValues = [...new Set(rows.map((r) => r[crossKey]))].sort();
   const cells = new Map();
   for (const r of rows) {
-    if (!cells.has(r[rowKey])) cells.set(r[rowKey], new Map());
-    cells.get(r[rowKey]).set(r.keyword, r);
+    if (!cells.has(r.keyword)) cells.set(r.keyword, new Map());
+    cells.get(r.keyword).set(r[crossKey], r);
   }
-  // Heat is relative to the busiest cell in this grid, so the ramp always spans it.
-  const max = Math.max(...rows.map((r) => r.ctr ?? 0), 0);
-
   return (
     <div className="table-shell">
       <table className="rpt compact heat-grid">
         <thead>
           <tr>
-            <th>{rowLabel}</th>
-            {keywords.map((k) => <th key={k} className="num">{k}</th>)}
+            <th scope="col">keyword</th>
+            {crossValues.map((c) => <th key={c} scope="col" className="num">{c}</th>)}
           </tr>
         </thead>
         <tbody>
-          {categories.map((category) => (
-            <tr key={category}>
-              <th scope="row">{category}</th>
-              {keywords.map((keyword) => {
-                const cell = cells.get(category)?.get(keyword);
+          {keywords.map((keyword) => (
+            <tr key={keyword}>
+              <th scope="row">{keyword}</th>
+              {crossValues.map((crossValue) => {
+                const cell = cells.get(keyword)?.get(crossValue);
                 if (!cell) {
                   return (
-                    <td key={keyword} className="num heat-absent"
-                      title={`${category} / ${keyword}: never served`} />
+                    <td key={crossValue} className="num heat-absent"
+                      title={`${crossValue} / ${keyword}: never served`} />
                   );
                 }
-                const t = max === 0 ? 0 : (cell.ctr ?? 0) / max;
-                const forced = markDiagonal && category === keyword;
+                const t = heatScore(cell.ctr, domain);
+                const forced = markDiagonal && crossValue === keyword;
                 return (
-                  <td key={keyword} className={forced ? "num heat-cell heat-forced" : "num heat-cell"}
+                  <td key={crossValue} className={forced ? "num heat-cell heat-forced" : "num heat-cell"}
                     style={{ "--token-score": t }}
-                    title={`${category} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`}>
+                    title={`${crossValue} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`}>
                     {share(cell.ctr)}
                   </td>
                 );
@@ -180,6 +183,8 @@ export function KeywordSection({ data }) {
 
   const selected = keywords.find((r) => r.keyword === selectedKeyword) ?? keywords[0] ?? null;
   const best = keywords[0];
+  // One domain for both grids: they sit in the same section and get read against each other.
+  const domain = heatDomain([data.grid, data.topic_grid]);
   const impressions = keywords.reduce((sum, r) => sum + Number(r.movie_impressions ?? 0), 0);
   const byDivergence = [...keywords].sort((a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0));
 
@@ -226,7 +231,12 @@ export function KeywordSection({ data }) {
         }} />
 
       <h3 className="report-subtitle">Relevance by category and keyword</h3>
-      <RelevanceHeatmap rows={data.grid} rowKey="category" rowLabel="category" />
+      <p className="fine-print">
+        Colour spans CTR {share(domain[0])}–{share(domain[1])}, the 5th–95th percentile across both
+        grids below; cells outside that range saturate. Each cell prints its own rate. Both grids
+        share one scale, so a shade means the same thing in either.
+      </p>
+      <RelevanceHeatmap rows={data.grid} crossKey="category" crossLabel="category" domain={domain} />
 
       <h3 className="report-subtitle">Relevance by topic and keyword</h3>
       <p className="fine-print">
@@ -234,7 +244,8 @@ export function KeywordSection({ data }) {
         genre is Action always carries Action, so those cells are filled by construction rather
         than measured.
       </p>
-      <RelevanceHeatmap rows={data.topic_grid} rowKey="topic" rowLabel="topic" markDiagonal />
+      <RelevanceHeatmap rows={data.topic_grid} crossKey="topic" crossLabel="topic" domain={domain}
+        markDiagonal />
 
       {["l1", "l2", "l3"].map((level) => {
         const rows = data.tops?.[level] ?? [];
