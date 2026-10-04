@@ -1247,6 +1247,7 @@ Key environment variables:
 | `ITEM2VEC_REDIS_KEY_PREFIX` | `i2vEmb` |
 | `ITEM2VEC_REDIS_TTL_SECONDS` | `86400` (1 day) |
 | `ITEM2VEC_MIN_COUNT` | `1` |
+| `ITEM2VEC_NUM_PARTITIONS` | `1` (above 1 trains faster but changes the embeddings) |
 | `ITEM2VEC_SAVE_TO_REDIS` | `false` |
 
 Train and publish embeddings to Redis:
