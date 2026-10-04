@@ -64,6 +64,24 @@ class Item2VecTrainingJobSpec extends AnyFlatSpec with Matchers with SparkTestSu
     ids should contain allOf ("a", "b", "c", "d", "e")
   }
 
+  it should "cover the whole vocabulary when trained across several partitions" in {
+    val out = tmpFile()
+    Item2VecTrainingJob.trainItem2vec(
+      samples = sequences(),
+      embeddingPath = out.getAbsolutePath,
+      queryItem = "a",
+      vectorSize = VectorSize,
+      windowSize = 2,
+      numIterations = 2,
+      minCount = 1,
+      numPartitions = 3,
+      saveToRedis = false
+    )
+    val lines = scala.io.Source.fromFile(out).getLines().toSeq
+    lines.map(l => l.substring(0, l.indexOf(':'))).toSet shouldBe Set("a", "b", "c", "d", "e")
+    lines.foreach(l => l.substring(l.indexOf(':') + 1).trim.split(' ').length shouldBe VectorSize)
+  }
+
   it should "not throw when queryItem is absent from vocabulary" in {
     val out = tmpFile()
     noException should be thrownBy {

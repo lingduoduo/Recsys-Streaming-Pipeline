@@ -30,12 +30,14 @@ object EmbeddingCandidateGenerationJob {
 
     val spark = SparkSessions.create("EmbeddingCandidateGenerationJob")
     try {
-      val candidates = topKCandidates(
+      val scored = topKCandidates(
         spark,
         EmbeddingText.read(spark, userEmbPath),
         EmbeddingText.read(spark, itemEmbPath),
         topK
       )
+      // Cache only when writing to both sinks, so the scoring pass runs once rather than per sink.
+      val candidates = if (outputPath.isDefined && saveToRedis) scored.cache() else scored
 
       outputPath.foreach(path => candidates.write.mode("overwrite").parquet(path))
 
@@ -48,6 +50,7 @@ object EmbeddingCandidateGenerationJob {
           ttlSeconds = Env.int("CANDIDATE_REDIS_TTL_SECONDS", DefaultRedisTtlSeconds)
         )
       }
+      candidates.unpersist()
     } finally {
       spark.stop()
     }

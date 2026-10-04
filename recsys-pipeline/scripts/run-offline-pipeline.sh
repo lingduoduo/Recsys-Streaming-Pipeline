@@ -12,6 +12,7 @@
 #   ITEM2VEC_EMBEDDING_PATH       Output text file  (default: sampledata/item_embedding.txt)
 #   ITEM2VEC_QUERY_ITEM           Item ID to print synonyms for at the end (default: 592)
 #   ITEM2VEC_MIN_COUNT            Minimum item frequency to train (default: 1)
+#   ITEM2VEC_NUM_PARTITIONS       Word2Vec partitions; >1 is faster, changes embeddings (default: 1)
 #   ITEM2VEC_VECTOR_SIZE          Embedding dimensions (default: 10)
 #   ITEM2VEC_WINDOW_SIZE          Word2Vec context window (default: 5)
 #   ITEM2VEC_NUM_ITERATIONS       Training iterations (default: 10)
