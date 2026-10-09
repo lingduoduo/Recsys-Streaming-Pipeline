@@ -102,6 +102,7 @@ def build(input_dir: str, host: str, port: int,
         "topic_grid": _records(kw["topic_grid"]),
         "by_decade": _records(kw["by_decade"]),
         "decade_grid": _records(kw["decade_grid"]),
+        "genre_order": kw["genre_order"],
     }
 
     qy = dash.compute_query(df)
