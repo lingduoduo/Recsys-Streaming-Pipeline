@@ -663,3 +663,28 @@ def test_load_slates_records_the_catalog_size(tmp_path, monkeypatch):
     monkeypatch.setattr(ranking_eval_report, "fetch_popularity", lambda host, port: {})
 
     assert dash.load_slates(str(path)).attrs["catalog_size"] == 3
+
+
+def test_compute_keyword_grid_cells_carry_z_against_the_grid_rate():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({
+        "user_id": ["u1", "u2", "u3", "u4"], "session_id": ["s1", "s2", "s3", "s4"],
+        "item_id": ["i1", "i2", "i3", "i4"], "label": [1.0, 1.0, 0.0, 0.0],
+        "genres": [["Action"], ["Action"], ["Drama"], ["Drama"]],
+    })
+    rows = {r["keyword"]: r for _, r in dash.compute_keyword(df)["grid"].iterrows()}
+
+    # p0 = 2/4; se = sqrt(0.25 / 2) = 0.3536; z = (1.0 - 0.5) / 0.3536 and its mirror.
+    assert rows["Action"]["z"] == 1.41 and rows["Drama"]["z"] == -1.41
+
+
+def test_compute_keyword_grid_z_is_none_without_variance():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({"user_id": ["u1", "u2"], "session_id": ["s1", "s2"], "item_id": ["i1", "i2"],
+                       "label": [0.0, 0.0], "genres": [["Action"], ["Drama"]]})
+
+    assert dash.compute_keyword(df)["grid"]["z"].isna().all()

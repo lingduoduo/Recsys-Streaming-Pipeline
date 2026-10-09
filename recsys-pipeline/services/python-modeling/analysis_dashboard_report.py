@@ -193,6 +193,15 @@ def compute_keyword(df) -> dict:
                .reset_index()
                .rename(columns={level: row_name, "genres": "keyword"}))
         g["ctr"] = (g["query_clicks"] / g["movie_impressions"]).round(4)
+        # Each cell against its own grid's pooled rate, so the heatmap can shade only what
+        # differs from it by more than sampling noise. One p0 per grid, matching one ramp.
+        impressions = g["movie_impressions"].sum()
+        p0 = g["query_clicks"].sum() / impressions if impressions else 0.0
+        if 0 < p0 < 1:
+            se = (p0 * (1 - p0) / g["movie_impressions"]) ** 0.5
+            g["z"] = ((g["query_clicks"] / g["movie_impressions"] - p0) / se).round(2)
+        else:
+            g["z"] = None
         return g.sort_values([row_name, "keyword"]).reset_index(drop=True)
 
     # Every level reads the primary genre as genres[0], so a source that sorts its lists
