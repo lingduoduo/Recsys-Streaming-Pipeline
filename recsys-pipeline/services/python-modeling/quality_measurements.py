@@ -9,6 +9,7 @@ from itertools import combinations
 import math
 from numbers import Real
 
+import numpy as np
 import pandas as pd
 
 from measurement_contract import available, unavailable
@@ -148,7 +149,7 @@ def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]]
     if "impression_ts" not in samples:
         return [], None
     stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
-    observed = stamps.notna().to_numpy()
+    observed = np.isfinite(stamps).to_numpy()  # an inf stamp would make the width inf
     buckets = _time_buckets(stamps[observed])
     if buckets is None:
         return [], None
@@ -167,7 +168,7 @@ def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]]
             "mean_rating": _mean(ratings),
             "ratings": len(ratings),
         })
-    return series, round(width, 1)
+    return series, round(width, 3)
 
 
 def _rating_distribution(ratings: list[float]) -> list[dict[str, object]]:
@@ -305,10 +306,13 @@ def _catalog_spread(slate_inputs: list[tuple], catalog_size: int | None) -> dict
     return {
         "items_served": n or None,
         "catalog_size": catalog_size,
-        "catalog_coverage": _ratio(n, catalog_size) if n and catalog_size else None,
+        # Served ids outnumbering the catalog means the two populations disagree (ids without
+        # metadata); a ratio over 100% would read as a measurement.
+        "catalog_coverage": _ratio(n, catalog_size) if n and catalog_size and n <= catalog_size else None,
         "exposure_gini": (_round(sum((2 * rank - m - 1) * c for rank, c in enumerate(counts, 1)) / (m * total))
                           if n else None),
-        "top_decile_exposure_share": _round(sum(counts[-max(1, m // 10):]) / total) if n else None,
+        # Fewer than ten items have no decile: the "top decile" would be one item, i.e. a larger share.
+        "top_decile_exposure_share": _round(sum(counts[-(m // 10):]) / total) if n and m >= 10 else None,
         "median_items_per_user": _median(distinct),
         "user_repeat_rate": _round(1 - sum(distinct) / seen) if seen else None,
         "user_repeat_rate_uniform": _round(1 - expected_distinct / seen) if seen and catalog_size else None,
@@ -348,7 +352,7 @@ def _diversity_series(slate_inputs: list[tuple], slate_rows: list[dict]) -> tupl
     The long-tail share is each slate's share against the run-wide cutoff, so buckets compare.
     """
     stamps = pd.Series([request_ts for *_, request_ts in slate_inputs], dtype=float)
-    observed = stamps.notna().to_numpy()
+    observed = np.isfinite(stamps).to_numpy()  # an inf stamp would make the width inf
     buckets = _time_buckets(stamps[observed])
     if buckets is None:
         return [], None
@@ -366,10 +370,8 @@ def _diversity_series(slate_inputs: list[tuple], slate_rows: list[dict]) -> tupl
             "normalized_genre_entropy": _mean(row["normalized_genre_entropy"] for row in rows),
             "intra_list_genre_distance": _mean(row["intra_list_genre_distance"] for row in rows),
             "long_tail_exposure_share": _mean(row["long_tail_exposure_share"] for row in rows),
-            "items_served": len({item_id for (_, items, _, _), _ in pairs for item in items
-                                 if (item_id := _string_value(item.get("item_id")))}),
         })
-    return series, round(width, 1)
+    return series, round(width, 3)
 
 
 def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:

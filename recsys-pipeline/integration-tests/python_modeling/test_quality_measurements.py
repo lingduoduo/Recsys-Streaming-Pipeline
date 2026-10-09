@@ -445,9 +445,9 @@ def test_diversity_measures_spread_across_the_catalog_and_each_user():
     row = compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]
 
     assert (row["items_served"], row["catalog_size"], row["catalog_coverage"]) == (4, 8, 0.5)
-    # Counts over the 8-item catalog [0, 0, 0, 0, 1, 1, 2, 6]: Gini 56 / 80; the top decile is
-    # the single top item.
-    assert (row["exposure_gini"], row["top_decile_exposure_share"]) == (0.7, 0.6)
+    # Counts over the 8-item catalog [0, 0, 0, 0, 1, 1, 2, 6]: Gini 56 / 80. Eight items have no
+    # top decile (see test_diversity_top_decile_needs_ten_items).
+    assert row["exposure_gini"] == 0.7
     # Distinct per user 4, 2, 1 over exposures 5, 2, 3.
     assert (row["median_items_per_user"], row["user_repeat_rate"]) == (2.0, 0.3)
 
@@ -490,9 +490,8 @@ def test_diversity_series_buckets_slates_by_request_time():
     assert result["series_bucket_seconds"] == 1.0 and [b["slates"] for b in series] == [1, 1, 1, 1]
     # Cutoff over distinct items is 34.0, so every item in r1 is in the tail.
     assert series[0] == {"bucket_start": 10.0, "slates": 1, "normalized_genre_entropy": 1.0,
-                         "intra_list_genre_distance": 0.6667, "long_tail_exposure_share": 1.0,
-                         "items_served": 3}
-    assert series[3]["normalized_genre_entropy"] == 0.0 and series[3]["items_served"] == 1
+                         "intra_list_genre_distance": 0.6667, "long_tail_exposure_share": 1.0}
+    assert series[3]["normalized_genre_entropy"] == 0.0
 
 
 def test_diversity_series_is_empty_without_request_times():
@@ -532,3 +531,33 @@ def test_diversity_publishes_the_repeat_rate_uniform_serving_would_give():
     # Users with 5, 2 and 3 exposures over 8 items expect 8 * (1 - (7/8)**E) distinct each.
     assert row["user_repeat_rate_uniform"] == 0.1588
     assert compute_diversity(_catalog_slates())["rows"][0]["user_repeat_rate_uniform"] is None
+
+
+def test_series_ignore_infinite_timestamps():
+    samples = pd.concat([_timed_samples(), pd.DataFrame([
+        {"impression_ts": float("inf"), "user_id": "u9", "item_id": "i9", "clicked": 1, "ordered": 0}])],
+        ignore_index=True)
+    result = compute_satisfaction(samples)
+
+    assert sum(b["impressions"] for b in result["series"]) == 4  # the inf row leaves the series only
+    slates = _catalog_slates().astype({"request_ts": float})
+    slates.loc[0, "request_ts"] = float("-inf")
+    assert sum(b["slates"] for b in compute_diversity(slates)["series"]) == 3
+
+
+def test_series_bucket_width_keeps_sub_second_precision():
+    samples = pd.DataFrame([{"impression_ts": 0.25 * i, "clicked": 0} for i in range(5)])
+
+    # A 1 s span of fractional stamps: 24 buckets of 1/24 s, not "0.0".
+    assert compute_satisfaction(samples)["series_bucket_seconds"] == 0.042
+
+
+def test_diversity_coverage_is_none_when_served_items_outnumber_the_catalog():
+    row = compute_diversity(_catalog_slates(), catalog_size=3)["rows"][0]
+
+    # Four served ids against a catalog of three: the populations disagree, so no ratio.
+    assert row["items_served"] == 4 and row["catalog_coverage"] is None
+
+
+def test_diversity_top_decile_needs_ten_items():
+    assert compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]["top_decile_exposure_share"] is None
