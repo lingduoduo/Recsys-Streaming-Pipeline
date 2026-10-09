@@ -11,6 +11,7 @@ for the Next.js dashboard. This module renders nothing and has no command line.
 """
 from __future__ import annotations
 
+import math
 import os
 
 
@@ -191,16 +192,31 @@ def compute_keyword(df) -> dict:
         g["ctr"] = (g["query_clicks"] / g["movie_impressions"]).round(4)
         return g.sort_values([row_name, "keyword"]).reset_index(drop=True)
 
+    # Every level reads the primary genre as genres[0], so a source that sorts its lists
+    # (raw MovieLens does) silently turns l1/l2/l3 into "alphabetically first genre". Per
+    # distinct movie, because a popular item repeats across samples; single-genre movies are
+    # sorted trivially and carry no evidence. A list of k genres in producer order is sorted by
+    # chance 1/k! of the time.
+    movies = df.drop_duplicates("item_id")["genres"].map(mc._as_list)
+    multi = movies[movies.map(len) > 1]
+    sorted_share = float(multi.map(lambda g: g == sorted(g)).mean()) if len(multi) else 0.0
+    chance_share = float(multi.map(lambda g: 1 / math.factorial(len(g))).mean()) if len(multi) else 0.0
+    genre_order = {"multi_genre_movies": int(len(multi)), "sorted_share": round(sorted_share, 4),
+                   "chance_share": round(chance_share, 4)}
+
     tops = {lvl: top_keywords(lvl) for lvl in ("l1", "l2", "l3")}
     top_div = by_keyword.reindex(by_keyword["divergence"].abs().sort_values(ascending=False).index)
     lead = top_div.iloc[0] if len(top_div) else None
     headline = ("no keywords" if lead is None else
                 f"'{lead['keyword']}' diverges most: shown {lead['movie_share']:.0%} vs clicked {lead['query_share']:.0%}")
+    if len(multi) >= 20 and sorted_share >= 0.95:
+        headline = f"genre lists look alphabetical; primary genre is unreliable -- {headline}"
     # l1 x genre is 6 x 18; l2 x genre is 18 x 18. Both fit the snapshot. l3 would be
     # ~180 x 18 and does not, which is why no l3 grid exists.
     return {"headline": headline, "by_keyword": by_keyword,
             "by_subkeyword": by_subkeyword, "tops": tops,
             "by_decade": by_decade,
+            "genre_order": genre_order,
             "grid": cross_tab("l1", "category"),
             "topic_grid": cross_tab("l2", "topic"),
             # Decade is the only axis here not derived from the genre string, so this grid has no

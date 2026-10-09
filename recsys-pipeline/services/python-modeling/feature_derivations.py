@@ -41,6 +41,14 @@ def _as_list(genres) -> list[str]:
 
 
 def primary_genre(genres) -> str:
+    """Position 0 IS the primary genre: producers must list it first.
+
+    l1, l2 and l3 all derive from it, and movie_segment_producer plants FAMILY_EFF through it.
+    Nothing here can tell a ranked list from a sorted one -- raw MovieLens lists genres
+    alphabetically, which would silently make "primary" mean "alphabetically first".
+    compute_keyword's genre_order check flags that case. Mirrored by
+    MovieCategories.primaryGenre (Scala); keep the two in step.
+    """
     g = _as_list(genres)
     return g[0] if g else "unknown"
 

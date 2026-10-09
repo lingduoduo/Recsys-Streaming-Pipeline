@@ -2,7 +2,7 @@ package com.demo.util
 
 /** Pure 3-level movie category derivations, shared by the movie-category report.
   *
-  * Scala port of `services/python-modeling/movie_categories.py`. From a movie's genres
+  * Scala port of `services/python-modeling/feature_derivations.py`. From a movie's genres
   * (comma-joined string, as stored in Redis `movie:{id}:features`) + release year:
   *   l1 = genre family (broad)            e.g. "SciFi&Fantasy"
   *   l2 = primary (first) genre           e.g. "Sci-Fi"
@@ -25,6 +25,10 @@ object MovieCategories {
   private def asList(genres: String): Seq[String] =
     Option(genres).toSeq.flatMap(_.split(",")).map(_.trim).filter(_.nonEmpty)
 
+  /** Position 0 IS the primary genre: producers must list it first. l1/l2/l3 all derive from
+    * it, and an alphabetically sorted source (raw MovieLens) would silently make "primary"
+    * mean "alphabetically first". Mirrors `feature_derivations.primary_genre`; keep in step.
+    */
   def primaryGenre(genres: String): String = asList(genres).headOption.getOrElse("unknown")
 
   /** Second genre (the "subkeyword"); "none" when a movie has only one genre. */
