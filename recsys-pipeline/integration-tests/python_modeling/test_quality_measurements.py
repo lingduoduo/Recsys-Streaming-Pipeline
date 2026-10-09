@@ -458,3 +458,24 @@ def test_diversity_spread_is_none_without_the_identities_it_needs():
     assert row["catalog_size"] is None and row["catalog_coverage"] is None
     assert row["median_items_per_user"] is None and row["user_repeat_rate"] is None
     assert row["items_served"] == 4  # item spread still measurable
+
+
+def test_diversity_publishes_per_slate_distributions():
+    hist = compute_diversity(_catalog_slates())["distributions"]
+
+    # Entropy: r1, r2, r3 are 1.0 (last bin); r4 is all-drama, 0.0.
+    assert [b["count"] for b in hist["normalized_genre_entropy"]] == [1, 0, 0, 0, 0, 0, 0, 0, 0, 3]
+    # Distance: r4 0.0, r1 0.6667, r2 and r3 1.0.
+    assert [b["count"] for b in hist["intra_list_genre_distance"]] == [1, 0, 0, 0, 0, 0, 1, 0, 0, 2]
+    assert hist["intra_list_genre_distance"][6]["bin_start"] == 0.6
+
+
+def test_diversity_compares_genre_exposure_with_what_is_served():
+    shares = compute_diversity(_catalog_slates())["genre_exposure"]
+
+    # Exposures mention drama 7, comedy 3, action 1; distinct items drama 2, comedy 2, action 1.
+    assert shares == [
+        {"genre": "drama", "exposure_share": 0.6364, "served_share": 0.4},
+        {"genre": "comedy", "exposure_share": 0.2727, "served_share": 0.4},
+        {"genre": "action", "exposure_share": 0.0909, "served_share": 0.2},
+    ]

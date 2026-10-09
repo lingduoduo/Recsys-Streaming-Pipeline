@@ -241,12 +241,18 @@ def compute_diversity(
     }
     if not any(value is not None for key, value in aggregate.items() if key not in {"genre_coverage", "popularity_coverage", "scope"}):
         return unavailable("missing genre and popularity diversity signals")
-    return available(
+    result = available(
         "Catalog diversity across slates",
         [aggregate, *slate_rows],
         len(slate_inputs),
         genre_coverage or 0.0,
     )
+    result["distributions"] = {
+        key: _unit_histogram([entry[key] for entry in slate_rows])
+        for key in ("normalized_genre_entropy", "intra_list_genre_distance")
+    }
+    result["genre_exposure"] = _genre_exposure(all_items)
+    return result
 
 
 def _item_key(item: Mapping[str, object], position: int) -> str:
@@ -295,6 +301,31 @@ def _catalog_spread(slate_inputs: list[tuple], catalog_size: int | None) -> dict
         "median_items_per_user": _median(distinct),
         "user_repeat_rate": _round(1 - sum(distinct) / seen) if seen else None,
     }
+
+
+def _unit_histogram(values: list[float | None]) -> list[dict[str, object]]:
+    """Ten bins over [0, 1]; exactly 1.0 lands in the last; None is skipped."""
+    counts = [0] * 10
+    for value in values:
+        if value is not None:
+            # round() absorbs float error such as 0.7 * 10 == 7.000000000000001.
+            counts[min(int(round(value * 10, 9)), 9)] += 1
+    return [{"bin_start": index / 10, "count": count} for index, count in enumerate(counts)]
+
+
+def _genre_exposure(items: list[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Each genre's share of exposures beside its share of the distinct items served."""
+    exposed = Counter(genre for item in items for genre in _genres(item))
+    served_items: dict[str, list[str]] = {}
+    for position, item in enumerate(items):
+        served_items.setdefault(_item_key(item, position), _genres(item))
+    served = Counter(genre for genres in served_items.values() for genre in genres)
+    exposed_total, served_total = sum(exposed.values()), sum(served.values())
+    rows = [{"genre": genre,
+             "exposure_share": _ratio(count, exposed_total),
+             "served_share": _ratio(served[genre], served_total)}
+            for genre, count in exposed.items()]
+    return sorted(rows, key=lambda row: (-row["exposure_share"], row["genre"]))
 
 
 def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:
