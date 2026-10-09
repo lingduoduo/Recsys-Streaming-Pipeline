@@ -127,6 +127,34 @@ def compute_relevance(df) -> dict:
     }
 
 
+def _item_clustered_z(ex, level) -> dict:
+    """Each heatmap cell's z against its grid's pooled CTR, with movies as clusters.
+
+    A cell is a handful of movies (median 4 on the sim) repeated across many impressions, so
+    impressions are not independent: the binomial SE let a genre shuffle across items flag ~11
+    of 102 cells at |z| >= 2. The sandwich SE over per-item residuals brings that null to ~1 and
+    leaves 12 real cells. A one-movie cell has no between-item variance to test: None. p0 of 0 or
+    1 has no variance at all: every cell None.
+    """
+    if "item_id" not in ex.columns:
+        return {}
+    p0 = ex["clk"].mean()
+    if not 0 < p0 < 1:
+        return {}
+    per = ex.groupby([level, "genres", "item_id"])["clk"].agg(["sum", "size"]).reset_index()
+    per["resid2"] = (per["sum"] - p0 * per["size"]) ** 2
+    cells = per.groupby([level, "genres"]).agg(
+        n=("size", "sum"), clicks=("sum", "sum"), items=("item_id", "size"), resid2=("resid2", "sum"))
+    out = {}
+    for key, cell in cells.iterrows():
+        if cell["items"] < 2 or cell["resid2"] <= 0:
+            out[key] = None
+            continue
+        se = (cell["resid2"] / cell["n"] ** 2 * cell["items"] / (cell["items"] - 1)) ** 0.5
+        out[key] = round(float((cell["clicks"] / cell["n"] - p0) / se), 2)
+    return out
+
+
 def compute_keyword(df) -> dict:
     import feature_derivations as mc
 
@@ -186,13 +214,16 @@ def compute_keyword(df) -> dict:
     # Bounded by the genre vocabulary at 6 families x 18 genres, so it stays small
     # enough to ship in the snapshot -- which is not true of l2 (18x18) or l3 (~180x18).
     def cross_tab(level, row_name):
-        ex = lv[[level, "genres", "label"]].explode("genres").dropna(subset=["genres"])
+        cols = [level, "genres", "label"] + (["item_id"] if "item_id" in lv.columns else [])
+        ex = lv[cols].explode("genres").dropna(subset=["genres"])
         ex = ex.assign(clk=(ex["label"] >= 1).astype(int))
         g = (ex.groupby([level, "genres"])
                .agg(movie_impressions=("clk", "size"), query_clicks=("clk", "sum"))
                .reset_index()
                .rename(columns={level: row_name, "genres": "keyword"}))
         g["ctr"] = (g["query_clicks"] / g["movie_impressions"]).round(4)
+        z = _item_clustered_z(ex, level)
+        g["z"] = [z.get(key) for key in zip(g[row_name], g["keyword"])]
         return g.sort_values([row_name, "keyword"]).reset_index(drop=True)
 
     # Every level reads the primary genre as genres[0], so a source that sorts its lists

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Section, NaCard, BarChart, DataTable, MetricGrid, MetricCard, ChartGrid } from "./ui";
-import { heatDomain, heatScore } from "./heat-domain.mjs";
+import { heatDomain, heatScore, heatSignal, SIGNAL_Z, CHANCE_SHARE } from "./heat-domain.mjs";
 
 const num = (v, d = 4) => (v === null || v === undefined ? "N/A" : (Math.round(v * 10 ** d) / 10 ** d).toString());
 const share = (v) => (v === null || v === undefined ? "N/A" : `${(v * 100).toFixed(1)}%`);
@@ -20,6 +20,24 @@ function Select({ label, value, onChange, options }) {
         ))}
       </select>
     </label>
+  );
+}
+
+// How many of a grid's cells earned their colour, against how many would by chance. Silent for
+// a snapshot without z, which is shaded the old way and makes no such claim.
+function SignalNote({ rows }) {
+  const all = rows ?? [];
+  const tested = all.filter((r) => typeof r.z === "number");
+  const untestable = all.filter((r) => r.z === null).length;
+  if (!tested.length && !untestable) return null;
+  const high = tested.filter((r) => heatSignal(r.z) === "high").length;
+  const low = tested.filter((r) => heatSignal(r.z) === "low").length;
+  return (
+    <p className="fine-print">
+      {high + low} of {tested.length} testable cells differ from this grid&apos;s CTR (|z| ≥ {SIGNAL_Z}):
+      {" "}{high} above, {low} below. Nominally about {Math.round(CHANCE_SHARE * tested.length)} would
+      by chance alone.{untestable ? ` ${untestable} cells hold a single movie and cannot be tested.` : ""}
+    </p>
   );
 }
 
@@ -73,10 +91,16 @@ function RelevanceHeatmap({ rows, crossKey, crossLabel, domain, markDiagonal = f
                 }
                 const t = heatScore(cell.ctr, domain);
                 const forced = markDiagonal && crossValue === keyword;
+                const signal = heatSignal(cell.z);
+                const classes = ["num", "heat-cell", forced && "heat-forced",
+                  signal === "noise" && "heat-noise", signal === "low" && "heat-low"]
+                  .filter(Boolean).join(" ");
                 return (
-                  <td key={crossValue} className={forced ? "num heat-cell heat-forced" : "num heat-cell"}
+                  <td key={crossValue} className={classes}
                     style={{ "--token-score": t }}
-                    title={`${crossValue} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`}>
+                    title={`${crossValue} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`
+                      + (signal === "unknown" ? "" : cell.z === null ? " · one movie, untestable"
+                        : ` · z = ${num(cell.z, 2)}`)}>
                     {share(cell.ctr)}
                   </td>
                 );
@@ -234,9 +258,14 @@ export function KeywordSection({ data }) {
       <p className="fine-print">
         Colour spans CTR {share(domain[0])}–{share(domain[1])}, the 5th–95th percentile across both
         grids below; cells outside that range saturate. Each cell prints its own rate. Both grids
-        share one scale, so a shade means the same thing in either.
+        share one scale, so a shade means the same thing in either.{" "}Only cells whose CTR differs
+        from their grid&apos;s pooled rate by at least two standard errors are coloured — teal above
+        it, orange below, deeper the further out — and the rest sit on white with their rate still
+        printed. The standard error treats each movie as one unit, because a cell is a few movies
+        seen many times; counting impressions as independent would colour item-level noise.
       </p>
       <RelevanceHeatmap rows={data.grid} crossKey="category" crossLabel="category" domain={domain} />
+      <SignalNote rows={data.grid} />
 
       <h3 className="report-subtitle">Relevance by topic and keyword</h3>
       <p className="fine-print">
@@ -246,6 +275,7 @@ export function KeywordSection({ data }) {
       </p>
       <RelevanceHeatmap rows={data.topic_grid} crossKey="topic" crossLabel="topic" domain={domain}
         markDiagonal />
+      <SignalNote rows={data.topic_grid} />
 
       <h3 className="report-subtitle">Relevance by decade and keyword</h3>
       <p className="fine-print">
@@ -255,6 +285,7 @@ export function KeywordSection({ data }) {
       </p>
       <RelevanceHeatmap rows={data.decade_grid} crossKey="decade" crossLabel="decade"
         domain={domain} />
+      <SignalNote rows={data.decade_grid} />
 
       <h3 className="report-subtitle">Exposure and clicks by decade</h3>
       <DataTable rows={data.by_decade ?? []} compact

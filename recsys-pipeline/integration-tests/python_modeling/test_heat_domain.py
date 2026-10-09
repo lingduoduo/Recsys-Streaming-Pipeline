@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not i
 
 def run_js(body: str):
     """Import the real module in node and return whatever the snippet prints as JSON."""
-    script = f'import {{ percentile, heatDomain, heatScore }} from "{MODULE.as_uri()}";\n{body}'
+    script = f'import {{ percentile, heatDomain, heatScore, heatSignal }} from "{MODULE.as_uri()}";\n{body}'
     # timeout is not optional: without it a wedged node blocks the whole suite with no
     # diagnostic, which is indistinguishable from pytest hanging. Nothing else in this
     # suite waits on an external process, so this is the one place it could happen.
@@ -66,3 +66,15 @@ def test_heat_score_is_zero_for_a_degenerate_domain():
     """One distinct value everywhere must not divide by zero or render NaN."""
     assert run_js('console.log(JSON.stringify(heatScore(0.1, [0.1, 0.1])))') == 0
     assert run_js('console.log(JSON.stringify(heatScore(null, [0.1, 0.2])))') == 0
+
+
+def test_heat_signal_gates_on_two_standard_errors():
+    """Colour is earned at |z| >= 2, split by direction; a snapshot without z keeps its old shading."""
+    got = run_js(
+        'console.log(JSON.stringify([2.0, -2.5, 1.99, -1.0, null, undefined, NaN, "2"]'
+        '.map(heatSignal)));'
+    )
+    # High and low are separate so a low cell gets its own cue instead of the ramp's pale floor.
+    # null is a cell the exporter could not test (one movie): drawn neutral. undefined is a
+    # snapshot that predates z: shaded the old way.
+    assert got == ["high", "low", "noise", "noise", "noise", "unknown", "unknown", "unknown"]

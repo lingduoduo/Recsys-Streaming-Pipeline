@@ -46,8 +46,8 @@ export function heatSignal(z) { ... }
 ```
 
 - `|z| ≥ 2` → `"signal"`: the cell keeps its ramp shade, unchanged from today.
-- `|z| < 2` → `"noise"`: the cell gets a new `heat-noise` class — the neutral `--accent-soft`
-  background, CTR text still printed — so it reads as "consistent with this grid's rate".
+- `|z| < 2` → `"noise"`: the cell gets a new `heat-noise` class — the plain `--surface`
+  background (amended: `--accent-soft` is where the ramp starts, so it hid significantly low cells), CTR text still printed — so it reads as "consistent with this grid's rate".
 - `z` absent or not a finite number → `"unknown"`: shaded as today. A snapshot exported before
   this change keeps its old look instead of turning entirely grey, and nothing claims a test that
   was not run.
@@ -60,6 +60,27 @@ Each grid's caption reports its count, e.g. "45 of 237 cells differ from this gr
 (|z| ≥ 2); about 11 would by chance alone." The section's shared fine print explains the rule
 once, including the multiple-comparisons caveat: at this threshold roughly 1 in 22 cells is
 coloured by chance, which the per-grid expected count states rather than corrects for.
+
+## Amended after the final review
+
+Two findings changed the design; both were measured on the surviving run before acting.
+
+**The binomial SE is wrong here.** A cell is a handful of movies (median 4) repeated across many
+impressions, so impressions are not independent. Shuffling genres across items (no genre effect
+at all), the binomial z still flagged **~11 of 102** category cells at |z| ≥ 2 (range 6–17) — the
+"about 5 by chance" caption was off by more than 2×. `z` now uses an **item-clustered (sandwich)
+SE** over per-movie residuals, `var = Σ_i (clicks_i − p0·n_i)² / n² · m/(m−1)`. Under the same
+shuffle it flags **~0.8 of 102** (range 0–2), so the nominal caption errs conservative. A
+one-movie cell has no between-item variance: `z` is `null` and the cell is drawn neutral; the
+caption counts them as untestable. A *missing* `z` still means a pre-z snapshot (old shading).
+
+Real counts with the clustered SE: category 13 of 95 testable (6 above, 7 below; 7 untestable),
+topic 9 of 135 (102 untestable — most primary-genre × keyword pairs are one film), decade 4 of 87
+(chance level). The measurement table above is the binomial view and is kept as the motivation.
+
+**A one-hue ramp hides significant lows.** Its floor is nearly white, so the strongest low cells
+read as noise. `heatSignal` returns `high` / `low` / `noise` / `unknown`; low cells take the second
+series hue (`--series-1`), deeper as CTR falls; noise cells sit on plain `--surface`.
 
 ## Non-goals
 
