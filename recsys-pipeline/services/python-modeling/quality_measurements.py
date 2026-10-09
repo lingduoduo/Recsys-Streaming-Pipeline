@@ -218,18 +218,12 @@ def compute_diversity(
     if not slate_inputs:
         return unavailable("missing slate items")
 
-    popularities = [
-        popularity
-        for _, items in slate_inputs
-        for item in items
-        if (popularity := _numeric_item_value(item, "popularity")) is not None
-    ]
-    cutoff = float(pd.Series(popularities).quantile(long_tail_percentile)) if popularities else None
+    all_items = [item for _, items in slate_inputs for item in items]
+    cutoff = _distinct_item_cutoff(all_items, long_tail_percentile)
     slate_rows = [
         {"scope": "slate", "slate_id": slate_id, **_diversity_for_slate(items, cutoff)}
         for slate_id, items in slate_inputs
     ]
-    all_items = [item for _, items in slate_inputs for item in items]
     genre_coverage = _ratio(sum(bool(_genres(item)) for item in all_items), len(all_items))
     aggregate = {
         "scope": "aggregate",
@@ -238,7 +232,8 @@ def compute_diversity(
         "intra_list_genre_distance": _mean([entry["intra_list_genre_distance"] for entry in slate_rows]),
         "long_tail_exposure_share": _mean([entry["long_tail_exposure_share"] for entry in slate_rows]),
         "genre_coverage": genre_coverage,
-        "popularity_coverage": _ratio(len(popularities), len(all_items)),
+        "popularity_coverage": _ratio(
+            sum(_numeric_item_value(item, "popularity") is not None for item in all_items), len(all_items)),
         "long_tail_popularity_cutoff": _round(cutoff),
     }
     if not any(value is not None for key, value in aggregate.items() if key not in {"genre_coverage", "popularity_coverage", "scope"}):
@@ -249,6 +244,25 @@ def compute_diversity(
         len(slate_inputs),
         genre_coverage or 0.0,
     )
+
+
+def _item_key(item: Mapping[str, object], position: int) -> str:
+    """The item's id; an item without one counts as its own distinct item."""
+    return _string_value(item.get("item_id")) or f"#{position}"
+
+
+def _distinct_item_cutoff(items: list[Mapping[str, object]], percentile: float) -> float | None:
+    """Popularity quantile over distinct served items, each counted once.
+
+    Taken over exposures instead, the quantile puts ~percentile of exposures below it by
+    construction, so the long-tail share could not move whatever the recommender did.
+    """
+    first_seen: dict[str, float] = {}
+    for position, item in enumerate(items):
+        popularity = _numeric_item_value(item, "popularity")
+        if popularity is not None:
+            first_seen.setdefault(_item_key(item, position), popularity)
+    return float(pd.Series(list(first_seen.values())).quantile(percentile)) if first_seen else None
 
 
 def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:

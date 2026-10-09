@@ -412,3 +412,14 @@ def test_time_buckets_use_whole_second_widths_and_need_a_span():
     assert list(index) == [0, 0, 21, 22]
     assert _time_buckets(pd.Series([7, 7])) is None
     assert _time_buckets(pd.Series([], dtype=float)) is None
+
+
+def test_diversity_long_tail_cutoff_counts_each_item_once():
+    """An exposure-weighted quantile puts ~percentile of exposures below it by construction."""
+    items = ([{"item_id": "low", "popularity": 10.0}] * 8
+             + [{"item_id": "mid", "popularity": 50.0}, {"item_id": "high", "popularity": 100.0}])
+    row = compute_diversity(pd.DataFrame([{"request_id": "r1", "items": items}]))["rows"][0]
+
+    # Over exposures the cutoff would be 18.0 and the share 0.8; over distinct items it is 80.0.
+    assert row["long_tail_popularity_cutoff"] == 80.0
+    assert row["long_tail_exposure_share"] == 0.9
