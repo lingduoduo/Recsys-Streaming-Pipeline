@@ -201,6 +201,8 @@ def test_exporter_publishes_every_measurement_section(tmp_path, monkeypatch):
     assert scopes["freshness"] == ["offline", "live_service"]
     assert scopes["safety"] == ["offline", "live_service"]
     assert scopes["satisfaction"] == ["offline", "live_service"]
+    # The envelope keys beside rows survive the live merge, which spreads **offline.
+    assert {"series", "series_bucket_seconds", "rating_distribution"} <= set(output["satisfaction"])
     live_freshness = output["freshness"]["rows"][1]
     assert live_freshness["fresh_share"] == 0.4 and live_freshness["exposures"] == 50
     assert output["safety"]["rows"][1]["policy_version"] == "catalog-filter-v1"

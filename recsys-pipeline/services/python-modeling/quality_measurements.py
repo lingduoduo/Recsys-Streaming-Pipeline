@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from itertools import combinations
@@ -116,6 +117,7 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
     coverage = _ratio(len(clicked), total) or 0.0
     result = available("Observed user satisfaction", [row], total, coverage)
     result["series"], result["series_bucket_seconds"] = _satisfaction_series(samples)
+    result["rating_distribution"] = _rating_distribution(ratings)
     return result
 
 
@@ -146,6 +148,14 @@ def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]]
             "ratings": len(ratings),
         })
     return series, round(width, 1)
+
+
+def _rating_distribution(ratings: list[float]) -> list[dict[str, object]]:
+    """Half-point bins from the lowest observed through 4.5; a 5.0 falls in the 4.5 bin."""
+    if not ratings:
+        return []
+    halves = Counter(min(math.floor(r * 2), 9) for r in ratings)
+    return [{"rating": h / 2, "count": halves.get(h, 0)} for h in range(min(halves), 10)]
 
 
 def compute_freshness(

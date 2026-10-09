@@ -366,3 +366,19 @@ def test_satisfaction_series_is_empty_without_a_span(frame):
     result = compute_satisfaction(frame)
 
     assert result["series"] == [] and result["series_bucket_seconds"] is None
+
+
+def test_satisfaction_rating_distribution_keeps_empty_half_point_bins():
+    samples = pd.DataFrame([{"clicked": 1, "rating": r} for r in (3.0, 3.2, 4.9, 5.0)])
+
+    assert compute_satisfaction(samples)["rating_distribution"] == [
+        {"rating": 3.0, "count": 2}, {"rating": 3.5, "count": 0},
+        {"rating": 4.0, "count": 0}, {"rating": 4.5, "count": 2}]
+
+
+def test_satisfaction_without_ratings_has_no_distribution():
+    result = compute_satisfaction(pd.DataFrame([{"clicked": 1, "impression_ts": 1},
+                                                {"clicked": 0, "impression_ts": 2}]))
+
+    assert result["rating_distribution"] == []
+    assert all(b["mean_rating"] is None for b in result["series"])
