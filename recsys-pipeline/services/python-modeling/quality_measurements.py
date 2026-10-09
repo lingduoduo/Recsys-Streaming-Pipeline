@@ -12,6 +12,10 @@ import pandas as pd
 
 from measurement_contract import available, unavailable
 
+# The sim stamps events with wall-clock time, so a run spans minutes; a calendar bucket would be
+# one point. Equal-width buckets over the observed span work for a minute or a quarter.
+SERIES_BUCKETS = 24
+
 
 def dcg(labels: Sequence[float], k: int) -> float:
     """Return discounted cumulative gain for the first ``k`` graded labels."""
@@ -110,7 +114,38 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
         "rated_samples": len(ratings),
     }
     coverage = _ratio(len(clicked), total) or 0.0
-    return available("Observed user satisfaction", [row], total, coverage)
+    result = available("Observed user satisfaction", [row], total, coverage)
+    result["series"], result["series_bucket_seconds"] = _satisfaction_series(samples)
+    return result
+
+
+def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]], float | None]:
+    """Per-bucket engagement over the observed impression_ts span (epoch seconds)."""
+    if "impression_ts" not in samples:
+        return [], None
+    stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
+    timed = samples[stamps.notna()]
+    stamps = stamps[stamps.notna()]
+    if stamps.empty or stamps.max() <= stamps.min():
+        return [], None
+    start = float(stamps.min())
+    width = (float(stamps.max()) - start) / SERIES_BUCKETS
+    # Float division can put the maximum at exactly SERIES_BUCKETS; it belongs to the last bucket.
+    bucket = ((stamps - start) // width).clip(upper=SERIES_BUCKETS - 1).astype(int)
+    series = []
+    for index in range(SERIES_BUCKETS):
+        part = timed[(bucket == index).to_numpy()]
+        ratings = _numeric_column(part, "rating")
+        series.append({
+            "bucket_start": round(start + index * width, 1),
+            "impressions": len(part),
+            "users": _distinct(part, "user_id"),
+            "ctr": _mean(_numeric_column(part, "clicked")),
+            "order_rate": _mean(_numeric_column(part, "ordered")),
+            "mean_rating": _mean(ratings),
+            "ratings": len(ratings),
+        })
+    return series, round(width, 1)
 
 
 def compute_freshness(

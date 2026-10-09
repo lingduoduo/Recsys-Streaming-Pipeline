@@ -328,3 +328,41 @@ def test_satisfaction_population_is_none_not_zero_without_the_columns():
 
     assert row["users"] is None and row["items"] is None
     assert row["rated_samples"] == 0
+
+
+def test_satisfaction_series_buckets_the_observed_span():
+    result = compute_satisfaction(_timed_samples())
+    series = result["series"]
+
+    assert len(series) == 24 and result["series_bucket_seconds"] == 1.0
+    assert series[0] == {"bucket_start": 100.0, "impressions": 2, "users": 2, "ctr": 0.5,
+                         "order_rate": 0.5, "mean_rating": 4.0, "ratings": 1}
+    # A rated-free bucket has no mean rating -- not a mean of 0.
+    assert series[5] == {"bucket_start": 105.0, "impressions": 1, "users": 1, "ctr": 1.0,
+                         "order_rate": 0.0, "mean_rating": None, "ratings": 0}
+    # Empty buckets stay, so the x-axis is evenly spaced.
+    assert series[10] == {"bucket_start": 110.0, "impressions": 0, "users": 0, "ctr": None,
+                          "order_rate": None, "mean_rating": None, "ratings": 0}
+    # The maximum timestamp lands in the last bucket, not a 25th.
+    assert series[23]["impressions"] == 1 and series[23]["mean_rating"] == 5.0
+
+
+def test_satisfaction_series_skips_unparseable_timestamps_only():
+    samples = pd.concat([_timed_samples(), pd.DataFrame([
+        {"impression_ts": None, "user_id": "u9", "item_id": "i9", "clicked": 1, "ordered": 0},
+        {"impression_ts": "not-a-time", "user_id": "u9", "item_id": "i9", "clicked": 1, "ordered": 0},
+    ])], ignore_index=True)
+    result = compute_satisfaction(samples)
+
+    assert sum(b["impressions"] for b in result["series"]) == 4
+    assert result["rows"][0]["users"] == 4  # the summary still counts every sample
+
+
+@pytest.mark.parametrize("frame", [
+    pd.DataFrame([{"clicked": 1}, {"clicked": 0}]),
+    pd.DataFrame([{"clicked": 1, "impression_ts": 7}, {"clicked": 0, "impression_ts": 7}]),
+])
+def test_satisfaction_series_is_empty_without_a_span(frame):
+    result = compute_satisfaction(frame)
+
+    assert result["series"] == [] and result["series_bucket_seconds"] is None
