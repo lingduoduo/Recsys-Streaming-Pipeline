@@ -320,8 +320,9 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1378,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 414.6266,
-        "median_content_age_days": 414.9164,
+        "age_at_exposure_coverage": 1.0,
+        "mean_content_age_days": 414.56,
+        "median_content_age_days": 414.8494,
         "fresh_ctr": 0.1498,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1505,
@@ -329,7 +330,59 @@
         "fresh_mean_reward": null,
         "fresh_reward_coverage": 0.0,
         "established_mean_reward": null,
-        "established_reward_coverage": 0.0
+        "established_reward_coverage": 0.0,
+        "fresh_ctr_diff": -0.0007,
+        "fresh_ctr_diff_se": 0.0048,
+        "fresh_ctr_diff_z": -0.14,
+        "fresh_item_share": 0.135,
+        "fresh_exposure_lift": 1.0207
+      }
+    ],
+    "age_bands": [
+      {
+        "band": "0-7 d",
+        "exposures": 3020,
+        "exposure_share": 0.0361,
+        "items": 14,
+        "item_share": 0.035,
+        "ctr": 0.1517,
+        "z": 0.13
+      },
+      {
+        "band": "8-30 d",
+        "exposures": 8508,
+        "exposure_share": 0.1017,
+        "items": 40,
+        "item_share": 0.1,
+        "ctr": 0.1492,
+        "z": -0.24
+      },
+      {
+        "band": "31-90 d",
+        "exposures": 4494,
+        "exposure_share": 0.0537,
+        "items": 21,
+        "item_share": 0.0525,
+        "ctr": 0.1377,
+        "z": -2.24
+      },
+      {
+        "band": "91-365 d",
+        "exposures": 22131,
+        "exposure_share": 0.2646,
+        "items": 106,
+        "item_share": 0.265,
+        "ctr": 0.1567,
+        "z": 2.12
+      },
+      {
+        "band": "> 1 y",
+        "exposures": 45477,
+        "exposure_share": 0.5438,
+        "items": 219,
+        "item_share": 0.5475,
+        "ctr": 0.1487,
+        "z": -0.79
       }
     ]
   },

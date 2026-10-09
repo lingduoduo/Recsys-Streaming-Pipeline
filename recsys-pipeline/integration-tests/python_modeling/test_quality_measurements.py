@@ -561,3 +561,97 @@ def test_diversity_coverage_is_none_when_served_items_outnumber_the_catalog():
 
 def test_diversity_top_decile_needs_ten_items():
     assert compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]["top_decile_exposure_share"] is None
+
+
+_T0 = int(pd.Timestamp("2026-07-30", tz="UTC").timestamp())
+
+
+def _fresh_samples(ts=True):
+    # Ages at exposure: m1 7 d (fresh, 0-7 d), m2 30 d (fresh, 8-30 d), m3 31 d, m4 575 d.
+    rows = []
+    for item, published, clicks in (("m1", "2026-07-23", (1, 1)), ("m2", "2026-06-30", (0, 1)),
+                                    ("m3", "2026-06-29", (0, 0)), ("m4", "2025-01-01", (1, 0))):
+        for clicked in clicks:
+            rows.append({"item_id": item, "published_at": f"{published}T00:00:00Z", "clicked": clicked,
+                         **({"impression_ts": _T0} if ts else {})})
+    return pd.DataFrame(rows)
+
+
+def test_freshness_ages_at_exposure_not_export():
+    """Ageing against export time made a run exported 30 days later look entirely stale."""
+    first = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    later = compute_freshness(_fresh_samples(), datetime(2026, 9, 1, tzinfo=timezone.utc))
+
+    assert first["rows"] == later["rows"]
+    row = first["rows"][0]
+    assert (row["fresh_share"], row["median_content_age_days"], row["age_at_exposure_coverage"]) == (0.5, 30.5, 1.0)
+
+
+def test_freshness_falls_back_to_export_time_without_impression_ts():
+    now = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    assert compute_freshness(_fresh_samples(ts=False), now)["rows"][0]["age_at_exposure_coverage"] == 0.0
+    mixed = _fresh_samples().astype({"impression_ts": float})
+    mixed.loc[0, "impression_ts"] = float("nan")
+    assert compute_freshness(mixed, now)["rows"][0]["age_at_exposure_coverage"] == 0.875
+
+
+def test_freshness_ctr_gap_is_item_clustered():
+    row = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+
+    # Fresh 3/4 over m1, m2; established 1/4 over m3, m4. Each cohort's clustered SE is
+    # sqrt((0.5**2 + 0.5**2) / 4**2 * 2) = 0.25, so the gap's SE is 0.3536 and z = 0.5 / 0.3536.
+    assert (row["fresh_ctr_diff"], row["fresh_ctr_diff_se"], row["fresh_ctr_diff_z"]) == (0.5, 0.3536, 1.41)
+    no_ids = compute_freshness(_fresh_samples().drop(columns=["item_id"]), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    assert no_ids["rows"][0]["fresh_ctr_diff_z"] is None
+
+
+def test_freshness_compares_exposure_with_supply():
+    row = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+
+    # Two of four movies are fresh, and they take half the exposures: lift 1.0.
+    assert (row["fresh_item_share"], row["fresh_exposure_lift"]) == (0.5, 1.0)
+
+
+def test_freshness_age_bands_put_edges_inside_and_keep_empty_bands():
+    bands = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))["age_bands"]
+
+    assert [(b["band"], b["exposures"], b["items"]) for b in bands] == [
+        ("0-7 d", 2, 1), ("8-30 d", 2, 1), ("31-90 d", 2, 1), ("91-365 d", 0, 0), ("> 1 y", 2, 1)]
+    assert bands[3]["ctr"] is None and bands[0]["z"] is None  # empty band; one movie is untestable
+    boolean_only = compute_freshness(pd.DataFrame([{"new_release": True}]), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    assert boolean_only["age_bands"] == []
+
+
+def test_freshness_age_band_z_is_item_clustered_against_overall_ctr():
+    rows = []
+    for item, published, clicks in (("a", "2026-07-27", (1, 1)), ("b", "2026-07-26", (1, 0)),
+                                    ("c", "2025-06-01", (0, 0)), ("d", "2025-03-01", (0, 1))):
+        rows += [{"item_id": item, "published_at": f"{published}T00:00:00Z", "clicked": c, "impression_ts": _T0}
+                 for c in clicks]
+    result = compute_freshness(pd.DataFrame(rows), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    bands = {b["band"]: b for b in result["age_bands"]}
+
+    # p0 = 4/8. Residuals about p0: a 2 - 1, b 1 - 1 -> se 0.3536, z (0.75 - 0.5) / se.
+    assert bands["0-7 d"]["z"] == 0.71 and bands["> 1 y"]["z"] == -0.71
+
+
+def test_freshness_parses_published_at_strings_in_mixed_formats():
+    """Vectorised parsing guessed one format from the first row and dropped every other row."""
+    samples = pd.DataFrame([
+        {"published_at": "2026-07-23T00:00:00Z", "clicked": 1, "impression_ts": _T0},
+        {"published_at": "2026-06-01", "clicked": 0, "impression_ts": _T0},
+        {"published_at": "2026-07-01T00:00:00.5+02:00", "clicked": 0, "impression_ts": _T0},
+    ])
+
+    row = compute_freshness(samples, datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+    assert row["freshness_coverage"] == 1.0
+
+
+def test_freshness_treats_out_of_range_impression_ts_as_missing():
+    """Milliseconds (or garbage) must not crash the export: age falls back to `now` for that row."""
+    samples = _fresh_samples().astype({"impression_ts": float})
+    samples.loc[0, "impression_ts"] = _T0 * 1000.0
+    samples.loc[1, "impression_ts"] = 1e20
+
+    row = compute_freshness(samples, datetime(2026, 7, 30, tzinfo=timezone.utc))["rows"][0]
+    assert row["age_at_exposure_coverage"] == 0.75

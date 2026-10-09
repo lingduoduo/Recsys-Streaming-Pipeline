@@ -82,6 +82,16 @@ boolean fallback.
 - **Fine print**: ages are at exposure; supply is served movies; a CTR gap within two standard
   errors is noise.
 
+## Amended after the final review
+
+- `published_at` strings are parsed with `format="mixed"`: vectorised parsing otherwise guesses one
+  format from the first row and turns rows in any other format into NaT, silently dropping them.
+- An `impression_ts` outside `[0, 1e11)` (milliseconds, garbage) is treated as missing and aged
+  against `now`; converting it overflowed and failed the whole export.
+- The page says a band's z compares that band's movies with the overall rate, so movie mix can
+  drive it as easily as age, and that across five bands one |z| > 2 appears by chance about one run
+  in ten (a 300-run shuffle of `published_at` across movies: band z s.d. 0.68-0.97, gap z s.d. 0.96).
+
 ## Non-goals
 
 - No time series: freshness moves over days, the sim spans a minute.

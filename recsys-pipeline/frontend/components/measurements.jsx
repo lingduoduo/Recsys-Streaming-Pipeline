@@ -171,39 +171,76 @@ export function SatisfactionSection({ data }) {
 }
 
 export function FreshnessSection({ data }) {
+  const bands = data?.age_bands ?? [];
   return (
     <MeasurementSection
       title="Freshness"
       data={data}
       columns={[
-        "scope", "freshness_source", "fresh_share", "freshness_coverage",
-        "mean_content_age_days", "median_content_age_days", "fresh_ctr", "established_ctr",
-        "fresh_mean_reward", "established_mean_reward", "exposures",
+        "scope", "freshness_source", "fresh_share", "fresh_item_share", "fresh_exposure_lift",
+        "freshness_coverage", "age_at_exposure_coverage", "mean_content_age_days",
+        "median_content_age_days", "fresh_ctr", "established_ctr", "fresh_ctr_diff",
+        "fresh_ctr_diff_se", "fresh_ctr_diff_z", "fresh_mean_reward", "established_mean_reward",
+        "exposures",
       ]}
       kpis={(rows) => {
         const row = rows[0] || {};
+        const gap = row.fresh_ctr_diff;
         return [
-          { label: "fresh share", value: share(row.fresh_share) },
-          { label: "mean age (days)", value: num(row.mean_content_age_days, 1) },
-          { label: "fresh CTR", value: share(row.fresh_ctr) },
-          { label: "established CTR", value: share(row.established_ctr) },
+          { label: "fresh share", value: share(row.fresh_share),
+            detail: row.fresh_item_share == null ? "of exposures"
+              : `of exposures · ${share(row.fresh_item_share)} of served movies` },
+          { label: "exposure lift", value: num(row.fresh_exposure_lift, 2), detail: "fresh exposure ÷ fresh supply" },
+          { label: "median age at exposure",
+            value: row.median_content_age_days == null ? "N/A" : `${num(row.median_content_age_days, 0)} d` },
+          { label: "fresh − established CTR",
+            value: gap == null ? "N/A" : `${gap >= 0 ? "+" : ""}${(gap * 100).toFixed(2)} pp`,
+            detail: row.fresh_ctr_diff_z == null ? "no item ids to test" : `z = ${num(row.fresh_ctr_diff_z, 2)}` },
         ];
       }}
-      description="How much of what was shown is recent, and whether recency tracks engagement."
+      description="How much of what was shown is recent, against how much recent content was served, and whether recency tracks engagement."
       chart={(rows) => {
         const row = rows[0] || {};
+        const rewardObserved = (row.fresh_reward_coverage ?? 0) > 0 || (row.established_reward_coverage ?? 0) > 0;
         return (
           <ChartGrid>
-            <BarChart title="CTR by content age" percentage
+            {bands.length ? (
+              <>
+                <GroupedBarChart title="Exposure vs supply by content age" percentage
+                  labels={bands.map((b) => b.band)}
+                  series={[{ name: "share of exposures", values: bands.map((b) => b.exposure_share) },
+                           { name: "share of movies", values: bands.map((b) => b.item_share) }]} />
+                <BarChart title="CTR by content age" percentage
+                  labels={bands.map((b) => b.band)} values={bands.map((b) => b.ctr)} />
+              </>
+            ) : null}
+            <BarChart title="CTR: fresh vs established" percentage
               labels={["fresh", "established"]}
               values={[row.fresh_ctr, row.established_ctr]} />
-            <BarChart title="Mean reward by content age"
-              labels={["fresh", "established"]}
-              values={[row.fresh_mean_reward, row.established_mean_reward]} />
+            {rewardObserved ? (
+              <BarChart title="Mean reward by content age"
+                labels={["fresh", "established"]}
+                values={[row.fresh_mean_reward, row.established_mean_reward]} />
+            ) : null}
           </ChartGrid>
         );
       }}
-    />
+    >
+      {bands.length ? (
+        <DataTable rows={bands} compact
+          columns={["band", "exposures", "exposure_share", "items", "item_share", "ctr", "z"]}
+          formatters={{ exposures: count, exposure_share: share, items: count, item_share: share,
+                        ctr: share, z: (v) => num(v, 2) }} />
+      ) : null}
+      <p className="fine-print">
+        Content age is measured when the item was shown (impression_ts − published_at), so the
+        figures do not change with the export date. Supply is the distinct movies served; a lift
+        near 1 means recent movies got their share of exposure. A CTR gap within ±2 standard errors —
+        movies as the unit — is noise. A band&apos;s z compares that band&apos;s movies with the overall
+        rate, so movie mix (genre, say) can drive it as easily as age; across five bands, one |z| above
+        2 turns up by chance in about one run in ten.
+      </p>
+    </MeasurementSection>
   );
 }
 

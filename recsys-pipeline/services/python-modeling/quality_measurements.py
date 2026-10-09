@@ -18,6 +18,10 @@ from measurement_contract import available, unavailable
 # one point. Equal-width buckets over the observed span work for a minute or a quarter.
 SERIES_BUCKETS = 24
 
+# Content-age bands; the 8-30 d edge matches the default 30-day freshness window.
+AGE_BANDS = (("0-7 d", 0.0, 7.0), ("8-30 d", 7.0, 30.0), ("31-90 d", 30.0, 90.0),
+             ("91-365 d", 90.0, 365.0), ("> 1 y", 365.0, math.inf))
+
 
 def dcg(labels: Sequence[float], k: int) -> float:
     """Return discounted cumulative gain for the first ``k`` graded labels."""
@@ -194,11 +198,11 @@ def compute_freshness(
         return unavailable("freshness window must be non-negative")
 
     timestamped = _timestamp_observations(samples, now, window_days)
-    if timestamped:
+    if timestamped is not None and len(timestamped):
         return _freshness_result(timestamped, len(samples), "published_at")
 
     boolean_rows = _boolean_freshness_observations(samples)
-    if boolean_rows:
+    if boolean_rows is not None and len(boolean_rows):
         return _freshness_result(boolean_rows, len(samples), "boolean_new_release")
     return unavailable("missing published_at and new_release freshness signals")
 
@@ -407,70 +411,158 @@ def _leave_one_out_metrics(
     )
 
 
-def _freshness_result(
-    observations: list[tuple[bool, float | None, float | None, float | None]],
-    total: int,
-    source: str,
-) -> dict[str, object]:
-    fresh = [entry for entry in observations if entry[0]]
-    established = [entry for entry in observations if not entry[0]]
-    ages = [entry[1] for entry in observations if entry[1] is not None]
+def _freshness_result(obs: pd.DataFrame, total: int, source: str) -> dict[str, object]:
+    is_fresh = obs["fresh"].to_numpy(dtype=bool)
+    fresh, established = obs[is_fresh], obs[~is_fresh]
+    ages = [float(age) for age in obs["age"] if pd.notna(age)]
+
+    def observed(frame, name):
+        return [float(value) for value in frame[name] if value is not None and pd.notna(value)]
+
     row = {
         "freshness_source": source,
-        "fresh_share": _ratio(len(fresh), len(observations)),
-        "freshness_coverage": _ratio(len(observations), total),
+        "fresh_share": _ratio(len(fresh), len(obs)),
+        "freshness_coverage": _ratio(len(obs), total),
+        "age_at_exposure_coverage": (_ratio(int(obs["at_exposure"].sum()), len(obs))
+                                     if source == "published_at" else None),
         "mean_content_age_days": _mean(ages),
         "median_content_age_days": _median(ages),
-        "fresh_ctr": _mean([entry[2] for entry in fresh]),
-        "fresh_ctr_coverage": _ratio(sum(entry[2] is not None for entry in fresh), len(fresh)),
-        "established_ctr": _mean([entry[2] for entry in established]),
-        "established_ctr_coverage": _ratio(sum(entry[2] is not None for entry in established), len(established)),
-        "fresh_mean_reward": _mean([entry[3] for entry in fresh]),
-        "fresh_reward_coverage": _ratio(sum(entry[3] is not None for entry in fresh), len(fresh)),
-        "established_mean_reward": _mean([entry[3] for entry in established]),
-        "established_reward_coverage": _ratio(sum(entry[3] is not None for entry in established), len(established)),
+        "fresh_ctr": _mean(observed(fresh, "clicked")),
+        "fresh_ctr_coverage": _ratio(len(observed(fresh, "clicked")), len(fresh)),
+        "established_ctr": _mean(observed(established, "clicked")),
+        "established_ctr_coverage": _ratio(len(observed(established, "clicked")), len(established)),
+        "fresh_mean_reward": _mean(observed(fresh, "reward")),
+        "fresh_reward_coverage": _ratio(len(observed(fresh, "reward")), len(fresh)),
+        "established_mean_reward": _mean(observed(established, "reward")),
+        "established_reward_coverage": _ratio(len(observed(established, "reward")), len(established)),
+        **_fresh_ctr_gap(fresh, established),
+        **_fresh_supply(obs, _ratio(len(fresh), len(obs))),
     }
-    return available("Fresh-item exposure", [row], total, _ratio(len(observations), total) or 0.0)
+    result = available("Fresh-item exposure", [row], total, _ratio(len(obs), total) or 0.0)
+    result["age_bands"] = _age_bands(obs)
+    return result
 
 
-def _timestamp_observations(
-    samples: pd.DataFrame,
-    now: datetime,
-    window_days: int,
-) -> list[tuple[bool, float | None, float | None, float | None]]:
+def _clustered_mean(frame: pd.DataFrame, column: str, center: float | None = None) -> tuple[float, float] | None:
+    """Mean of a column and its SE with movies as clusters; None without two movies.
+
+    A cohort is a few dozen movies seen many times, so impressions are not independent. Residuals
+    are about `center` when given (a test against a reference rate), else about the mean.
+    """
+    rows = frame[[column, "item_id"]].dropna()
+    if rows["item_id"].nunique() < 2:
+        return None
+    values = rows[column].astype(float)
+    n, mean = len(values), float(values.mean())
+    per = values.groupby(rows["item_id"].to_numpy()).agg(["sum", "size"])
+    pivot = mean if center is None else center
+    k = len(per)
+    resid2 = float(((per["sum"] - pivot * per["size"]) ** 2).sum())
+    return mean, math.sqrt(resid2 / n ** 2 * k / (k - 1))
+
+
+def _fresh_ctr_gap(fresh: pd.DataFrame, established: pd.DataFrame) -> dict[str, object]:
+    """Fresh minus established CTR, with the uncertainty that says whether it is a difference."""
+    a, b = _clustered_mean(fresh, "clicked"), _clustered_mean(established, "clicked")
+    se = math.hypot(a[1], b[1]) if a and b else 0.0
+    if not se:
+        return {"fresh_ctr_diff": None, "fresh_ctr_diff_se": None, "fresh_ctr_diff_z": None}
+    diff = a[0] - b[0]
+    return {"fresh_ctr_diff": _round(diff), "fresh_ctr_diff_se": _round(se), "fresh_ctr_diff_z": round(diff / se, 2)}
+
+
+def _fresh_supply(obs: pd.DataFrame, fresh_share: float | None) -> dict[str, object]:
+    """Fresh share of the distinct movies served, and how much more exposure fresh ones got.
+
+    Age only grows, so a movie fresh at any exposure was fresh at its first.
+    """
+    identified = obs.dropna(subset=["item_id"])
+    if identified.empty:
+        return {"fresh_item_share": None, "fresh_exposure_lift": None}
+    fresh_movies = identified.groupby("item_id")["fresh"].any()
+    supply = _ratio(int(fresh_movies.sum()), len(fresh_movies))
+    return {"fresh_item_share": supply,
+            "fresh_exposure_lift": _round(fresh_share / supply) if fresh_share is not None and supply else None}
+
+
+def _age_bands(obs: pd.DataFrame) -> list[dict[str, object]]:
+    """Exposure, supply and CTR per content-age band; z against overall CTR, movies as clusters."""
+    aged = obs[obs["age"].notna().to_numpy()]
+    if aged.empty:
+        return []
+    clicks = [float(v) for v in aged["clicked"] if v is not None and pd.notna(v)]
+    p0 = sum(clicks) / len(clicks) if clicks else None
+    movies = aged["item_id"].dropna().nunique()
+    rows = []
+    for label, low, high in AGE_BANDS:
+        inside = ((aged["age"] >= low) if low == 0 else (aged["age"] > low)) & (aged["age"] <= high)
+        band = aged[inside.to_numpy()]
+        stats = _clustered_mean(band, "clicked", center=p0) if p0 is not None else None
+        items = int(band["item_id"].dropna().nunique())
+        rows.append({
+            "band": label,
+            "exposures": len(band),
+            "exposure_share": _ratio(len(band), len(aged)),
+            "items": items,
+            "item_share": _ratio(items, movies) if movies else None,
+            "ctr": _mean(float(v) for v in band["clicked"] if v is not None and pd.notna(v)),
+            "z": round((stats[0] - p0) / stats[1], 2) if stats and stats[1] else None,
+        })
+    return rows
+
+
+def _observation_frame(samples: pd.DataFrame, fresh, age, at_exposure) -> pd.DataFrame:
+    """One freshness observation per sample: cohort, age, outcomes and the movie it was."""
+    def column(name):
+        if name not in samples:
+            return [None] * len(samples)
+        return samples[name].map(_numeric_value).to_numpy(dtype=object)
+    return pd.DataFrame({
+        "fresh": np.asarray(fresh, dtype=object),
+        "age": np.asarray(age, dtype=float),
+        "clicked": column("clicked"),
+        "reward": column("reward"),
+        "item_id": (samples["item_id"].map(_string_value).to_numpy(dtype=object)
+                    if "item_id" in samples else [None] * len(samples)),
+        "at_exposure": np.asarray(at_exposure, dtype=bool),
+    })
+
+
+def _timestamp_observations(samples: pd.DataFrame, now: datetime, window_days: int) -> pd.DataFrame | None:
+    """Samples with a parseable published_at, aged at exposure wherever impression_ts exists.
+
+    Ageing against `now` made freshness depend on the export date: the same run exported 30 days
+    later had every item "age out" though it was fresh when shown. `now` is only the fallback.
+    """
     if "published_at" not in samples:
-        return []
+        return None
     now_timestamp = pd.Timestamp(now)
-    if now_timestamp.tzinfo is None:
-        now_timestamp = now_timestamp.tz_localize("UTC")
-    else:
-        now_timestamp = now_timestamp.tz_convert("UTC")
-    observations: list[tuple[bool, float | None, float | None, float | None]] = []
-    for _, sample in samples.iterrows():
-        published = pd.to_datetime(sample.get("published_at"), utc=True, errors="coerce")
-        if pd.isna(published):
-            continue
-        age_days = max(0.0, (now_timestamp - published).total_seconds() / 86_400)
-        observations.append((
-            age_days <= window_days,
-            age_days,
-            _numeric_value(sample.get("clicked")),
-            _numeric_value(sample.get("reward")),
-        ))
-    return observations
+    now_timestamp = (now_timestamp.tz_localize("UTC") if now_timestamp.tzinfo is None
+                     else now_timestamp.tz_convert("UTC"))
+    # format="mixed": without it pandas guesses one format from the first string and turns every
+    # row in another format into NaT, silently dropping it.
+    published = pd.to_datetime(samples["published_at"], utc=True, errors="coerce", format="mixed")
+    stamps = (pd.to_numeric(samples["impression_ts"], errors="coerce") if "impression_ts" in samples
+              else pd.Series(np.nan, index=samples.index))
+    # Epoch seconds by contract. Milliseconds or garbage would overflow the conversion and fail the
+    # whole export; such a row is aged against `now` instead, like a missing stamp.
+    plausible = np.isfinite(stamps) & (stamps >= 0) & (stamps < 1e11)
+    exposed = pd.to_datetime(stamps.where(plausible), unit="s", utc=True)
+    age = ((exposed.fillna(now_timestamp) - published).dt.total_seconds() / 86_400).clip(lower=0.0)
+    frame = _observation_frame(samples, fresh=(age <= window_days).to_numpy(), age=age.to_numpy(),
+                               at_exposure=exposed.notna().to_numpy())
+    return frame[published.notna().to_numpy()].reset_index(drop=True)
 
 
-def _boolean_freshness_observations(samples: pd.DataFrame) -> list[tuple[bool, None, float | None, float | None]]:
+def _boolean_freshness_observations(samples: pd.DataFrame) -> pd.DataFrame | None:
     if "new_release" not in samples:
-        return []
-    observations: list[tuple[bool, None, float | None, float | None]] = []
-    for _, sample in samples.iterrows():
-        value = sample.get("new_release")
-        fresh = _boolean_value(value)
-        if fresh is None:
-            continue
-        observations.append((fresh, None, _numeric_value(sample.get("clicked")), _numeric_value(sample.get("reward"))))
-    return observations
+        return None
+    fresh = samples["new_release"].map(_boolean_value)
+    frame = _observation_frame(samples, fresh=fresh.to_numpy(dtype=object), age=np.full(len(samples), np.nan),
+                               at_exposure=np.zeros(len(samples), dtype=bool))
+    frame = frame[fresh.notna().to_numpy()].reset_index(drop=True)
+    frame["fresh"] = frame["fresh"].astype(bool)
+    return frame
 
 
 def _diversity_for_slate(items: list[Mapping[str, object]], cutoff: float | None) -> dict[str, float | None]:
