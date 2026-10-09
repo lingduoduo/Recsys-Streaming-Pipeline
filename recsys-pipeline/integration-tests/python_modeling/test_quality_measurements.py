@@ -593,3 +593,13 @@ def test_freshness_falls_back_to_export_time_without_impression_ts():
     mixed = _fresh_samples().astype({"impression_ts": float})
     mixed.loc[0, "impression_ts"] = float("nan")
     assert compute_freshness(mixed, now)["rows"][0]["age_at_exposure_coverage"] == 0.875
+
+
+def test_freshness_ctr_gap_is_item_clustered():
+    row = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+
+    # Fresh 3/4 over m1, m2; established 1/4 over m3, m4. Each cohort's clustered SE is
+    # sqrt((0.5**2 + 0.5**2) / 4**2 * 2) = 0.25, so the gap's SE is 0.3536 and z = 0.5 / 0.3536.
+    assert (row["fresh_ctr_diff"], row["fresh_ctr_diff_se"], row["fresh_ctr_diff_z"]) == (0.5, 0.3536, 1.41)
+    no_ids = compute_freshness(_fresh_samples().drop(columns=["item_id"]), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    assert no_ids["rows"][0]["fresh_ctr_diff_z"] is None

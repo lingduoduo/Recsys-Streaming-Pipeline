@@ -431,8 +431,37 @@ def _freshness_result(obs: pd.DataFrame, total: int, source: str) -> dict[str, o
         "fresh_reward_coverage": _ratio(len(observed(fresh, "reward")), len(fresh)),
         "established_mean_reward": _mean(observed(established, "reward")),
         "established_reward_coverage": _ratio(len(observed(established, "reward")), len(established)),
+        **_fresh_ctr_gap(fresh, established),
     }
     return available("Fresh-item exposure", [row], total, _ratio(len(obs), total) or 0.0)
+
+
+def _clustered_mean(frame: pd.DataFrame, column: str, center: float | None = None) -> tuple[float, float] | None:
+    """Mean of a column and its SE with movies as clusters; None without two movies.
+
+    A cohort is a few dozen movies seen many times, so impressions are not independent. Residuals
+    are about `center` when given (a test against a reference rate), else about the mean.
+    """
+    rows = frame[[column, "item_id"]].dropna()
+    if rows["item_id"].nunique() < 2:
+        return None
+    values = rows[column].astype(float)
+    n, mean = len(values), float(values.mean())
+    per = values.groupby(rows["item_id"].to_numpy()).agg(["sum", "size"])
+    pivot = mean if center is None else center
+    k = len(per)
+    resid2 = float(((per["sum"] - pivot * per["size"]) ** 2).sum())
+    return mean, math.sqrt(resid2 / n ** 2 * k / (k - 1))
+
+
+def _fresh_ctr_gap(fresh: pd.DataFrame, established: pd.DataFrame) -> dict[str, object]:
+    """Fresh minus established CTR, with the uncertainty that says whether it is a difference."""
+    a, b = _clustered_mean(fresh, "clicked"), _clustered_mean(established, "clicked")
+    se = math.hypot(a[1], b[1]) if a and b else 0.0
+    if not se:
+        return {"fresh_ctr_diff": None, "fresh_ctr_diff_se": None, "fresh_ctr_diff_z": None}
+    diff = a[0] - b[0]
+    return {"fresh_ctr_diff": _round(diff), "fresh_ctr_diff_se": _round(se), "fresh_ctr_diff_z": round(diff / se, 2)}
 
 
 def _observation_frame(samples: pd.DataFrame, fresh, age, at_exposure) -> pd.DataFrame:
