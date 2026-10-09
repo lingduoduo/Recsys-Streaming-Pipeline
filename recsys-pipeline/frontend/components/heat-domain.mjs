@@ -41,3 +41,16 @@ export function heatScore(ctr, [lo, hi]) {
   if (typeof ctr !== "number" || !(hi > lo)) return 0;
   return Math.min(1, Math.max(0, (ctr - lo) / (hi - lo)));
 }
+
+// Whether a cell's colour is earned. A cell's CTR is compared with its own grid's pooled rate
+// (z, computed by the exporter); within two standard errors the difference is what sampling
+// alone produces, so the cell is drawn neutral. A snapshot exported before z existed has none,
+// and keeps its old shading rather than turning grey on a test that was never run.
+export const SIGNAL_Z = 2;
+// Two-sided share of cells at |z| >= 2 when nothing differs: the chance expectation.
+export const CHANCE_SHARE = 0.0455;
+
+export function heatSignal(z) {
+  if (typeof z !== "number" || !Number.isFinite(z)) return "unknown";
+  return Math.abs(z) >= SIGNAL_Z ? "signal" : "noise";
+}
