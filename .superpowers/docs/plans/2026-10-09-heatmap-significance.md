@@ -39,7 +39,7 @@
 **Interfaces:**
 - Produces: column `z: float | None` on `grid`, `topic_grid`, `decade_grid`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_compute_keyword_grid_cells_carry_z_against_the_grid_rate():
@@ -67,12 +67,12 @@ def test_compute_keyword_grid_z_is_none_without_variance():
     assert dash.compute_keyword(df)["grid"]["z"].isna().all()
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_analysis_dashboard.py -k "carry_z or without_variance"`
 Expected: FAIL with `KeyError: 'z'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `cross_tab`, after the `g["ctr"] = ...` line:
 
@@ -88,12 +88,12 @@ In `cross_tab`, after the `g["ctr"] = ...` line:
             g["z"] = None
 ```
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `python3 -m pytest -q`
 Expected: `636 passed, 2 skipped`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/analysis_dashboard_report.py recsys-pipeline/integration-tests/python_modeling/test_analysis_dashboard.py
@@ -109,7 +109,7 @@ git commit -m "feat(keyword): publish each heatmap cell's z against its grid's C
 **Interfaces:**
 - Produces: `SIGNAL_Z = 2`, `CHANCE_SHARE = 0.0455`, `heatSignal(z) -> "signal" | "noise" | "unknown"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `run_js`, change the import line to
 `import {{ percentile, heatDomain, heatScore, heatSignal }} from "{MODULE.as_uri()}";`, then append:
@@ -124,12 +124,12 @@ def test_heat_signal_gates_on_two_standard_errors():
     assert got == ["signal", "signal", "noise", "noise", "unknown", "unknown", "unknown", "unknown"]
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_heat_domain.py`
 Expected: FAIL — node's stderr reports `does not provide an export named 'heatSignal'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `heat-domain.mjs`:
 
@@ -148,12 +148,12 @@ export function heatSignal(z) {
 }
 ```
 
-- [ ] **Step 4: Run to verify**
+- [x] **Step 4: Run to verify**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_heat_domain.py && python3 -m pytest -q`
 Expected: file passes; suite `637 passed, 2 skipped`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/frontend/components/heat-domain.mjs recsys-pipeline/integration-tests/python_modeling/test_heat_domain.py
@@ -170,7 +170,7 @@ git commit -m "feat(dashboard): heatSignal gates heatmap colour on |z| >= 2"
 - Consumes: `heatSignal`, `SIGNAL_Z`, `CHANCE_SHARE` (Task 2); cell `z` (Task 1).
 - Produces: `SignalNote({ rows })`.
 
-- [ ] **Step 1: Import and classify**
+- [x] **Step 1: Import and classify**
 
 Change the import to `import { heatDomain, heatScore, heatSignal, SIGNAL_Z, CHANCE_SHARE } from "./heat-domain.mjs";`. In `RelevanceHeatmap`, replace the shaded-cell return with:
 
@@ -192,7 +192,7 @@ Change the import to `import { heatDomain, heatScore, heatSignal, SIGNAL_Z, CHAN
 
 Add `num` to the `./format` import if absent.
 
-- [ ] **Step 2: Add `SignalNote` above `RelevanceHeatmap`**
+- [x] **Step 2: Add `SignalNote` above `RelevanceHeatmap`**
 
 ```jsx
 // How many of a grid's cells earned their colour, against how many would by chance. Silent for
@@ -212,7 +212,7 @@ function SignalNote({ rows }) {
 
 and render `<SignalNote rows={data.grid} />`, `<SignalNote rows={data.topic_grid} />`, `<SignalNote rows={data.decade_grid} />` directly after the matching `<RelevanceHeatmap … />`.
 
-- [ ] **Step 3: Extend the shared fine print**
+- [x] **Step 3: Extend the shared fine print**
 
 Append to the paragraph that begins "Colour spans CTR":
 
@@ -222,7 +222,7 @@ Append to the paragraph that begins "Colour spans CTR":
         that threshold about 1 cell in 22 is shaded by chance, which each grid&apos;s count states.
 ```
 
-- [ ] **Step 4: CSS**
+- [x] **Step 4: CSS**
 
 After the `table.rpt.heat-grid td.heat-cell { … }` rule:
 
@@ -233,7 +233,7 @@ table.rpt.heat-grid td.heat-cell.heat-noise {
 }
 ```
 
-- [ ] **Step 5: Suite, then build on the current snapshot (no `z` yet)**
+- [x] **Step 5: Suite, then build on the current snapshot (no `z` yet)**
 
 ```bash
 python3 -m pytest -q
@@ -246,7 +246,7 @@ echo -n "shaded cells: "; grep -oE 'class="[^"]*heat-cell' "$f" | wc -l | tr -d 
 
 Expected: `637 passed, 2 skipped`; 0 noise cells; 0 notes; shaded cells = 102 + 237 + 90 = 429.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add recsys-pipeline/frontend/components/keyword-report.jsx recsys-pipeline/frontend/app/globals.css
@@ -260,7 +260,7 @@ git commit -m "feat(dashboard): heatmaps draw noise cells neutral and count the 
 
 Exporter only, against `/tmp/spark-recsys/movie-category-sim` with Redis up. If either is gone, stop and record that rather than re-simulating unasked.
 
-- [ ] **Step 1: Re-export and diff**
+- [x] **Step 1: Re-export and diff**
 
 ```bash
 cd recsys-pipeline
@@ -283,7 +283,7 @@ print('keyword unchanged apart from z:', strip(a['keyword'])==strip(b['keyword']
 
 Expected: `NaN` count 0; moved = `['keyword', 'freshness']` (freshness only in its two content-age fields); signal 30 / 45 / 18; keyword unchanged apart from z: True.
 
-- [ ] **Step 2: Build and inspect with real data**
+- [x] **Step 2: Build and inspect with real data**
 
 ```bash
 cd frontend && npm run build 2>&1 | grep -E 'Compiled|Failed|rror' | head -3
@@ -294,7 +294,7 @@ grep -oE '[0-9]+ of [0-9]+ cells differ[^<]*' "$f"
 
 Expected: noise cells = 72 + 192 + 72 = 336; three notes reading 30 of 102 / 45 of 237 / 18 of 90. Take a screenshot of the grids and inspect it.
 
-- [ ] **Step 3: Commit the snapshot alone, then the evidence**
+- [x] **Step 3: Commit the snapshot alone, then the evidence**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -307,7 +307,21 @@ Fill in Verification, tick the boxes, commit as `docs: record the heatmap-signif
 
 ## Verification
 
-- Suite: _(record)_
-- Build on the pre-z snapshot (Task 3): _(record)_
-- Re-export (Task 4): _(record)_
-- Real-data build (Task 4): _(record)_
+- **Suite:** `python3 -m pytest -q` → `637 passed, 2 skipped` (634 + 3 new).
+- **Build on the pre-z snapshot (Task 3):** `Compiled successfully`; 0 `heat-noise` cells, 0 count
+  notes, 429 shaded cells — an old snapshot keeps its old look.
+- **Re-export (Task 4):** 0 `NaN` in the JSON; moved `keyword` and `freshness` only (freshness in
+  its two content-age fields); keyword identical apart from the new `z`. Signal / noise: category
+  30 / 72, topic 45 / 192, decade 19 / 71. (The plan predicted 18 for decade from 4-dp CTRs; one
+  cell lands at |z| = 2.00 on the unrounded CTR.)
+- **Real-data build (Task 4):** 335 `heat-noise` cells; notes "30 of 102 … about 5", "45 of 237
+  … about 11", "19 of 90 … about 4". Screenshot inspected.
+
+### Observed after the fact
+
+- The screenshot showed noise cells on `--accent-soft` were indistinguishable from significantly
+  *low* cells, because the ramp starts at `--accent-soft`. Noise cells now use `var(--surface)`.
+- A one-hue sequential ramp still draws the most significantly low cells (War × Comedy 9.2%,
+  Action × SciFi&Fantasy 10.3%) with only a faint tint. A diverging ramp around the grid's rate
+  would make "significantly low" as visible as "significantly high"; left as a follow-up.
+- `z` is rounded to 2 dp before the inclusive threshold, so a true |z| of 1.995 counts as signal.

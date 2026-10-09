@@ -46,8 +46,8 @@ export function heatSignal(z) { ... }
 ```
 
 - `|z| ≥ 2` → `"signal"`: the cell keeps its ramp shade, unchanged from today.
-- `|z| < 2` → `"noise"`: the cell gets a new `heat-noise` class — the neutral `--accent-soft`
-  background, CTR text still printed — so it reads as "consistent with this grid's rate".
+- `|z| < 2` → `"noise"`: the cell gets a new `heat-noise` class — the plain `--surface`
+  background (amended: `--accent-soft` is where the ramp starts, so it hid significantly low cells), CTR text still printed — so it reads as "consistent with this grid's rate".
 - `z` absent or not a finite number → `"unknown"`: shaded as today. A snapshot exported before
   this change keeps its old look instead of turning entirely grey, and nothing claims a test that
   was not run.
