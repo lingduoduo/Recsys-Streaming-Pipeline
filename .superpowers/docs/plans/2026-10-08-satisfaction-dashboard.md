@@ -39,7 +39,7 @@
 **Interfaces:**
 - Produces: summary row keys `users: int | None`, `items: int | None`, `rated_samples: int`; helper `_distinct(samples, name) -> int | None`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test_quality_measurements.py`:
 
@@ -67,12 +67,12 @@ def test_satisfaction_population_is_none_not_zero_without_the_columns():
     assert row["rated_samples"] == 0
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k population`
 Expected: FAIL with `KeyError: 'users'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `compute_satisfaction`, add to `row` after `"completion_coverage"`:
 
@@ -90,12 +90,12 @@ def _distinct(samples: pd.DataFrame, name: str) -> int | None:
     return int(samples[name].dropna().nunique()) if name in samples else None
 ```
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/test_quality_measurements.py
@@ -112,7 +112,7 @@ git commit -m "feat(satisfaction): count the users, items and ratings behind the
 - Consumes: `_timed_samples()` from Task 1; `_distinct`, `_numeric_column`, `_mean`.
 - Produces: envelope keys `series: list[dict]` (keys `bucket_start, impressions, users, ctr, order_rate, mean_rating, ratings`) and `series_bucket_seconds: float | None`; constant `SERIES_BUCKETS = 24`; helper `_satisfaction_series(samples) -> tuple[list[dict], float | None]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_satisfaction_series_buckets_the_observed_span():
@@ -153,12 +153,12 @@ def test_satisfaction_series_is_empty_without_a_span(frame):
     assert result["series"] == [] and result["series_bucket_seconds"] is None
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k series`
 Expected: FAIL with `KeyError: 'series'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Near the top of `quality_measurements.py`, after the imports:
 
@@ -208,12 +208,12 @@ def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]]
     return series, round(width, 1)
 ```
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/test_quality_measurements.py
@@ -229,7 +229,7 @@ git commit -m "feat(satisfaction): engagement and rating over 24 buckets of the 
 **Interfaces:**
 - Produces: envelope key `rating_distribution: list[{"rating": float, "count": int}]`; helper `_rating_distribution(ratings: list[float]) -> list[dict]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test_quality_measurements.py`:
 
@@ -257,12 +257,12 @@ In `test_dashboard_measurement_contract.py`, directly after `assert scopes["sati
     assert {"series", "series_bucket_seconds", "rating_distribution"} <= set(output["satisfaction"])
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k distribution integration-tests/python_modeling/test_dashboard_measurement_contract.py -k every_measurement`
 Expected: FAIL with `KeyError: 'rating_distribution'` and the subset assertion.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `compute_satisfaction`, after the `series` line:
 
@@ -283,12 +283,12 @@ def _rating_distribution(ratings: list[float]) -> list[dict[str, object]]:
 
 and `from collections import Counter` beside the existing `collections.abc` import.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `python3 -m pytest -q`
 Expected: `619 passed, 2 skipped` (611 + 8 new test items; the parametrized test counts twice).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/
@@ -303,7 +303,7 @@ git commit -m "feat(satisfaction): publish the rating distribution in half-point
 **Interfaces:**
 - Produces: `LineChart({ title, labels: string[], series: {name, values: (number|null)[], notes?: string[]}[], percentage?, valueFormatter?, caption? })`; `duration(seconds: number) -> string` ("45 s", "6.2 min", "3.1 h", "2.0 d").
 
-- [ ] **Step 1: Add `duration` to `format.js`**
+- [x] **Step 1: Add `duration` to `format.js`**
 
 ```js
 // A span in seconds, in the largest unit that keeps it above 1.
@@ -316,7 +316,7 @@ export const duration = (s) => {
 };
 ```
 
-- [ ] **Step 2: Add `LineChart` to `ui.jsx`**
+- [x] **Step 2: Add `LineChart` to `ui.jsx`**
 
 ```jsx
 // Consecutive non-null indices, so a null breaks the line instead of dropping it to zero.
@@ -377,7 +377,7 @@ export function LineChart({ title, labels, series, percentage = false, valueForm
 }
 ```
 
-- [ ] **Step 3: Add the CSS**
+- [x] **Step 3: Add the CSS**
 
 ```css
 /* LineChart: y-axis labels in a narrow column beside a fluid SVG. */
@@ -403,12 +403,12 @@ export function LineChart({ title, labels, series, percentage = false, valueForm
 .line-chart circle.series-1 { fill: var(--series-1); }
 ```
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `cd recsys-pipeline/frontend && npm run build 2>&1 | grep -E 'Compiled|Failed|rror' | head -3`
 Expected: `Compiled successfully` (nothing uses `LineChart` yet; this proves it compiles).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/frontend/components/ui.jsx recsys-pipeline/frontend/components/format.js recsys-pipeline/frontend/app/globals.css
@@ -424,11 +424,11 @@ git commit -m "feat(dashboard): a dependency-free LineChart that gaps on null"
 - Consumes: `LineChart`, `duration` (Task 4); envelope keys from Tasks 1–3.
 - Produces: `MeasurementSection` calls `chart(rows, data)`.
 
-- [ ] **Step 1: Pass the envelope to the chart callback**
+- [x] **Step 1: Pass the envelope to the chart callback**
 
 In `MeasurementSection`, replace `{chart ? chart(rows) : null}` with `{chart ? chart(rows, data) : null}`. Add `LineChart` to the `./ui` import and `count, duration` to the `./format` import.
 
-- [ ] **Step 2: Rewrite `SatisfactionSection`'s `columns`, `kpis` and `chart`**
+- [x] **Step 2: Rewrite `SatisfactionSection`'s `columns`, `kpis` and `chart`**
 
 ```jsx
       columns={[
@@ -495,7 +495,7 @@ and the chart (keep the existing comment above `const fields`):
       }}
 ```
 
-- [ ] **Step 3: Add the caveats to the section's fine print**
+- [x] **Step 3: Add the caveats to the section's fine print**
 
 Append a second paragraph inside `SatisfactionSection`'s children:
 
@@ -507,12 +507,12 @@ Append a second paragraph inside `SatisfactionSection`'s children:
       </p>
 ```
 
-- [ ] **Step 4: Run the contract tests and the suite**
+- [x] **Step 4: Run the contract tests and the suite**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_dashboard_measurement_contract.py && python3 -m pytest -q`
 Expected: contract file passes (both regex tests); suite `619 passed, 2 skipped`.
 
-- [ ] **Step 5: Build and inspect the page against the current snapshot**
+- [x] **Step 5: Build and inspect the page against the current snapshot**
 
 The committed snapshot predates `series`, so this exercises the fallback (Review Focus 3).
 
@@ -524,7 +524,7 @@ echo -n "dwell in seconds (want 1): "; grep -oE '[0-9]+\.[0-9] s<' "$f" | head -
 echo -n "KPI cards (want 6): "; grep -o 'class="metric-card"' "$f" | wc -l | tr -d ' '
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add recsys-pipeline/frontend/components/measurements.jsx
@@ -538,7 +538,7 @@ git commit -m "feat(dashboard): satisfaction shows its population, trends and ra
 
 Read `project_simulation_harnesses` gotchas first: JDK 17 exported, ~25 minutes, Docker (Colima) up, read `$SIM_ROOT/parquet.log` if a drain sticks.
 
-- [ ] **Step 1: Run the sim (background)**
+- [x] **Step 1: Run the sim (background)**
 
 ```bash
 cd recsys-pipeline
@@ -549,7 +549,7 @@ tail -3 /tmp/claude-sim.log
 
 Expected last line: `==> done. ... dashboard snapshot at recsys-pipeline/frontend/data/dashboard.json`.
 
-- [ ] **Step 2: Verify the new keys and record the evidence**
+- [x] **Step 2: Verify the new keys and record the evidence**
 
 ```bash
 python3 -c "
@@ -561,7 +561,7 @@ print('dist',s['rating_distribution'])"
 
 Record the printed values under Verification below.
 
-- [ ] **Step 3: Build and inspect with real data**
+- [x] **Step 3: Build and inspect with real data**
 
 ```bash
 cd frontend && npm run build 2>&1 | grep -E 'Compiled|Failed|rror' | head -3
@@ -570,7 +570,7 @@ echo -n "line charts (want 3): "; grep -o 'chart-card line-chart' "$f" | wc -l |
 echo -n "fallback (want 0): "; grep -c 'time series unavailable' "$f" || true
 ```
 
-- [ ] **Step 4: Commit the snapshot alone, then the suite**
+- [x] **Step 4: Commit the snapshot alone, then the suite**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -582,7 +582,25 @@ cd recsys-pipeline && python3 -m pytest -q 2>&1 | tail -1
 
 ## Verification
 
-- Suite: _(record)_
-- Fallback build (Task 5): _(record)_
-- Sim run: users / items / rated / buckets × width / distribution: _(record)_
-- Real-data build (Task 6): _(record)_
+- **Suite:** `python3 -m pytest -q` → `619 passed, 2 skipped` after every task from Task 3 on (611 + 8 new items).
+- **Fallback build (Task 5, old snapshot without `series`):** `Compiled successfully`; one rendered
+  `<p class="na">` fallback (the grep's second hit is the RSC payload in the same HTML); 6 KPI cards;
+  dwell `69.9 s`; rating detail `n = N/A` (that snapshot predates `rated_samples`).
+- **Sim run (Task 6):** 83,630 samples; users 200, items 400, rated 2,825; 24 buckets × 2.8 s over a
+  66 s span; rating distribution 3.0:50 / 3.5:699 / 4.0:1,482 / 4.5:594.
+- **Real-data build (Task 6):** 3 `.line-chart` cards, 4 polylines (CTR, order rate, mean rating,
+  users), 0 fallbacks, 0 N/A charts; caption `24 × 2.8 s buckets over 1.1 min`; KPIs users=200
+  items=400 CTR=15.0% order rate=3.4% mean rating=4.17 (n = 2,825) dwell=69.9 s. Screenshot
+  inspected; no horizontal overflow at 390 px.
+- **Final review:** fresh reviewer, no Critical. Its Important (populated path never built) is
+  closed by the real-data build. Reviewer Minor 1 re-graded and fixed: an all-null LineChart now
+  says N/A instead of drawing an invented 0–1 axis (verified RED→GREEN with a throwaway
+  server render, since the repo has no JS test runner).
+
+### Observed after the fact
+
+Integer-second stamps against a 2.75 s bucket put 2 or 3 distinct seconds in each bucket, so the
+**count** series (impressions, active users) carry a sawtooth by construction: impressions per
+bucket range 1,265–4,790. CTR and mean rating are ratios and are unaffected. The fix is to align
+the width to whole seconds when stamps are integers (`width = ceil((span + 1) / 24)`, up to 24
+buckets), which changes the spec's fixed 24. Left as a follow-up.
