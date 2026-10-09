@@ -320,8 +320,8 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1378,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 414.6144,
-        "median_content_age_days": 414.9042,
+        "mean_content_age_days": 414.6198,
+        "median_content_age_days": 414.9096,
         "fresh_ctr": 0.1498,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1505,
@@ -2067,7 +2067,7 @@
         "movie_impressions": 5820,
         "query_clicks": 1033,
         "ctr": 0.1775,
-        "z": 5.56
+        "z": 3.95
       },
       {
         "category": "Action&Adventure",
@@ -2075,7 +2075,7 @@
         "movie_impressions": 3706,
         "query_clicks": 649,
         "ctr": 0.1751,
-        "z": 4.03
+        "z": 2.67
       },
       {
         "category": "Action&Adventure",
@@ -2083,7 +2083,7 @@
         "movie_impressions": 1463,
         "query_clicks": 249,
         "ctr": 0.1702,
-        "z": 2.01
+        "z": 1.39
       },
       {
         "category": "Action&Adventure",
@@ -2091,7 +2091,7 @@
         "movie_impressions": 980,
         "query_clicks": 144,
         "ctr": 0.1469,
-        "z": -0.39
+        "z": -0.21
       },
       {
         "category": "Action&Adventure",
@@ -2099,7 +2099,7 @@
         "movie_impressions": 1436,
         "query_clicks": 241,
         "ctr": 0.1678,
-        "z": 1.74
+        "z": 1.02
       },
       {
         "category": "Action&Adventure",
@@ -2107,7 +2107,7 @@
         "movie_impressions": 375,
         "query_clicks": 57,
         "ctr": 0.152,
-        "z": 0.03
+        "z": 0.02
       },
       {
         "category": "Action&Adventure",
@@ -2115,7 +2115,7 @@
         "movie_impressions": 1696,
         "query_clicks": 274,
         "ctr": 0.1616,
-        "z": 1.17
+        "z": 1.09
       },
       {
         "category": "Action&Adventure",
@@ -2123,7 +2123,7 @@
         "movie_impressions": 423,
         "query_clicks": 81,
         "ctr": 0.1915,
-        "z": 2.3
+        "z": 0.98
       },
       {
         "category": "Action&Adventure",
@@ -2131,7 +2131,7 @@
         "movie_impressions": 1061,
         "query_clicks": 174,
         "ctr": 0.164,
-        "z": 1.15
+        "z": 1.53
       },
       {
         "category": "Action&Adventure",
@@ -2139,7 +2139,7 @@
         "movie_impressions": 1246,
         "query_clicks": 201,
         "ctr": 0.1613,
-        "z": 0.98
+        "z": 0.9
       },
       {
         "category": "Action&Adventure",
@@ -2147,7 +2147,7 @@
         "movie_impressions": 1021,
         "query_clicks": 178,
         "ctr": 0.1743,
-        "z": 2.05
+        "z": 1.04
       },
       {
         "category": "Action&Adventure",
@@ -2155,7 +2155,7 @@
         "movie_impressions": 798,
         "query_clicks": 138,
         "ctr": 0.1729,
-        "z": 1.7
+        "z": 0.98
       },
       {
         "category": "Action&Adventure",
@@ -2163,7 +2163,7 @@
         "movie_impressions": 1730,
         "query_clicks": 260,
         "ctr": 0.1503,
-        "z": -0.13
+        "z": -0.15
       },
       {
         "category": "Action&Adventure",
@@ -2171,7 +2171,7 @@
         "movie_impressions": 1247,
         "query_clicks": 201,
         "ctr": 0.1612,
-        "z": 0.97
+        "z": 0.54
       },
       {
         "category": "Action&Adventure",
@@ -2179,7 +2179,7 @@
         "movie_impressions": 607,
         "query_clicks": 103,
         "ctr": 0.1697,
-        "z": 1.26
+        "z": 0.76
       },
       {
         "category": "Action&Adventure",
@@ -2187,7 +2187,7 @@
         "movie_impressions": 172,
         "query_clicks": 29,
         "ctr": 0.1686,
-        "z": 0.63
+        "z": null
       },
       {
         "category": "Action&Adventure",
@@ -2195,7 +2195,7 @@
         "movie_impressions": 4473,
         "query_clicks": 710,
         "ctr": 0.1587,
-        "z": 1.37
+        "z": 1.21
       },
       {
         "category": "Action&Adventure",
@@ -2203,7 +2203,7 @@
         "movie_impressions": 5081,
         "query_clicks": 776,
         "ctr": 0.1527,
-        "z": 0.27
+        "z": 0.23
       },
       {
         "category": "Comedy",
@@ -2211,7 +2211,7 @@
         "movie_impressions": 404,
         "query_clicks": 52,
         "ctr": 0.1287,
-        "z": -1.27
+        "z": -0.95
       },
       {
         "category": "Comedy",
@@ -2219,7 +2219,7 @@
         "movie_impressions": 438,
         "query_clicks": 61,
         "ctr": 0.1393,
-        "z": -0.71
+        "z": -0.96
       },
       {
         "category": "Comedy",
@@ -2227,7 +2227,7 @@
         "movie_impressions": 418,
         "query_clicks": 66,
         "ctr": 0.1579,
-        "z": 0.37
+        "z": 0.31
       },
       {
         "category": "Comedy",
@@ -2235,7 +2235,7 @@
         "movie_impressions": 4605,
         "query_clicks": 628,
         "ctr": 0.1364,
-        "z": -2.84
+        "z": -2.22
       },
       {
         "category": "Comedy",
@@ -2243,7 +2243,7 @@
         "movie_impressions": 4727,
         "query_clicks": 652,
         "ctr": 0.1379,
-        "z": -2.58
+        "z": -2.84
       },
       {
         "category": "Comedy",
@@ -2251,7 +2251,7 @@
         "movie_impressions": 397,
         "query_clicks": 73,
         "ctr": 0.1839,
-        "z": 1.81
+        "z": 0.98
       },
       {
         "category": "Comedy",
@@ -2259,7 +2259,7 @@
         "movie_impressions": 630,
         "query_clicks": 95,
         "ctr": 0.1508,
-        "z": -0.04
+        "z": -0.03
       },
       {
         "category": "Comedy",
@@ -2267,7 +2267,7 @@
         "movie_impressions": 206,
         "query_clicks": 26,
         "ctr": 0.1262,
-        "z": -1.01
+        "z": null
       },
       {
         "category": "Comedy",
@@ -2275,7 +2275,7 @@
         "movie_impressions": 649,
         "query_clicks": 91,
         "ctr": 0.1402,
-        "z": -0.79
+        "z": -1.27
       },
       {
         "category": "Comedy",
@@ -2283,7 +2283,7 @@
         "movie_impressions": 643,
         "query_clicks": 106,
         "ctr": 0.1649,
-        "z": 0.95
+        "z": 0.52
       },
       {
         "category": "Comedy",
@@ -2291,7 +2291,7 @@
         "movie_impressions": 636,
         "query_clicks": 82,
         "ctr": 0.1289,
-        "z": -1.58
+        "z": -1.37
       },
       {
         "category": "Comedy",
@@ -2299,7 +2299,7 @@
         "movie_impressions": 1016,
         "query_clicks": 148,
         "ctr": 0.1457,
-        "z": -0.51
+        "z": -0.56
       },
       {
         "category": "Comedy",
@@ -2307,7 +2307,7 @@
         "movie_impressions": 449,
         "query_clicks": 80,
         "ctr": 0.1782,
-        "z": 1.58
+        "z": 0.74
       },
       {
         "category": "Comedy",
@@ -2315,7 +2315,7 @@
         "movie_impressions": 610,
         "query_clicks": 88,
         "ctr": 0.1443,
-        "z": -0.49
+        "z": -0.41
       },
       {
         "category": "Comedy",
@@ -2323,7 +2323,7 @@
         "movie_impressions": 218,
         "query_clicks": 20,
         "ctr": 0.0917,
-        "z": -2.46
+        "z": null
       },
       {
         "category": "Comedy",
@@ -2331,7 +2331,7 @@
         "movie_impressions": 838,
         "query_clicks": 120,
         "ctr": 0.1432,
-        "z": -0.66
+        "z": -1.22
       },
       {
         "category": "Crime&Thriller",
@@ -2339,7 +2339,7 @@
         "movie_impressions": 1416,
         "query_clicks": 211,
         "ctr": 0.149,
-        "z": -0.25
+        "z": -0.36
       },
       {
         "category": "Crime&Thriller",
@@ -2347,7 +2347,7 @@
         "movie_impressions": 1058,
         "query_clicks": 162,
         "ctr": 0.1531,
-        "z": 0.16
+        "z": 0.1
       },
       {
         "category": "Crime&Thriller",
@@ -2355,7 +2355,7 @@
         "movie_impressions": 632,
         "query_clicks": 99,
         "ctr": 0.1566,
-        "z": 0.37
+        "z": 0.23
       },
       {
         "category": "Crime&Thriller",
@@ -2363,7 +2363,7 @@
         "movie_impressions": 602,
         "query_clicks": 95,
         "ctr": 0.1578,
-        "z": 0.44
+        "z": 0.64
       },
       {
         "category": "Crime&Thriller",
@@ -2371,7 +2371,7 @@
         "movie_impressions": 837,
         "query_clicks": 132,
         "ctr": 0.1577,
-        "z": 0.51
+        "z": 0.5
       },
       {
         "category": "Crime&Thriller",
@@ -2379,7 +2379,7 @@
         "movie_impressions": 5100,
         "query_clicks": 752,
         "ctr": 0.1475,
-        "z": -0.78
+        "z": -0.68
       },
       {
         "category": "Crime&Thriller",
@@ -2387,7 +2387,7 @@
         "movie_impressions": 1263,
         "query_clicks": 186,
         "ctr": 0.1473,
-        "z": -0.41
+        "z": -0.34
       },
       {
         "category": "Crime&Thriller",
@@ -2395,7 +2395,7 @@
         "movie_impressions": 2294,
         "query_clicks": 333,
         "ctr": 0.1452,
-        "z": -0.83
+        "z": -0.85
       },
       {
         "category": "Crime&Thriller",
@@ -2411,7 +2411,7 @@
         "movie_impressions": 4969,
         "query_clicks": 787,
         "ctr": 0.1584,
-        "z": 1.38
+        "z": 1.35
       },
       {
         "category": "Crime&Thriller",
@@ -2419,7 +2419,7 @@
         "movie_impressions": 6553,
         "query_clicks": 984,
         "ctr": 0.1502,
-        "z": -0.27
+        "z": -0.22
       },
       {
         "category": "Crime&Thriller",
@@ -2435,7 +2435,7 @@
         "movie_impressions": 5003,
         "query_clicks": 708,
         "ctr": 0.1415,
-        "z": -1.94
+        "z": -2.0
       },
       {
         "category": "Crime&Thriller",
@@ -2443,7 +2443,7 @@
         "movie_impressions": 1538,
         "query_clicks": 246,
         "ctr": 0.1599,
-        "z": 0.94
+        "z": 0.89
       },
       {
         "category": "Crime&Thriller",
@@ -2451,7 +2451,7 @@
         "movie_impressions": 847,
         "query_clicks": 143,
         "ctr": 0.1688,
-        "z": 1.42
+        "z": 0.87
       },
       {
         "category": "Crime&Thriller",
@@ -2459,7 +2459,7 @@
         "movie_impressions": 3964,
         "query_clicks": 586,
         "ctr": 0.1478,
-        "z": -0.62
+        "z": -0.79
       },
       {
         "category": "Crime&Thriller",
@@ -2467,7 +2467,7 @@
         "movie_impressions": 1276,
         "query_clicks": 168,
         "ctr": 0.1317,
-        "z": -1.96
+        "z": -1.36
       },
       {
         "category": "Crime&Thriller",
@@ -2475,7 +2475,7 @@
         "movie_impressions": 1472,
         "query_clicks": 200,
         "ctr": 0.1359,
-        "z": -1.66
+        "z": -1.4
       },
       {
         "category": "Drama&Romance",
@@ -2483,7 +2483,7 @@
         "movie_impressions": 406,
         "query_clicks": 54,
         "ctr": 0.133,
-        "z": -1.03
+        "z": -1.0
       },
       {
         "category": "Drama&Romance",
@@ -2491,7 +2491,7 @@
         "movie_impressions": 614,
         "query_clicks": 77,
         "ctr": 0.1254,
-        "z": -1.79
+        "z": -1.27
       },
       {
         "category": "Drama&Romance",
@@ -2499,7 +2499,7 @@
         "movie_impressions": 1447,
         "query_clicks": 187,
         "ctr": 0.1292,
-        "z": -2.35
+        "z": -1.62
       },
       {
         "category": "Drama&Romance",
@@ -2507,7 +2507,7 @@
         "movie_impressions": 880,
         "query_clicks": 123,
         "ctr": 0.1398,
-        "z": -0.96
+        "z": -0.73
       },
       {
         "category": "Drama&Romance",
@@ -2515,7 +2515,7 @@
         "movie_impressions": 594,
         "query_clicks": 74,
         "ctr": 0.1246,
-        "z": -1.82
+        "z": -1.19
       },
       {
         "category": "Drama&Romance",
@@ -2523,7 +2523,7 @@
         "movie_impressions": 1257,
         "query_clicks": 189,
         "ctr": 0.1504,
-        "z": -0.1
+        "z": -0.13
       },
       {
         "category": "Drama&Romance",
@@ -2531,7 +2531,7 @@
         "movie_impressions": 1041,
         "query_clicks": 146,
         "ctr": 0.1402,
-        "z": -1.0
+        "z": -0.86
       },
       {
         "category": "Drama&Romance",
@@ -2539,7 +2539,7 @@
         "movie_impressions": 6585,
         "query_clicks": 892,
         "ctr": 0.1355,
-        "z": -3.6
+        "z": -3.08
       },
       {
         "category": "Drama&Romance",
@@ -2547,7 +2547,7 @@
         "movie_impressions": 1386,
         "query_clicks": 193,
         "ctr": 0.1392,
-        "z": -1.26
+        "z": -1.3
       },
       {
         "category": "Drama&Romance",
@@ -2555,7 +2555,7 @@
         "movie_impressions": 1009,
         "query_clicks": 143,
         "ctr": 0.1417,
-        "z": -0.85
+        "z": -1.23
       },
       {
         "category": "Drama&Romance",
@@ -2563,7 +2563,7 @@
         "movie_impressions": 607,
         "query_clicks": 81,
         "ctr": 0.1334,
-        "z": -1.23
+        "z": -1.2
       },
       {
         "category": "Drama&Romance",
@@ -2571,7 +2571,7 @@
         "movie_impressions": 5384,
         "query_clicks": 724,
         "ctr": 0.1345,
-        "z": -3.46
+        "z": -3.0
       },
       {
         "category": "Drama&Romance",
@@ -2579,7 +2579,7 @@
         "movie_impressions": 838,
         "query_clicks": 116,
         "ctr": 0.1384,
-        "z": -1.05
+        "z": -1.12
       },
       {
         "category": "Drama&Romance",
@@ -2587,7 +2587,7 @@
         "movie_impressions": 5805,
         "query_clicks": 764,
         "ctr": 0.1316,
-        "z": -4.2
+        "z": -3.32
       },
       {
         "category": "Drama&Romance",
@@ -2595,7 +2595,7 @@
         "movie_impressions": 820,
         "query_clicks": 103,
         "ctr": 0.1256,
-        "z": -2.06
+        "z": -1.29
       },
       {
         "category": "Drama&Romance",
@@ -2603,7 +2603,7 @@
         "movie_impressions": 1260,
         "query_clicks": 167,
         "ctr": 0.1325,
-        "z": -1.86
+        "z": -1.76
       },
       {
         "category": "Drama&Romance",
@@ -2611,7 +2611,7 @@
         "movie_impressions": 1199,
         "query_clicks": 131,
         "ctr": 0.1093,
-        "z": -4.07
+        "z": -1.77
       },
       {
         "category": "Drama&Romance",
@@ -2619,7 +2619,7 @@
         "movie_impressions": 1686,
         "query_clicks": 243,
         "ctr": 0.1441,
-        "z": -0.83
+        "z": -0.86
       },
       {
         "category": "Other",
@@ -2627,7 +2627,7 @@
         "movie_impressions": 626,
         "query_clicks": 87,
         "ctr": 0.139,
-        "z": -0.86
+        "z": -1.31
       },
       {
         "category": "Other",
@@ -2635,7 +2635,7 @@
         "movie_impressions": 792,
         "query_clicks": 90,
         "ctr": 0.1136,
-        "z": -2.96
+        "z": -1.49
       },
       {
         "category": "Other",
@@ -2643,7 +2643,7 @@
         "movie_impressions": 449,
         "query_clicks": 49,
         "ctr": 0.1091,
-        "z": -2.5
+        "z": -0.97
       },
       {
         "category": "Other",
@@ -2651,7 +2651,7 @@
         "movie_impressions": 226,
         "query_clicks": 29,
         "ctr": 0.1283,
-        "z": -0.97
+        "z": null
       },
       {
         "category": "Other",
@@ -2659,7 +2659,7 @@
         "movie_impressions": 209,
         "query_clicks": 28,
         "ctr": 0.134,
-        "z": -0.7
+        "z": null
       },
       {
         "category": "Other",
@@ -2667,7 +2667,7 @@
         "movie_impressions": 6379,
         "query_clicks": 759,
         "ctr": 0.119,
-        "z": -7.22
+        "z": -4.5
       },
       {
         "category": "Other",
@@ -2675,7 +2675,7 @@
         "movie_impressions": 451,
         "query_clicks": 60,
         "ctr": 0.133,
-        "z": -1.09
+        "z": -0.81
       },
       {
         "category": "Other",
@@ -2683,7 +2683,7 @@
         "movie_impressions": 396,
         "query_clicks": 50,
         "ctr": 0.1263,
-        "z": -1.39
+        "z": -0.94
       },
       {
         "category": "Other",
@@ -2691,7 +2691,7 @@
         "movie_impressions": 228,
         "query_clicks": 32,
         "ctr": 0.1404,
-        "z": -0.46
+        "z": null
       },
       {
         "category": "Other",
@@ -2699,7 +2699,7 @@
         "movie_impressions": 431,
         "query_clicks": 53,
         "ctr": 0.123,
-        "z": -1.64
+        "z": -0.93
       },
       {
         "category": "Other",
@@ -2707,7 +2707,7 @@
         "movie_impressions": 603,
         "query_clicks": 71,
         "ctr": 0.1177,
-        "z": -2.3
+        "z": -1.06
       },
       {
         "category": "Other",
@@ -2715,7 +2715,7 @@
         "movie_impressions": 573,
         "query_clicks": 72,
         "ctr": 0.1257,
-        "z": -1.72
+        "z": -0.96
       },
       {
         "category": "Other",
@@ -2731,7 +2731,7 @@
         "movie_impressions": 199,
         "query_clicks": 27,
         "ctr": 0.1357,
-        "z": -0.62
+        "z": null
       },
       {
         "category": "SciFi&Fantasy",
@@ -2739,7 +2739,7 @@
         "movie_impressions": 448,
         "query_clicks": 46,
         "ctr": 0.1027,
-        "z": -2.88
+        "z": -0.94
       },
       {
         "category": "SciFi&Fantasy",
@@ -2747,7 +2747,7 @@
         "movie_impressions": 895,
         "query_clicks": 126,
         "ctr": 0.1408,
-        "z": -0.88
+        "z": -0.42
       },
       {
         "category": "SciFi&Fantasy",
@@ -2755,7 +2755,7 @@
         "movie_impressions": 5719,
         "query_clicks": 1014,
         "ctr": 0.1773,
-        "z": 5.47
+        "z": 3.45
       },
       {
         "category": "SciFi&Fantasy",
@@ -2763,7 +2763,7 @@
         "movie_impressions": 1121,
         "query_clicks": 203,
         "ctr": 0.1811,
-        "z": 2.78
+        "z": 1.79
       },
       {
         "category": "SciFi&Fantasy",
@@ -2771,7 +2771,7 @@
         "movie_impressions": 419,
         "query_clicks": 71,
         "ctr": 0.1695,
-        "z": 1.03
+        "z": 0.72
       },
       {
         "category": "SciFi&Fantasy",
@@ -2779,7 +2779,7 @@
         "movie_impressions": 1023,
         "query_clicks": 174,
         "ctr": 0.1701,
-        "z": 1.67
+        "z": 1.06
       },
       {
         "category": "SciFi&Fantasy",
@@ -2787,7 +2787,7 @@
         "movie_impressions": 1228,
         "query_clicks": 212,
         "ctr": 0.1726,
-        "z": 2.08
+        "z": 1.46
       },
       {
         "category": "SciFi&Fantasy",
@@ -2795,7 +2795,7 @@
         "movie_impressions": 869,
         "query_clicks": 129,
         "ctr": 0.1484,
-        "z": -0.24
+        "z": -0.29
       },
       {
         "category": "SciFi&Fantasy",
@@ -2803,7 +2803,7 @@
         "movie_impressions": 6492,
         "query_clicks": 1176,
         "ctr": 0.1811,
-        "z": 6.69
+        "z": 4.58
       },
       {
         "category": "SciFi&Fantasy",
@@ -2811,7 +2811,7 @@
         "movie_impressions": 1072,
         "query_clicks": 198,
         "ctr": 0.1847,
-        "z": 3.05
+        "z": 1.96
       },
       {
         "category": "SciFi&Fantasy",
@@ -2819,7 +2819,7 @@
         "movie_impressions": 831,
         "query_clicks": 146,
         "ctr": 0.1757,
-        "z": 1.96
+        "z": 0.88
       },
       {
         "category": "SciFi&Fantasy",
@@ -2827,7 +2827,7 @@
         "movie_impressions": 611,
         "query_clicks": 113,
         "ctr": 0.1849,
-        "z": 2.32
+        "z": 1.37
       },
       {
         "category": "SciFi&Fantasy",
@@ -2835,7 +2835,7 @@
         "movie_impressions": 434,
         "query_clicks": 81,
         "ctr": 0.1866,
-        "z": 2.05
+        "z": 0.94
       },
       {
         "category": "SciFi&Fantasy",
@@ -2843,7 +2843,7 @@
         "movie_impressions": 1310,
         "query_clicks": 252,
         "ctr": 0.1924,
-        "z": 4.14
+        "z": 2.04
       },
       {
         "category": "SciFi&Fantasy",
@@ -2851,7 +2851,7 @@
         "movie_impressions": 4727,
         "query_clicks": 776,
         "ctr": 0.1642,
-        "z": 2.45
+        "z": 1.8
       },
       {
         "category": "SciFi&Fantasy",
@@ -2859,7 +2859,7 @@
         "movie_impressions": 863,
         "query_clicks": 170,
         "ctr": 0.197,
-        "z": 3.74
+        "z": 1.64
       },
       {
         "category": "SciFi&Fantasy",
@@ -2867,7 +2867,7 @@
         "movie_impressions": 1275,
         "query_clicks": 245,
         "ctr": 0.1922,
-        "z": 4.06
+        "z": 2.04
       },
       {
         "category": "SciFi&Fantasy",
@@ -2875,7 +2875,7 @@
         "movie_impressions": 1049,
         "query_clicks": 181,
         "ctr": 0.1725,
-        "z": 1.91
+        "z": 1.54
       }
     ],
     "topic_grid": [
@@ -2885,7 +2885,7 @@
         "movie_impressions": 4947,
         "query_clicks": 889,
         "ctr": 0.1797,
-        "z": 5.56
+        "z": 3.91
       },
       {
         "topic": "Action",
@@ -2893,7 +2893,7 @@
         "movie_impressions": 203,
         "query_clicks": 36,
         "ctr": 0.1773,
-        "z": 1.03
+        "z": null
       },
       {
         "topic": "Action",
@@ -2901,7 +2901,7 @@
         "movie_impressions": 214,
         "query_clicks": 38,
         "ctr": 0.1776,
-        "z": 1.07
+        "z": null
       },
       {
         "topic": "Action",
@@ -2909,7 +2909,7 @@
         "movie_impressions": 204,
         "query_clicks": 44,
         "ctr": 0.2157,
-        "z": 2.56
+        "z": null
       },
       {
         "topic": "Action",
@@ -2917,7 +2917,7 @@
         "movie_impressions": 817,
         "query_clicks": 146,
         "ctr": 0.1787,
-        "z": 2.18
+        "z": 1.36
       },
       {
         "topic": "Action",
@@ -2925,7 +2925,7 @@
         "movie_impressions": 803,
         "query_clicks": 143,
         "ctr": 0.1781,
-        "z": 2.11
+        "z": 1.4
       },
       {
         "topic": "Action",
@@ -2933,7 +2933,7 @@
         "movie_impressions": 209,
         "query_clicks": 42,
         "ctr": 0.201,
-        "z": 2.0
+        "z": null
       },
       {
         "topic": "Action",
@@ -2941,7 +2941,7 @@
         "movie_impressions": 426,
         "query_clicks": 73,
         "ctr": 0.1714,
-        "z": 1.15
+        "z": 1.0
       },
       {
         "topic": "Action",
@@ -2949,7 +2949,7 @@
         "movie_impressions": 407,
         "query_clicks": 80,
         "ctr": 0.1966,
-        "z": 2.54
+        "z": 0.92
       },
       {
         "topic": "Action",
@@ -2957,7 +2957,7 @@
         "movie_impressions": 212,
         "query_clicks": 33,
         "ctr": 0.1557,
-        "z": 0.17
+        "z": null
       },
       {
         "topic": "Action",
@@ -2965,7 +2965,7 @@
         "movie_impressions": 238,
         "query_clicks": 42,
         "ctr": 0.1765,
-        "z": 1.08
+        "z": null
       },
       {
         "topic": "Action",
@@ -2973,7 +2973,7 @@
         "movie_impressions": 222,
         "query_clicks": 46,
         "ctr": 0.2072,
-        "z": 2.32
+        "z": null
       },
       {
         "topic": "Action",
@@ -2981,7 +2981,7 @@
         "movie_impressions": 369,
         "query_clicks": 70,
         "ctr": 0.1897,
-        "z": 2.05
+        "z": 0.87
       },
       {
         "topic": "Action",
@@ -2989,7 +2989,7 @@
         "movie_impressions": 172,
         "query_clicks": 29,
         "ctr": 0.1686,
-        "z": 0.63
+        "z": null
       },
       {
         "topic": "Action",
@@ -2997,7 +2997,7 @@
         "movie_impressions": 188,
         "query_clicks": 31,
         "ctr": 0.1649,
-        "z": 0.52
+        "z": null
       },
       {
         "topic": "Action",
@@ -3005,7 +3005,7 @@
         "movie_impressions": 597,
         "query_clicks": 110,
         "ctr": 0.1843,
-        "z": 2.24
+        "z": 1.19
       },
       {
         "topic": "Adventure",
@@ -3013,7 +3013,7 @@
         "movie_impressions": 424,
         "query_clicks": 67,
         "ctr": 0.158,
-        "z": 0.38
+        "z": 0.16
       },
       {
         "topic": "Adventure",
@@ -3021,7 +3021,7 @@
         "movie_impressions": 3503,
         "query_clicks": 613,
         "ctr": 0.175,
-        "z": 3.9
+        "z": 2.55
       },
       {
         "topic": "Adventure",
@@ -3029,7 +3029,7 @@
         "movie_impressions": 618,
         "query_clicks": 110,
         "ctr": 0.178,
-        "z": 1.85
+        "z": 1.38
       },
       {
         "topic": "Adventure",
@@ -3037,7 +3037,7 @@
         "movie_impressions": 382,
         "query_clicks": 51,
         "ctr": 0.1335,
-        "z": -0.97
+        "z": -0.57
       },
       {
         "topic": "Adventure",
@@ -3045,7 +3045,7 @@
         "movie_impressions": 181,
         "query_clicks": 34,
         "ctr": 0.1878,
-        "z": 1.37
+        "z": null
       },
       {
         "topic": "Adventure",
@@ -3053,7 +3053,7 @@
         "movie_impressions": 214,
         "query_clicks": 39,
         "ctr": 0.1822,
-        "z": 1.26
+        "z": null
       },
       {
         "topic": "Adventure",
@@ -3061,7 +3061,7 @@
         "movie_impressions": 432,
         "query_clicks": 72,
         "ctr": 0.1667,
-        "z": 0.89
+        "z": 1.0
       },
       {
         "topic": "Adventure",
@@ -3069,7 +3069,7 @@
         "movie_impressions": 224,
         "query_clicks": 41,
         "ctr": 0.183,
-        "z": 1.32
+        "z": null
       },
       {
         "topic": "Adventure",
@@ -3077,7 +3077,7 @@
         "movie_impressions": 421,
         "query_clicks": 69,
         "ctr": 0.1639,
-        "z": 0.72
+        "z": 0.26
       },
       {
         "topic": "Adventure",
@@ -3085,7 +3085,7 @@
         "movie_impressions": 208,
         "query_clicks": 44,
         "ctr": 0.2115,
-        "z": 2.42
+        "z": null
       },
       {
         "topic": "Adventure",
@@ -3093,7 +3093,7 @@
         "movie_impressions": 204,
         "query_clicks": 37,
         "ctr": 0.1814,
-        "z": 1.2
+        "z": null
       },
       {
         "topic": "Adventure",
@@ -3101,7 +3101,7 @@
         "movie_impressions": 200,
         "query_clicks": 34,
         "ctr": 0.17,
-        "z": 0.74
+        "z": null
       },
       {
         "topic": "Animation",
@@ -3109,7 +3109,7 @@
         "movie_impressions": 412,
         "query_clicks": 63,
         "ctr": 0.1529,
-        "z": 0.09
+        "z": 0.04
       },
       {
         "topic": "Animation",
@@ -3117,7 +3117,7 @@
         "movie_impressions": 4888,
         "query_clicks": 868,
         "ctr": 0.1776,
-        "z": 5.11
+        "z": 3.24
       },
       {
         "topic": "Animation",
@@ -3125,7 +3125,7 @@
         "movie_impressions": 444,
         "query_clicks": 76,
         "ctr": 0.1712,
-        "z": 1.16
+        "z": 0.81
       },
       {
         "topic": "Animation",
@@ -3133,7 +3133,7 @@
         "movie_impressions": 419,
         "query_clicks": 81,
         "ctr": 0.1933,
-        "z": 2.4
+        "z": 0.87
       },
       {
         "topic": "Animation",
@@ -3141,7 +3141,7 @@
         "movie_impressions": 453,
         "query_clicks": 60,
         "ctr": 0.1325,
-        "z": -1.12
+        "z": -1.0
       },
       {
         "topic": "Animation",
@@ -3149,7 +3149,7 @@
         "movie_impressions": 408,
         "query_clicks": 74,
         "ctr": 0.1814,
-        "z": 1.69
+        "z": 0.89
       },
       {
         "topic": "Animation",
@@ -3157,7 +3157,7 @@
         "movie_impressions": 462,
         "query_clicks": 83,
         "ctr": 0.1797,
-        "z": 1.7
+        "z": 0.95
       },
       {
         "topic": "Animation",
@@ -3165,7 +3165,7 @@
         "movie_impressions": 407,
         "query_clicks": 64,
         "ctr": 0.1572,
-        "z": 0.33
+        "z": 0.13
       },
       {
         "topic": "Animation",
@@ -3173,7 +3173,7 @@
         "movie_impressions": 429,
         "query_clicks": 78,
         "ctr": 0.1818,
-        "z": 1.76
+        "z": 0.95
       },
       {
         "topic": "Animation",
@@ -3181,7 +3181,7 @@
         "movie_impressions": 202,
         "query_clicks": 41,
         "ctr": 0.203,
-        "z": 2.05
+        "z": null
       },
       {
         "topic": "Animation",
@@ -3189,7 +3189,7 @@
         "movie_impressions": 240,
         "query_clicks": 45,
         "ctr": 0.1875,
-        "z": 1.56
+        "z": null
       },
       {
         "topic": "Animation",
@@ -3197,7 +3197,7 @@
         "movie_impressions": 411,
         "query_clicks": 71,
         "ctr": 0.1727,
-        "z": 1.21
+        "z": 0.77
       },
       {
         "topic": "Animation",
@@ -3205,7 +3205,7 @@
         "movie_impressions": 649,
         "query_clicks": 132,
         "ctr": 0.2034,
-        "z": 3.7
+        "z": 1.38
       },
       {
         "topic": "Animation",
@@ -3213,7 +3213,7 @@
         "movie_impressions": 208,
         "query_clicks": 39,
         "ctr": 0.1875,
-        "z": 1.45
+        "z": null
       },
       {
         "topic": "Animation",
@@ -3221,7 +3221,7 @@
         "movie_impressions": 211,
         "query_clicks": 40,
         "ctr": 0.1896,
-        "z": 1.55
+        "z": null
       },
       {
         "topic": "Children",
@@ -3229,7 +3229,7 @@
         "movie_impressions": 217,
         "query_clicks": 31,
         "ctr": 0.1429,
-        "z": -0.35
+        "z": null
       },
       {
         "topic": "Children",
@@ -3237,7 +3237,7 @@
         "movie_impressions": 4205,
         "query_clicks": 576,
         "ctr": 0.137,
-        "z": -2.6
+        "z": -1.98
       },
       {
         "topic": "Children",
@@ -3245,7 +3245,7 @@
         "movie_impressions": 440,
         "query_clicks": 64,
         "ctr": 0.1455,
-        "z": -0.35
+        "z": -0.64
       },
       {
         "topic": "Children",
@@ -3253,7 +3253,7 @@
         "movie_impressions": 197,
         "query_clicks": 35,
         "ctr": 0.1777,
-        "z": 1.03
+        "z": null
       },
       {
         "topic": "Children",
@@ -3261,7 +3261,7 @@
         "movie_impressions": 430,
         "query_clicks": 57,
         "ctr": 0.1326,
-        "z": -1.09
+        "z": -0.64
       },
       {
         "topic": "Children",
@@ -3269,7 +3269,7 @@
         "movie_impressions": 649,
         "query_clicks": 91,
         "ctr": 0.1402,
-        "z": -0.79
+        "z": -1.27
       },
       {
         "topic": "Children",
@@ -3277,7 +3277,7 @@
         "movie_impressions": 422,
         "query_clicks": 79,
         "ctr": 0.1872,
-        "z": 2.05
+        "z": 0.88
       },
       {
         "topic": "Children",
@@ -3285,7 +3285,7 @@
         "movie_impressions": 218,
         "query_clicks": 27,
         "ctr": 0.1239,
-        "z": -1.13
+        "z": null
       },
       {
         "topic": "Children",
@@ -3293,7 +3293,7 @@
         "movie_impressions": 223,
         "query_clicks": 34,
         "ctr": 0.1525,
-        "z": 0.05
+        "z": null
       },
       {
         "topic": "Children",
@@ -3301,7 +3301,7 @@
         "movie_impressions": 221,
         "query_clicks": 45,
         "ctr": 0.2036,
-        "z": 2.17
+        "z": null
       },
       {
         "topic": "Children",
@@ -3309,7 +3309,7 @@
         "movie_impressions": 197,
         "query_clicks": 35,
         "ctr": 0.1777,
-        "z": 1.03
+        "z": null
       },
       {
         "topic": "Children",
@@ -3317,7 +3317,7 @@
         "movie_impressions": 218,
         "query_clicks": 20,
         "ctr": 0.0917,
-        "z": -2.46
+        "z": null
       },
       {
         "topic": "Children",
@@ -3325,7 +3325,7 @@
         "movie_impressions": 645,
         "query_clicks": 93,
         "ctr": 0.1442,
-        "z": -0.51
+        "z": -0.87
       },
       {
         "topic": "Comedy",
@@ -3333,7 +3333,7 @@
         "movie_impressions": 404,
         "query_clicks": 52,
         "ctr": 0.1287,
-        "z": -1.27
+        "z": -0.95
       },
       {
         "topic": "Comedy",
@@ -3341,7 +3341,7 @@
         "movie_impressions": 221,
         "query_clicks": 30,
         "ctr": 0.1357,
-        "z": -0.65
+        "z": null
       },
       {
         "topic": "Comedy",
@@ -3349,7 +3349,7 @@
         "movie_impressions": 418,
         "query_clicks": 66,
         "ctr": 0.1579,
-        "z": 0.37
+        "z": 0.31
       },
       {
         "topic": "Comedy",
@@ -3357,7 +3357,7 @@
         "movie_impressions": 400,
         "query_clicks": 52,
         "ctr": 0.13,
-        "z": -1.19
+        "z": -1.0
       },
       {
         "topic": "Comedy",
@@ -3365,7 +3365,7 @@
         "movie_impressions": 4287,
         "query_clicks": 588,
         "ctr": 0.1372,
-        "z": -2.6
+        "z": -2.74
       },
       {
         "topic": "Comedy",
@@ -3373,7 +3373,7 @@
         "movie_impressions": 200,
         "query_clicks": 38,
         "ctr": 0.19,
-        "z": 1.52
+        "z": null
       },
       {
         "topic": "Comedy",
@@ -3381,7 +3381,7 @@
         "movie_impressions": 200,
         "query_clicks": 38,
         "ctr": 0.19,
-        "z": 1.52
+        "z": null
       },
       {
         "topic": "Comedy",
@@ -3389,7 +3389,7 @@
         "movie_impressions": 206,
         "query_clicks": 26,
         "ctr": 0.1262,
-        "z": -1.01
+        "z": null
       },
       {
         "topic": "Comedy",
@@ -3397,7 +3397,7 @@
         "movie_impressions": 221,
         "query_clicks": 27,
         "ctr": 0.1222,
-        "z": -1.21
+        "z": null
       },
       {
         "topic": "Comedy",
@@ -3405,7 +3405,7 @@
         "movie_impressions": 418,
         "query_clicks": 55,
         "ctr": 0.1316,
-        "z": -1.13
+        "z": -0.97
       },
       {
         "topic": "Comedy",
@@ -3413,7 +3413,7 @@
         "movie_impressions": 793,
         "query_clicks": 114,
         "ctr": 0.1438,
-        "z": -0.6
+        "z": -0.56
       },
       {
         "topic": "Comedy",
@@ -3421,7 +3421,7 @@
         "movie_impressions": 228,
         "query_clicks": 35,
         "ctr": 0.1535,
-        "z": 0.09
+        "z": null
       },
       {
         "topic": "Comedy",
@@ -3429,7 +3429,7 @@
         "movie_impressions": 413,
         "query_clicks": 53,
         "ctr": 0.1283,
-        "z": -1.31
+        "z": -0.96
       },
       {
         "topic": "Comedy",
@@ -3437,7 +3437,7 @@
         "movie_impressions": 193,
         "query_clicks": 27,
         "ctr": 0.1399,
-        "z": -0.44
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3453,7 +3453,7 @@
         "movie_impressions": 203,
         "query_clicks": 18,
         "ctr": 0.0887,
-        "z": -2.49
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3461,7 +3461,7 @@
         "movie_impressions": 218,
         "query_clicks": 43,
         "ctr": 0.1972,
-        "z": 1.89
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3469,7 +3469,7 @@
         "movie_impressions": 195,
         "query_clicks": 31,
         "ctr": 0.159,
-        "z": 0.3
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3477,7 +3477,7 @@
         "movie_impressions": 4427,
         "query_clicks": 661,
         "ctr": 0.1493,
-        "z": -0.38
+        "z": -0.33
       },
       {
         "topic": "Crime",
@@ -3485,7 +3485,7 @@
         "movie_impressions": 205,
         "query_clicks": 36,
         "ctr": 0.1756,
-        "z": 0.97
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3493,7 +3493,7 @@
         "movie_impressions": 864,
         "query_clicks": 138,
         "ctr": 0.1597,
-        "z": 0.69
+        "z": 1.04
       },
       {
         "topic": "Crime",
@@ -3501,7 +3501,7 @@
         "movie_impressions": 228,
         "query_clicks": 40,
         "ctr": 0.1754,
-        "z": 1.01
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3509,7 +3509,7 @@
         "movie_impressions": 436,
         "query_clicks": 64,
         "ctr": 0.1468,
-        "z": -0.27
+        "z": -0.15
       },
       {
         "topic": "Crime",
@@ -3517,7 +3517,7 @@
         "movie_impressions": 209,
         "query_clicks": 32,
         "ctr": 0.1531,
-        "z": 0.07
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3525,7 +3525,7 @@
         "movie_impressions": 196,
         "query_clicks": 27,
         "ctr": 0.1378,
-        "z": -0.53
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3533,7 +3533,7 @@
         "movie_impressions": 643,
         "query_clicks": 108,
         "ctr": 0.168,
-        "z": 1.17
+        "z": 0.8
       },
       {
         "topic": "Crime",
@@ -3541,7 +3541,7 @@
         "movie_impressions": 233,
         "query_clicks": 34,
         "ctr": 0.1459,
-        "z": -0.23
+        "z": null
       },
       {
         "topic": "Crime",
@@ -3549,7 +3549,7 @@
         "movie_impressions": 196,
         "query_clicks": 27,
         "ctr": 0.1378,
-        "z": -0.53
+        "z": null
       },
       {
         "topic": "Documentary",
@@ -3557,7 +3557,7 @@
         "movie_impressions": 626,
         "query_clicks": 87,
         "ctr": 0.139,
-        "z": -0.86
+        "z": -1.31
       },
       {
         "topic": "Documentary",
@@ -3565,7 +3565,7 @@
         "movie_impressions": 792,
         "query_clicks": 90,
         "ctr": 0.1136,
-        "z": -2.96
+        "z": -1.49
       },
       {
         "topic": "Documentary",
@@ -3573,7 +3573,7 @@
         "movie_impressions": 449,
         "query_clicks": 49,
         "ctr": 0.1091,
-        "z": -2.5
+        "z": -0.97
       },
       {
         "topic": "Documentary",
@@ -3581,7 +3581,7 @@
         "movie_impressions": 226,
         "query_clicks": 29,
         "ctr": 0.1283,
-        "z": -0.97
+        "z": null
       },
       {
         "topic": "Documentary",
@@ -3589,7 +3589,7 @@
         "movie_impressions": 209,
         "query_clicks": 28,
         "ctr": 0.134,
-        "z": -0.7
+        "z": null
       },
       {
         "topic": "Documentary",
@@ -3597,7 +3597,7 @@
         "movie_impressions": 6379,
         "query_clicks": 759,
         "ctr": 0.119,
-        "z": -7.22
+        "z": -4.5
       },
       {
         "topic": "Documentary",
@@ -3605,7 +3605,7 @@
         "movie_impressions": 451,
         "query_clicks": 60,
         "ctr": 0.133,
-        "z": -1.09
+        "z": -0.81
       },
       {
         "topic": "Documentary",
@@ -3613,7 +3613,7 @@
         "movie_impressions": 396,
         "query_clicks": 50,
         "ctr": 0.1263,
-        "z": -1.39
+        "z": -0.94
       },
       {
         "topic": "Documentary",
@@ -3621,7 +3621,7 @@
         "movie_impressions": 228,
         "query_clicks": 32,
         "ctr": 0.1404,
-        "z": -0.46
+        "z": null
       },
       {
         "topic": "Documentary",
@@ -3629,7 +3629,7 @@
         "movie_impressions": 431,
         "query_clicks": 53,
         "ctr": 0.123,
-        "z": -1.64
+        "z": -0.93
       },
       {
         "topic": "Documentary",
@@ -3637,7 +3637,7 @@
         "movie_impressions": 603,
         "query_clicks": 71,
         "ctr": 0.1177,
-        "z": -2.3
+        "z": -1.06
       },
       {
         "topic": "Documentary",
@@ -3645,7 +3645,7 @@
         "movie_impressions": 573,
         "query_clicks": 72,
         "ctr": 0.1257,
-        "z": -1.72
+        "z": -0.96
       },
       {
         "topic": "Documentary",
@@ -3661,7 +3661,7 @@
         "movie_impressions": 199,
         "query_clicks": 27,
         "ctr": 0.1357,
-        "z": -0.62
+        "z": null
       },
       {
         "topic": "Drama",
@@ -3669,7 +3669,7 @@
         "movie_impressions": 200,
         "query_clicks": 25,
         "ctr": 0.125,
-        "z": -1.04
+        "z": null
       },
       {
         "topic": "Drama",
@@ -3677,7 +3677,7 @@
         "movie_impressions": 405,
         "query_clicks": 45,
         "ctr": 0.1111,
-        "z": -2.26
+        "z": -0.92
       },
       {
         "topic": "Drama",
@@ -3685,7 +3685,7 @@
         "movie_impressions": 228,
         "query_clicks": 33,
         "ctr": 0.1447,
-        "z": -0.28
+        "z": null
       },
       {
         "topic": "Drama",
@@ -3693,7 +3693,7 @@
         "movie_impressions": 383,
         "query_clicks": 51,
         "ctr": 0.1332,
-        "z": -0.99
+        "z": -0.79
       },
       {
         "topic": "Drama",
@@ -3701,7 +3701,7 @@
         "movie_impressions": 205,
         "query_clicks": 32,
         "ctr": 0.1561,
-        "z": 0.19
+        "z": null
       },
       {
         "topic": "Drama",
@@ -3709,7 +3709,7 @@
         "movie_impressions": 420,
         "query_clicks": 53,
         "ctr": 0.1262,
-        "z": -1.44
+        "z": -0.64
       },
       {
         "topic": "Drama",
@@ -3717,7 +3717,7 @@
         "movie_impressions": 6157,
         "query_clicks": 831,
         "ctr": 0.135,
-        "z": -3.59
+        "z": -3.09
       },
       {
         "topic": "Drama",
@@ -3725,7 +3725,7 @@
         "movie_impressions": 386,
         "query_clicks": 64,
         "ctr": 0.1658,
-        "z": 0.79
+        "z": 0.86
       },
       {
         "topic": "Drama",
@@ -3733,7 +3733,7 @@
         "movie_impressions": 595,
         "query_clicks": 85,
         "ctr": 0.1429,
-        "z": -0.58
+        "z": -0.68
       },
       {
         "topic": "Drama",
@@ -3741,7 +3741,7 @@
         "movie_impressions": 393,
         "query_clicks": 49,
         "ctr": 0.1247,
-        "z": -1.48
+        "z": -1.0
       },
       {
         "topic": "Drama",
@@ -3749,7 +3749,7 @@
         "movie_impressions": 388,
         "query_clicks": 50,
         "ctr": 0.1289,
-        "z": -1.24
+        "z": -0.77
       },
       {
         "topic": "Drama",
@@ -3757,7 +3757,7 @@
         "movie_impressions": 196,
         "query_clicks": 24,
         "ctr": 0.1224,
-        "z": -1.13
+        "z": null
       },
       {
         "topic": "Drama",
@@ -3765,7 +3765,7 @@
         "movie_impressions": 193,
         "query_clicks": 24,
         "ctr": 0.1244,
-        "z": -1.05
+        "z": null
       },
       {
         "topic": "Drama",
@@ -3773,7 +3773,7 @@
         "movie_impressions": 417,
         "query_clicks": 57,
         "ctr": 0.1367,
-        "z": -0.84
+        "z": -0.89
       },
       {
         "topic": "Drama",
@@ -3781,7 +3781,7 @@
         "movie_impressions": 410,
         "query_clicks": 43,
         "ctr": 0.1049,
-        "z": -2.63
+        "z": -0.74
       },
       {
         "topic": "Drama",
@@ -3789,7 +3789,7 @@
         "movie_impressions": 829,
         "query_clicks": 117,
         "ctr": 0.1411,
-        "z": -0.82
+        "z": -0.87
       },
       {
         "topic": "Fantasy",
@@ -3797,7 +3797,7 @@
         "movie_impressions": 595,
         "query_clicks": 116,
         "ctr": 0.195,
-        "z": 2.97
+        "z": 1.36
       },
       {
         "topic": "Fantasy",
@@ -3805,7 +3805,7 @@
         "movie_impressions": 677,
         "query_clicks": 127,
         "ctr": 0.1876,
-        "z": 2.63
+        "z": 1.36
       },
       {
         "topic": "Fantasy",
@@ -3813,7 +3813,7 @@
         "movie_impressions": 217,
         "query_clicks": 33,
         "ctr": 0.1521,
-        "z": 0.03
+        "z": null
       },
       {
         "topic": "Fantasy",
@@ -3821,7 +3821,7 @@
         "movie_impressions": 613,
         "query_clicks": 111,
         "ctr": 0.1811,
-        "z": 2.05
+        "z": 1.2
       },
       {
         "topic": "Fantasy",
@@ -3829,7 +3829,7 @@
         "movie_impressions": 415,
         "query_clicks": 72,
         "ctr": 0.1735,
-        "z": 1.26
+        "z": 0.9
       },
       {
         "topic": "Fantasy",
@@ -3837,7 +3837,7 @@
         "movie_impressions": 215,
         "query_clicks": 35,
         "ctr": 0.1628,
-        "z": 0.47
+        "z": null
       },
       {
         "topic": "Fantasy",
@@ -3845,7 +3845,7 @@
         "movie_impressions": 5883,
         "query_clicks": 1068,
         "ctr": 0.1815,
-        "z": 6.46
+        "z": 4.33
       },
       {
         "topic": "Fantasy",
@@ -3853,7 +3853,7 @@
         "movie_impressions": 398,
         "query_clicks": 75,
         "ctr": 0.1884,
-        "z": 2.06
+        "z": 1.0
       },
       {
         "topic": "Fantasy",
@@ -3861,7 +3861,7 @@
         "movie_impressions": 202,
         "query_clicks": 45,
         "ctr": 0.2228,
-        "z": 2.83
+        "z": null
       },
       {
         "topic": "Fantasy",
@@ -3869,7 +3869,7 @@
         "movie_impressions": 182,
         "query_clicks": 35,
         "ctr": 0.1923,
-        "z": 1.54
+        "z": null
       },
       {
         "topic": "Fantasy",
@@ -3877,7 +3877,7 @@
         "movie_impressions": 847,
         "query_clicks": 157,
         "ctr": 0.1854,
-        "z": 2.76
+        "z": 1.62
       },
       {
         "topic": "Fantasy",
@@ -3885,7 +3885,7 @@
         "movie_impressions": 425,
         "query_clicks": 80,
         "ctr": 0.1882,
-        "z": 2.12
+        "z": 1.0
       },
       {
         "topic": "Fantasy",
@@ -3893,7 +3893,7 @@
         "movie_impressions": 214,
         "query_clicks": 38,
         "ctr": 0.1776,
-        "z": 1.07
+        "z": null
       },
       {
         "topic": "Fantasy",
@@ -3901,7 +3901,7 @@
         "movie_impressions": 840,
         "query_clicks": 170,
         "ctr": 0.2024,
-        "z": 4.13
+        "z": 1.69
       },
       {
         "topic": "Fantasy",
@@ -3909,7 +3909,7 @@
         "movie_impressions": 623,
         "query_clicks": 110,
         "ctr": 0.1766,
-        "z": 1.75
+        "z": 1.28
       },
       {
         "topic": "Film-Noir",
@@ -3917,7 +3917,7 @@
         "movie_impressions": 199,
         "query_clicks": 29,
         "ctr": 0.1457,
-        "z": -0.22
+        "z": null
       },
       {
         "topic": "Film-Noir",
@@ -3925,7 +3925,7 @@
         "movie_impressions": 221,
         "query_clicks": 42,
         "ctr": 0.19,
-        "z": 1.6
+        "z": null
       },
       {
         "topic": "Film-Noir",
@@ -3933,7 +3933,7 @@
         "movie_impressions": 202,
         "query_clicks": 30,
         "ctr": 0.1485,
-        "z": -0.11
+        "z": null
       },
       {
         "topic": "Film-Noir",
@@ -3941,7 +3941,7 @@
         "movie_impressions": 203,
         "query_clicks": 35,
         "ctr": 0.1724,
-        "z": 0.84
+        "z": null
       },
       {
         "topic": "Film-Noir",
@@ -3949,7 +3949,7 @@
         "movie_impressions": 422,
         "query_clicks": 63,
         "ctr": 0.1493,
-        "z": -0.12
+        "z": -0.76
       },
       {
         "topic": "Film-Noir",
@@ -3957,7 +3957,7 @@
         "movie_impressions": 445,
         "query_clicks": 61,
         "ctr": 0.1371,
-        "z": -0.84
+        "z": -0.64
       },
       {
         "topic": "Film-Noir",
@@ -3965,7 +3965,7 @@
         "movie_impressions": 209,
         "query_clicks": 23,
         "ctr": 0.11,
-        "z": -1.67
+        "z": null
       },
       {
         "topic": "Film-Noir",
@@ -3981,7 +3981,7 @@
         "movie_impressions": 4544,
         "query_clicks": 706,
         "ctr": 0.1554,
-        "z": 0.75
+        "z": 0.8
       },
       {
         "topic": "Film-Noir",
@@ -3989,7 +3989,7 @@
         "movie_impressions": 1243,
         "query_clicks": 202,
         "ctr": 0.1625,
-        "z": 1.1
+        "z": 1.03
       },
       {
         "topic": "Film-Noir",
@@ -3997,7 +3997,7 @@
         "movie_impressions": 415,
         "query_clicks": 55,
         "ctr": 0.1325,
-        "z": -1.07
+        "z": -0.78
       },
       {
         "topic": "Film-Noir",
@@ -4005,7 +4005,7 @@
         "movie_impressions": 402,
         "query_clicks": 64,
         "ctr": 0.1592,
-        "z": 0.44
+        "z": 0.5
       },
       {
         "topic": "Film-Noir",
@@ -4013,7 +4013,7 @@
         "movie_impressions": 227,
         "query_clicks": 35,
         "ctr": 0.1542,
-        "z": 0.12
+        "z": null
       },
       {
         "topic": "Film-Noir",
@@ -4021,7 +4021,7 @@
         "movie_impressions": 418,
         "query_clicks": 70,
         "ctr": 0.1675,
-        "z": 0.92
+        "z": 0.45
       },
       {
         "topic": "Film-Noir",
@@ -4029,7 +4029,7 @@
         "movie_impressions": 212,
         "query_clicks": 28,
         "ctr": 0.1321,
-        "z": -0.78
+        "z": null
       },
       {
         "topic": "Horror",
@@ -4037,7 +4037,7 @@
         "movie_impressions": 212,
         "query_clicks": 34,
         "ctr": 0.1604,
-        "z": 0.37
+        "z": null
       },
       {
         "topic": "Horror",
@@ -4045,7 +4045,7 @@
         "movie_impressions": 251,
         "query_clicks": 28,
         "ctr": 0.1116,
-        "z": -1.76
+        "z": null
       },
       {
         "topic": "Horror",
@@ -4053,7 +4053,7 @@
         "movie_impressions": 195,
         "query_clicks": 23,
         "ctr": 0.1179,
-        "z": -1.3
+        "z": null
       },
       {
         "topic": "Horror",
@@ -4061,7 +4061,7 @@
         "movie_impressions": 195,
         "query_clicks": 23,
         "ctr": 0.1179,
-        "z": -1.3
+        "z": null
       },
       {
         "topic": "Horror",
@@ -4069,7 +4069,7 @@
         "movie_impressions": 425,
         "query_clicks": 81,
         "ctr": 0.1906,
-        "z": 2.26
+        "z": 0.98
       },
       {
         "topic": "Horror",
@@ -4077,7 +4077,7 @@
         "movie_impressions": 4461,
         "query_clicks": 662,
         "ctr": 0.1484,
-        "z": -0.55
+        "z": -0.4
       },
       {
         "topic": "Horror",
@@ -4085,7 +4085,7 @@
         "movie_impressions": 673,
         "query_clicks": 89,
         "ctr": 0.1322,
-        "z": -1.38
+        "z": -1.0
       },
       {
         "topic": "Horror",
@@ -4093,7 +4093,7 @@
         "movie_impressions": 218,
         "query_clicks": 43,
         "ctr": 0.1972,
-        "z": 1.89
+        "z": null
       },
       {
         "topic": "Horror",
@@ -4101,7 +4101,7 @@
         "movie_impressions": 425,
         "query_clicks": 60,
         "ctr": 0.1412,
-        "z": -0.59
+        "z": -0.66
       },
       {
         "topic": "Horror",
@@ -4109,7 +4109,7 @@
         "movie_impressions": 405,
         "query_clicks": 59,
         "ctr": 0.1457,
-        "z": -0.32
+        "z": -0.15
       },
       {
         "topic": "Horror",
@@ -4117,7 +4117,7 @@
         "movie_impressions": 222,
         "query_clicks": 29,
         "ctr": 0.1306,
-        "z": -0.86
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4125,7 +4125,7 @@
         "movie_impressions": 415,
         "query_clicks": 61,
         "ctr": 0.147,
-        "z": -0.25
+        "z": -0.29
       },
       {
         "topic": "Musical",
@@ -4133,7 +4133,7 @@
         "movie_impressions": 211,
         "query_clicks": 23,
         "ctr": 0.109,
-        "z": -1.72
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4141,7 +4141,7 @@
         "movie_impressions": 824,
         "query_clicks": 117,
         "ctr": 0.142,
-        "z": -0.75
+        "z": -1.01
       },
       {
         "topic": "Musical",
@@ -4149,7 +4149,7 @@
         "movie_impressions": 221,
         "query_clicks": 38,
         "ctr": 0.1719,
-        "z": 0.85
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4157,7 +4157,7 @@
         "movie_impressions": 182,
         "query_clicks": 25,
         "ctr": 0.1374,
-        "z": -0.53
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4165,7 +4165,7 @@
         "movie_impressions": 414,
         "query_clicks": 58,
         "ctr": 0.1401,
-        "z": -0.64
+        "z": -0.9
       },
       {
         "topic": "Musical",
@@ -4173,7 +4173,7 @@
         "movie_impressions": 4996,
         "query_clicks": 674,
         "ctr": 0.1349,
-        "z": -3.25
+        "z": -2.81
       },
       {
         "topic": "Musical",
@@ -4181,7 +4181,7 @@
         "movie_impressions": 642,
         "query_clicks": 92,
         "ctr": 0.1433,
-        "z": -0.57
+        "z": -0.69
       },
       {
         "topic": "Musical",
@@ -4189,7 +4189,7 @@
         "movie_impressions": 192,
         "query_clicks": 20,
         "ctr": 0.1042,
-        "z": -1.82
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4197,7 +4197,7 @@
         "movie_impressions": 398,
         "query_clicks": 53,
         "ctr": 0.1332,
-        "z": -1.01
+        "z": -1.0
       },
       {
         "topic": "Musical",
@@ -4205,7 +4205,7 @@
         "movie_impressions": 208,
         "query_clicks": 28,
         "ctr": 0.1346,
-        "z": -0.67
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4213,7 +4213,7 @@
         "movie_impressions": 200,
         "query_clicks": 27,
         "ctr": 0.135,
-        "z": -0.65
+        "z": null
       },
       {
         "topic": "Musical",
@@ -4221,7 +4221,7 @@
         "movie_impressions": 638,
         "query_clicks": 91,
         "ctr": 0.1426,
-        "z": -0.62
+        "z": -0.45
       },
       {
         "topic": "Mystery",
@@ -4229,7 +4229,7 @@
         "movie_impressions": 390,
         "query_clicks": 52,
         "ctr": 0.1333,
-        "z": -0.99
+        "z": -0.77
       },
       {
         "topic": "Mystery",
@@ -4237,7 +4237,7 @@
         "movie_impressions": 634,
         "query_clicks": 102,
         "ctr": 0.1609,
-        "z": 0.67
+        "z": 1.0
       },
       {
         "topic": "Mystery",
@@ -4245,7 +4245,7 @@
         "movie_impressions": 212,
         "query_clicks": 26,
         "ctr": 0.1226,
-        "z": -1.17
+        "z": null
       },
       {
         "topic": "Mystery",
@@ -4253,7 +4253,7 @@
         "movie_impressions": 412,
         "query_clicks": 72,
         "ctr": 0.1748,
-        "z": 1.32
+        "z": 0.98
       },
       {
         "topic": "Mystery",
@@ -4261,7 +4261,7 @@
         "movie_impressions": 406,
         "query_clicks": 62,
         "ctr": 0.1527,
-        "z": 0.08
+        "z": 0.05
       },
       {
         "topic": "Mystery",
@@ -4269,7 +4269,7 @@
         "movie_impressions": 413,
         "query_clicks": 56,
         "ctr": 0.1356,
-        "z": -0.89
+        "z": -0.87
       },
       {
         "topic": "Mystery",
@@ -4285,7 +4285,7 @@
         "movie_impressions": 638,
         "query_clicks": 75,
         "ctr": 0.1176,
-        "z": -2.38
+        "z": -1.39
       },
       {
         "topic": "Mystery",
@@ -4293,7 +4293,7 @@
         "movie_impressions": 424,
         "query_clicks": 47,
         "ctr": 0.1108,
-        "z": -2.33
+        "z": -1.0
       },
       {
         "topic": "Romance",
@@ -4301,7 +4301,7 @@
         "movie_impressions": 406,
         "query_clicks": 54,
         "ctr": 0.133,
-        "z": -1.03
+        "z": -1.0
       },
       {
         "topic": "Romance",
@@ -4309,7 +4309,7 @@
         "movie_impressions": 414,
         "query_clicks": 52,
         "ctr": 0.1256,
-        "z": -1.46
+        "z": -0.86
       },
       {
         "topic": "Romance",
@@ -4317,7 +4317,7 @@
         "movie_impressions": 627,
         "query_clicks": 81,
         "ctr": 0.1292,
-        "z": -1.55
+        "z": -0.91
       },
       {
         "topic": "Romance",
@@ -4325,7 +4325,7 @@
         "movie_impressions": 652,
         "query_clicks": 90,
         "ctr": 0.138,
-        "z": -0.95
+        "z": -0.59
       },
       {
         "topic": "Romance",
@@ -4333,7 +4333,7 @@
         "movie_impressions": 228,
         "query_clicks": 40,
         "ctr": 0.1754,
-        "z": 1.01
+        "z": null
       },
       {
         "topic": "Romance",
@@ -4341,7 +4341,7 @@
         "movie_impressions": 621,
         "query_clicks": 93,
         "ctr": 0.1498,
-        "z": -0.11
+        "z": -0.28
       },
       {
         "topic": "Romance",
@@ -4349,7 +4349,7 @@
         "movie_impressions": 207,
         "query_clicks": 23,
         "ctr": 0.1111,
-        "z": -1.62
+        "z": null
       },
       {
         "topic": "Romance",
@@ -4357,7 +4357,7 @@
         "movie_impressions": 818,
         "query_clicks": 104,
         "ctr": 0.1271,
-        "z": -1.93
+        "z": -1.59
       },
       {
         "topic": "Romance",
@@ -4365,7 +4365,7 @@
         "movie_impressions": 214,
         "query_clicks": 32,
         "ctr": 0.1495,
-        "z": -0.07
+        "z": null
       },
       {
         "topic": "Romance",
@@ -4373,7 +4373,7 @@
         "movie_impressions": 5420,
         "query_clicks": 720,
         "ctr": 0.1328,
-        "z": -3.81
+        "z": -3.05
       },
       {
         "topic": "Romance",
@@ -4381,7 +4381,7 @@
         "movie_impressions": 422,
         "query_clicks": 50,
         "ctr": 0.1185,
-        "z": -1.88
+        "z": -0.75
       },
       {
         "topic": "Romance",
@@ -4389,7 +4389,7 @@
         "movie_impressions": 635,
         "query_clicks": 82,
         "ctr": 0.1291,
-        "z": -1.56
+        "z": -1.07
       },
       {
         "topic": "Romance",
@@ -4397,7 +4397,7 @@
         "movie_impressions": 589,
         "query_clicks": 61,
         "ctr": 0.1036,
-        "z": -3.24
+        "z": -1.26
       },
       {
         "topic": "Romance",
@@ -4405,7 +4405,7 @@
         "movie_impressions": 219,
         "query_clicks": 35,
         "ctr": 0.1598,
-        "z": 0.35
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4413,7 +4413,7 @@
         "movie_impressions": 448,
         "query_clicks": 46,
         "ctr": 0.1027,
-        "z": -2.88
+        "z": -0.94
       },
       {
         "topic": "Sci-Fi",
@@ -4421,7 +4421,7 @@
         "movie_impressions": 483,
         "query_clicks": 63,
         "ctr": 0.1304,
-        "z": -1.28
+        "z": -0.45
       },
       {
         "topic": "Sci-Fi",
@@ -4429,7 +4429,7 @@
         "movie_impressions": 236,
         "query_clicks": 30,
         "ctr": 0.1271,
-        "z": -1.04
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4437,7 +4437,7 @@
         "movie_impressions": 202,
         "query_clicks": 38,
         "ctr": 0.1881,
-        "z": 1.46
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4445,7 +4445,7 @@
         "movie_impressions": 410,
         "query_clicks": 63,
         "ctr": 0.1537,
-        "z": 0.13
+        "z": 0.06
       },
       {
         "topic": "Sci-Fi",
@@ -4453,7 +4453,7 @@
         "movie_impressions": 394,
         "query_clicks": 59,
         "ctr": 0.1497,
-        "z": -0.09
+        "z": -0.13
       },
       {
         "topic": "Sci-Fi",
@@ -4461,7 +4461,7 @@
         "movie_impressions": 201,
         "query_clicks": 34,
         "ctr": 0.1692,
-        "z": 0.7
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4469,7 +4469,7 @@
         "movie_impressions": 201,
         "query_clicks": 34,
         "ctr": 0.1692,
-        "z": 0.7
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4477,7 +4477,7 @@
         "movie_impressions": 212,
         "query_clicks": 40,
         "ctr": 0.1887,
-        "z": 1.52
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4485,7 +4485,7 @@
         "movie_impressions": 222,
         "query_clicks": 37,
         "ctr": 0.1667,
-        "z": 0.64
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4493,7 +4493,7 @@
         "movie_impressions": 232,
         "query_clicks": 40,
         "ctr": 0.1724,
-        "z": 0.89
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4501,7 +4501,7 @@
         "movie_impressions": 223,
         "query_clicks": 50,
         "ctr": 0.2242,
-        "z": 3.04
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4509,7 +4509,7 @@
         "movie_impressions": 3891,
         "query_clicks": 625,
         "ctr": 0.1606,
-        "z": 1.61
+        "z": 1.17
       },
       {
         "topic": "Sci-Fi",
@@ -4517,7 +4517,7 @@
         "movie_impressions": 227,
         "query_clicks": 36,
         "ctr": 0.1586,
-        "z": 0.3
+        "z": null
       },
       {
         "topic": "Sci-Fi",
@@ -4525,7 +4525,7 @@
         "movie_impressions": 215,
         "query_clicks": 31,
         "ctr": 0.1442,
-        "z": -0.29
+        "z": null
       },
       {
         "topic": "Thriller",
@@ -4533,7 +4533,7 @@
         "movie_impressions": 197,
         "query_clicks": 31,
         "ctr": 0.1574,
-        "z": 0.23
+        "z": null
       },
       {
         "topic": "Thriller",
@@ -4541,7 +4541,7 @@
         "movie_impressions": 399,
         "query_clicks": 60,
         "ctr": 0.1504,
-        "z": -0.06
+        "z": -0.11
       },
       {
         "topic": "Thriller",
@@ -4549,7 +4549,7 @@
         "movie_impressions": 230,
         "query_clicks": 29,
         "ctr": 0.1261,
-        "z": -1.07
+        "z": null
       },
       {
         "topic": "Thriller",
@@ -4557,7 +4557,7 @@
         "movie_impressions": 613,
         "query_clicks": 89,
         "ctr": 0.1452,
-        "z": -0.43
+        "z": -0.29
       },
       {
         "topic": "Thriller",
@@ -4565,7 +4565,7 @@
         "movie_impressions": 620,
         "query_clicks": 87,
         "ctr": 0.1403,
-        "z": -0.77
+        "z": -0.84
       },
       {
         "topic": "Thriller",
@@ -4573,7 +4573,7 @@
         "movie_impressions": 208,
         "query_clicks": 37,
         "ctr": 0.1779,
-        "z": 1.07
+        "z": null
       },
       {
         "topic": "Thriller",
@@ -4581,7 +4581,7 @@
         "movie_impressions": 668,
         "query_clicks": 103,
         "ctr": 0.1542,
-        "z": 0.2
+        "z": 0.18
       },
       {
         "topic": "Thriller",
@@ -4589,7 +4589,7 @@
         "movie_impressions": 211,
         "query_clicks": 30,
         "ctr": 0.1422,
-        "z": -0.37
+        "z": null
       },
       {
         "topic": "Thriller",
@@ -4597,7 +4597,7 @@
         "movie_impressions": 3539,
         "query_clicks": 526,
         "ctr": 0.1486,
-        "z": -0.45
+        "z": -0.57
       },
       {
         "topic": "Thriller",
@@ -4605,7 +4605,7 @@
         "movie_impressions": 418,
         "query_clicks": 69,
         "ctr": 0.1651,
-        "z": 0.78
+        "z": 0.7
       },
       {
         "topic": "War",
@@ -4613,7 +4613,7 @@
         "movie_impressions": 411,
         "query_clicks": 74,
         "ctr": 0.18,
-        "z": 1.62
+        "z": 0.64
       },
       {
         "topic": "War",
@@ -4621,7 +4621,7 @@
         "movie_impressions": 619,
         "query_clicks": 95,
         "ctr": 0.1535,
-        "z": 0.15
+        "z": 0.07
       },
       {
         "topic": "War",
@@ -4629,7 +4629,7 @@
         "movie_impressions": 201,
         "query_clicks": 26,
         "ctr": 0.1294,
-        "z": -0.87
+        "z": null
       },
       {
         "topic": "War",
@@ -4637,7 +4637,7 @@
         "movie_impressions": 203,
         "query_clicks": 29,
         "ctr": 0.1429,
-        "z": -0.34
+        "z": null
       },
       {
         "topic": "War",
@@ -4645,7 +4645,7 @@
         "movie_impressions": 827,
         "query_clicks": 124,
         "ctr": 0.1499,
-        "z": -0.11
+        "z": -0.13
       },
       {
         "topic": "War",
@@ -4653,7 +4653,7 @@
         "movie_impressions": 193,
         "query_clicks": 29,
         "ctr": 0.1503,
-        "z": -0.04
+        "z": null
       },
       {
         "topic": "War",
@@ -4661,7 +4661,7 @@
         "movie_impressions": 378,
         "query_clicks": 61,
         "ctr": 0.1614,
-        "z": 0.54
+        "z": 0.32
       },
       {
         "topic": "War",
@@ -4669,7 +4669,7 @@
         "movie_impressions": 830,
         "query_clicks": 121,
         "ctr": 0.1458,
-        "z": -0.45
+        "z": -0.84
       },
       {
         "topic": "War",
@@ -4677,7 +4677,7 @@
         "movie_impressions": 607,
         "query_clicks": 95,
         "ctr": 0.1565,
-        "z": 0.35
+        "z": 0.16
       },
       {
         "topic": "War",
@@ -4685,7 +4685,7 @@
         "movie_impressions": 4085,
         "query_clicks": 645,
         "ctr": 0.1579,
-        "z": 1.16
+        "z": 0.99
       },
       {
         "topic": "War",
@@ -4693,7 +4693,7 @@
         "movie_impressions": 198,
         "query_clicks": 29,
         "ctr": 0.1465,
-        "z": -0.19
+        "z": null
       },
       {
         "topic": "Western",
@@ -4701,7 +4701,7 @@
         "movie_impressions": 449,
         "query_clicks": 77,
         "ctr": 0.1715,
-        "z": 1.19
+        "z": 0.92
       },
       {
         "topic": "Western",
@@ -4709,7 +4709,7 @@
         "movie_impressions": 220,
         "query_clicks": 27,
         "ctr": 0.1227,
-        "z": -1.19
+        "z": null
       },
       {
         "topic": "Western",
@@ -4717,7 +4717,7 @@
         "movie_impressions": 394,
         "query_clicks": 49,
         "ctr": 0.1244,
-        "z": -1.5
+        "z": -0.79
       },
       {
         "topic": "Western",
@@ -4725,7 +4725,7 @@
         "movie_impressions": 194,
         "query_clicks": 23,
         "ctr": 0.1186,
-        "z": -1.28
+        "z": null
       },
       {
         "topic": "Western",
@@ -4733,7 +4733,7 @@
         "movie_impressions": 692,
         "query_clicks": 105,
         "ctr": 0.1517,
-        "z": 0.03
+        "z": 0.04
       },
       {
         "topic": "Western",
@@ -4741,7 +4741,7 @@
         "movie_impressions": 195,
         "query_clicks": 36,
         "ctr": 0.1846,
-        "z": 1.3
+        "z": null
       },
       {
         "topic": "Western",
@@ -4749,7 +4749,7 @@
         "movie_impressions": 458,
         "query_clicks": 60,
         "ctr": 0.131,
-        "z": -1.22
+        "z": -0.94
       },
       {
         "topic": "Western",
@@ -4757,7 +4757,7 @@
         "movie_impressions": 418,
         "query_clicks": 60,
         "ctr": 0.1435,
-        "z": -0.45
+        "z": -0.95
       },
       {
         "topic": "Western",
@@ -4765,7 +4765,7 @@
         "movie_impressions": 238,
         "query_clicks": 33,
         "ctr": 0.1387,
-        "z": -0.55
+        "z": null
       },
       {
         "topic": "Western",
@@ -4773,7 +4773,7 @@
         "movie_impressions": 4286,
         "query_clicks": 637,
         "ctr": 0.1486,
-        "z": -0.5
+        "z": -0.45
       }
     ],
     "by_decade": [
@@ -4845,7 +4845,7 @@
         "movie_impressions": 1955,
         "query_clicks": 329,
         "ctr": 0.1683,
-        "z": 2.09
+        "z": 1.13
       },
       {
         "decade": "1980s",
@@ -4853,7 +4853,7 @@
         "movie_impressions": 1975,
         "query_clicks": 305,
         "ctr": 0.1544,
-        "z": 0.38
+        "z": 0.26
       },
       {
         "decade": "1980s",
@@ -4861,7 +4861,7 @@
         "movie_impressions": 1472,
         "query_clicks": 236,
         "ctr": 0.1603,
-        "z": 0.96
+        "z": 1.07
       },
       {
         "decade": "1980s",
@@ -4869,7 +4869,7 @@
         "movie_impressions": 2317,
         "query_clicks": 327,
         "ctr": 0.1411,
-        "z": -1.37
+        "z": -0.74
       },
       {
         "decade": "1980s",
@@ -4877,7 +4877,7 @@
         "movie_impressions": 2081,
         "query_clicks": 286,
         "ctr": 0.1374,
-        "z": -1.77
+        "z": -1.3
       },
       {
         "decade": "1980s",
@@ -4885,7 +4885,7 @@
         "movie_impressions": 1871,
         "query_clicks": 260,
         "ctr": 0.139,
-        "z": -1.5
+        "z": -1.12
       },
       {
         "decade": "1980s",
@@ -4893,7 +4893,7 @@
         "movie_impressions": 2110,
         "query_clicks": 253,
         "ctr": 0.1199,
-        "z": -4.03
+        "z": -2.42
       },
       {
         "decade": "1980s",
@@ -4901,7 +4901,7 @@
         "movie_impressions": 2102,
         "query_clicks": 268,
         "ctr": 0.1275,
-        "z": -3.05
+        "z": -2.41
       },
       {
         "decade": "1980s",
@@ -4909,7 +4909,7 @@
         "movie_impressions": 2512,
         "query_clicks": 426,
         "ctr": 0.1696,
-        "z": 2.55
+        "z": 1.77
       },
       {
         "decade": "1980s",
@@ -4917,7 +4917,7 @@
         "movie_impressions": 1701,
         "query_clicks": 259,
         "ctr": 0.1523,
-        "z": 0.1
+        "z": 0.08
       },
       {
         "decade": "1980s",
@@ -4925,7 +4925,7 @@
         "movie_impressions": 1689,
         "query_clicks": 239,
         "ctr": 0.1415,
-        "z": -1.13
+        "z": -0.69
       },
       {
         "decade": "1980s",
@@ -4933,7 +4933,7 @@
         "movie_impressions": 1408,
         "query_clicks": 186,
         "ctr": 0.1321,
-        "z": -2.02
+        "z": -1.54
       },
       {
         "decade": "1980s",
@@ -4941,7 +4941,7 @@
         "movie_impressions": 1936,
         "query_clicks": 274,
         "ctr": 0.1415,
-        "z": -1.21
+        "z": -0.89
       },
       {
         "decade": "1980s",
@@ -4949,7 +4949,7 @@
         "movie_impressions": 2730,
         "query_clicks": 396,
         "ctr": 0.1451,
-        "z": -0.92
+        "z": -0.55
       },
       {
         "decade": "1980s",
@@ -4957,7 +4957,7 @@
         "movie_impressions": 1956,
         "query_clicks": 304,
         "ctr": 0.1554,
-        "z": 0.5
+        "z": 0.34
       },
       {
         "decade": "1980s",
@@ -4965,7 +4965,7 @@
         "movie_impressions": 860,
         "query_clicks": 112,
         "ctr": 0.1302,
-        "z": -1.73
+        "z": -1.46
       },
       {
         "decade": "1980s",
@@ -4973,7 +4973,7 @@
         "movie_impressions": 2688,
         "query_clicks": 403,
         "ctr": 0.1499,
-        "z": -0.21
+        "z": -0.15
       },
       {
         "decade": "1980s",
@@ -4981,7 +4981,7 @@
         "movie_impressions": 1199,
         "query_clicks": 187,
         "ctr": 0.156,
-        "z": 0.44
+        "z": 0.35
       },
       {
         "decade": "1990s",
@@ -4989,7 +4989,7 @@
         "movie_impressions": 1804,
         "query_clicks": 267,
         "ctr": 0.148,
-        "z": -0.4
+        "z": -0.32
       },
       {
         "decade": "1990s",
@@ -4997,7 +4997,7 @@
         "movie_impressions": 2434,
         "query_clicks": 360,
         "ctr": 0.1479,
-        "z": -0.48
+        "z": -0.33
       },
       {
         "decade": "1990s",
@@ -5005,7 +5005,7 @@
         "movie_impressions": 2975,
         "query_clicks": 454,
         "ctr": 0.1526,
-        "z": 0.19
+        "z": 0.13
       },
       {
         "decade": "1990s",
@@ -5013,7 +5013,7 @@
         "movie_impressions": 838,
         "query_clicks": 113,
         "ctr": 0.1348,
-        "z": -1.33
+        "z": -1.24
       },
       {
         "decade": "1990s",
@@ -5021,7 +5021,7 @@
         "movie_impressions": 1398,
         "query_clicks": 213,
         "ctr": 0.1524,
-        "z": 0.1
+        "z": 0.11
       },
       {
         "decade": "1990s",
@@ -5029,7 +5029,7 @@
         "movie_impressions": 2917,
         "query_clicks": 440,
         "ctr": 0.1508,
-        "z": -0.08
+        "z": -0.07
       },
       {
         "decade": "1990s",
@@ -5037,7 +5037,7 @@
         "movie_impressions": 3376,
         "query_clicks": 471,
         "ctr": 0.1395,
-        "z": -1.92
+        "z": -1.36
       },
       {
         "decade": "1990s",
@@ -5045,7 +5045,7 @@
         "movie_impressions": 3535,
         "query_clicks": 519,
         "ctr": 0.1468,
-        "z": -0.75
+        "z": -0.99
       },
       {
         "decade": "1990s",
@@ -5053,7 +5053,7 @@
         "movie_impressions": 2502,
         "query_clicks": 420,
         "ctr": 0.1679,
-        "z": 2.3
+        "z": 2.43
       },
       {
         "decade": "1990s",
@@ -5061,7 +5061,7 @@
         "movie_impressions": 804,
         "query_clicks": 116,
         "ctr": 0.1443,
-        "z": -0.56
+        "z": -1.03
       },
       {
         "decade": "1990s",
@@ -5069,7 +5069,7 @@
         "movie_impressions": 2343,
         "query_clicks": 330,
         "ctr": 0.1408,
-        "z": -1.42
+        "z": -0.98
       },
       {
         "decade": "1990s",
@@ -5077,7 +5077,7 @@
         "movie_impressions": 1689,
         "query_clicks": 227,
         "ctr": 0.1344,
-        "z": -1.95
+        "z": -1.2
       },
       {
         "decade": "1990s",
@@ -5085,7 +5085,7 @@
         "movie_impressions": 2551,
         "query_clicks": 357,
         "ctr": 0.1399,
-        "z": -1.61
+        "z": -1.39
       },
       {
         "decade": "1990s",
@@ -5093,7 +5093,7 @@
         "movie_impressions": 2541,
         "query_clicks": 350,
         "ctr": 0.1377,
-        "z": -1.92
+        "z": -1.63
       },
       {
         "decade": "1990s",
@@ -5101,7 +5101,7 @@
         "movie_impressions": 1533,
         "query_clicks": 220,
         "ctr": 0.1435,
-        "z": -0.86
+        "z": -0.57
       },
       {
         "decade": "1990s",
@@ -5109,7 +5109,7 @@
         "movie_impressions": 1030,
         "query_clicks": 149,
         "ctr": 0.1447,
-        "z": -0.6
+        "z": -0.46
       },
       {
         "decade": "1990s",
@@ -5117,7 +5117,7 @@
         "movie_impressions": 1643,
         "query_clicks": 212,
         "ctr": 0.129,
-        "z": -2.53
+        "z": -1.65
       },
       {
         "decade": "1990s",
@@ -5125,7 +5125,7 @@
         "movie_impressions": 2557,
         "query_clicks": 363,
         "ctr": 0.142,
-        "z": -1.33
+        "z": -1.37
       },
       {
         "decade": "2000s",
@@ -5133,7 +5133,7 @@
         "movie_impressions": 2399,
         "query_clicks": 396,
         "ctr": 0.1651,
-        "z": 1.87
+        "z": 1.68
       },
       {
         "decade": "2000s",
@@ -5141,7 +5141,7 @@
         "movie_impressions": 1254,
         "query_clicks": 198,
         "ctr": 0.1579,
-        "z": 0.64
+        "z": 0.35
       },
       {
         "decade": "2000s",
@@ -5149,7 +5149,7 @@
         "movie_impressions": 1717,
         "query_clicks": 290,
         "ctr": 0.1689,
-        "z": 2.03
+        "z": 1.14
       },
       {
         "decade": "2000s",
@@ -5157,7 +5157,7 @@
         "movie_impressions": 1514,
         "query_clicks": 207,
         "ctr": 0.1367,
-        "z": -1.59
+        "z": -1.3
       },
       {
         "decade": "2000s",
@@ -5165,7 +5165,7 @@
         "movie_impressions": 1899,
         "query_clicks": 280,
         "ctr": 0.1474,
-        "z": -0.48
+        "z": -0.64
       },
       {
         "decade": "2000s",
@@ -5173,7 +5173,7 @@
         "movie_impressions": 1061,
         "query_clicks": 179,
         "ctr": 0.1687,
-        "z": 1.58
+        "z": 0.98
       },
       {
         "decade": "2000s",
@@ -5181,7 +5181,7 @@
         "movie_impressions": 2136,
         "query_clicks": 288,
         "ctr": 0.1348,
-        "z": -2.13
+        "z": -1.66
       },
       {
         "decade": "2000s",
@@ -5189,7 +5189,7 @@
         "movie_impressions": 1858,
         "query_clicks": 273,
         "ctr": 0.1469,
-        "z": -0.53
+        "z": -0.41
       },
       {
         "decade": "2000s",
@@ -5197,7 +5197,7 @@
         "movie_impressions": 1245,
         "query_clicks": 221,
         "ctr": 0.1775,
-        "z": 2.57
+        "z": 1.55
       },
       {
         "decade": "2000s",
@@ -5205,7 +5205,7 @@
         "movie_impressions": 1825,
         "query_clicks": 279,
         "ctr": 0.1529,
-        "z": 0.18
+        "z": 0.14
       },
       {
         "decade": "2000s",
@@ -5213,7 +5213,7 @@
         "movie_impressions": 2097,
         "query_clicks": 325,
         "ctr": 0.155,
-        "z": 0.46
+        "z": 0.37
       },
       {
         "decade": "2000s",
@@ -5221,7 +5221,7 @@
         "movie_impressions": 2548,
         "query_clicks": 396,
         "ctr": 0.1554,
-        "z": 0.57
+        "z": 0.5
       },
       {
         "decade": "2000s",
@@ -5229,7 +5229,7 @@
         "movie_impressions": 2066,
         "query_clicks": 294,
         "ctr": 0.1423,
-        "z": -1.15
+        "z": -1.23
       },
       {
         "decade": "2000s",
@@ -5237,7 +5237,7 @@
         "movie_impressions": 1515,
         "query_clicks": 260,
         "ctr": 0.1716,
-        "z": 2.2
+        "z": 1.3
       },
       {
         "decade": "2000s",
@@ -5245,7 +5245,7 @@
         "movie_impressions": 1290,
         "query_clicks": 209,
         "ctr": 0.162,
-        "z": 1.07
+        "z": 0.73
       },
       {
         "decade": "2000s",
@@ -5253,7 +5253,7 @@
         "movie_impressions": 1629,
         "query_clicks": 239,
         "ctr": 0.1467,
-        "z": -0.52
+        "z": -0.93
       },
       {
         "decade": "2000s",
@@ -5261,7 +5261,7 @@
         "movie_impressions": 1178,
         "query_clicks": 180,
         "ctr": 0.1528,
-        "z": 0.14
+        "z": 0.13
       },
       {
         "decade": "2000s",
@@ -5269,7 +5269,7 @@
         "movie_impressions": 1722,
         "query_clicks": 248,
         "ctr": 0.144,
-        "z": -0.85
+        "z": -0.91
       },
       {
         "decade": "2010s",
@@ -5277,7 +5277,7 @@
         "movie_impressions": 1466,
         "query_clicks": 244,
         "ctr": 0.1664,
-        "z": 1.61
+        "z": 1.17
       },
       {
         "decade": "2010s",
@@ -5285,7 +5285,7 @@
         "movie_impressions": 1658,
         "query_clicks": 271,
         "ctr": 0.1634,
-        "z": 1.37
+        "z": 0.81
       },
       {
         "decade": "2010s",
@@ -5293,7 +5293,7 @@
         "movie_impressions": 2904,
         "query_clicks": 536,
         "ctr": 0.1846,
-        "z": 4.99
+        "z": 2.83
       },
       {
         "decade": "2010s",
@@ -5301,7 +5301,7 @@
         "movie_impressions": 2109,
         "query_clicks": 307,
         "ctr": 0.1456,
-        "z": -0.74
+        "z": -0.72
       },
       {
         "decade": "2010s",
@@ -5309,7 +5309,7 @@
         "movie_impressions": 1660,
         "query_clicks": 241,
         "ctr": 0.1452,
-        "z": -0.7
+        "z": -0.58
       },
       {
         "decade": "2010s",
@@ -5317,7 +5317,7 @@
         "movie_impressions": 1695,
         "query_clicks": 268,
         "ctr": 0.1581,
-        "z": 0.77
+        "z": 0.94
       },
       {
         "decade": "2010s",
@@ -5325,7 +5325,7 @@
         "movie_impressions": 3571,
         "query_clicks": 515,
         "ctr": 0.1442,
-        "z": -1.19
+        "z": -0.81
       },
       {
         "decade": "2010s",
@@ -5333,7 +5333,7 @@
         "movie_impressions": 2722,
         "query_clicks": 373,
         "ctr": 0.137,
-        "z": -2.09
+        "z": -1.48
       },
       {
         "decade": "2010s",
@@ -5341,7 +5341,7 @@
         "movie_impressions": 3088,
         "query_clicks": 509,
         "ctr": 0.1648,
-        "z": 2.09
+        "z": 1.55
       },
       {
         "decade": "2010s",
@@ -5349,7 +5349,7 @@
         "movie_impressions": 2744,
         "query_clicks": 460,
         "ctr": 0.1676,
-        "z": 2.38
+        "z": 1.99
       },
       {
         "decade": "2010s",
@@ -5357,7 +5357,7 @@
         "movie_impressions": 2312,
         "query_clicks": 385,
         "ctr": 0.1665,
-        "z": 2.03
+        "z": 1.31
       },
       {
         "decade": "2010s",
@@ -5365,7 +5365,7 @@
         "movie_impressions": 2231,
         "query_clicks": 312,
         "ctr": 0.1398,
-        "z": -1.52
+        "z": -1.47
       },
       {
         "decade": "2010s",
@@ -5373,7 +5373,7 @@
         "movie_impressions": 1861,
         "query_clicks": 279,
         "ctr": 0.1499,
-        "z": -0.17
+        "z": -0.21
       },
       {
         "decade": "2010s",
@@ -5381,7 +5381,7 @@
         "movie_impressions": 3305,
         "query_clicks": 459,
         "ctr": 0.1389,
-        "z": -2.0
+        "z": -1.72
       },
       {
         "decade": "2010s",
@@ -5389,7 +5389,7 @@
         "movie_impressions": 2469,
         "query_clicks": 419,
         "ctr": 0.1697,
-        "z": 2.54
+        "z": 1.97
       },
       {
         "decade": "2010s",
@@ -5397,7 +5397,7 @@
         "movie_impressions": 2130,
         "query_clicks": 343,
         "ctr": 0.161,
-        "z": 1.24
+        "z": 0.88
       },
       {
         "decade": "2010s",
@@ -5405,7 +5405,7 @@
         "movie_impressions": 2123,
         "query_clicks": 340,
         "ctr": 0.1602,
-        "z": 1.13
+        "z": 0.55
       },
       {
         "decade": "2010s",
@@ -5413,7 +5413,7 @@
         "movie_impressions": 2914,
         "query_clicks": 437,
         "ctr": 0.15,
-        "z": -0.21
+        "z": -0.17
       },
       {
         "decade": "2020s",
@@ -5421,7 +5421,7 @@
         "movie_impressions": 1496,
         "query_clicks": 247,
         "ctr": 0.1651,
-        "z": 1.48
+        "z": 1.59
       },
       {
         "decade": "2020s",
@@ -5429,7 +5429,7 @@
         "movie_impressions": 182,
         "query_clicks": 31,
         "ctr": 0.1703,
-        "z": 0.71
+        "z": null
       },
       {
         "decade": "2020s",
@@ -5437,7 +5437,7 @@
         "movie_impressions": 611,
         "query_clicks": 99,
         "ctr": 0.162,
-        "z": 0.74
+        "z": 0.58
       },
       {
         "decade": "2020s",
@@ -5445,7 +5445,7 @@
         "movie_impressions": 1859,
         "query_clicks": 288,
         "ctr": 0.1549,
-        "z": 0.43
+        "z": 0.32
       },
       {
         "decade": "2020s",
@@ -5453,7 +5453,7 @@
         "movie_impressions": 1201,
         "query_clicks": 179,
         "ctr": 0.149,
-        "z": -0.22
+        "z": -0.16
       },
       {
         "decade": "2020s",
@@ -5461,7 +5461,7 @@
         "movie_impressions": 817,
         "query_clicks": 126,
         "ctr": 0.1542,
-        "z": 0.23
+        "z": 0.27
       },
       {
         "decade": "2020s",
@@ -5469,7 +5469,7 @@
         "movie_impressions": 1044,
         "query_clicks": 145,
         "ctr": 0.1389,
-        "z": -1.13
+        "z": -0.88
       },
       {
         "decade": "2020s",
@@ -5477,7 +5477,7 @@
         "movie_impressions": 611,
         "query_clicks": 88,
         "ctr": 0.144,
-        "z": -0.51
+        "z": -0.75
       },
       {
         "decade": "2020s",
@@ -5485,7 +5485,7 @@
         "movie_impressions": 1075,
         "query_clicks": 184,
         "ctr": 0.1712,
-        "z": 1.81
+        "z": 1.61
       },
       {
         "decade": "2020s",
@@ -5493,7 +5493,7 @@
         "movie_impressions": 2261,
         "query_clicks": 371,
         "ctr": 0.1641,
-        "z": 1.69
+        "z": 1.77
       },
       {
         "decade": "2020s",
@@ -5501,7 +5501,7 @@
         "movie_impressions": 1435,
         "query_clicks": 224,
         "ctr": 0.1561,
-        "z": 0.5
+        "z": 0.59
       },
       {
         "decade": "2020s",
@@ -5509,7 +5509,7 @@
         "movie_impressions": 1196,
         "query_clicks": 179,
         "ctr": 0.1497,
-        "z": -0.16
+        "z": -0.19
       },
       {
         "decade": "2020s",
@@ -5517,7 +5517,7 @@
         "movie_impressions": 194,
         "query_clicks": 32,
         "ctr": 0.1649,
-        "z": 0.53
+        "z": null
       },
       {
         "decade": "2020s",
@@ -5525,7 +5525,7 @@
         "movie_impressions": 831,
         "query_clicks": 150,
         "ctr": 0.1805,
-        "z": 2.34
+        "z": 1.21
       },
       {
         "decade": "2020s",
@@ -5533,7 +5533,7 @@
         "movie_impressions": 191,
         "query_clicks": 32,
         "ctr": 0.1675,
-        "z": 0.62
+        "z": null
       },
       {
         "decade": "2020s",
@@ -5541,7 +5541,7 @@
         "movie_impressions": 1220,
         "query_clicks": 197,
         "ctr": 0.1615,
-        "z": 0.98
+        "z": 1.02
       },
       {
         "decade": "2020s",
@@ -5549,7 +5549,7 @@
         "movie_impressions": 1008,
         "query_clicks": 166,
         "ctr": 0.1647,
-        "z": 1.18
+        "z": 0.92
       },
       {
         "decade": "2020s",
@@ -5557,7 +5557,7 @@
         "movie_impressions": 1734,
         "query_clicks": 285,
         "ctr": 0.1644,
-        "z": 1.51
+        "z": 1.48
       }
     ],
     "genre_order": {
