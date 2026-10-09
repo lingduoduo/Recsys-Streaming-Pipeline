@@ -352,6 +352,8 @@ table.rpt tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.line-axis.flat { justify-content: center; }
+
 .line-chart svg { width: 100%; height: auto; overflow: visible; }
 .line-chart polyline.line { fill: none; stroke: var(--series-0); stroke-width: 2; }
 .line-chart polyline.series-1 { stroke: var(--series-1); }

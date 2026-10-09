@@ -32,11 +32,13 @@ function SignalNote({ rows }) {
   if (!tested.length && !untestable) return null;
   const high = tested.filter((r) => heatSignal(r.z) === "high").length;
   const low = tested.filter((r) => heatSignal(r.z) === "low").length;
+  // The pooled rate is over exploded genre memberships, so it is not the plain impression CTR.
+  const chance = CHANCE_SHARE * tested.length;
   return (
     <p className="fine-print">
-      {high + low} of {tested.length} testable cells differ from this grid&apos;s CTR (|z| ≥ {SIGNAL_Z}):
-      {" "}{high} above, {low} below. Nominally about {Math.round(CHANCE_SHARE * tested.length)} would
-      by chance alone.{untestable ? ` ${untestable} cells hold a single movie and cannot be tested.` : ""}
+      {high + low} of {tested.length} testable cells differ from this grid&apos;s pooled rate (|z| ≥{" "}
+      {SIGNAL_Z}): {high} above, {low} below. Nominally {chance >= 1 ? `about ${Math.round(chance)}` : "fewer than 1"}
+      {" "}would by chance alone.{untestable ? ` ${untestable} cells hold a single movie and cannot be tested.` : ""}
     </p>
   );
 }

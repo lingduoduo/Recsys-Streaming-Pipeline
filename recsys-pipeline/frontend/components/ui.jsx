@@ -1,3 +1,5 @@
+import { lineScale } from "./line-scale.mjs";
+
 const round4 = (v) => (typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v);
 
 // A value that is not a finite number is missing, not zero. Charts omit its bar
@@ -179,11 +181,9 @@ function runs(values) {
 export function LineChart({ title, labels, series, percentage = false, valueFormatter, caption }) {
   const format = formatter({ percentage, valueFormatter });
   const observed = series.flatMap((s) => s.values).map(finite).filter((v) => v !== null);
-  const lo = Math.min(...observed);
-  const hi = Math.max(...observed);
   const W = 320, H = 120, PAD = 6;
+  const { lo, hi, flat, y } = lineScale(observed, H, PAD);
   const x = (i) => PAD + (labels.length > 1 ? (i / (labels.length - 1)) * (W - 2 * PAD) : (W - 2 * PAD) / 2);
-  const y = (v) => H - PAD - ((v - lo) / (hi - lo || 1)) * (H - 2 * PAD);
   return (
     <div className="chart-card line-chart">
       {title ? <h3>{title}</h3> : null}
@@ -199,7 +199,9 @@ export function LineChart({ title, labels, series, percentage = false, valueForm
       ) : null}
       {observed.length ? (
         <div className="line-plot">
-          <div className="line-axis"><span>{format(hi)}</span><span>{format(lo)}</span></div>
+          <div className={flat ? "line-axis flat" : "line-axis"}>
+            <span>{format(hi)}</span>{flat ? null : <span>{format(lo)}</span>}
+          </div>
           <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title}>
             {series.map((s, si) => runs(s.values).map((run) => (
               <polyline key={`${s.name}-${run[0]}`} className={`line series-${si}`}

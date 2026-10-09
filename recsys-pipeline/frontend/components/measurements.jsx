@@ -138,7 +138,7 @@ export function SatisfactionSection({ data }) {
                   valueFormatter={count}
                   series={[{ name: "users", values: series.map((b) => b.users) }]} />
               </>
-            ) : <p className="na">No impression timestamps — time series unavailable.</p>}
+            ) : <p className="na">Time series unavailable (no impression_ts span).</p>}
             {ratings.length ? (
               <BarChart title="Rating distribution" valueFormatter={count}
                 labels={ratings.map((r) => r.rating.toFixed(1))} values={ratings.map((r) => r.count)} />
