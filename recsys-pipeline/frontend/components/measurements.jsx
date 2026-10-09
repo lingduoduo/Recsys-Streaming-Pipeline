@@ -1,8 +1,8 @@
 import {
-  Section, NaCard, BarChart, GroupedBarChart, DataTable,
+  Section, NaCard, BarChart, GroupedBarChart, LineChart, DataTable,
   MetricGrid, MetricCard, ChartGrid,
 } from "./ui";
-import { num, share, maxByField } from "./format";
+import { num, share, count, duration, maxByField } from "./format";
 import { HEADLINES, headlineFieldPublished, headlineValue } from "./scorecard";
 
 // One consistent presentation for every measurement envelope: headline, the support it
@@ -35,7 +35,7 @@ function MeasurementSection({ title, data, columns, kpis, chart, description, ch
           ))}
         </MetricGrid>
       ) : null}
-      {chart ? chart(rows) : null}
+      {chart ? chart(rows, data) : null}
       <DataTable rows={rows} columns={columns} />
       {children}
     </Section>
@@ -91,29 +91,58 @@ export function SatisfactionSection({ data }) {
       title="Satisfaction"
       data={data}
       columns={[
-        "scope", "ctr", "order_rate", "mean_reward", "mean_rating", "rating_coverage",
-        "negative_feedback_rate", "negative_feedback_coverage", "mean_dwell_millis",
-        "dwell_coverage", "mean_completion_rate", "completion_coverage", "feedback_events",
+        "scope", "users", "items", "ctr", "order_rate", "mean_reward", "mean_rating",
+        "rated_samples", "rating_coverage", "negative_feedback_rate", "negative_feedback_coverage",
+        "mean_dwell_millis", "dwell_coverage", "mean_completion_rate", "completion_coverage",
+        "feedback_events",
       ]}
       kpis={(rows) => {
         const row = rows[0] || {};
         return [
+          { label: "users", value: count(row.users) },
+          { label: "items", value: count(row.items) },
           { label: "CTR", value: share(row.ctr) },
           { label: "order rate", value: share(row.order_rate) },
-          { label: "mean rating", value: num(row.mean_rating, 2) },
-          { label: "mean dwell", value: num(row.mean_dwell_millis, 0) },
+          { label: "mean rating", value: num(row.mean_rating, 2), detail: `n = ${count(row.rated_samples)}` },
+          { label: "mean dwell",
+            value: row.mean_dwell_millis == null ? "N/A" : `${(row.mean_dwell_millis / 1000).toFixed(1)} s` },
         ];
       }}
       description="Observed engagement and the coverage of each optional feedback signal."
-      chart={(rows) => {
+      chart={(rows, data) => {
         const row = rows[0] || {};
         // negative_feedback_coverage is the same expression as negative_feedback_rate (both count
         // the samples carrying a reason), so plotting it here would read as "not instrumented"
         // for a signal that is instrumented and simply did not fire. It stays in the table
         // beside its rate, where the two are legible together.
         const fields = ["rating_coverage", "dwell_coverage", "completion_coverage"];
+        // Absent, not just empty, when the offline envelope was unavailable and the live merge
+        // built a fresh one.
+        const series = data.series ?? [];
+        const width = data.series_bucket_seconds;
+        const labels = series.map((b) => `+${duration(b.bucket_start - series[0].bucket_start)}`);
+        const caption = `${series.length} × ${duration(width)} buckets over ${duration(width * series.length)}`;
+        const ratings = data.rating_distribution ?? [];
         return (
           <ChartGrid>
+            {series.length ? (
+              <>
+                <LineChart title="CTR and order rate over time" percentage labels={labels} caption={caption}
+                  series={[{ name: "CTR", values: series.map((b) => b.ctr) },
+                           { name: "order rate", values: series.map((b) => b.order_rate) }]} />
+                <LineChart title="Mean rating over time" labels={labels} caption={caption}
+                  valueFormatter={(v) => num(v, 2)}
+                  series={[{ name: "mean rating", values: series.map((b) => b.mean_rating),
+                             notes: series.map((b) => `n = ${b.ratings}`) }]} />
+                <LineChart title="Active users over time" labels={labels} caption={caption}
+                  valueFormatter={count}
+                  series={[{ name: "users", values: series.map((b) => b.users) }]} />
+              </>
+            ) : <p className="na">No impression timestamps — time series unavailable.</p>}
+            {ratings.length ? (
+              <BarChart title="Rating distribution" valueFormatter={count}
+                labels={ratings.map((r) => r.rating.toFixed(1))} values={ratings.map((r) => r.count)} />
+            ) : null}
             <BarChart title="Optional signal coverage" percentage
               labels={fields.map((f) => f.replace("_coverage", ""))}
               values={fields.map((f) => row[f])} />
@@ -129,6 +158,13 @@ export function SatisfactionSection({ data }) {
         expression as the negative feedback rate — a sample only carries a reason when the
         feedback fired — so a coverage bar would show an instrumented signal as
         uninstrumented. The rate itself is charted above, and both columns are in the table.
+      </p>
+      <p className="fine-print">
+        Buckets split the observed span of <code>impression_ts</code> evenly; whole-second stamps
+        get a whole-second width, so the last bucket can cover less time and show lower counts.
+        The sim stamps events
+        with wall-clock time, so on sim data the series shows drift across one run, not a calendar.
+        Only orders carry a rating, and the sim derives it from completion (3 + 2 × completion).
       </p>
     </MeasurementSection>
   );

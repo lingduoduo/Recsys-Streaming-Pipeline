@@ -305,3 +305,100 @@ def test_freshness_rejects_arbitrary_truthy_boolean_encodings(value):
     )
 
     assert result["status"] == "unavailable"
+
+
+def _timed_samples():
+    # Four samples over a 24-second span of whole seconds.
+    return pd.DataFrame([
+        {"impression_ts": 100, "user_id": "u1", "item_id": "i1", "clicked": 1, "ordered": 1, "rating": 4.0},
+        {"impression_ts": 100, "user_id": "u2", "item_id": "i2", "clicked": 0, "ordered": 0, "rating": None},
+        {"impression_ts": 105, "user_id": "u1", "item_id": "i2", "clicked": 1, "ordered": 0, "rating": None},
+        {"impression_ts": 124, "user_id": "u3", "item_id": "i3", "clicked": 0, "ordered": 1, "rating": 5.0},
+    ])
+
+
+def test_satisfaction_counts_the_population_behind_its_averages():
+    row = compute_satisfaction(_timed_samples())["rows"][0]
+
+    assert (row["users"], row["items"], row["rated_samples"]) == (3, 3, 2)
+
+
+def test_satisfaction_population_is_none_not_zero_without_the_columns():
+    row = compute_satisfaction(pd.DataFrame([{"clicked": 1}]))["rows"][0]
+
+    assert row["users"] is None and row["items"] is None
+    assert row["rated_samples"] == 0
+
+
+def test_satisfaction_series_buckets_the_observed_span():
+    # 25 whole seconds (100..124) -> 2 s buckets, 13 of them: ts 100 in 0, 105 in 2, 124 in 12.
+    result = compute_satisfaction(_timed_samples())
+    series = result["series"]
+
+    assert len(series) == 13 and result["series_bucket_seconds"] == 2.0
+    assert series[0] == {"bucket_start": 100.0, "impressions": 2, "users": 2, "ctr": 0.5,
+                         "order_rate": 0.5, "mean_rating": 4.0, "ratings": 1}
+    # A rated-free bucket has no mean rating -- not a mean of 0.
+    assert series[2] == {"bucket_start": 104.0, "impressions": 1, "users": 1, "ctr": 1.0,
+                         "order_rate": 0.0, "mean_rating": None, "ratings": 0}
+    # Empty buckets stay, so the x-axis is evenly spaced.
+    assert series[5] == {"bucket_start": 110.0, "impressions": 0, "users": 0, "ctr": None,
+                         "order_rate": None, "mean_rating": None, "ratings": 0}
+    # The maximum timestamp lands in the last bucket.
+    assert series[12]["impressions"] == 1 and series[12]["mean_rating"] == 5.0
+
+
+def test_satisfaction_series_skips_unparseable_timestamps_only():
+    samples = pd.concat([_timed_samples(), pd.DataFrame([
+        {"impression_ts": None, "user_id": "u9", "item_id": "i9", "clicked": 1, "ordered": 0},
+        {"impression_ts": "not-a-time", "user_id": "u9", "item_id": "i9", "clicked": 1, "ordered": 0},
+    ])], ignore_index=True)
+    result = compute_satisfaction(samples)
+
+    assert sum(b["impressions"] for b in result["series"]) == 4
+    assert result["rows"][0]["users"] == 4  # the summary still counts every sample
+
+
+@pytest.mark.parametrize("frame", [
+    pd.DataFrame([{"clicked": 1}, {"clicked": 0}]),
+    pd.DataFrame([{"clicked": 1, "impression_ts": 7}, {"clicked": 0, "impression_ts": 7}]),
+])
+def test_satisfaction_series_is_empty_without_a_span(frame):
+    result = compute_satisfaction(frame)
+
+    assert result["series"] == [] and result["series_bucket_seconds"] is None
+
+
+def test_satisfaction_rating_distribution_keeps_empty_half_point_bins():
+    samples = pd.DataFrame([{"clicked": 1, "rating": r} for r in (3.0, 3.2, 4.9, 5.0)])
+
+    assert compute_satisfaction(samples)["rating_distribution"] == [
+        {"rating": 3.0, "count": 2}, {"rating": 3.5, "count": 0},
+        {"rating": 4.0, "count": 0}, {"rating": 4.5, "count": 2}]
+
+
+def test_satisfaction_without_ratings_has_no_distribution():
+    result = compute_satisfaction(pd.DataFrame([{"clicked": 1, "impression_ts": 1},
+                                                {"clicked": 0, "impression_ts": 2}]))
+
+    assert result["rating_distribution"] == []
+    assert all(b["mean_rating"] is None for b in result["series"])
+
+
+def test_satisfaction_series_whole_second_stamps_fill_buckets_evenly():
+    # A steady stream: 10 impressions in each of 67 whole seconds, as the joiner publishes them.
+    # A 66/24 = 2.75 s bucket would hold 2 or 3 of those seconds -- a sawtooth from width alone.
+    samples = pd.DataFrame([{"impression_ts": 1000 + s, "clicked": 0} for s in range(67) for _ in range(10)])
+    result = compute_satisfaction(samples)
+    counts = [b["impressions"] for b in result["series"]]
+
+    assert result["series_bucket_seconds"] == 3.0 and len(counts) == 23
+    assert set(counts[:-1]) == {30} and counts[-1] == 10  # only the last bucket is partial
+
+
+def test_satisfaction_series_fractional_stamps_keep_24_equal_buckets():
+    samples = pd.DataFrame([{"impression_ts": 0.5 * i, "clicked": 0} for i in range(49)])
+    result = compute_satisfaction(samples)
+
+    assert len(result["series"]) == 24 and result["series_bucket_seconds"] == 1.0
+    assert result["series"][-1]["impressions"] == 3  # 23.0, 23.5 and the maximum, 24.0

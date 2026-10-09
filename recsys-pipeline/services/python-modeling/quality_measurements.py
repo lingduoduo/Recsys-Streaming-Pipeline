@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from itertools import combinations
@@ -11,6 +12,10 @@ from numbers import Real
 import pandas as pd
 
 from measurement_contract import available, unavailable
+
+# The sim stamps events with wall-clock time, so a run spans minutes; a calendar bucket would be
+# one point. Equal-width buckets over the observed span work for a minute or a quarter.
+SERIES_BUCKETS = 24
 
 
 def dcg(labels: Sequence[float], k: int) -> float:
@@ -105,9 +110,61 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
         "dwell_coverage": _ratio(len(dwell), total),
         "mean_completion_rate": _mean(completion),
         "completion_coverage": _ratio(len(completion), total),
+        "users": _distinct(samples, "user_id"),
+        "items": _distinct(samples, "item_id"),
+        "rated_samples": len(ratings),
     }
     coverage = _ratio(len(clicked), total) or 0.0
-    return available("Observed user satisfaction", [row], total, coverage)
+    result = available("Observed user satisfaction", [row], total, coverage)
+    result["series"], result["series_bucket_seconds"] = _satisfaction_series(samples)
+    result["rating_distribution"] = _rating_distribution(ratings)
+    return result
+
+
+def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]], float | None]:
+    """Per-bucket engagement over the observed impression_ts span (epoch seconds)."""
+    if "impression_ts" not in samples:
+        return [], None
+    stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
+    timed = samples[stamps.notna()]
+    stamps = stamps[stamps.notna()]
+    if stamps.empty or stamps.max() <= stamps.min():
+        return [], None
+    start = float(stamps.min())
+    span = float(stamps.max()) - start
+    if (stamps % 1 == 0).all():
+        # Whole-second stamps (what the joiner publishes): a fractional width would give buckets
+        # 2 or 3 distinct seconds apiece, a sawtooth in every count from the width alone. Round
+        # the width up to whole seconds and let the bucket count fall to fit, at most 24.
+        width = float(math.ceil((span + 1) / SERIES_BUCKETS))
+        buckets = math.ceil((span + 1) / width)
+    else:
+        width = span / SERIES_BUCKETS
+        buckets = SERIES_BUCKETS
+    # Float division can put the maximum at exactly `buckets`; it belongs to the last bucket.
+    bucket = ((stamps - start) // width).clip(upper=buckets - 1).astype(int)
+    series = []
+    for index in range(buckets):
+        part = timed[(bucket == index).to_numpy()]
+        ratings = _numeric_column(part, "rating")
+        series.append({
+            "bucket_start": round(start + index * width, 1),
+            "impressions": len(part),
+            "users": _distinct(part, "user_id"),
+            "ctr": _mean(_numeric_column(part, "clicked")),
+            "order_rate": _mean(_numeric_column(part, "ordered")),
+            "mean_rating": _mean(ratings),
+            "ratings": len(ratings),
+        })
+    return series, round(width, 1)
+
+
+def _rating_distribution(ratings: list[float]) -> list[dict[str, object]]:
+    """Half-point bins from the lowest observed through 4.5; a 5.0 falls in the 4.5 bin."""
+    if not ratings:
+        return []
+    halves = Counter(min(math.floor(r * 2), 9) for r in ratings)
+    return [{"rating": h / 2, "count": halves.get(h, 0)} for h in range(min(halves), 10)]
 
 
 def compute_freshness(
@@ -335,6 +392,11 @@ def _observed_column(samples: pd.DataFrame, name: str) -> list[object]:
     if name not in samples:
         return []
     return [value for value in samples[name] if pd.notna(value)]
+
+
+def _distinct(samples: pd.DataFrame, name: str) -> int | None:
+    """Distinct observed values; None when the column is absent -- 0 users would be a claim."""
+    return int(samples[name].dropna().nunique()) if name in samples else None
 
 
 def _numeric_item_value(item: Mapping[str, object], name: str) -> float | None:
