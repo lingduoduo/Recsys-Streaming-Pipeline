@@ -40,7 +40,7 @@
 **Interfaces:**
 - Produces: `_time_buckets(stamps: pd.Series) -> tuple[pd.Series, list[float], float] | None` — `stamps` numeric with no nulls; returns (bucket index per stamp, bucket starts unrounded, width unrounded), or `None` when empty or zero span.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add `_time_buckets` to the `from quality_measurements import (...)` block, then append:
 
@@ -54,12 +54,12 @@ def test_time_buckets_use_whole_second_widths_and_need_a_span():
     assert _time_buckets(pd.Series([], dtype=float)) is None
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py`
 Expected: collection error `ImportError: cannot import name '_time_buckets'`.
 
-- [ ] **Step 3: Implement — extract, then call it from satisfaction**
+- [x] **Step 3: Implement — extract, then call it from satisfaction**
 
 Add above `_satisfaction_series`:
 
@@ -115,12 +115,12 @@ Replace the body of `_satisfaction_series` with:
     return series, round(width, 1)
 ```
 
-- [ ] **Step 4: Run to verify — new test and every satisfaction test**
+- [x] **Step 4: Run to verify — new test and every satisfaction test**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py`
 Expected: all pass (37).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/test_quality_measurements.py
@@ -136,7 +136,7 @@ git commit -m "refactor(measurements): extract the whole-second time bucketing f
 **Interfaces:**
 - Produces: `_item_key(item: Mapping, position: int) -> str`; `_distinct_item_cutoff(items: list[Mapping], percentile: float) -> float | None`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_diversity_long_tail_cutoff_counts_each_item_once():
@@ -150,12 +150,12 @@ def test_diversity_long_tail_cutoff_counts_each_item_once():
     assert row["long_tail_exposure_share"] == 0.9
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k counts_each_item_once`
 Expected: FAIL, `18.0 == 80.0`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `compute_diversity`, replace the `popularities = [...]` and `cutoff = ...` lines with:
 
@@ -193,12 +193,12 @@ def _distinct_item_cutoff(items: list[Mapping[str, object]], percentile: float) 
     return float(pd.Series(list(first_seen.values())).quantile(percentile)) if first_seen else None
 ```
 
-- [ ] **Step 4: Run to verify**
+- [x] **Step 4: Run to verify**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py`
 Expected: all pass, including `test_diversity_reports_entropy_jaccard_and_long_tail` (two id-less items → cutoff 81.0, share 0.5).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/test_quality_measurements.py
@@ -216,7 +216,7 @@ git commit -m "fix(diversity): take the long-tail cutoff over distinct items, no
 - Consumes: `_item_key` (Task 2).
 - Produces: `compute_diversity(slates, long_tail_percentile=0.80, catalog_size: int | None = None)`; aggregate keys `items_served, catalog_size, catalog_coverage, exposure_gini, top_decile_exposure_share, median_items_per_user, user_repeat_rate`; `slate_inputs` entries become `(slate_id, items, user_id, request_ts)`; test fixture `_catalog_slates()`; `load_slates(...).attrs["catalog_size"]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test_quality_measurements.py`:
 
@@ -274,12 +274,12 @@ def test_load_slates_records_the_catalog_size(tmp_path, monkeypatch):
     assert dash.load_slates(str(path)).attrs["catalog_size"] == 3
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py integration-tests/python_modeling/test_analysis_dashboard.py -k "spread or catalog_size"`
 Expected: FAIL — `TypeError: ... unexpected keyword argument 'catalog_size'`, `KeyError: 'items_served'`, `KeyError: 'catalog_size'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `compute_diversity`: change the signature to add `catalog_size: int | None = None`, and build the inputs with user and time in one pass:
 
@@ -342,12 +342,12 @@ and in `build_measurement_dashboard`:
                       if slates is not None else no_slates),
 ```
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `python3 -m pytest -q`
 Expected: `626 passed, 2 skipped`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/ recsys-pipeline/integration-tests/python_modeling/
@@ -364,7 +364,7 @@ git commit -m "feat(diversity): catalog coverage, exposure Gini, top-decile shar
 - Consumes: `_catalog_slates()` (Task 3), `_item_key` (Task 2).
 - Produces: envelope keys `distributions: {"normalized_genre_entropy": [...], "intra_list_genre_distance": [...]}` (10 × `{"bin_start", "count"}`), `genre_exposure: [{"genre", "exposure_share", "served_share"}]`; helpers `_unit_histogram(values) -> list[dict]`, `_genre_exposure(items) -> list[dict]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_diversity_publishes_per_slate_distributions():
@@ -388,12 +388,12 @@ def test_diversity_compares_genre_exposure_with_what_is_served():
     ]
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k "distributions or genre_exposure"`
 Expected: FAIL with `KeyError: 'distributions'` and `KeyError: 'genre_exposure'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace the final `return available(...)` of `compute_diversity` with:
 
@@ -441,12 +441,12 @@ def _genre_exposure(items: list[Mapping[str, object]]) -> list[dict[str, object]
 
 `round(value * 10, 9)` absorbs float error such as `0.7 * 10 == 7.000000000000001` and `0.3 * 10 == 3.0000000000000004` without moving a true boundary.
 
-- [ ] **Step 4: Run to verify**
+- [x] **Step 4: Run to verify**
 
 Run: `python3 -m pytest -q`
 Expected: `628 passed, 2 skipped`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/test_quality_measurements.py
@@ -463,7 +463,7 @@ git commit -m "feat(diversity): per-slate histograms and genre exposure vs serve
 - Consumes: `_time_buckets` (Task 1), `slate_inputs` 4-tuples (Task 3), `_catalog_slates()`.
 - Produces: envelope keys `series: [{"bucket_start", "slates", "normalized_genre_entropy", "intra_list_genre_distance", "long_tail_exposure_share", "items_served"}]`, `series_bucket_seconds: float | None`; helper `_diversity_series(slate_inputs, slate_rows)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_diversity_series_buckets_slates_by_request_time():
@@ -485,12 +485,12 @@ def test_diversity_series_is_empty_without_request_times():
     assert result["series"] == [] and result["series_bucket_seconds"] is None
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k diversity_series`
 Expected: FAIL with `KeyError: 'series'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `compute_diversity`, before `return result`:
 
@@ -531,12 +531,12 @@ def _diversity_series(slate_inputs: list[tuple], slate_rows: list[dict]) -> tupl
     return series, round(width, 1)
 ```
 
-- [ ] **Step 4: Run to verify**
+- [x] **Step 4: Run to verify**
 
 Run: `python3 -m pytest -q`
 Expected: `630 passed, 2 skipped`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/services/python-modeling/quality_measurements.py recsys-pipeline/integration-tests/python_modeling/test_quality_measurements.py
@@ -552,7 +552,7 @@ git commit -m "feat(diversity): entropy, distance, long tail and items served ov
 **Interfaces:**
 - Produces: `_aggregate_diversity_row(diversity: dict) -> dict`; removes `SLATE_ROW_LIMIT` and `_bounded_slate_rows`.
 
-- [ ] **Step 1: Replace the bounded-rows test with the failing one**
+- [x] **Step 1: Replace the bounded-rows test with the failing one**
 
 Replace `test_export_bounds_diversity_slate_rows_and_says_so` with:
 
@@ -569,12 +569,12 @@ def test_export_publishes_only_the_diversity_aggregate():
     assert exporter._aggregate_diversity_row(missing) == missing
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_analysis_dashboard.py -k diversity_aggregate`
 Expected: FAIL with `AttributeError: module 'export_dashboard_json' has no attribute '_aggregate_diversity_row'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `SLATE_ROW_LIMIT = 10` and the whole `_bounded_slate_rows` function with:
 
@@ -592,12 +592,12 @@ def _aggregate_diversity_row(diversity: dict) -> dict:
 
 and in `build`, `measurements["diversity"] = _aggregate_diversity_row(measurements["diversity"])`.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `python3 -m pytest -q`
 Expected: `630 passed, 2 skipped` (one test replaced, none added).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add recsys-pipeline/frontend/export_dashboard_json.py recsys-pipeline/integration-tests/python_modeling/test_analysis_dashboard.py
@@ -612,7 +612,7 @@ git commit -m "feat(dashboard): publish the diversity aggregate, not a sample of
 **Interfaces:**
 - Consumes: `GroupedBarChart`, `LineChart`, `BarChart` (`./ui`); `count`, `duration`, `num`, `share` (`./format`) — all already imported; envelope keys from Tasks 3–5; `MeasurementSection`'s `chart(rows, data)`.
 
-- [ ] **Step 1: Replace `DiversitySection` entirely**
+- [x] **Step 1: Replace `DiversitySection` entirely**
 
 ```jsx
 export function DiversitySection({ data }) {
@@ -693,12 +693,12 @@ export function DiversitySection({ data }) {
 }
 ```
 
-- [ ] **Step 2: Run the contract tests and the suite**
+- [x] **Step 2: Run the contract tests and the suite**
 
 Run: `python3 -m pytest -q integration-tests/python_modeling/test_dashboard_measurement_contract.py && python3 -m pytest -q`
 Expected: contract file passes (`slate_id` is gone from the requested columns); suite `630 passed, 2 skipped`.
 
-- [ ] **Step 3: Build against the current snapshot**
+- [x] **Step 3: Build against the current snapshot**
 
 The committed snapshot predates the new keys, so this exercises every absent-data branch.
 
@@ -709,7 +709,7 @@ echo -n "KPI cards (want 6): "; grep -o 'class="metric-card"' "$f" | wc -l | tr 
 echo -n "series fallback (want 1 rendered): "; grep -o '<p class="na">Time series unavailable' "$f" | wc -l | tr -d ' '
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add recsys-pipeline/frontend/components/measurements.jsx
@@ -723,7 +723,7 @@ git commit -m "feat(dashboard): diversity shows catalog spread, distributions an
 
 Exporter only, against the surviving run (`/tmp/spark-recsys/movie-category-sim`) with Redis still up — no re-simulation. If the Parquet or Redis is gone, stop and record that instead of re-simulating unasked.
 
-- [ ] **Step 1: Re-export and diff against the committed snapshot**
+- [x] **Step 1: Re-export and diff against the committed snapshot**
 
 ```bash
 cd recsys-pipeline
@@ -742,7 +742,7 @@ print('rows', len(d['rows']), 'warnings', d['warnings'], 'buckets', len(d['serie
 
 Expected: moved = `['diversity', 'freshness']` (freshness only in its two content-age fields); `long_tail_exposure_share` ≈ 0.76; `items_served` 400; `catalog_coverage` 1.0; Gini ≈ 0.038; one row; no warnings.
 
-- [ ] **Step 2: Build and inspect with real data**
+- [x] **Step 2: Build and inspect with real data**
 
 ```bash
 cd frontend && npm run build 2>&1 | grep -E 'Compiled|Failed|rror' | head -3
@@ -752,7 +752,7 @@ echo -n "line charts (want 2): "; grep -o 'class="chart-card line-chart"' "$f" |
 echo -n "fallback (want 0): "; grep -c 'Time series unavailable' "$f" || true
 ```
 
-- [ ] **Step 3: Commit the snapshot alone, then the evidence**
+- [x] **Step 3: Commit the snapshot alone, then the evidence**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -765,7 +765,22 @@ Fill in Verification below, tick the boxes, commit as `docs: record the diversit
 
 ## Verification
 
-- Suite: _(record)_
-- Fallback build (Task 7): _(record)_
-- Re-export (Task 8): moved sections / aggregate figures / series: _(record)_
-- Real-data build (Task 8): _(record)_
+- **Suite:** `python3 -m pytest -q` → `630 passed, 2 skipped` (621 + 9 new items; the bounded-rows
+  test was replaced, not added).
+- **Fallback build (Task 7, snapshot without the new keys):** `Compiled successfully`; 6 KPI cards;
+  one rendered "Time series unavailable" line.
+- **Re-export (Task 8):** moved `diversity` and `freshness` only; freshness only in
+  `mean_content_age_days` / `median_content_age_days`. Diversity aggregate: long tail 0.7605 (cutoff
+  44.0; was the circular 0.796), items served 400 / catalog 400 (coverage 1.0), exposure Gini
+  0.0383, top decile 0.1124, median items per user 261, user repeat rate 0.3789; one row, no
+  warnings; series 23 × 3 s. Per-slate means bit-identical to before. Entropy histogram
+  `[0,0,0,0,0,0,0,1,64,16661]`; distance `[0,0,1,0,0,3,17,266,3368,13071]`.
+- **Real-data build (Task 8):** both histograms, the genre chart and 2 line charts present; 0
+  fallbacks; screenshot inspected; no horizontal overflow at 390 px.
+
+### Observed after the fact
+
+`user_repeat_rate` 0.379 is what uniform-random serving produces: ~418 exposures per user drawn
+from 400 items give an expected `400 · (1 − (399/400)^418) ≈ 259` distinct (measured median 261),
+so a repeat rate of ≈ 0.38 with no recommender bias at all. The figure needs that baseline beside it
+to be read.
