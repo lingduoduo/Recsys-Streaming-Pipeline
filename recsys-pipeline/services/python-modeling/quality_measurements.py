@@ -18,6 +18,10 @@ from measurement_contract import available, unavailable
 # one point. Equal-width buckets over the observed span work for a minute or a quarter.
 SERIES_BUCKETS = 24
 
+# Content-age bands; the 8-30 d edge matches the default 30-day freshness window.
+AGE_BANDS = (("0-7 d", 0.0, 7.0), ("8-30 d", 7.0, 30.0), ("31-90 d", 30.0, 90.0),
+             ("91-365 d", 90.0, 365.0), ("> 1 y", 365.0, math.inf))
+
 
 def dcg(labels: Sequence[float], k: int) -> float:
     """Return discounted cumulative gain for the first ``k`` graded labels."""
@@ -432,8 +436,11 @@ def _freshness_result(obs: pd.DataFrame, total: int, source: str) -> dict[str, o
         "established_mean_reward": _mean(observed(established, "reward")),
         "established_reward_coverage": _ratio(len(observed(established, "reward")), len(established)),
         **_fresh_ctr_gap(fresh, established),
+        **_fresh_supply(obs, _ratio(len(fresh), len(obs))),
     }
-    return available("Fresh-item exposure", [row], total, _ratio(len(obs), total) or 0.0)
+    result = available("Fresh-item exposure", [row], total, _ratio(len(obs), total) or 0.0)
+    result["age_bands"] = _age_bands(obs)
+    return result
 
 
 def _clustered_mean(frame: pd.DataFrame, column: str, center: float | None = None) -> tuple[float, float] | None:
@@ -462,6 +469,46 @@ def _fresh_ctr_gap(fresh: pd.DataFrame, established: pd.DataFrame) -> dict[str, 
         return {"fresh_ctr_diff": None, "fresh_ctr_diff_se": None, "fresh_ctr_diff_z": None}
     diff = a[0] - b[0]
     return {"fresh_ctr_diff": _round(diff), "fresh_ctr_diff_se": _round(se), "fresh_ctr_diff_z": round(diff / se, 2)}
+
+
+def _fresh_supply(obs: pd.DataFrame, fresh_share: float | None) -> dict[str, object]:
+    """Fresh share of the distinct movies served, and how much more exposure fresh ones got.
+
+    Age only grows, so a movie fresh at any exposure was fresh at its first.
+    """
+    identified = obs.dropna(subset=["item_id"])
+    if identified.empty:
+        return {"fresh_item_share": None, "fresh_exposure_lift": None}
+    fresh_movies = identified.groupby("item_id")["fresh"].any()
+    supply = _ratio(int(fresh_movies.sum()), len(fresh_movies))
+    return {"fresh_item_share": supply,
+            "fresh_exposure_lift": _round(fresh_share / supply) if fresh_share is not None and supply else None}
+
+
+def _age_bands(obs: pd.DataFrame) -> list[dict[str, object]]:
+    """Exposure, supply and CTR per content-age band; z against overall CTR, movies as clusters."""
+    aged = obs[obs["age"].notna().to_numpy()]
+    if aged.empty:
+        return []
+    clicks = [float(v) for v in aged["clicked"] if v is not None and pd.notna(v)]
+    p0 = sum(clicks) / len(clicks) if clicks else None
+    movies = aged["item_id"].dropna().nunique()
+    rows = []
+    for label, low, high in AGE_BANDS:
+        inside = ((aged["age"] >= low) if low == 0 else (aged["age"] > low)) & (aged["age"] <= high)
+        band = aged[inside.to_numpy()]
+        stats = _clustered_mean(band, "clicked", center=p0) if p0 is not None else None
+        items = int(band["item_id"].dropna().nunique())
+        rows.append({
+            "band": label,
+            "exposures": len(band),
+            "exposure_share": _ratio(len(band), len(aged)),
+            "items": items,
+            "item_share": _ratio(items, movies) if movies else None,
+            "ctr": _mean(float(v) for v in band["clicked"] if v is not None and pd.notna(v)),
+            "z": round((stats[0] - p0) / stats[1], 2) if stats and stats[1] else None,
+        })
+    return rows
 
 
 def _observation_frame(samples: pd.DataFrame, fresh, age, at_exposure) -> pd.DataFrame:

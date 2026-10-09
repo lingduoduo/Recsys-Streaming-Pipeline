@@ -603,3 +603,33 @@ def test_freshness_ctr_gap_is_item_clustered():
     assert (row["fresh_ctr_diff"], row["fresh_ctr_diff_se"], row["fresh_ctr_diff_z"]) == (0.5, 0.3536, 1.41)
     no_ids = compute_freshness(_fresh_samples().drop(columns=["item_id"]), datetime(2026, 8, 1, tzinfo=timezone.utc))
     assert no_ids["rows"][0]["fresh_ctr_diff_z"] is None
+
+
+def test_freshness_compares_exposure_with_supply():
+    row = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+
+    # Two of four movies are fresh, and they take half the exposures: lift 1.0.
+    assert (row["fresh_item_share"], row["fresh_exposure_lift"]) == (0.5, 1.0)
+
+
+def test_freshness_age_bands_put_edges_inside_and_keep_empty_bands():
+    bands = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))["age_bands"]
+
+    assert [(b["band"], b["exposures"], b["items"]) for b in bands] == [
+        ("0-7 d", 2, 1), ("8-30 d", 2, 1), ("31-90 d", 2, 1), ("91-365 d", 0, 0), ("> 1 y", 2, 1)]
+    assert bands[3]["ctr"] is None and bands[0]["z"] is None  # empty band; one movie is untestable
+    boolean_only = compute_freshness(pd.DataFrame([{"new_release": True}]), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    assert boolean_only["age_bands"] == []
+
+
+def test_freshness_age_band_z_is_item_clustered_against_overall_ctr():
+    rows = []
+    for item, published, clicks in (("a", "2026-07-27", (1, 1)), ("b", "2026-07-26", (1, 0)),
+                                    ("c", "2025-06-01", (0, 0)), ("d", "2025-03-01", (0, 1))):
+        rows += [{"item_id": item, "published_at": f"{published}T00:00:00Z", "clicked": c, "impression_ts": _T0}
+                 for c in clicks]
+    result = compute_freshness(pd.DataFrame(rows), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    bands = {b["band"]: b for b in result["age_bands"]}
+
+    # p0 = 4/8. Residuals about p0: a 2 - 1, b 1 - 1 -> se 0.3536, z (0.75 - 0.5) / se.
+    assert bands["0-7 d"]["z"] == 0.71 and bands["> 1 y"]["z"] == -0.71
