@@ -305,3 +305,26 @@ def test_freshness_rejects_arbitrary_truthy_boolean_encodings(value):
     )
 
     assert result["status"] == "unavailable"
+
+
+def _timed_samples():
+    # Four samples over a 24-second span: buckets 0, 0, 5 and 23 (bucket 10 stays empty).
+    return pd.DataFrame([
+        {"impression_ts": 100, "user_id": "u1", "item_id": "i1", "clicked": 1, "ordered": 1, "rating": 4.0},
+        {"impression_ts": 100, "user_id": "u2", "item_id": "i2", "clicked": 0, "ordered": 0, "rating": None},
+        {"impression_ts": 105, "user_id": "u1", "item_id": "i2", "clicked": 1, "ordered": 0, "rating": None},
+        {"impression_ts": 124, "user_id": "u3", "item_id": "i3", "clicked": 0, "ordered": 1, "rating": 5.0},
+    ])
+
+
+def test_satisfaction_counts_the_population_behind_its_averages():
+    row = compute_satisfaction(_timed_samples())["rows"][0]
+
+    assert (row["users"], row["items"], row["rated_samples"]) == (3, 3, 2)
+
+
+def test_satisfaction_population_is_none_not_zero_without_the_columns():
+    row = compute_satisfaction(pd.DataFrame([{"clicked": 1}]))["rows"][0]
+
+    assert row["users"] is None and row["items"] is None
+    assert row["rated_samples"] == 0

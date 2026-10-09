@@ -105,6 +105,9 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
         "dwell_coverage": _ratio(len(dwell), total),
         "mean_completion_rate": _mean(completion),
         "completion_coverage": _ratio(len(completion), total),
+        "users": _distinct(samples, "user_id"),
+        "items": _distinct(samples, "item_id"),
+        "rated_samples": len(ratings),
     }
     coverage = _ratio(len(clicked), total) or 0.0
     return available("Observed user satisfaction", [row], total, coverage)
@@ -335,6 +338,11 @@ def _observed_column(samples: pd.DataFrame, name: str) -> list[object]:
     if name not in samples:
         return []
     return [value for value in samples[name] if pd.notna(value)]
+
+
+def _distinct(samples: pd.DataFrame, name: str) -> int | None:
+    """Distinct observed values; None when the column is absent -- 0 users would be a claim."""
+    return int(samples[name].dropna().nunique()) if name in samples else None
 
 
 def _numeric_item_value(item: Mapping[str, object], name: str) -> float | None:
