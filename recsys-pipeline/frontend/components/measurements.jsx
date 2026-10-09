@@ -235,8 +235,10 @@ export function FreshnessSection({ data }) {
       <p className="fine-print">
         Content age is measured when the item was shown (impression_ts − published_at), so the
         figures do not change with the export date. Supply is the distinct movies served; a lift
-        near 1 means recent movies got their share of exposure. A CTR gap or band z within ±2
-        standard errors — movies as the unit — is noise.
+        near 1 means recent movies got their share of exposure. A CTR gap within ±2 standard errors —
+        movies as the unit — is noise. A band&apos;s z compares that band&apos;s movies with the overall
+        rate, so movie mix (genre, say) can drive it as easily as age; across five bands, one |z| above
+        2 turns up by chance in about one run in ten.
       </p>
     </MeasurementSection>
   );

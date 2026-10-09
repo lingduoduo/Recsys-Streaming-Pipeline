@@ -539,10 +539,15 @@ def _timestamp_observations(samples: pd.DataFrame, now: datetime, window_days: i
     now_timestamp = pd.Timestamp(now)
     now_timestamp = (now_timestamp.tz_localize("UTC") if now_timestamp.tzinfo is None
                      else now_timestamp.tz_convert("UTC"))
-    published = pd.to_datetime(samples["published_at"], utc=True, errors="coerce")
+    # format="mixed": without it pandas guesses one format from the first string and turns every
+    # row in another format into NaT, silently dropping it.
+    published = pd.to_datetime(samples["published_at"], utc=True, errors="coerce", format="mixed")
     stamps = (pd.to_numeric(samples["impression_ts"], errors="coerce") if "impression_ts" in samples
               else pd.Series(np.nan, index=samples.index))
-    exposed = pd.to_datetime(stamps.where(np.isfinite(stamps)), unit="s", utc=True)
+    # Epoch seconds by contract. Milliseconds or garbage would overflow the conversion and fail the
+    # whole export; such a row is aged against `now` instead, like a missing stamp.
+    plausible = np.isfinite(stamps) & (stamps >= 0) & (stamps < 1e11)
+    exposed = pd.to_datetime(stamps.where(plausible), unit="s", utc=True)
     age = ((exposed.fillna(now_timestamp) - published).dt.total_seconds() / 86_400).clip(lower=0.0)
     frame = _observation_frame(samples, fresh=(age <= window_days).to_numpy(), age=age.to_numpy(),
                                at_exposure=exposed.notna().to_numpy())

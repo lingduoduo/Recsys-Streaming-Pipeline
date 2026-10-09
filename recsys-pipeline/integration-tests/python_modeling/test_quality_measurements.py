@@ -633,3 +633,25 @@ def test_freshness_age_band_z_is_item_clustered_against_overall_ctr():
 
     # p0 = 4/8. Residuals about p0: a 2 - 1, b 1 - 1 -> se 0.3536, z (0.75 - 0.5) / se.
     assert bands["0-7 d"]["z"] == 0.71 and bands["> 1 y"]["z"] == -0.71
+
+
+def test_freshness_parses_published_at_strings_in_mixed_formats():
+    """Vectorised parsing guessed one format from the first row and dropped every other row."""
+    samples = pd.DataFrame([
+        {"published_at": "2026-07-23T00:00:00Z", "clicked": 1, "impression_ts": _T0},
+        {"published_at": "2026-06-01", "clicked": 0, "impression_ts": _T0},
+        {"published_at": "2026-07-01T00:00:00.5+02:00", "clicked": 0, "impression_ts": _T0},
+    ])
+
+    row = compute_freshness(samples, datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+    assert row["freshness_coverage"] == 1.0
+
+
+def test_freshness_treats_out_of_range_impression_ts_as_missing():
+    """Milliseconds (or garbage) must not crash the export: age falls back to `now` for that row."""
+    samples = _fresh_samples().astype({"impression_ts": float})
+    samples.loc[0, "impression_ts"] = _T0 * 1000.0
+    samples.loc[1, "impression_ts"] = 1e20
+
+    row = compute_freshness(samples, datetime(2026, 7, 30, tzinfo=timezone.utc))["rows"][0]
+    assert row["age_at_exposure_coverage"] == 0.75
