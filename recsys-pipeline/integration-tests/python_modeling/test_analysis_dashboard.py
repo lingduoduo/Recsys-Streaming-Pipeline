@@ -109,18 +109,16 @@ def test_export_replaces_non_finite_values_with_null():
     json.dumps(safe, allow_nan=False)
 
 
-def test_export_bounds_diversity_slate_rows_and_says_so():
+def test_export_publishes_only_the_diversity_aggregate():
     import export_dashboard_json as exporter
 
     rows = [{"scope": "aggregate"}] + [{"scope": "slate", "slate_id": f"r{i}"} for i in range(25)]
-    bounded = exporter._bounded_slate_rows({"status": "available", "rows": rows, "warnings": []})
+    published = exporter._aggregate_diversity_row({"status": "available", "rows": rows, "warnings": []})
 
-    assert len(bounded["rows"]) == exporter.SLATE_ROW_LIMIT + 1
-    assert bounded["rows"][0]["scope"] == "aggregate"      # the full-support row is kept
-    assert bounded["warnings"] == ["showing 10 of 25 slate rows; the aggregate covers all"]
-
-    short = {"status": "available", "rows": rows[:3], "warnings": []}
-    assert exporter._bounded_slate_rows(short) == short    # nothing dropped, nothing claimed
+    # The distributions and series cover every slate; a sample of slate rows adds nothing.
+    assert published["rows"] == [{"scope": "aggregate"}] and published["warnings"] == []
+    missing = {"status": "unavailable", "rows": [], "warnings": ["missing slate experiences"]}
+    assert exporter._aggregate_diversity_row(missing) == missing
 
 
 def test_compute_relevance_funnel_and_means(tmp_path):
@@ -650,3 +648,18 @@ def test_decade_uses_the_shared_derivation():
     })
     got = list(dash.compute_keyword(df)["by_decade"]["decade"])
     assert got == [fd.decade(2007)] == ["2000s"]
+
+
+def test_load_slates_records_the_catalog_size(tmp_path, monkeypatch):
+    pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+    import ranking_eval_report
+
+    path = tmp_path / "slates.json"
+    path.write_text(json.dumps([{"request_id": "r1", "items": [{"item_id": "m1"}]}]))
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": f"m{i}", "genres": ["Drama"]} for i in range(3)])
+    monkeypatch.setattr(ranking_eval_report, "fetch_popularity", lambda host, port: {})
+
+    assert dash.load_slates(str(path)).attrs["catalog_size"] == 3

@@ -121,34 +121,45 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
     return result
 
 
-def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]], float | None]:
-    """Per-bucket engagement over the observed impression_ts span (epoch seconds)."""
-    if "impression_ts" not in samples:
-        return [], None
-    stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
-    timed = samples[stamps.notna()]
-    stamps = stamps[stamps.notna()]
+def _time_buckets(stamps: pd.Series) -> tuple[pd.Series, list[float], float] | None:
+    """Bucket index per stamp over the observed span, the bucket starts, and the width.
+
+    Whole-second stamps (what the joiner publishes) get a whole-second width: a fractional one
+    gives buckets 2 or 3 distinct seconds apiece, a sawtooth in every count from the width alone.
+    The bucket count then falls to fit, at most SERIES_BUCKETS. None without a span.
+    """
     if stamps.empty or stamps.max() <= stamps.min():
-        return [], None
+        return None
     start = float(stamps.min())
     span = float(stamps.max()) - start
     if (stamps % 1 == 0).all():
-        # Whole-second stamps (what the joiner publishes): a fractional width would give buckets
-        # 2 or 3 distinct seconds apiece, a sawtooth in every count from the width alone. Round
-        # the width up to whole seconds and let the bucket count fall to fit, at most 24.
         width = float(math.ceil((span + 1) / SERIES_BUCKETS))
         buckets = math.ceil((span + 1) / width)
     else:
         width = span / SERIES_BUCKETS
         buckets = SERIES_BUCKETS
     # Float division can put the maximum at exactly `buckets`; it belongs to the last bucket.
-    bucket = ((stamps - start) // width).clip(upper=buckets - 1).astype(int)
+    index = ((stamps - start) // width).clip(upper=buckets - 1).astype(int)
+    return index, [start + i * width for i in range(buckets)], width
+
+
+def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]], float | None]:
+    """Per-bucket engagement over the observed impression_ts span (epoch seconds)."""
+    if "impression_ts" not in samples:
+        return [], None
+    stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
+    observed = stamps.notna().to_numpy()
+    buckets = _time_buckets(stamps[observed])
+    if buckets is None:
+        return [], None
+    index, starts, width = buckets
+    timed, index = samples[observed], index.to_numpy()
     series = []
-    for index in range(buckets):
-        part = timed[(bucket == index).to_numpy()]
+    for position, start in enumerate(starts):
+        part = timed[index == position]
         ratings = _numeric_column(part, "rating")
         series.append({
-            "bucket_start": round(start + index * width, 1),
+            "bucket_start": round(start, 1),
             "impressions": len(part),
             "users": _distinct(part, "user_id"),
             "ctr": _mean(_numeric_column(part, "clicked")),
@@ -194,32 +205,29 @@ def compute_freshness(
 def compute_diversity(
     slates: pd.DataFrame,
     long_tail_percentile: float = 0.80,
+    catalog_size: int | None = None,
 ) -> dict[str, object]:
     """Aggregate genre diversity and popularity-tail exposure across ranked slates."""
     if not 0.0 < long_tail_percentile < 1.0:
         return unavailable("long-tail percentile must be between zero and one")
 
     slate_inputs = [
-        (_slate_id(index, row), _items(row))
+        (_slate_id(index, row), _items(row), _string_value(row.get("user_id")),
+         _numeric_value(row.get("request_ts")))
         for index, row in slates.iterrows()
     ]
-    slate_inputs = [(slate_id, items) for slate_id, items in slate_inputs if items]
+    slate_inputs = [entry for entry in slate_inputs if entry[1]]
     if not slate_inputs:
         return unavailable("missing slate items")
 
-    popularities = [
-        popularity
-        for _, items in slate_inputs
-        for item in items
-        if (popularity := _numeric_item_value(item, "popularity")) is not None
-    ]
-    cutoff = float(pd.Series(popularities).quantile(long_tail_percentile)) if popularities else None
+    all_items = [item for _, items, _, _ in slate_inputs for item in items]
+    cutoff = _distinct_item_cutoff(all_items, long_tail_percentile)
     slate_rows = [
         {"scope": "slate", "slate_id": slate_id, **_diversity_for_slate(items, cutoff)}
-        for slate_id, items in slate_inputs
+        for slate_id, items, _, _ in slate_inputs
     ]
-    all_items = [item for _, items in slate_inputs for item in items]
     genre_coverage = _ratio(sum(bool(_genres(item)) for item in all_items), len(all_items))
+    spread = _catalog_spread(slate_inputs, catalog_size)
     aggregate = {
         "scope": "aggregate",
         "unique_genres_at_k": _mean([entry["unique_genres_at_k"] for entry in slate_rows]),
@@ -227,17 +235,141 @@ def compute_diversity(
         "intra_list_genre_distance": _mean([entry["intra_list_genre_distance"] for entry in slate_rows]),
         "long_tail_exposure_share": _mean([entry["long_tail_exposure_share"] for entry in slate_rows]),
         "genre_coverage": genre_coverage,
-        "popularity_coverage": _ratio(len(popularities), len(all_items)),
+        "popularity_coverage": _ratio(
+            sum(_numeric_item_value(item, "popularity") is not None for item in all_items), len(all_items)),
         "long_tail_popularity_cutoff": _round(cutoff),
+        **spread,
     }
-    if not any(value is not None for key, value in aggregate.items() if key not in {"genre_coverage", "popularity_coverage", "scope"}):
+    # The spread fields come from item ids alone, so they say nothing about whether the catalog
+    # signals this section measures (genres, popularity) were there at all.
+    if not any(value is not None for key, value in aggregate.items()
+               if key not in {"genre_coverage", "popularity_coverage", "scope", *spread}):
         return unavailable("missing genre and popularity diversity signals")
-    return available(
+    result = available(
         "Catalog diversity across slates",
         [aggregate, *slate_rows],
         len(slate_inputs),
         genre_coverage or 0.0,
     )
+    result["distributions"] = {
+        key: _unit_histogram([entry[key] for entry in slate_rows])
+        for key in ("normalized_genre_entropy", "intra_list_genre_distance")
+    }
+    result["genre_exposure"] = _genre_exposure(all_items)
+    result["series"], result["series_bucket_seconds"] = _diversity_series(slate_inputs, slate_rows)
+    return result
+
+
+def _item_key(item: Mapping[str, object], position: int) -> str:
+    """The item's id; an item without one counts as its own distinct item."""
+    return _string_value(item.get("item_id")) or f"#{position}"
+
+
+def _distinct_item_cutoff(items: list[Mapping[str, object]], percentile: float) -> float | None:
+    """Popularity quantile over distinct served items, each counted once.
+
+    Taken over exposures instead, the quantile puts ~percentile of exposures below it by
+    construction, so the long-tail share could not move whatever the recommender did.
+    """
+    first_seen: dict[str, float] = {}
+    for position, item in enumerate(items):
+        popularity = _numeric_item_value(item, "popularity")
+        if popularity is not None:
+            first_seen.setdefault(_item_key(item, position), popularity)
+    return float(pd.Series(list(first_seen.values())).quantile(percentile)) if first_seen else None
+
+
+def _catalog_spread(slate_inputs: list[tuple], catalog_size: int | None) -> dict[str, object]:
+    """Spread across the catalog and across each user's history -- what per-slate averages miss.
+
+    A recommender showing every user the same five genre-diverse items scores perfectly per
+    slate; Gini, coverage and repeat rate are what move. Gini and the top decile run over the
+    whole catalog when its size is known: an unserved item is a zero count, and leaving the zeros
+    out reads that recommender as perfectly even. The repeat rate gets a uniform-serving baseline,
+    because random serving repeats too -- ~418 draws from 400 items repeat ~38% of the time.
+    """
+    exposures: Counter[str] = Counter()
+    seen_by_user: dict[str, list[str]] = {}
+    for _, items, user, _ in slate_inputs:
+        ids = [item_id for item in items if (item_id := _string_value(item.get("item_id")))]
+        exposures.update(ids)
+        if user:
+            seen_by_user.setdefault(user, []).extend(ids)
+    n = len(exposures)
+    counts = [0] * max(0, (catalog_size or 0) - n) + sorted(exposures.values())
+    total, m = sum(counts), len(counts)
+    distinct = [len(set(ids)) for ids in seen_by_user.values()]
+    seen = sum(len(ids) for ids in seen_by_user.values())
+    expected_distinct = (sum(catalog_size * (1 - (1 - 1 / catalog_size) ** len(ids))
+                             for ids in seen_by_user.values()) if catalog_size else None)
+    return {
+        "items_served": n or None,
+        "catalog_size": catalog_size,
+        "catalog_coverage": _ratio(n, catalog_size) if n and catalog_size else None,
+        "exposure_gini": (_round(sum((2 * rank - m - 1) * c for rank, c in enumerate(counts, 1)) / (m * total))
+                          if n else None),
+        "top_decile_exposure_share": _round(sum(counts[-max(1, m // 10):]) / total) if n else None,
+        "median_items_per_user": _median(distinct),
+        "user_repeat_rate": _round(1 - sum(distinct) / seen) if seen else None,
+        "user_repeat_rate_uniform": _round(1 - expected_distinct / seen) if seen and catalog_size else None,
+    }
+
+
+def _unit_histogram(values: list[float | None]) -> list[dict[str, object]]:
+    """Ten bins over [0, 1]; exactly 1.0 lands in the last; None is skipped; [] if all are None."""
+    if all(value is None for value in values):
+        return []
+    counts = [0] * 10
+    for value in values:
+        if value is not None:
+            # round() absorbs float error such as 0.7 * 10 == 7.000000000000001.
+            counts[min(int(round(value * 10, 9)), 9)] += 1
+    return [{"bin_start": index / 10, "count": count} for index, count in enumerate(counts)]
+
+
+def _genre_exposure(items: list[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Each genre's share of exposures beside its share of the distinct items served."""
+    exposed = Counter(genre for item in items for genre in _genres(item))
+    served_items: dict[str, list[str]] = {}
+    for position, item in enumerate(items):
+        served_items.setdefault(_item_key(item, position), _genres(item))
+    served = Counter(genre for genres in served_items.values() for genre in genres)
+    exposed_total, served_total = sum(exposed.values()), sum(served.values())
+    rows = [{"genre": genre,
+             "exposure_share": _ratio(count, exposed_total),
+             "served_share": _ratio(served[genre], served_total)}
+            for genre, count in exposed.items()]
+    return sorted(rows, key=lambda row: (-row["exposure_share"], row["genre"]))
+
+
+def _diversity_series(slate_inputs: list[tuple], slate_rows: list[dict]) -> tuple[list[dict[str, object]], float | None]:
+    """Per-bucket slate diversity over the observed request_ts span (epoch seconds).
+
+    The long-tail share is each slate's share against the run-wide cutoff, so buckets compare.
+    """
+    stamps = pd.Series([request_ts for *_, request_ts in slate_inputs], dtype=float)
+    observed = stamps.notna().to_numpy()
+    buckets = _time_buckets(stamps[observed])
+    if buckets is None:
+        return [], None
+    index, starts, width = buckets
+    timed = [(entry, row) for entry, row, keep in zip(slate_inputs, slate_rows, observed) if keep]
+    members: list[list[tuple]] = [[] for _ in starts]
+    for bucket, pair in zip(index.to_numpy(), timed):
+        members[bucket].append(pair)
+    series = []
+    for start, pairs in zip(starts, members):
+        rows = [row for _, row in pairs]
+        series.append({
+            "bucket_start": round(start, 1),
+            "slates": len(pairs),
+            "normalized_genre_entropy": _mean(row["normalized_genre_entropy"] for row in rows),
+            "intra_list_genre_distance": _mean(row["intra_list_genre_distance"] for row in rows),
+            "long_tail_exposure_share": _mean(row["long_tail_exposure_share"] for row in rows),
+            "items_served": len({item_id for (_, items, _, _), _ in pairs for item in items
+                                 if (item_id := _string_value(item.get("item_id")))}),
+        })
+    return series, round(width, 1)
 
 
 def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:

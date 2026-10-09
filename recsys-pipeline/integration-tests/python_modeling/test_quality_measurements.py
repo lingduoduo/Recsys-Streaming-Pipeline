@@ -13,6 +13,7 @@ from quality_measurements import (  # noqa: E402
     compute_freshness,
     compute_relevance,
     compute_satisfaction,
+    _time_buckets,
 )
 
 
@@ -402,3 +403,132 @@ def test_satisfaction_series_fractional_stamps_keep_24_equal_buckets():
 
     assert len(result["series"]) == 24 and result["series_bucket_seconds"] == 1.0
     assert result["series"][-1]["impressions"] == 3  # 23.0, 23.5 and the maximum, 24.0
+
+
+def test_time_buckets_use_whole_second_widths_and_need_a_span():
+    index, starts, width = _time_buckets(pd.Series([0, 1, 65, 66]))
+
+    assert width == 3.0 and len(starts) == 23
+    assert list(index) == [0, 0, 21, 22]
+    assert _time_buckets(pd.Series([7, 7])) is None
+    assert _time_buckets(pd.Series([], dtype=float)) is None
+
+
+def test_diversity_long_tail_cutoff_counts_each_item_once():
+    """An exposure-weighted quantile puts ~percentile of exposures below it by construction."""
+    items = ([{"item_id": "low", "popularity": 10.0}] * 8
+             + [{"item_id": "mid", "popularity": 50.0}, {"item_id": "high", "popularity": 100.0}])
+    row = compute_diversity(pd.DataFrame([{"request_id": "r1", "items": items}]))["rows"][0]
+
+    # Over exposures the cutoff would be 18.0 and the share 0.8; over distinct items it is 80.0.
+    assert row["long_tail_popularity_cutoff"] == 80.0
+    assert row["long_tail_exposure_share"] == 0.9
+
+
+_GENRES = {"a": ["drama"], "b": ["comedy"], "c": ["drama", "comedy"], "d": ["action"]}
+_POPULARITY = {"a": 10.0, "b": 20.0, "c": 30.0, "d": 40.0}
+
+
+def _catalog_slates():
+    # Exposures a:6, b:2, c:1, d:1. u1 sees `a` twice; u3 sees nothing but `a`.
+    def item(key):
+        return {"item_id": key, "genres": _GENRES[key], "popularity": _POPULARITY[key]}
+    return pd.DataFrame([
+        {"request_id": "r1", "user_id": "u1", "request_ts": 10, "items": [item("a"), item("b"), item("c")]},
+        {"request_id": "r2", "user_id": "u1", "request_ts": 11, "items": [item("a"), item("d")]},
+        {"request_id": "r3", "user_id": "u2", "request_ts": 12, "items": [item("a"), item("b")]},
+        {"request_id": "r4", "user_id": "u3", "request_ts": 13, "items": [item("a"), item("a"), item("a")]},
+    ])
+
+
+def test_diversity_measures_spread_across_the_catalog_and_each_user():
+    row = compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]
+
+    assert (row["items_served"], row["catalog_size"], row["catalog_coverage"]) == (4, 8, 0.5)
+    # Counts over the 8-item catalog [0, 0, 0, 0, 1, 1, 2, 6]: Gini 56 / 80; the top decile is
+    # the single top item.
+    assert (row["exposure_gini"], row["top_decile_exposure_share"]) == (0.7, 0.6)
+    # Distinct per user 4, 2, 1 over exposures 5, 2, 3.
+    assert (row["median_items_per_user"], row["user_repeat_rate"]) == (2.0, 0.3)
+
+
+def test_diversity_spread_is_none_without_the_identities_it_needs():
+    slates = _catalog_slates().drop(columns=["user_id"])
+    row = compute_diversity(slates)["rows"][0]
+
+    assert row["catalog_size"] is None and row["catalog_coverage"] is None
+    assert row["median_items_per_user"] is None and row["user_repeat_rate"] is None
+    assert row["items_served"] == 4  # item spread still measurable
+
+
+def test_diversity_publishes_per_slate_distributions():
+    hist = compute_diversity(_catalog_slates())["distributions"]
+
+    # Entropy: r1, r2, r3 are 1.0 (last bin); r4 is all-drama, 0.0.
+    assert [b["count"] for b in hist["normalized_genre_entropy"]] == [1, 0, 0, 0, 0, 0, 0, 0, 0, 3]
+    # Distance: r4 0.0, r1 0.6667, r2 and r3 1.0.
+    assert [b["count"] for b in hist["intra_list_genre_distance"]] == [1, 0, 0, 0, 0, 0, 1, 0, 0, 2]
+    assert hist["intra_list_genre_distance"][6]["bin_start"] == 0.6
+
+
+def test_diversity_compares_genre_exposure_with_what_is_served():
+    shares = compute_diversity(_catalog_slates())["genre_exposure"]
+
+    # Exposures mention drama 7, comedy 3, action 1; distinct items drama 2, comedy 2, action 1.
+    assert shares == [
+        {"genre": "drama", "exposure_share": 0.6364, "served_share": 0.4},
+        {"genre": "comedy", "exposure_share": 0.2727, "served_share": 0.4},
+        {"genre": "action", "exposure_share": 0.0909, "served_share": 0.2},
+    ]
+
+
+def test_diversity_series_buckets_slates_by_request_time():
+    result = compute_diversity(_catalog_slates())
+    series = result["series"]
+
+    # request_ts 10..13 -> four 1 s buckets, one slate each.
+    assert result["series_bucket_seconds"] == 1.0 and [b["slates"] for b in series] == [1, 1, 1, 1]
+    # Cutoff over distinct items is 34.0, so every item in r1 is in the tail.
+    assert series[0] == {"bucket_start": 10.0, "slates": 1, "normalized_genre_entropy": 1.0,
+                         "intra_list_genre_distance": 0.6667, "long_tail_exposure_share": 1.0,
+                         "items_served": 3}
+    assert series[3]["normalized_genre_entropy"] == 0.0 and series[3]["items_served"] == 1
+
+
+def test_diversity_series_is_empty_without_request_times():
+    result = compute_diversity(_catalog_slates().drop(columns=["request_ts"]))
+
+    assert result["series"] == [] and result["series_bucket_seconds"] is None
+
+
+def test_diversity_gini_counts_unserved_catalog_items():
+    """Two items shown to everyone out of ten is maximally uneven, not perfectly even."""
+    items = [{"item_id": "x", "genres": ["drama"], "popularity": 1.0},
+             {"item_id": "y", "genres": ["comedy"], "popularity": 2.0}]
+    slates = pd.DataFrame([{"request_id": f"r{i}", "user_id": f"u{i}", "items": items} for i in range(5)])
+    row = compute_diversity(slates, catalog_size=10)["rows"][0]
+
+    # Counts over the catalog [0 x 8, 5, 5]: Gini 80 / 100; over served items alone it read 0.0.
+    assert (row["exposure_gini"], row["top_decile_exposure_share"]) == (0.8, 0.5)
+
+
+def test_diversity_is_unavailable_without_genre_or_popularity_signals():
+    slates = pd.DataFrame([{"request_id": "r1", "user_id": "u1", "items": [{"item_id": "a"}, {"item_id": "b"}]}])
+
+    assert compute_diversity(slates)["warnings"] == ["missing genre and popularity diversity signals"]
+
+
+def test_diversity_histograms_are_absent_not_zero_without_their_signal():
+    slates = pd.DataFrame([{"request_id": "r1", "items": [{"item_id": "a", "popularity": 1.0},
+                                                         {"item_id": "b", "popularity": 2.0}]}])
+    hist = compute_diversity(slates)["distributions"]
+
+    assert hist == {"normalized_genre_entropy": [], "intra_list_genre_distance": []}
+
+
+def test_diversity_publishes_the_repeat_rate_uniform_serving_would_give():
+    row = compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]
+
+    # Users with 5, 2 and 3 exposures over 8 items expect 8 * (1 - (7/8)**E) distinct each.
+    assert row["user_repeat_rate_uniform"] == 0.1588
+    assert compute_diversity(_catalog_slates())["rows"][0]["user_repeat_rate_uniform"] is None

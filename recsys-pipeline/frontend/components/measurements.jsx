@@ -213,30 +213,80 @@ export function DiversitySection({ data }) {
       title="Diversity"
       data={data}
       columns={[
-        "scope", "slate_id", "unique_genres_at_k", "normalized_genre_entropy",
-        "intra_list_genre_distance", "long_tail_exposure_share",
-        "long_tail_popularity_cutoff", "genre_coverage", "popularity_coverage",
+        "scope", "items_served", "catalog_size", "catalog_coverage", "exposure_gini",
+        "top_decile_exposure_share", "median_items_per_user", "user_repeat_rate",
+        "user_repeat_rate_uniform", "unique_genres_at_k", "normalized_genre_entropy", "intra_list_genre_distance",
+        "long_tail_exposure_share", "long_tail_popularity_cutoff", "genre_coverage",
+        "popularity_coverage",
       ]}
       kpis={(rows) => {
         const row = rows.find((r) => r.scope === "aggregate") || rows[0] || {};
         return [
           { label: "genre entropy", value: num(row.normalized_genre_entropy, 3) },
-          { label: "unique genres", value: num(row.unique_genres_at_k, 2) },
           { label: "intra-list distance", value: num(row.intra_list_genre_distance, 3) },
           { label: "long-tail share", value: share(row.long_tail_exposure_share) },
+          { label: "catalog coverage", value: share(row.catalog_coverage),
+            detail: `${count(row.items_served)} of ${count(row.catalog_size)} items` },
+          { label: "exposure Gini", value: num(row.exposure_gini, 3),
+            detail: row.catalog_size == null ? "over served items only" : "over the whole catalog" },
+          { label: "user repeat rate", value: share(row.user_repeat_rate),
+            detail: row.user_repeat_rate_uniform == null
+              ? "no catalog size, no baseline"
+              : `uniform serving: ${share(row.user_repeat_rate_uniform)}` },
         ];
       }}
-      description="Genre spread and long-tail exposure within a slate, on a 0–1 scale."
-      chart={(rows) => {
-        const row = rows.find((r) => r.scope === "aggregate") || rows[0] || {};
+      description="Genre spread within a slate, spread across the catalog and each user's history, and long-tail exposure."
+      chart={(rows, data) => {
+        const histograms = data.distributions ?? {};
+        const binLabel = (b) => `${b.bin_start.toFixed(1)}–${(b.bin_start + 0.1).toFixed(1)}`;
+        const genres = data.genre_exposure ?? [];
+        const series = data.series ?? [];
+        const width = data.series_bucket_seconds;
+        const labels = series.map((b) => `+${duration(b.bucket_start - series[0].bucket_start)}`);
+        const caption = `${series.length} × ${duration(width)} buckets over ${duration(width * series.length)}`;
         return (
-          <BarChart title="Diversity (0–1)"
-            labels={["genre entropy", "intra-list distance", "long-tail share"]}
-            values={[row.normalized_genre_entropy, row.intra_list_genre_distance,
-                     row.long_tail_exposure_share]} />
+          <ChartGrid>
+            {[["normalized_genre_entropy", "Per-slate genre entropy"],
+              ["intra_list_genre_distance", "Per-slate intra-list distance"]].map(([key, title]) => {
+              const bins = histograms[key] ?? [];
+              return bins.length ? (
+                <BarChart key={key} title={title} valueFormatter={count}
+                  labels={bins.map(binLabel)} values={bins.map((b) => b.count)} />
+              ) : null;
+            })}
+            {genres.length ? (
+              <GroupedBarChart title="Genre share: exposures vs served items" percentage
+                labels={genres.map((g) => g.genre)}
+                series={[{ name: "exposures", values: genres.map((g) => g.exposure_share) },
+                         { name: "served items", values: genres.map((g) => g.served_share) }]} />
+            ) : null}
+            {series.length ? (
+              <>
+                <LineChart title="Genre spread over time" labels={labels} caption={caption}
+                  valueFormatter={(v) => num(v, 3)}
+                  series={[{ name: "entropy", values: series.map((b) => b.normalized_genre_entropy) },
+                           { name: "intra-list distance",
+                             values: series.map((b) => b.intra_list_genre_distance) }]} />
+                <LineChart title="Long-tail share over time" percentage labels={labels} caption={caption}
+                  series={[{ name: "long-tail share",
+                             values: series.map((b) => b.long_tail_exposure_share) }]} />
+              </>
+            ) : <p className="na">Time series unavailable (no request_ts span).</p>}
+          </ChartGrid>
         );
       }}
-    />
+    >
+      <p className="fine-print">
+        The long-tail cutoff is the configured popularity percentile (80th by default) over distinct
+        served items. Taken over exposures it would put that share of exposures below it by
+        construction. Catalog coverage, Gini and repeat rate measure spread across the catalog and
+        across each user&apos;s history, which per-slate averages cannot see; Gini counts unserved
+        catalog items as zero exposures. Random serving repeats items too, so read the repeat rate
+        against its uniform-serving baseline, not against zero. The sim serves near-uniform slates:
+        the figures sit near what random serving gives, and the section exists to catch a
+        recommender that narrows what people see.
+      </p>
+    </MeasurementSection>
   );
 }
 

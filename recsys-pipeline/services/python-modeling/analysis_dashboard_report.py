@@ -80,6 +80,9 @@ def load_slates(path: str | None, host: str = "localhost", port: int = 6379):
     popularity = fetch_popularity(host, port)
     slates["items"] = slates["items"].apply(
         lambda items: [_slate_item(item, genres, popularity) for item in (items if items is not None else [])])
+    if genres:
+        # The full catalog, so the diversity section can say what share of it was served.
+        slates.attrs["catalog_size"] = len(genres)
     return slates
 
 
@@ -418,7 +421,8 @@ def build_measurement_dashboard(samples, slates, live, config: dict | None = Non
         "freshness": _merge_live_row(
             quality.compute_freshness(measured, now, int(cfg["freshness_window_days"])),
             _live_freshness(live_measurements)),
-        "diversity": (quality.compute_diversity(slates, float(cfg["long_tail_percentile"]))
+        "diversity": (quality.compute_diversity(slates, float(cfg["long_tail_percentile"]),
+                                                slates.attrs.get("catalog_size"))
                       if slates is not None else no_slates),
         "fairness": governance.compute_fairness(measured, int(cfg["fairness_min_support"])),
         "safety": _merge_live_row(
