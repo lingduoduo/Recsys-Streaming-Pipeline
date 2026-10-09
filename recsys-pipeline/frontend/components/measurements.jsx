@@ -213,7 +213,7 @@ export function DiversitySection({ data }) {
       title="Diversity"
       data={data}
       columns={[
-        "scope", "slate_id", "unique_genres_at_k", "normalized_genre_entropy",
+        "scope", "unique_genres_at_k", "normalized_genre_entropy",
         "intra_list_genre_distance", "long_tail_exposure_share",
         "long_tail_popularity_cutoff", "genre_coverage", "popularity_coverage",
       ]}
