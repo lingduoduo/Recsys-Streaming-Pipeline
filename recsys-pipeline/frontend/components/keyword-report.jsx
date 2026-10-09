@@ -26,13 +26,17 @@ function Select({ label, value, onChange, options }) {
 // How many of a grid's cells earned their colour, against how many would by chance. Silent for
 // a snapshot without z, which is shaded the old way and makes no such claim.
 function SignalNote({ rows }) {
-  const tested = (rows ?? []).filter((r) => heatSignal(r.z) !== "unknown");
-  if (!tested.length) return null;
-  const signal = tested.filter((r) => heatSignal(r.z) === "signal").length;
+  const all = rows ?? [];
+  const tested = all.filter((r) => typeof r.z === "number");
+  const untestable = all.filter((r) => r.z === null).length;
+  if (!tested.length && !untestable) return null;
+  const high = tested.filter((r) => heatSignal(r.z) === "high").length;
+  const low = tested.filter((r) => heatSignal(r.z) === "low").length;
   return (
     <p className="fine-print">
-      {signal} of {tested.length} cells differ from this grid&apos;s CTR (|z| ≥ {SIGNAL_Z}); about{" "}
-      {Math.round(CHANCE_SHARE * tested.length)} would by chance alone.
+      {high + low} of {tested.length} testable cells differ from this grid&apos;s CTR (|z| ≥ {SIGNAL_Z}):
+      {" "}{high} above, {low} below. Nominally about {Math.round(CHANCE_SHARE * tested.length)} would
+      by chance alone.{untestable ? ` ${untestable} cells hold a single movie and cannot be tested.` : ""}
     </p>
   );
 }
@@ -88,13 +92,15 @@ function RelevanceHeatmap({ rows, crossKey, crossLabel, domain, markDiagonal = f
                 const t = heatScore(cell.ctr, domain);
                 const forced = markDiagonal && crossValue === keyword;
                 const signal = heatSignal(cell.z);
-                const classes = ["num", "heat-cell", forced && "heat-forced", signal === "noise" && "heat-noise"]
+                const classes = ["num", "heat-cell", forced && "heat-forced",
+                  signal === "noise" && "heat-noise", signal === "low" && "heat-low"]
                   .filter(Boolean).join(" ");
                 return (
                   <td key={crossValue} className={classes}
                     style={{ "--token-score": t }}
                     title={`${crossValue} / ${keyword}: CTR ${share(cell.ctr)} over ${count(cell.movie_impressions)} impressions`
-                      + (signal === "unknown" ? "" : ` · z = ${num(cell.z, 2)}`)}>
+                      + (signal === "unknown" ? "" : cell.z === null ? " · one movie, untestable"
+                        : ` · z = ${num(cell.z, 2)}`)}>
                     {share(cell.ctr)}
                   </td>
                 );
@@ -253,9 +259,10 @@ export function KeywordSection({ data }) {
         Colour spans CTR {share(domain[0])}–{share(domain[1])}, the 5th–95th percentile across both
         grids below; cells outside that range saturate. Each cell prints its own rate. Both grids
         share one scale, so a shade means the same thing in either.{" "}Only cells whose CTR differs
-        from their grid&apos;s pooled rate by at least two standard errors are shaded; the rest sit on
-        the neutral background with their rate still printed. At that threshold about 1 cell in 22 is
-        shaded by chance, which each grid&apos;s count states.
+        from their grid&apos;s pooled rate by at least two standard errors are coloured — teal above
+        it, orange below, deeper the further out — and the rest sit on white with their rate still
+        printed. The standard error treats each movie as one unit, because a cell is a few movies
+        seen many times; counting impressions as independent would colour item-level noise.
       </p>
       <RelevanceHeatmap rows={data.grid} crossKey="category" crossLabel="category" domain={domain} />
       <SignalNote rows={data.grid} />

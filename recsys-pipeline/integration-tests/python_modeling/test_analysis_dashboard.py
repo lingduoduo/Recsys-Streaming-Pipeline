@@ -665,19 +665,38 @@ def test_load_slates_records_the_catalog_size(tmp_path, monkeypatch):
     assert dash.load_slates(str(path)).attrs["catalog_size"] == 3
 
 
-def test_compute_keyword_grid_cells_carry_z_against_the_grid_rate():
+def test_compute_keyword_grid_z_uses_an_item_clustered_standard_error():
+    """A cell is a handful of movies repeated across impressions, so movies are the clusters.
+
+    The binomial SE treats every impression as independent and overstates significance: on the
+    sim a genre shuffle across items still flagged ~11 of 102 cells at |z| >= 2 with it.
+    """
     pd = pytest.importorskip("pandas")
     import analysis_dashboard_report as dash
 
+    item = ["a1", "a1", "a2", "a2", "d1", "d1", "d2", "d2"]
     df = pd.DataFrame({
-        "user_id": ["u1", "u2", "u3", "u4"], "session_id": ["s1", "s2", "s3", "s4"],
-        "item_id": ["i1", "i2", "i3", "i4"], "label": [1.0, 1.0, 0.0, 0.0],
-        "genres": [["Action"], ["Action"], ["Drama"], ["Drama"]],
+        "user_id": [f"u{i}" for i in range(8)], "session_id": [f"s{i}" for i in range(8)],
+        "item_id": item, "label": [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        "genres": [["Action"]] * 4 + [["Drama"]] * 4,
     })
     rows = {r["keyword"]: r for _, r in dash.compute_keyword(df)["grid"].iterrows()}
 
-    # p0 = 2/4; se = sqrt(0.25 / 2) = 0.3536; z = (1.0 - 0.5) / 0.3536 and its mirror.
-    assert rows["Action"]["z"] == 1.41 and rows["Drama"]["z"] == -1.41
+    # p0 = 4/8. Action: per-item residuals 2 - 1 and 1 - 1, so var = (1 / 4**2) * 2/1 = 0.125
+    # and z = 0.25 / 0.3536. The binomial SE would have given z = 1.0.
+    assert rows["Action"]["z"] == 0.71 and rows["Drama"]["z"] == -0.71
+
+
+def test_compute_keyword_grid_z_is_none_for_a_single_movie_cell():
+    pd = pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+
+    df = pd.DataFrame({"user_id": ["u1", "u2", "u3"], "session_id": ["s1", "s2", "s3"],
+                       "item_id": ["a1", "a1", "d1"], "label": [1.0, 1.0, 0.0],
+                       "genres": [["Action"], ["Action"], ["Drama"]]})
+
+    # One movie is one cluster: there is no between-item variance to test against.
+    assert dash.compute_keyword(df)["grid"]["z"].isna().all()
 
 
 def test_compute_keyword_grid_z_is_none_without_variance():

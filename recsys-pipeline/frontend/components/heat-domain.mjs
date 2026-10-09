@@ -42,15 +42,19 @@ export function heatScore(ctr, [lo, hi]) {
   return Math.min(1, Math.max(0, (ctr - lo) / (hi - lo)));
 }
 
-// Whether a cell's colour is earned. A cell's CTR is compared with its own grid's pooled rate
-// (z, computed by the exporter); within two standard errors the difference is what sampling
-// alone produces, so the cell is drawn neutral. A snapshot exported before z existed has none,
-// and keeps its old shading rather than turning grey on a test that was never run.
+// Whether a cell's colour is earned, and in which direction. A cell's CTR is compared with its
+// own grid's pooled rate (z, item-clustered, computed by the exporter); within two standard
+// errors the difference is what sampling alone produces, so the cell is drawn neutral. High and
+// low are separate because the ramp's floor is nearly white: a strongly low cell needs its own
+// cue. null is a cell the exporter could not test (one movie) -- neutral. undefined is a
+// snapshot exported before z existed -- shaded the old way, since no test was run.
 export const SIGNAL_Z = 2;
 // Two-sided share of cells at |z| >= 2 when nothing differs: the chance expectation.
 export const CHANCE_SHARE = 0.0455;
 
 export function heatSignal(z) {
+  if (z === null) return "noise";
   if (typeof z !== "number" || !Number.isFinite(z)) return "unknown";
-  return Math.abs(z) >= SIGNAL_Z ? "signal" : "noise";
+  if (z >= SIGNAL_Z) return "high";
+  return z <= -SIGNAL_Z ? "low" : "noise";
 }

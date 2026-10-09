@@ -325,3 +325,11 @@ Fill in Verification, tick the boxes, commit as `docs: record the heatmap-signif
   Action × SciFi&Fantasy 10.3%) with only a faint tint. A diverging ramp around the grid's rate
   would make "significantly low" as visible as "significantly high"; left as a follow-up.
 - `z` is rounded to 2 dp before the inclusive threshold, so a true |z| of 1.995 counts as signal.
+
+### Final-review fix pass
+
+- `z` switched to an item-clustered SE after a shuffle test showed the binomial SE flagged ~11 of
+  102 cells with no genre effect present (clustered: ~0.8). Re-exported counts: category 13 / 95
+  testable (6 high, 7 low, 7 untestable), topic 9 / 135 (102 untestable), decade 4 / 87.
+- Significant low cells get their own hue (`heat-low`); build shows 403 noise and 14 low cells.
+  Screenshot inspected.

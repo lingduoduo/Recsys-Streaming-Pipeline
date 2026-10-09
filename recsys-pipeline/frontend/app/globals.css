@@ -820,11 +820,16 @@ table.rpt.heat-grid td.heat-cell {
   font-variant-numeric: tabular-nums;
 }
 
-/* Within two standard errors of the grid's rate: true, printed, but not a difference. The plain
-   surface, not --accent-soft: the ramp starts at --accent-soft, so a significantly LOW cell would
-   otherwise look exactly like noise. Any tint now means "differs". */
+/* Within two standard errors of the grid's rate: true, printed, but not a difference. */
 table.rpt.heat-grid td.heat-cell.heat-noise {
   background: var(--surface);
+}
+
+/* Significantly below the grid's rate. The teal ramp's floor is nearly white, so the strongest
+   low cells would read as noise; they get the second series hue instead, deeper as CTR falls
+   (1 - score), from a visible 15% up to 55% so dark ink keeps its contrast. */
+table.rpt.heat-grid td.heat-cell.heat-low {
+  background: color-mix(in oklab, var(--series-1) calc(15% + (1 - var(--token-score)) * 40%), var(--surface));
 }
 
 /* Never served, which is not the same as served and never clicked. */

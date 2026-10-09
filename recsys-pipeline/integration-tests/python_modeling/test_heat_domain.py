@@ -69,9 +69,12 @@ def test_heat_score_is_zero_for_a_degenerate_domain():
 
 
 def test_heat_signal_gates_on_two_standard_errors():
-    """Colour is earned at |z| >= 2; a snapshot without z keeps its old shading."""
+    """Colour is earned at |z| >= 2, split by direction; a snapshot without z keeps its old shading."""
     got = run_js(
         'console.log(JSON.stringify([2.0, -2.5, 1.99, -1.0, null, undefined, NaN, "2"]'
         '.map(heatSignal)));'
     )
-    assert got == ["signal", "signal", "noise", "noise", "unknown", "unknown", "unknown", "unknown"]
+    # High and low are separate so a low cell gets its own cue instead of the ramp's pale floor.
+    # null is a cell the exporter could not test (one movie): drawn neutral. undefined is a
+    # snapshot that predates z: shaded the old way.
+    assert got == ["high", "low", "noise", "noise", "noise", "unknown", "unknown", "unknown"]
