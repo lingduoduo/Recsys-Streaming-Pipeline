@@ -215,7 +215,7 @@ export function DiversitySection({ data }) {
       columns={[
         "scope", "items_served", "catalog_size", "catalog_coverage", "exposure_gini",
         "top_decile_exposure_share", "median_items_per_user", "user_repeat_rate",
-        "unique_genres_at_k", "normalized_genre_entropy", "intra_list_genre_distance",
+        "user_repeat_rate_uniform", "unique_genres_at_k", "normalized_genre_entropy", "intra_list_genre_distance",
         "long_tail_exposure_share", "long_tail_popularity_cutoff", "genre_coverage",
         "popularity_coverage",
       ]}
@@ -227,8 +227,12 @@ export function DiversitySection({ data }) {
           { label: "long-tail share", value: share(row.long_tail_exposure_share) },
           { label: "catalog coverage", value: share(row.catalog_coverage),
             detail: `${count(row.items_served)} of ${count(row.catalog_size)} items` },
-          { label: "exposure Gini", value: num(row.exposure_gini, 3) },
-          { label: "user repeat rate", value: share(row.user_repeat_rate) },
+          { label: "exposure Gini", value: num(row.exposure_gini, 3),
+            detail: row.catalog_size == null ? "over served items only" : "over the whole catalog" },
+          { label: "user repeat rate", value: share(row.user_repeat_rate),
+            detail: row.user_repeat_rate_uniform == null
+              ? "no catalog size, no baseline"
+              : `uniform serving: ${share(row.user_repeat_rate_uniform)}` },
         ];
       }}
       description="Genre spread within a slate, spread across the catalog and each user's history, and long-tail exposure."
@@ -276,8 +280,10 @@ export function DiversitySection({ data }) {
         The long-tail cutoff is the configured popularity percentile (80th by default) over distinct
         served items. Taken over exposures it would put that share of exposures below it by
         construction. Catalog coverage, Gini and repeat rate measure spread across the catalog and
-        across each user&apos;s history, which per-slate averages cannot see. The sim serves
-        near-uniform slates, so every figure here sits near its ideal; the section exists to catch a
+        across each user&apos;s history, which per-slate averages cannot see; Gini counts unserved
+        catalog items as zero exposures. Random serving repeats items too, so read the repeat rate
+        against its uniform-serving baseline, not against zero. The sim serves near-uniform slates:
+        the figures sit near what random serving gives, and the section exists to catch a
         recommender that narrows what people see.
       </p>
     </MeasurementSection>

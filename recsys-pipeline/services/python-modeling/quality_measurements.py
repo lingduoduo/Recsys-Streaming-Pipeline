@@ -227,6 +227,7 @@ def compute_diversity(
         for slate_id, items, _, _ in slate_inputs
     ]
     genre_coverage = _ratio(sum(bool(_genres(item)) for item in all_items), len(all_items))
+    spread = _catalog_spread(slate_inputs, catalog_size)
     aggregate = {
         "scope": "aggregate",
         "unique_genres_at_k": _mean([entry["unique_genres_at_k"] for entry in slate_rows]),
@@ -237,9 +238,12 @@ def compute_diversity(
         "popularity_coverage": _ratio(
             sum(_numeric_item_value(item, "popularity") is not None for item in all_items), len(all_items)),
         "long_tail_popularity_cutoff": _round(cutoff),
-        **_catalog_spread(slate_inputs, catalog_size),
+        **spread,
     }
-    if not any(value is not None for key, value in aggregate.items() if key not in {"genre_coverage", "popularity_coverage", "scope"}):
+    # The spread fields come from item ids alone, so they say nothing about whether the catalog
+    # signals this section measures (genres, popularity) were there at all.
+    if not any(value is not None for key, value in aggregate.items()
+               if key not in {"genre_coverage", "popularity_coverage", "scope", *spread}):
         return unavailable("missing genre and popularity diversity signals")
     result = available(
         "Catalog diversity across slates",
@@ -279,7 +283,10 @@ def _catalog_spread(slate_inputs: list[tuple], catalog_size: int | None) -> dict
     """Spread across the catalog and across each user's history -- what per-slate averages miss.
 
     A recommender showing every user the same five genre-diverse items scores perfectly per
-    slate; Gini, coverage and repeat rate are what move.
+    slate; Gini, coverage and repeat rate are what move. Gini and the top decile run over the
+    whole catalog when its size is known: an unserved item is a zero count, and leaving the zeros
+    out reads that recommender as perfectly even. The repeat rate gets a uniform-serving baseline,
+    because random serving repeats too -- ~418 draws from 400 items repeat ~38% of the time.
     """
     exposures: Counter[str] = Counter()
     seen_by_user: dict[str, list[str]] = {}
@@ -288,24 +295,30 @@ def _catalog_spread(slate_inputs: list[tuple], catalog_size: int | None) -> dict
         exposures.update(ids)
         if user:
             seen_by_user.setdefault(user, []).extend(ids)
-    counts = sorted(exposures.values())
-    total, n = sum(counts), len(counts)
+    n = len(exposures)
+    counts = [0] * max(0, (catalog_size or 0) - n) + sorted(exposures.values())
+    total, m = sum(counts), len(counts)
     distinct = [len(set(ids)) for ids in seen_by_user.values()]
     seen = sum(len(ids) for ids in seen_by_user.values())
+    expected_distinct = (sum(catalog_size * (1 - (1 - 1 / catalog_size) ** len(ids))
+                             for ids in seen_by_user.values()) if catalog_size else None)
     return {
         "items_served": n or None,
         "catalog_size": catalog_size,
         "catalog_coverage": _ratio(n, catalog_size) if n and catalog_size else None,
-        "exposure_gini": (_round(sum((2 * rank - n - 1) * c for rank, c in enumerate(counts, 1)) / (n * total))
+        "exposure_gini": (_round(sum((2 * rank - m - 1) * c for rank, c in enumerate(counts, 1)) / (m * total))
                           if n else None),
-        "top_decile_exposure_share": _round(sum(counts[-max(1, n // 10):]) / total) if n else None,
+        "top_decile_exposure_share": _round(sum(counts[-max(1, m // 10):]) / total) if n else None,
         "median_items_per_user": _median(distinct),
         "user_repeat_rate": _round(1 - sum(distinct) / seen) if seen else None,
+        "user_repeat_rate_uniform": _round(1 - expected_distinct / seen) if seen and catalog_size else None,
     }
 
 
 def _unit_histogram(values: list[float | None]) -> list[dict[str, object]]:
-    """Ten bins over [0, 1]; exactly 1.0 lands in the last; None is skipped."""
+    """Ten bins over [0, 1]; exactly 1.0 lands in the last; None is skipped; [] if all are None."""
+    if all(value is None for value in values):
+        return []
     counts = [0] * 10
     for value in values:
         if value is not None:

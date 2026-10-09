@@ -61,6 +61,17 @@ the cutoff, per slate and in aggregate.
 
 Each is `None` when its input is absent (no `item_id`s, no `user_id`s), never 0.
 
+**Amended after the final review:**
+- `exposure_gini` and `top_decile_exposure_share` run over the **whole catalog** when
+  `catalog_size` is known, an unserved item counting as zero exposures. Over served items alone, a
+  recommender serving the same five items to everyone read Gini 0.0 — "perfectly even".
+- A new `user_repeat_rate_uniform` gives the repeat rate uniform serving would produce,
+  `1 − Σ_u C·(1 − (1 − 1/C)^{E_u}) / Σ_u E_u` (`None` without `catalog_size`). Random serving
+  repeats too: on the sim, 0.3789 measured against 0.3818 uniform. The KPI shows it as its detail.
+- The spread fields come from item ids alone, so they are excluded from the "missing genre and
+  popularity diversity signals" guard, which they had made dead; a histogram with no observed value
+  is `[]`, not ten zero bins.
+
 `catalog_size` arrives as a new optional argument, `compute_diversity(slates, long_tail_percentile,
 catalog_size=None)`. `load_slates` already reads the full catalog (`fetch_movie_meta`) to attach
 genres; it records `slates.attrs["catalog_size"] = len(genres)` (or leaves it unset when Redis gave

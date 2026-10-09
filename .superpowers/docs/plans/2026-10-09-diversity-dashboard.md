@@ -784,3 +784,8 @@ Fill in Verification below, tick the boxes, commit as `docs: record the diversit
 from 400 items give an expected `400 · (1 − (399/400)^418) ≈ 259` distinct (measured median 261),
 so a repeat rate of ≈ 0.38 with no recommender bias at all. The figure needs that baseline beside it
 to be read.
+
+**Resolved in the final-review fix pass:** the aggregate now carries `user_repeat_rate_uniform`
+(0.3818 on this run, against 0.3789 measured — slightly *less* repetition than random serving), shown
+as the KPI's detail. The same pass moved Gini and the top decile onto the whole catalog (unchanged
+here: all 400 items were served) and restored the missing-signals guard.
