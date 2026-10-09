@@ -160,7 +160,9 @@ export function SatisfactionSection({ data }) {
         uninstrumented. The rate itself is charted above, and both columns are in the table.
       </p>
       <p className="fine-print">
-        Buckets split the observed span of <code>impression_ts</code> evenly. The sim stamps events
+        Buckets split the observed span of <code>impression_ts</code> evenly; whole-second stamps
+        get a whole-second width, so the last bucket can cover less time and show lower counts.
+        The sim stamps events
         with wall-clock time, so on sim data the series shows drift across one run, not a calendar.
         Only orders carry a rating, and the sim derives it from completion (3 + 2 × completion).
       </p>

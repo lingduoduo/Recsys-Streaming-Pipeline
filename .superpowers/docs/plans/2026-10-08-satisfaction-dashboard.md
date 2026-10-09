@@ -603,4 +603,6 @@ Integer-second stamps against a 2.75 s bucket put 2 or 3 distinct seconds in eac
 **count** series (impressions, active users) carry a sawtooth by construction: impressions per
 bucket range 1,265–4,790. CTR and mean rating are ratios and are unaffected. The fix is to align
 the width to whole seconds when stamps are integers (`width = ceil((span + 1) / 24)`, up to 24
-buckets), which changes the spec's fixed 24. Left as a follow-up.
+buckets), which changes the spec's fixed 24. **Resolved** in the follow-up: whole-second widths
+when every stamp is an integer; the re-exported run is 23 × 3 s, impressions 1,620–4,790 with the
+low end now confined to the 1-second last bucket and a real production dip at buckets 8–10.

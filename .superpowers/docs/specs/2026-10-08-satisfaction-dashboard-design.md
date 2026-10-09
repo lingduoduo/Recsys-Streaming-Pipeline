@@ -62,6 +62,11 @@ they survive the live-row merge untouched):
 
 - Bucket width `w = (max_ts − min_ts) / 24`; sample in bucket `min(floor((ts − min_ts) / w), 23)`,
   so the maximum timestamp lands in the last bucket rather than a 25th.
+- **Amended after the first real run:** when every stamp is a whole second (what the joiner
+  publishes), `w = ceil((span + 1) / 24)` whole seconds and the bucket count is
+  `ceil((span + 1) / w)`, at most 24. A fractional width gave each bucket 2 or 3 distinct seconds,
+  a sawtooth in every count from the width alone (impressions 1,265–4,790 per bucket on a 66 s
+  run). Only the last bucket can be partial, and the page says so.
 - `ctr` and `order_rate` over that bucket's samples carrying the signal; `mean_rating` over its
   rated samples only, `None` when it has none — never 0, which would draw a cliff.
 - Empty buckets are kept (`impressions: 0`, rates `None`) so the x-axis stays evenly spaced.

@@ -131,11 +131,20 @@ def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]]
     if stamps.empty or stamps.max() <= stamps.min():
         return [], None
     start = float(stamps.min())
-    width = (float(stamps.max()) - start) / SERIES_BUCKETS
-    # Float division can put the maximum at exactly SERIES_BUCKETS; it belongs to the last bucket.
-    bucket = ((stamps - start) // width).clip(upper=SERIES_BUCKETS - 1).astype(int)
+    span = float(stamps.max()) - start
+    if (stamps % 1 == 0).all():
+        # Whole-second stamps (what the joiner publishes): a fractional width would give buckets
+        # 2 or 3 distinct seconds apiece, a sawtooth in every count from the width alone. Round
+        # the width up to whole seconds and let the bucket count fall to fit, at most 24.
+        width = float(math.ceil((span + 1) / SERIES_BUCKETS))
+        buckets = math.ceil((span + 1) / width)
+    else:
+        width = span / SERIES_BUCKETS
+        buckets = SERIES_BUCKETS
+    # Float division can put the maximum at exactly `buckets`; it belongs to the last bucket.
+    bucket = ((stamps - start) // width).clip(upper=buckets - 1).astype(int)
     series = []
-    for index in range(SERIES_BUCKETS):
+    for index in range(buckets):
         part = timed[(bucket == index).to_numpy()]
         ratings = _numeric_column(part, "rating")
         series.append({
