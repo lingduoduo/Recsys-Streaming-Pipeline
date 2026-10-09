@@ -820,9 +820,11 @@ table.rpt.heat-grid td.heat-cell {
   font-variant-numeric: tabular-nums;
 }
 
-/* Within two standard errors of the grid's rate: true, printed, but not a difference. */
+/* Within two standard errors of the grid's rate: true, printed, but not a difference. The plain
+   surface, not --accent-soft: the ramp starts at --accent-soft, so a significantly LOW cell would
+   otherwise look exactly like noise. Any tint now means "differs". */
 table.rpt.heat-grid td.heat-cell.heat-noise {
-  background: var(--accent-soft);
+  background: var(--surface);
 }
 
 /* Never served, which is not the same as served and never clicked. */
