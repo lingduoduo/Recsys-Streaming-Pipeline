@@ -34,7 +34,7 @@
 
 **Interfaces:** Produces `_observation_frame(samples, fresh, age, at_exposure) -> pd.DataFrame`; both observation functions return `pd.DataFrame | None`; row field `age_at_exposure_coverage`; fixture `_fresh_samples(ts=True)`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 _T0 = int(pd.Timestamp("2026-07-30", tz="UTC").timestamp())
@@ -69,11 +69,11 @@ def test_freshness_falls_back_to_export_time_without_impression_ts():
     assert compute_freshness(mixed, now)["rows"][0]["age_at_exposure_coverage"] == 0.875
 ```
 
-- [ ] **Step 2: Run — expect FAIL** `KeyError: 'age_at_exposure_coverage'` (and a differing row pair).
+- [x] **Step 2: Run — expect FAIL** `KeyError: 'age_at_exposure_coverage'` (and a differing row pair).
 
 `python3 -m pytest -q integration-tests/python_modeling/test_quality_measurements.py -k "at_exposure or export_time"`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `compute_freshness` body after the guards:
 
@@ -171,14 +171,14 @@ def _freshness_result(obs: pd.DataFrame, total: int, source: str) -> dict[str, o
     return available("Fresh-item exposure", [row], total, _ratio(len(obs), total) or 0.0)
 ```
 
-- [ ] **Step 4: Run the file, then the suite** — expect all pass; suite `646 passed, 2 skipped`.
-- [ ] **Step 5: Commit** `fix(freshness): age content at exposure, not at export`
+- [x] **Step 4: Run the file, then the suite** — expect all pass; suite `646 passed, 2 skipped`.
+- [x] **Step 5: Commit** `fix(freshness): age content at exposure, not at export`
 
 ### Task 2: The CTR gap with an item-clustered SE
 
 **Files:** same module and test file. **Interfaces:** Consumes Task 1's frame; produces `_clustered_mean(frame, column, center=None) -> tuple[float, float] | None`, `_fresh_ctr_gap(fresh, established) -> dict`; row fields `fresh_ctr_diff`, `fresh_ctr_diff_se`, `fresh_ctr_diff_z`.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 def test_freshness_ctr_gap_is_item_clustered():
@@ -191,8 +191,8 @@ def test_freshness_ctr_gap_is_item_clustered():
     assert no_ids["rows"][0]["fresh_ctr_diff_z"] is None
 ```
 
-- [ ] **Step 2: Run — expect FAIL** `KeyError: 'fresh_ctr_diff'`.
-- [ ] **Step 3: Implement** — add after `_freshness_result`:
+- [x] **Step 2: Run — expect FAIL** `KeyError: 'fresh_ctr_diff'`.
+- [x] **Step 3: Implement** — add after `_freshness_result`:
 
 ```python
 def _clustered_mean(frame: pd.DataFrame, column: str, center: float | None = None) -> tuple[float, float] | None:
@@ -225,13 +225,13 @@ def _fresh_ctr_gap(fresh: pd.DataFrame, established: pd.DataFrame) -> dict[str, 
 
 and in `row`, after `"established_reward_coverage"`: `**_fresh_ctr_gap(fresh, established),`.
 
-- [ ] **Step 4: Suite** — `647 passed, 2 skipped`. **Step 5: Commit** `feat(freshness): the fresh-vs-established CTR gap with an item-clustered z`
+- [x] **Step 4: Suite** — `647 passed, 2 skipped`. **Step 5: Commit** `feat(freshness): the fresh-vs-established CTR gap with an item-clustered z`
 
 ### Task 3: Supply and age bands
 
 **Files:** same. **Interfaces:** Consumes `_clustered_mean`; produces `AGE_BANDS`, `_fresh_supply(obs, fresh_share) -> dict`, `_age_bands(obs) -> list[dict]`; row fields `fresh_item_share`, `fresh_exposure_lift`; envelope key `age_bands` (rows `band, exposures, exposure_share, items, item_share, ctr, z`).
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_freshness_compares_exposure_with_supply():
@@ -262,8 +262,8 @@ def test_freshness_age_band_z_is_item_clustered_against_overall_ctr():
     assert bands["0-7 d"]["z"] == 0.71 and bands["> 1 y"]["z"] == -0.71
 ```
 
-- [ ] **Step 2: Run — expect FAIL** `KeyError: 'fresh_item_share'` / `'age_bands'`.
-- [ ] **Step 3: Implement**
+- [x] **Step 2: Run — expect FAIL** `KeyError: 'fresh_item_share'` / `'age_bands'`.
+- [x] **Step 3: Implement**
 
 Module constant near `SERIES_BUCKETS`:
 
@@ -324,13 +324,13 @@ def _age_bands(obs: pd.DataFrame) -> list[dict[str, object]]:
     return rows
 ```
 
-- [ ] **Step 4: Suite** — `650 passed, 2 skipped`. **Step 5: Commit** `feat(freshness): fresh supply, exposure lift and age bands`
+- [x] **Step 4: Suite** — `650 passed, 2 skipped`. **Step 5: Commit** `feat(freshness): fresh supply, exposure lift and age bands`
 
 ### Task 4: `FreshnessSection`
 
 **Files:** Modify `recsys-pipeline/frontend/components/measurements.jsx` (`FreshnessSection`, replaced entirely).
 
-- [ ] **Step 1: Replace the component**
+- [x] **Step 1: Replace the component**
 
 ```jsx
 export function FreshnessSection({ data }) {
@@ -406,22 +406,38 @@ export function FreshnessSection({ data }) {
 }
 ```
 
-- [ ] **Step 2: Contract tests and suite** — `python3 -m pytest -q integration-tests/python_modeling/test_dashboard_measurement_contract.py && python3 -m pytest -q` → `650 passed, 2 skipped`.
-- [ ] **Step 3: Build on the current snapshot** (no new keys): `npm run build`; in `.next/server/app/serving/freshness.html` expect 4 `class="metric-card"`, no "Exposure vs supply", no "Mean reward by content age".
-- [ ] **Step 4: Commit** `feat(dashboard): freshness shows supply, age bands and an honest CTR gap`
+- [x] **Step 2: Contract tests and suite** — `python3 -m pytest -q integration-tests/python_modeling/test_dashboard_measurement_contract.py && python3 -m pytest -q` → `650 passed, 2 skipped`.
+- [x] **Step 3: Build on the current snapshot** (no new keys): `npm run build`; in `.next/server/app/serving/freshness.html` expect 4 `class="metric-card"`, no "Exposure vs supply", no "Mean reward by content age".
+- [x] **Step 4: Commit** `feat(dashboard): freshness shows supply, age bands and an honest CTR gap`
 
 ### Task 5: Re-export twice and record the evidence
 
 Exporter only against `/tmp/spark-recsys/movie-category-sim` with Redis up; stop and record if either is gone.
 
-- [ ] **Step 1:** Export to the snapshot, then again to `/tmp/claude-fresh-2.json`; assert the two `freshness` sections are identical; diff against the committed snapshot (expect only `freshness` to move).
-- [ ] **Step 2:** Record the row (fresh share, item share, lift, median age, gap/z, coverage) and `age_bands`.
-- [ ] **Step 3:** Build; expect the band chart, band table and no reward card; screenshot.
-- [ ] **Step 4:** Commit the snapshot alone; fill Verification; tick boxes; commit the evidence.
+- [x] **Step 1:** Export to the snapshot, then again to `/tmp/claude-fresh-2.json`; assert the two `freshness` sections are identical; diff against the committed snapshot (expect only `freshness` to move).
+- [x] **Step 2:** Record the row (fresh share, item share, lift, median age, gap/z, coverage) and `age_bands`.
+- [x] **Step 3:** Build; expect the band chart, band table and no reward card; screenshot.
+- [x] **Step 4:** Commit the snapshot alone; fill Verification; tick boxes; commit the evidence.
 
 ## Verification
 
-- Suite: _(record)_
-- Build on the pre-change snapshot: _(record)_
-- Double export: _(record)_
-- Real-data build: _(record)_
+- **Suite:** `python3 -m pytest -q` → `650 passed, 2 skipped` (644 + 6 new); every pre-existing
+  freshness test unchanged.
+- **RED evidence for the core bug:** before the fix the same samples gave `fresh_share` 0.25
+  exported on Aug 1 and 0.0 on Sep 1.
+- **Build on the pre-change snapshot:** 4 KPI cards; no band chart; no reward card.
+- **Double export:** two exports of the same run are byte-identical across the whole snapshot;
+  against the committed snapshot only `freshness` moved. Row: fresh share 0.1378, fresh movie
+  share 0.135, lift 1.0207, age-at-exposure coverage 1.0, median age 414.85 d, fresh − established
+  CTR −0.0007 (se 0.0048, z −0.14). Bands (exposure share / movies / CTR / z): 0-7 d 3.6% / 14 /
+  15.2% / 0.13; 8-30 d 10.2% / 40 / 14.9% / −0.24; 31-90 d 5.4% / 21 / 13.8% / −2.24; 91-365 d
+  26.5% / 106 / 15.7% / 2.12; > 1 y 54.4% / 219 / 14.9% / −0.79.
+- **Real-data build:** band chart, CTR-by-band chart and band table present; reward card hidden;
+  screenshot inspected; no horizontal overflow at 390 px.
+
+### Observed after the fact
+
+Two bands sit near |z| = 2 (31-90 d −2.24, 91-365 d +2.12). The sim assigns `published_at`
+independently of everything else, so these reflect which movies — and so which genre families,
+whose CTR the sim plants — fall in each band, not an effect of age. The z says the band's movies
+differ from the overall rate; it does not say why.
