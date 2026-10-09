@@ -13,6 +13,7 @@ from quality_measurements import (  # noqa: E402
     compute_freshness,
     compute_relevance,
     compute_satisfaction,
+    _time_buckets,
 )
 
 
@@ -402,3 +403,12 @@ def test_satisfaction_series_fractional_stamps_keep_24_equal_buckets():
 
     assert len(result["series"]) == 24 and result["series_bucket_seconds"] == 1.0
     assert result["series"][-1]["impressions"] == 3  # 23.0, 23.5 and the maximum, 24.0
+
+
+def test_time_buckets_use_whole_second_widths_and_need_a_span():
+    index, starts, width = _time_buckets(pd.Series([0, 1, 65, 66]))
+
+    assert width == 3.0 and len(starts) == 23
+    assert list(index) == [0, 0, 21, 22]
+    assert _time_buckets(pd.Series([7, 7])) is None
+    assert _time_buckets(pd.Series([], dtype=float)) is None

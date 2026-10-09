@@ -121,34 +121,45 @@ def compute_satisfaction(samples: pd.DataFrame) -> dict[str, object]:
     return result
 
 
-def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]], float | None]:
-    """Per-bucket engagement over the observed impression_ts span (epoch seconds)."""
-    if "impression_ts" not in samples:
-        return [], None
-    stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
-    timed = samples[stamps.notna()]
-    stamps = stamps[stamps.notna()]
+def _time_buckets(stamps: pd.Series) -> tuple[pd.Series, list[float], float] | None:
+    """Bucket index per stamp over the observed span, the bucket starts, and the width.
+
+    Whole-second stamps (what the joiner publishes) get a whole-second width: a fractional one
+    gives buckets 2 or 3 distinct seconds apiece, a sawtooth in every count from the width alone.
+    The bucket count then falls to fit, at most SERIES_BUCKETS. None without a span.
+    """
     if stamps.empty or stamps.max() <= stamps.min():
-        return [], None
+        return None
     start = float(stamps.min())
     span = float(stamps.max()) - start
     if (stamps % 1 == 0).all():
-        # Whole-second stamps (what the joiner publishes): a fractional width would give buckets
-        # 2 or 3 distinct seconds apiece, a sawtooth in every count from the width alone. Round
-        # the width up to whole seconds and let the bucket count fall to fit, at most 24.
         width = float(math.ceil((span + 1) / SERIES_BUCKETS))
         buckets = math.ceil((span + 1) / width)
     else:
         width = span / SERIES_BUCKETS
         buckets = SERIES_BUCKETS
     # Float division can put the maximum at exactly `buckets`; it belongs to the last bucket.
-    bucket = ((stamps - start) // width).clip(upper=buckets - 1).astype(int)
+    index = ((stamps - start) // width).clip(upper=buckets - 1).astype(int)
+    return index, [start + i * width for i in range(buckets)], width
+
+
+def _satisfaction_series(samples: pd.DataFrame) -> tuple[list[dict[str, object]], float | None]:
+    """Per-bucket engagement over the observed impression_ts span (epoch seconds)."""
+    if "impression_ts" not in samples:
+        return [], None
+    stamps = pd.to_numeric(samples["impression_ts"], errors="coerce")
+    observed = stamps.notna().to_numpy()
+    buckets = _time_buckets(stamps[observed])
+    if buckets is None:
+        return [], None
+    index, starts, width = buckets
+    timed, index = samples[observed], index.to_numpy()
     series = []
-    for index in range(buckets):
-        part = timed[(bucket == index).to_numpy()]
+    for position, start in enumerate(starts):
+        part = timed[index == position]
         ratings = _numeric_column(part, "rating")
         series.append({
-            "bucket_start": round(start + index * width, 1),
+            "bucket_start": round(start, 1),
             "impressions": len(part),
             "users": _distinct(part, "user_id"),
             "ctr": _mean(_numeric_column(part, "clicked")),
