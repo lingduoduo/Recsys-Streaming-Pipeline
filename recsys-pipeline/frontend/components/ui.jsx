@@ -173,13 +173,14 @@ function runs(values) {
 }
 
 // A metric over evenly spaced buckets. Plain SVG: the frontend carries no chart library. A null
-// is a gap -- a bucket with no ratings has no mean rating, not one of zero. Two series at most,
-// coloured by index like GroupedBarChart.
+// is a gap -- a bucket with no ratings has no mean rating, not one of zero -- and an all-null
+// series says N/A rather than draw an axis it has no values for. Two series at most, coloured by
+// index like GroupedBarChart.
 export function LineChart({ title, labels, series, percentage = false, valueFormatter, caption }) {
   const format = formatter({ percentage, valueFormatter });
   const observed = series.flatMap((s) => s.values).map(finite).filter((v) => v !== null);
-  const lo = observed.length ? Math.min(...observed) : 0;
-  const hi = observed.length ? Math.max(...observed) : 1;
+  const lo = Math.min(...observed);
+  const hi = Math.max(...observed);
   const W = 320, H = 120, PAD = 6;
   const x = (i) => PAD + (labels.length > 1 ? (i / (labels.length - 1)) * (W - 2 * PAD) : (W - 2 * PAD) / 2);
   const y = (v) => H - PAD - ((v - lo) / (hi - lo || 1)) * (H - 2 * PAD);
@@ -196,20 +197,22 @@ export function LineChart({ title, labels, series, percentage = false, valueForm
           ))}
         </div>
       ) : null}
-      <div className="line-plot">
-        <div className="line-axis"><span>{format(hi)}</span><span>{format(lo)}</span></div>
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title}>
-          {series.map((s, si) => runs(s.values).map((run) => (
-            <polyline key={`${s.name}-${run[0]}`} className={`line series-${si}`}
-              points={run.map((i) => `${x(i)},${y(finite(s.values[i]))}`).join(" ")} />
-          )))}
-          {series.map((s, si) => s.values.map((v, i) => (finite(v) === null ? null : (
-            <circle key={`${s.name}-${i}`} className={`dot series-${si}`} cx={x(i)} cy={y(finite(v))} r="2.5">
-              <title>{`${s.name} ${labels[i]}: ${format(finite(v))}${s.notes ? ` (${s.notes[i]})` : ""}`}</title>
-            </circle>
-          ))))}
-        </svg>
-      </div>
+      {observed.length ? (
+        <div className="line-plot">
+          <div className="line-axis"><span>{format(hi)}</span><span>{format(lo)}</span></div>
+          <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title}>
+            {series.map((s, si) => runs(s.values).map((run) => (
+              <polyline key={`${s.name}-${run[0]}`} className={`line series-${si}`}
+                points={run.map((i) => `${x(i)},${y(finite(s.values[i]))}`).join(" ")} />
+            )))}
+            {series.map((s, si) => s.values.map((v, i) => (finite(v) === null ? null : (
+              <circle key={`${s.name}-${i}`} className={`dot series-${si}`} cx={x(i)} cy={y(finite(v))} r="2.5">
+                <title>{`${s.name} ${labels[i]}: ${format(finite(v))}${s.notes ? ` (${s.notes[i]})` : ""}`}</title>
+              </circle>
+            ))))}
+          </svg>
+        </div>
+      ) : <p className="na">N/A — no bucket observed this signal.</p>}
       {caption ? <p className="fine-print">{caption}</p> : null}
     </div>
   );
