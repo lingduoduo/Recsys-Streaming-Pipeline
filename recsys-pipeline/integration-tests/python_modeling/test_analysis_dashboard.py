@@ -684,7 +684,8 @@ def test_compute_keyword_grid_z_uses_an_item_clustered_standard_error():
 
     # p0 = 4/8. Action: per-item residuals 2 - 1 and 1 - 1, so var = (1 / 4**2) * 2/1 = 0.125
     # and z = 0.25 / 0.3536. The binomial SE would have given z = 1.0.
-    assert rows["Action"]["z"] == 0.71 and rows["Drama"]["z"] == -0.71
+    # Four decimals, so the |z| >= 2 gate does not act on a value rounded up to 2.00.
+    assert rows["Action"]["z"] == 0.7071 and rows["Drama"]["z"] == -0.7071
 
 
 def test_compute_keyword_grid_z_is_none_for_a_single_movie_cell():

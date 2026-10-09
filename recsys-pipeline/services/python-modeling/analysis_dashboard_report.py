@@ -151,7 +151,7 @@ def _item_clustered_z(ex, level) -> dict:
             out[key] = None
             continue
         se = (cell["resid2"] / cell["n"] ** 2 * cell["items"] / (cell["items"] - 1)) ** 0.5
-        out[key] = round(float((cell["clicks"] / cell["n"] - p0) / se), 2)
+        out[key] = round(float((cell["clicks"] / cell["n"] - p0) / se), 4)
     return out
 
 
