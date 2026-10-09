@@ -11,6 +11,14 @@ export const ci = (lo, hi, asPct = false) =>
       ? `[${pct(lo)}, ${pct(hi)}]`
       : `[${num(lo)}, ${num(hi)}]`;
 
+// A span in seconds, in the largest unit that keeps it above 1.
+export const duration = (s) => {
+  if (s === null || s === undefined) return "N/A";
+  if (s < 60) return `${Math.round(s * 10) / 10} s`;
+  if (s < 3600) return `${(s / 60).toFixed(1)} min`;
+  if (s < 86400) return `${(s / 3600).toFixed(1)} h`;
+  return `${(s / 86400).toFixed(1)} d`;
+};
 export const count = (v) => (v === null || v === undefined ? "N/A" : Number(v).toLocaleString());
 
 // Rank by a field, dropping rows that have no value for it. Treating a missing
