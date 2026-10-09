@@ -205,24 +205,26 @@ def compute_freshness(
 def compute_diversity(
     slates: pd.DataFrame,
     long_tail_percentile: float = 0.80,
+    catalog_size: int | None = None,
 ) -> dict[str, object]:
     """Aggregate genre diversity and popularity-tail exposure across ranked slates."""
     if not 0.0 < long_tail_percentile < 1.0:
         return unavailable("long-tail percentile must be between zero and one")
 
     slate_inputs = [
-        (_slate_id(index, row), _items(row))
+        (_slate_id(index, row), _items(row), _string_value(row.get("user_id")),
+         _numeric_value(row.get("request_ts")))
         for index, row in slates.iterrows()
     ]
-    slate_inputs = [(slate_id, items) for slate_id, items in slate_inputs if items]
+    slate_inputs = [entry for entry in slate_inputs if entry[1]]
     if not slate_inputs:
         return unavailable("missing slate items")
 
-    all_items = [item for _, items in slate_inputs for item in items]
+    all_items = [item for _, items, _, _ in slate_inputs for item in items]
     cutoff = _distinct_item_cutoff(all_items, long_tail_percentile)
     slate_rows = [
         {"scope": "slate", "slate_id": slate_id, **_diversity_for_slate(items, cutoff)}
-        for slate_id, items in slate_inputs
+        for slate_id, items, _, _ in slate_inputs
     ]
     genre_coverage = _ratio(sum(bool(_genres(item)) for item in all_items), len(all_items))
     aggregate = {
@@ -235,6 +237,7 @@ def compute_diversity(
         "popularity_coverage": _ratio(
             sum(_numeric_item_value(item, "popularity") is not None for item in all_items), len(all_items)),
         "long_tail_popularity_cutoff": _round(cutoff),
+        **_catalog_spread(slate_inputs, catalog_size),
     }
     if not any(value is not None for key, value in aggregate.items() if key not in {"genre_coverage", "popularity_coverage", "scope"}):
         return unavailable("missing genre and popularity diversity signals")
@@ -263,6 +266,35 @@ def _distinct_item_cutoff(items: list[Mapping[str, object]], percentile: float) 
         if popularity is not None:
             first_seen.setdefault(_item_key(item, position), popularity)
     return float(pd.Series(list(first_seen.values())).quantile(percentile)) if first_seen else None
+
+
+def _catalog_spread(slate_inputs: list[tuple], catalog_size: int | None) -> dict[str, object]:
+    """Spread across the catalog and across each user's history -- what per-slate averages miss.
+
+    A recommender showing every user the same five genre-diverse items scores perfectly per
+    slate; Gini, coverage and repeat rate are what move.
+    """
+    exposures: Counter[str] = Counter()
+    seen_by_user: dict[str, list[str]] = {}
+    for _, items, user, _ in slate_inputs:
+        ids = [item_id for item in items if (item_id := _string_value(item.get("item_id")))]
+        exposures.update(ids)
+        if user:
+            seen_by_user.setdefault(user, []).extend(ids)
+    counts = sorted(exposures.values())
+    total, n = sum(counts), len(counts)
+    distinct = [len(set(ids)) for ids in seen_by_user.values()]
+    seen = sum(len(ids) for ids in seen_by_user.values())
+    return {
+        "items_served": n or None,
+        "catalog_size": catalog_size,
+        "catalog_coverage": _ratio(n, catalog_size) if n and catalog_size else None,
+        "exposure_gini": (_round(sum((2 * rank - n - 1) * c for rank, c in enumerate(counts, 1)) / (n * total))
+                          if n else None),
+        "top_decile_exposure_share": _round(sum(counts[-max(1, n // 10):]) / total) if n else None,
+        "median_items_per_user": _median(distinct),
+        "user_repeat_rate": _round(1 - sum(distinct) / seen) if seen else None,
+    }
 
 
 def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:

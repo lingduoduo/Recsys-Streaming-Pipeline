@@ -423,3 +423,38 @@ def test_diversity_long_tail_cutoff_counts_each_item_once():
     # Over exposures the cutoff would be 18.0 and the share 0.8; over distinct items it is 80.0.
     assert row["long_tail_popularity_cutoff"] == 80.0
     assert row["long_tail_exposure_share"] == 0.9
+
+
+_GENRES = {"a": ["drama"], "b": ["comedy"], "c": ["drama", "comedy"], "d": ["action"]}
+_POPULARITY = {"a": 10.0, "b": 20.0, "c": 30.0, "d": 40.0}
+
+
+def _catalog_slates():
+    # Exposures a:6, b:2, c:1, d:1. u1 sees `a` twice; u3 sees nothing but `a`.
+    def item(key):
+        return {"item_id": key, "genres": _GENRES[key], "popularity": _POPULARITY[key]}
+    return pd.DataFrame([
+        {"request_id": "r1", "user_id": "u1", "request_ts": 10, "items": [item("a"), item("b"), item("c")]},
+        {"request_id": "r2", "user_id": "u1", "request_ts": 11, "items": [item("a"), item("d")]},
+        {"request_id": "r3", "user_id": "u2", "request_ts": 12, "items": [item("a"), item("b")]},
+        {"request_id": "r4", "user_id": "u3", "request_ts": 13, "items": [item("a"), item("a"), item("a")]},
+    ])
+
+
+def test_diversity_measures_spread_across_the_catalog_and_each_user():
+    row = compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]
+
+    assert (row["items_served"], row["catalog_size"], row["catalog_coverage"]) == (4, 8, 0.5)
+    # Sorted counts [1, 1, 2, 6]: Gini 16 / 40; the top decile is the single top item.
+    assert (row["exposure_gini"], row["top_decile_exposure_share"]) == (0.4, 0.6)
+    # Distinct per user 4, 2, 1 over exposures 5, 2, 3.
+    assert (row["median_items_per_user"], row["user_repeat_rate"]) == (2.0, 0.3)
+
+
+def test_diversity_spread_is_none_without_the_identities_it_needs():
+    slates = _catalog_slates().drop(columns=["user_id"])
+    row = compute_diversity(slates)["rows"][0]
+
+    assert row["catalog_size"] is None and row["catalog_coverage"] is None
+    assert row["median_items_per_user"] is None and row["user_repeat_rate"] is None
+    assert row["items_served"] == 4  # item spread still measurable

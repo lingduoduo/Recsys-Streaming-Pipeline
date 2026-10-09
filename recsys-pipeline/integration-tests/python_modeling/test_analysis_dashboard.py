@@ -650,3 +650,18 @@ def test_decade_uses_the_shared_derivation():
     })
     got = list(dash.compute_keyword(df)["by_decade"]["decade"])
     assert got == [fd.decade(2007)] == ["2000s"]
+
+
+def test_load_slates_records_the_catalog_size(tmp_path, monkeypatch):
+    pytest.importorskip("pandas")
+    import analysis_dashboard_report as dash
+    import feature_derivations as genre_meta
+    import ranking_eval_report
+
+    path = tmp_path / "slates.json"
+    path.write_text(json.dumps([{"request_id": "r1", "items": [{"item_id": "m1"}]}]))
+    monkeypatch.setattr(genre_meta, "fetch_movie_meta", lambda host, port: [
+        {"item_id": f"m{i}", "genres": ["Drama"]} for i in range(3)])
+    monkeypatch.setattr(ranking_eval_report, "fetch_popularity", lambda host, port: {})
+
+    assert dash.load_slates(str(path)).attrs["catalog_size"] == 3
