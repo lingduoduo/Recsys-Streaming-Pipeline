@@ -320,8 +320,8 @@
         "freshness_source": "published_at",
         "fresh_share": 0.1378,
         "freshness_coverage": 1.0,
-        "mean_content_age_days": 414.5953,
-        "median_content_age_days": 414.8851,
+        "mean_content_age_days": 414.5996,
+        "median_content_age_days": 414.8894,
         "fresh_ctr": 0.1498,
         "fresh_ctr_coverage": 1.0,
         "established_ctr": 0.1505,
@@ -356,7 +356,8 @@
         "exposure_gini": 0.0383,
         "top_decile_exposure_share": 0.1124,
         "median_items_per_user": 261.0,
-        "user_repeat_rate": 0.3789
+        "user_repeat_rate": 0.3789,
+        "user_repeat_rate_uniform": 0.3818
       }
     ],
     "distributions": {
