@@ -252,6 +252,7 @@ def compute_diversity(
         for key in ("normalized_genre_entropy", "intra_list_genre_distance")
     }
     result["genre_exposure"] = _genre_exposure(all_items)
+    result["series"], result["series_bucket_seconds"] = _diversity_series(slate_inputs, slate_rows)
     return result
 
 
@@ -326,6 +327,36 @@ def _genre_exposure(items: list[Mapping[str, object]]) -> list[dict[str, object]
              "served_share": _ratio(served[genre], served_total)}
             for genre, count in exposed.items()]
     return sorted(rows, key=lambda row: (-row["exposure_share"], row["genre"]))
+
+
+def _diversity_series(slate_inputs: list[tuple], slate_rows: list[dict]) -> tuple[list[dict[str, object]], float | None]:
+    """Per-bucket slate diversity over the observed request_ts span (epoch seconds).
+
+    The long-tail share is each slate's share against the run-wide cutoff, so buckets compare.
+    """
+    stamps = pd.Series([request_ts for *_, request_ts in slate_inputs], dtype=float)
+    observed = stamps.notna().to_numpy()
+    buckets = _time_buckets(stamps[observed])
+    if buckets is None:
+        return [], None
+    index, starts, width = buckets
+    timed = [(entry, row) for entry, row, keep in zip(slate_inputs, slate_rows, observed) if keep]
+    members: list[list[tuple]] = [[] for _ in starts]
+    for bucket, pair in zip(index.to_numpy(), timed):
+        members[bucket].append(pair)
+    series = []
+    for start, pairs in zip(starts, members):
+        rows = [row for _, row in pairs]
+        series.append({
+            "bucket_start": round(start, 1),
+            "slates": len(pairs),
+            "normalized_genre_entropy": _mean(row["normalized_genre_entropy"] for row in rows),
+            "intra_list_genre_distance": _mean(row["intra_list_genre_distance"] for row in rows),
+            "long_tail_exposure_share": _mean(row["long_tail_exposure_share"] for row in rows),
+            "items_served": len({item_id for (_, items, _, _), _ in pairs for item in items
+                                 if (item_id := _string_value(item.get("item_id")))}),
+        })
+    return series, round(width, 1)
 
 
 def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float], str | None]], int, int]:

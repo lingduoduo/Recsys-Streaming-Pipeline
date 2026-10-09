@@ -479,3 +479,22 @@ def test_diversity_compares_genre_exposure_with_what_is_served():
         {"genre": "comedy", "exposure_share": 0.2727, "served_share": 0.4},
         {"genre": "action", "exposure_share": 0.0909, "served_share": 0.2},
     ]
+
+
+def test_diversity_series_buckets_slates_by_request_time():
+    result = compute_diversity(_catalog_slates())
+    series = result["series"]
+
+    # request_ts 10..13 -> four 1 s buckets, one slate each.
+    assert result["series_bucket_seconds"] == 1.0 and [b["slates"] for b in series] == [1, 1, 1, 1]
+    # Cutoff over distinct items is 34.0, so every item in r1 is in the tail.
+    assert series[0] == {"bucket_start": 10.0, "slates": 1, "normalized_genre_entropy": 1.0,
+                         "intra_list_genre_distance": 0.6667, "long_tail_exposure_share": 1.0,
+                         "items_served": 3}
+    assert series[3]["normalized_genre_entropy"] == 0.0 and series[3]["items_served"] == 1
+
+
+def test_diversity_series_is_empty_without_request_times():
+    result = compute_diversity(_catalog_slates().drop(columns=["request_ts"]))
+
+    assert result["series"] == [] and result["series_bucket_seconds"] is None
