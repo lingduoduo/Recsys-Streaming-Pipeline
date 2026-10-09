@@ -561,3 +561,35 @@ def test_diversity_coverage_is_none_when_served_items_outnumber_the_catalog():
 
 def test_diversity_top_decile_needs_ten_items():
     assert compute_diversity(_catalog_slates(), catalog_size=8)["rows"][0]["top_decile_exposure_share"] is None
+
+
+_T0 = int(pd.Timestamp("2026-07-30", tz="UTC").timestamp())
+
+
+def _fresh_samples(ts=True):
+    # Ages at exposure: m1 7 d (fresh, 0-7 d), m2 30 d (fresh, 8-30 d), m3 31 d, m4 575 d.
+    rows = []
+    for item, published, clicks in (("m1", "2026-07-23", (1, 1)), ("m2", "2026-06-30", (0, 1)),
+                                    ("m3", "2026-06-29", (0, 0)), ("m4", "2025-01-01", (1, 0))):
+        for clicked in clicks:
+            rows.append({"item_id": item, "published_at": f"{published}T00:00:00Z", "clicked": clicked,
+                         **({"impression_ts": _T0} if ts else {})})
+    return pd.DataFrame(rows)
+
+
+def test_freshness_ages_at_exposure_not_export():
+    """Ageing against export time made a run exported 30 days later look entirely stale."""
+    first = compute_freshness(_fresh_samples(), datetime(2026, 8, 1, tzinfo=timezone.utc))
+    later = compute_freshness(_fresh_samples(), datetime(2026, 9, 1, tzinfo=timezone.utc))
+
+    assert first["rows"] == later["rows"]
+    row = first["rows"][0]
+    assert (row["fresh_share"], row["median_content_age_days"], row["age_at_exposure_coverage"]) == (0.5, 30.5, 1.0)
+
+
+def test_freshness_falls_back_to_export_time_without_impression_ts():
+    now = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    assert compute_freshness(_fresh_samples(ts=False), now)["rows"][0]["age_at_exposure_coverage"] == 0.0
+    mixed = _fresh_samples().astype({"impression_ts": float})
+    mixed.loc[0, "impression_ts"] = float("nan")
+    assert compute_freshness(mixed, now)["rows"][0]["age_at_exposure_coverage"] == 0.875
