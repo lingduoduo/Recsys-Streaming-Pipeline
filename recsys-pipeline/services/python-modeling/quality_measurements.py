@@ -414,10 +414,10 @@ def _leave_one_out_metrics(
 def _freshness_result(obs: pd.DataFrame, total: int, source: str) -> dict[str, object]:
     is_fresh = obs["fresh"].to_numpy(dtype=bool)
     fresh, established = obs[is_fresh], obs[~is_fresh]
-    ages = [float(age) for age in obs["age"] if pd.notna(age)]
+    ages = obs["age"].dropna().tolist()
 
     def observed(frame, name):
-        return [float(value) for value in frame[name] if value is not None and pd.notna(value)]
+        return frame[name].dropna().tolist()
 
     row = {
         "freshness_source": source,
@@ -490,7 +490,7 @@ def _age_bands(obs: pd.DataFrame) -> list[dict[str, object]]:
     aged = obs[obs["age"].notna().to_numpy()]
     if aged.empty:
         return []
-    clicks = [float(v) for v in aged["clicked"] if v is not None and pd.notna(v)]
+    clicks = aged["clicked"].dropna().tolist()
     p0 = sum(clicks) / len(clicks) if clicks else None
     movies = aged["item_id"].dropna().nunique()
     rows = []
@@ -505,25 +505,38 @@ def _age_bands(obs: pd.DataFrame) -> list[dict[str, object]]:
             "exposure_share": _ratio(len(band), len(aged)),
             "items": items,
             "item_share": _ratio(items, movies) if movies else None,
-            "ctr": _mean(float(v) for v in band["clicked"] if v is not None and pd.notna(v)),
+            "ctr": _mean(band["clicked"].dropna().tolist()),
             "z": round((stats[0] - p0) / stats[1], 2) if stats and stats[1] else None,
         })
     return rows
 
 
 def _observation_frame(samples: pd.DataFrame, fresh, age, at_exposure) -> pd.DataFrame:
-    """One freshness observation per sample: cohort, age, outcomes and the movie it was."""
+    """One freshness observation per sample: cohort, age, outcomes and the movie it was.
+
+    Outcomes are float with NaN for missing, and item ids are parsed once per distinct value:
+    per-row Python calls were most of the cost.
+    """
     def column(name):
         if name not in samples:
+            return np.full(len(samples), np.nan)
+        values = samples[name]
+        if values.dtype.kind in "biuf":
+            numeric = values.to_numpy(dtype=float, na_value=np.nan)
+            return np.where(np.isfinite(numeric), numeric, np.nan)
+        return values.map(_numeric_value).to_numpy(dtype=float)
+
+    def item_ids():
+        if "item_id" not in samples:
             return [None] * len(samples)
-        return samples[name].map(_numeric_value).to_numpy(dtype=object)
+        codes, uniques = pd.factorize(samples["item_id"])
+        return np.array([_string_value(value) for value in uniques] + [None], dtype=object)[codes]
     return pd.DataFrame({
         "fresh": np.asarray(fresh, dtype=object),
         "age": np.asarray(age, dtype=float),
         "clicked": column("clicked"),
         "reward": column("reward"),
-        "item_id": (samples["item_id"].map(_string_value).to_numpy(dtype=object)
-                    if "item_id" in samples else [None] * len(samples)),
+        "item_id": item_ids(),
         "at_exposure": np.asarray(at_exposure, dtype=bool),
     })
 
