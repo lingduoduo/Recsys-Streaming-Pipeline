@@ -667,3 +667,13 @@ def test_freshness_outcomes_read_the_same_from_numeric_and_object_columns(missin
     row = compute_freshness(samples, datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
     # Fresh clicks were 1, 1, 0, 1; the first is unreadable, leaving 2 of 3.
     assert (row["fresh_ctr"], row["fresh_ctr_coverage"]) == (0.6667, 0.75)
+
+
+def test_freshness_keeps_equal_valued_item_ids_of_different_types_apart():
+    """Parsing each distinct id once must not merge 1 and 1.0: they were movies "1" and "1.0"."""
+    samples = pd.DataFrame({"item_id": pd.Series([1, 1.0, "m3"], dtype=object),
+                            "published_at": ["2026-07-30T00:00:00Z"] * 2 + ["2025-01-01T00:00:00Z"],
+                            "clicked": [1, 0, 0], "impression_ts": [_T0] * 3})
+
+    row = compute_freshness(samples, datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+    assert row["fresh_item_share"] == 0.6667

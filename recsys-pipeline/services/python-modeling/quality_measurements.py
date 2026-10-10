@@ -529,7 +529,15 @@ def _observation_frame(samples: pd.DataFrame, fresh, age, at_exposure) -> pd.Dat
     def item_ids():
         if "item_id" not in samples:
             return [None] * len(samples)
-        codes, uniques = pd.factorize(samples["item_id"])
+        ids = samples["item_id"]
+        # factorize merges equal values of different types (1 and 1.0), which stringify apart;
+        # only a single-typed column, or object strings, can share a parse safely.
+        try:
+            codes, uniques = pd.factorize(ids)
+        except TypeError:  # unhashable ids
+            return ids.map(_string_value).to_numpy(dtype=object)
+        if ids.dtype == object and not all(isinstance(value, str) for value in uniques):
+            return ids.map(_string_value).to_numpy(dtype=object)
         return np.array([_string_value(value) for value in uniques] + [None], dtype=object)[codes]
     return pd.DataFrame({
         "fresh": np.asarray(fresh, dtype=object),
