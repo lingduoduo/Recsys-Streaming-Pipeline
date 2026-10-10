@@ -62,7 +62,16 @@ def compute_fairness(
     if not present_dimensions:
         return unavailable("missing supported demographic dimensions")
 
-    rows = [_fairness_dimension_row(samples, dimension, min_support) for dimension in present_dimensions]
+    outcomes = _parse_outcomes(samples)
+    everyone = range(len(samples))
+    overall = {
+        "ctr": _mean(_observed(outcomes["clicked"], everyone)),
+        "order_rate": _mean(_observed(outcomes["ordered"], everyone)),
+        "mean_reward": _mean(_observed(outcomes["reward"], everyone)),
+        "ndcg": _group_ndcg(outcomes, everyone)[0],
+    }
+    rows = [_fairness_dimension_row(samples, dimension, min_support, outcomes, overall)
+            for dimension in present_dimensions]
     return available(
         "Outcome parity across supported demographic groups",
         rows,
@@ -129,24 +138,24 @@ def compute_safety(
     )
 
 
-def _fairness_dimension_row(samples: pd.DataFrame, dimension: str, min_support: int) -> dict[str, object]:
-    group_frames: dict[str, list[dict[str, object]]] = {}
-    for _, sample in samples.iterrows():
-        group_frames.setdefault(_group_value(sample.get(dimension)), []).append(sample.to_dict())
+def _fairness_dimension_row(
+    samples: pd.DataFrame,
+    dimension: str,
+    min_support: int,
+    outcomes: Mapping[str, list | None],
+    overall: Mapping[str, float | None],
+) -> dict[str, object]:
+    group_frames: dict[str, list[int]] = {}
+    for index, value in enumerate(samples[dimension]):
+        group_frames.setdefault(_group_value(value), []).append(index)
 
     eligible = {
         group: group_samples
         for group, group_samples in group_frames.items()
         if len(group_samples) >= min_support
     }
-    overall = {
-        "ctr": _mean(_binary_values(samples, "clicked")),
-        "order_rate": _mean(_binary_values(samples, "ordered")),
-        "mean_reward": _mean(_numeric_values(samples, "reward")),
-        "ndcg": _group_ndcg(samples.to_dict("records")),
-    }
     groups = [
-        _fairness_group_row(group, group_samples, len(samples), overall)
+        _fairness_group_row(group, group_samples, len(samples), overall, outcomes)
         for group, group_samples in sorted(eligible.items())
     ]
     ctrs = [group["ctr"] for group in groups]
@@ -177,14 +186,15 @@ def _fairness_dimension_row(samples: pd.DataFrame, dimension: str, min_support: 
 
 def _fairness_group_row(
     group: str,
-    samples: Sequence[dict[str, object]],
+    samples: Sequence[int],
     total: int,
     overall: Mapping[str, float | None],
+    outcomes: Mapping[str, list | None],
 ) -> dict[str, object]:
-    clicked = _binary_values(samples, "clicked")
-    ordered = _binary_values(samples, "ordered")
-    rewards = _numeric_values(samples, "reward")
-    ndcg = _group_ndcg(samples)
+    clicked = _observed(outcomes["clicked"], samples)
+    ordered = _observed(outcomes["ordered"], samples)
+    rewards = _observed(outcomes["reward"], samples)
+    ndcg, evaluated_slates = _group_ndcg(outcomes, samples)
     ctr = _mean(clicked)
     order_rate = _mean(ordered)
     mean_reward = _mean(rewards)
@@ -199,7 +209,7 @@ def _fairness_group_row(
         "mean_reward": mean_reward,
         "reward_coverage": safe_ratio(len(rewards), len(samples)),
         "ndcg": ndcg,
-        "ndcg_evaluated_slate_count": _evaluable_slate_count(samples),
+        "ndcg_evaluated_slate_count": evaluated_slates,
         "ctr_absolute_gap_from_overall": _absolute_gap(ctr, overall["ctr"]),
         "order_rate_absolute_gap_from_overall": _absolute_gap(order_rate, overall["order_rate"]),
         "mean_reward_absolute_gap_from_overall": _absolute_gap(mean_reward, overall["mean_reward"]),
@@ -212,53 +222,52 @@ def _fairness_warnings(requested: Sequence[str], present: Sequence[str]) -> list
     return [f"missing demographic dimension: {dimension}" for dimension in missing]
 
 
-def _group_ndcg(samples: Sequence[dict[str, object]]) -> float | None:
-    """Return mean NDCG for completely labeled, explicitly positioned slates."""
-    if not samples or any("request_id" not in sample or "position" not in sample or "label" not in sample for sample in samples):
-        return None
-    slates: dict[str, list[dict[str, object]]] = {}
-    for sample in samples:
-        request_id = _string_value(sample.get("request_id"))
-        if request_id is None:
-            continue
-        slates.setdefault(request_id, []).append(sample)
+def _parse_outcomes(samples: pd.DataFrame) -> dict[str, list | None]:
+    """Parse each sample's outcomes once; dimensions and groups then read them by row index.
+
+    Slate fields are None unless request_id, position and label are all columns: NDCG needs
+    the three together.
+    """
+    def column(name, parse):
+        if name not in samples.columns:
+            return [None] * len(samples)
+        return [parse(value) for value in samples[name]]
+
+    has_slates = all(name in samples.columns for name in ("request_id", "position", "label"))
+    return {
+        "clicked": column("clicked", _boolean_value),
+        "ordered": column("ordered", _boolean_value),
+        "reward": column("reward", _numeric_value),
+        "request_id": column("request_id", _string_value) if has_slates else None,
+        "position": column("position", _numeric_value),
+        "label": column("label", _relevance_label),
+    }
+
+
+def _observed(values: Sequence[object], rows: Iterable[int]) -> list[float]:
+    return [float(values[index]) for index in rows if values[index] is not None]
+
+
+def _group_ndcg(outcomes: Mapping[str, list | None], rows: Sequence[int]) -> tuple[float | None, int]:
+    """Return mean NDCG for completely labeled, explicitly positioned slates, and their count."""
+    request_ids, positions, labels = outcomes["request_id"], outcomes["position"], outcomes["label"]
+    if request_ids is None or not rows:
+        return None, 0
+    slates: dict[str, list[int]] = {}
+    for index in rows:
+        if (request_id := request_ids[index]) is not None:
+            slates.setdefault(request_id, []).append(index)
 
     values: list[float] = []
     for slate in slates.values():
-        ranked: list[tuple[float, float]] = []
-        for sample in slate:
-            position = _numeric_value(sample.get("position"))
-            label = _relevance_label(sample.get("label"))
-            if position is None or label is None:
-                ranked = []
-                break
-            ranked.append((position, label))
-        if not ranked:
+        ranked = [(positions[index], labels[index]) for index in slate]
+        if any(position is None or label is None for position, label in ranked):
             continue
-        labels = [label for _, label in sorted(ranked, key=lambda value: value[0])]
-        ideal = _dcg(sorted(labels, reverse=True))
+        ordered = [label for _, label in sorted(ranked, key=lambda value: value[0])]
+        ideal = _dcg(sorted(ordered, reverse=True))
         if ideal > 0:
-            values.append(_dcg(labels) / ideal)
-    return _mean(values)
-
-
-def _evaluable_slate_count(samples: Sequence[dict[str, object]]) -> int:
-    """Count slates that have ordered numeric labels and non-zero ideal gain."""
-    if not samples or any("request_id" not in sample or "position" not in sample or "label" not in sample for sample in samples):
-        return 0
-    slates: dict[str, list[dict[str, object]]] = {}
-    for sample in samples:
-        request_id = _string_value(sample.get("request_id"))
-        if request_id is not None:
-            slates.setdefault(request_id, []).append(sample)
-    count = 0
-    for slate in slates.values():
-        labels = [_relevance_label(sample.get("label")) for sample in slate]
-        positions = [_numeric_value(sample.get("position")) for sample in slate]
-        if all(value is not None for value in labels) and all(value is not None for value in positions):
-            if _dcg(sorted((float(value) for value in labels), reverse=True)) > 0:
-                count += 1
-    return count
+            values.append(_dcg(ordered) / ideal)
+    return _mean(values), len(values)
 
 
 def _dcg(labels: Iterable[float]) -> float:
@@ -266,26 +275,6 @@ def _dcg(labels: Iterable[float]) -> float:
         (2.0 ** max(0.0, label) - 1.0) / math.log2(index + 2)
         for index, label in enumerate(labels)
     )
-
-
-def _numeric_values(samples: pd.DataFrame | Sequence[dict[str, object]], column: str) -> list[float]:
-    if isinstance(samples, pd.DataFrame):
-        if column not in samples.columns:
-            return []
-        values = samples[column]
-    else:
-        values = (sample.get(column) for sample in samples)
-    return [numeric for value in values if (numeric := _numeric_value(value)) is not None]
-
-
-def _binary_values(samples: pd.DataFrame | Sequence[dict[str, object]], column: str) -> list[float]:
-    if isinstance(samples, pd.DataFrame):
-        if column not in samples.columns:
-            return []
-        values = samples[column]
-    else:
-        values = (sample.get(column) for sample in samples)
-    return [float(parsed) for value in values if (parsed := _boolean_value(value)) is not None]
 
 
 def _numeric_value(value: object) -> float | None:

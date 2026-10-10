@@ -327,3 +327,11 @@ def test_safety_coverage_uses_observed_label_fraction_and_filter_log_availabilit
         assert result["status"] == "unavailable"
     else:
         assert result["coverage"] == pytest.approx(expected_coverage)
+
+
+def test_fairness_labels_integer_coded_groups_as_written():
+    """Row-wise iteration upcast an all-numeric frame to float, publishing group "25.0"."""
+    samples = pd.DataFrame({"age_band": [25, 25, 35], "clicked": [1, 0, 1]})
+
+    groups = compute_fairness(samples, min_support=1)["rows"][0]["groups"]
+    assert [group["group"] for group in groups] == ["25", "35"]
