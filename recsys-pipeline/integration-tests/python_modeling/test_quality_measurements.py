@@ -655,3 +655,15 @@ def test_freshness_treats_out_of_range_impression_ts_as_missing():
 
     row = compute_freshness(samples, datetime(2026, 7, 30, tzinfo=timezone.utc))["rows"][0]
     assert row["age_at_exposure_coverage"] == 0.75
+
+
+@pytest.mark.parametrize("missing, dtype", [(float("inf"), float), (pd.NA, "Int64"), ("not a number", object)])
+def test_freshness_outcomes_read_the_same_from_numeric_and_object_columns(missing, dtype):
+    """Numeric columns skip the per-row parse; a non-finite or missing click must still drop out."""
+    samples = _fresh_samples().astype({"clicked": object})
+    samples.loc[0, "clicked"] = missing
+    samples["clicked"] = samples["clicked"].astype(dtype)
+
+    row = compute_freshness(samples, datetime(2026, 8, 1, tzinfo=timezone.utc))["rows"][0]
+    # Fresh clicks were 1, 1, 0, 1; the first is unreadable, leaving 2 of 3.
+    assert (row["fresh_ctr"], row["fresh_ctr_coverage"]) == (0.6667, 0.75)
