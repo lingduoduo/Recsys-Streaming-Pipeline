@@ -219,19 +219,21 @@ def compute_diversity(
     slate_inputs = [
         (_slate_id(index, row), _items(row), _string_value(row.get("user_id")),
          _numeric_value(row.get("request_ts")))
-        for index, row in slates.iterrows()
+        for index, row in zip(slates.index, slates.to_dict("records"))
     ]
     slate_inputs = [entry for entry in slate_inputs if entry[1]]
     if not slate_inputs:
         return unavailable("missing slate items")
 
     all_items = [item for _, items, _, _ in slate_inputs for item in items]
+    # Each item's genres, parsed once and read by every measure below.
+    item_genres = {id(item): _genres(item) for item in all_items}
     cutoff = _distinct_item_cutoff(all_items, long_tail_percentile)
     slate_rows = [
-        {"scope": "slate", "slate_id": slate_id, **_diversity_for_slate(items, cutoff)}
+        {"scope": "slate", "slate_id": slate_id, **_diversity_for_slate(items, cutoff, item_genres)}
         for slate_id, items, _, _ in slate_inputs
     ]
-    genre_coverage = _ratio(sum(bool(_genres(item)) for item in all_items), len(all_items))
+    genre_coverage = _ratio(sum(bool(item_genres[id(item)]) for item in all_items), len(all_items))
     spread = _catalog_spread(slate_inputs, catalog_size)
     aggregate = {
         "scope": "aggregate",
@@ -260,7 +262,7 @@ def compute_diversity(
         key: _unit_histogram([entry[key] for entry in slate_rows])
         for key in ("normalized_genre_entropy", "intra_list_genre_distance")
     }
-    result["genre_exposure"] = _genre_exposure(all_items)
+    result["genre_exposure"] = _genre_exposure(all_items, item_genres)
     result["series"], result["series_bucket_seconds"] = _diversity_series(slate_inputs, slate_rows)
     return result
 
@@ -335,12 +337,12 @@ def _unit_histogram(values: list[float | None]) -> list[dict[str, object]]:
     return [{"bin_start": index / 10, "count": count} for index, count in enumerate(counts)]
 
 
-def _genre_exposure(items: list[Mapping[str, object]]) -> list[dict[str, object]]:
+def _genre_exposure(items: list[Mapping[str, object]], item_genres: Mapping[int, list[str]]) -> list[dict[str, object]]:
     """Each genre's share of exposures beside its share of the distinct items served."""
-    exposed = Counter(genre for item in items for genre in _genres(item))
+    exposed = Counter(genre for item in items for genre in item_genres[id(item)])
     served_items: dict[str, list[str]] = {}
     for position, item in enumerate(items):
-        served_items.setdefault(_item_key(item, position), _genres(item))
+        served_items.setdefault(_item_key(item, position), item_genres[id(item)])
     served = Counter(genre for genres in served_items.values() for genre in genres)
     exposed_total, served_total = sum(exposed.values()), sum(served.values())
     rows = [{"genre": genre,
@@ -382,7 +384,7 @@ def _complete_slate_labels(slates: pd.DataFrame) -> tuple[list[tuple[list[float]
     labels_by_slate: list[tuple[list[float], str | None]] = []
     observed_labels = 0
     item_count = 0
-    for _, row in slates.iterrows():
+    for row in slates.to_dict("records"):
         items = _items(row)
         item_count += len(items)
         labels = [_numeric_item_value(item, "label") for item in items]
@@ -586,8 +588,12 @@ def _boolean_freshness_observations(samples: pd.DataFrame) -> pd.DataFrame | Non
     return frame
 
 
-def _diversity_for_slate(items: list[Mapping[str, object]], cutoff: float | None) -> dict[str, float | None]:
-    genre_sets = [_genres(item) for item in items]
+def _diversity_for_slate(
+    items: list[Mapping[str, object]],
+    cutoff: float | None,
+    item_genres: Mapping[int, list[str]],
+) -> dict[str, float | None]:
+    genre_sets = [item_genres[id(item)] for item in items]
     observed_genres = [genres for genres in genre_sets if genres]
     flattened = [genre for genres in observed_genres for genre in genres]
     unique_genres = set(flattened)
@@ -618,14 +624,14 @@ def _genres(item: Mapping[str, object]) -> list[str]:
     return [str(value) for value in values if pd.notna(value) and str(value)]
 
 
-def _items(row: pd.Series) -> list[Mapping[str, object]]:
+def _items(row: Mapping[str, object]) -> list[Mapping[str, object]]:
     values = row.get("items")
     if not isinstance(values, (list, tuple)):
         return []
     return [item for item in values if isinstance(item, Mapping)]
 
 
-def _slate_id(index: object, row: pd.Series) -> str:
+def _slate_id(index: object, row: Mapping[str, object]) -> str:
     return _string_value(row.get("request_id")) or f"row-{index}"
 
 
