@@ -1,7 +1,6 @@
 """The consolidated dashboard export always publishes the seven measurement sections."""
 import json
 import re
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,8 +20,6 @@ def _component_sources() -> str:
     components = sorted((_REPO / "recsys-pipeline" / "frontend" / "components").glob("*.jsx"))
     assert components, "no dashboard components found"
     return "\n".join(path.read_text(encoding="utf-8") for path in components)
-sys.path.insert(0, str(_REPO / "recsys-pipeline" / "services" / "python-modeling"))
-sys.path.insert(0, str(_REPO / "recsys-pipeline" / "frontend"))
 
 MEASUREMENT_KEYS = {
     "relevance", "satisfaction", "freshness", "diversity", "fairness", "safety", "latency",

@@ -11,8 +11,6 @@ import pytest
 
 
 PRODUCER_PATH = Path(__file__).resolve().parents[2] / "services/python-modeling/producer.py"
-PYTHON_MODELING = PRODUCER_PATH.parent
-sys.path.insert(0, str(PYTHON_MODELING))
 
 import event_avro
 

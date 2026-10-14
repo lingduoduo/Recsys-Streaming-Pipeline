@@ -1,8 +1,5 @@
-import sys
 from datetime import datetime, timedelta
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
 import backfill_producer as bp  # noqa: E402  (path set above)
 

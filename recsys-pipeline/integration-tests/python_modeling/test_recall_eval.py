@@ -1,8 +1,3 @@
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
-
 import recall_eval_report as r  # noqa: E402
 
 

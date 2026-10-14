@@ -1,13 +1,9 @@
 import json
 import os
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
-sys.path.insert(0, str(Path(__file__).parents[2] / "frontend"))
 
 
 def _df(pd):

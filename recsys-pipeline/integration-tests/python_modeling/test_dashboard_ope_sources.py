@@ -12,14 +12,11 @@ serving path in lingduoduo/Recsys-Backend-Service, not from here.
 """
 
 import re
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "services" / "python-modeling"))
-sys.path.insert(0, str(REPO / "frontend"))
 
 
 def _event(i, extra_predictions=None):

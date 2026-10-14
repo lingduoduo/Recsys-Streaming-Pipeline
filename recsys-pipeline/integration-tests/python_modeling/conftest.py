@@ -1,0 +1,10 @@
+import sys
+from pathlib import Path
+
+# Every test here imports the modeling services, post-training arms, or dashboard
+# exporter as top-level modules; put their directories on the path once.
+_PIPELINE = Path(__file__).resolve().parents[2]
+for _path in (_PIPELINE / "frontend",
+              _PIPELINE / "services" / "python-modeling" / "post-training",
+              _PIPELINE / "services" / "python-modeling"):
+    sys.path.insert(0, str(_path))

@@ -11,14 +11,11 @@ future compute function could legitimately want them, and a guard that forbids a
 two-line string escaper is one that gets deleted rather than obeyed.
 """
 
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-MODELING = REPO / "services" / "python-modeling"
 SIM = REPO / "scripts" / "run-movie-category-sim.sh"
 
-sys.path.insert(0, str(MODELING))
 
 RENDERING_SYMBOLS = (
     "render_html", "svg_bar", "svg_line", "html_table", "na_card", "section", "main",

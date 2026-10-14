@@ -1,8 +1,3 @@
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
-
 from measurement_contract import available, safe_ratio, unavailable  # noqa: E402
 
 

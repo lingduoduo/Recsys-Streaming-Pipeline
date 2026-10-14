@@ -1,10 +1,6 @@
-import sys
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
 import next_item_model as nim  # noqa: E402
 

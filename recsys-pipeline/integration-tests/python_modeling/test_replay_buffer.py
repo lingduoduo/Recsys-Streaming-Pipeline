@@ -1,8 +1,6 @@
-import json, sys
-from pathlib import Path
+import json
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 import ope_support as replay_buffer
 
 
