@@ -189,19 +189,23 @@ def test_unvisited_state_action_scores_zero():
 import fqi
 
 
-def test_fqi_matches_the_tabular_arm_on_the_analytic_chain():
+@pytest.fixture(scope="module")
+def chain_fqi():
+    # Seeded and read-only once fitted, so one fit serves every test that scores it.
+    return fqi.fit(CHAIN, gamma=0.9, iterations=40, epochs=300, hidden=16, lr=0.01)
+
+
+def test_fqi_matches_the_tabular_arm_on_the_analytic_chain(chain_fqi):
     # Same closed-form values as the tabular test: Q(B)=10.0, Q(A)=9.0, Q(C)=0.5.
     # One-hot features make the three state-actions linearly separable.
-    model = fqi.fit(CHAIN, gamma=0.9, iterations=40, epochs=300, hidden=16, lr=0.01)
-    assert model.score_one([0.0, 1.0, 0.0]) == pytest.approx(10.0, abs=1.0)
-    assert model.score_one([1.0, 0.0, 0.0]) == pytest.approx(9.0, abs=1.0)
-    assert model.score_one([0.0, 0.0, 1.0]) == pytest.approx(0.5, abs=1.0)
+    assert chain_fqi.score_one([0.0, 1.0, 0.0]) == pytest.approx(10.0, abs=1.0)
+    assert chain_fqi.score_one([1.0, 0.0, 0.0]) == pytest.approx(9.0, abs=1.0)
+    assert chain_fqi.score_one([0.0, 0.0, 1.0]) == pytest.approx(0.5, abs=1.0)
 
 
-def test_fqi_orders_the_chain_correctly():
-    model = fqi.fit(CHAIN, gamma=0.9, iterations=40, epochs=300, hidden=16, lr=0.01)
-    assert model.score_one([0.0, 1.0, 0.0]) > model.score_one([1.0, 0.0, 0.0]) \
-           > model.score_one([0.0, 0.0, 1.0])
+def test_fqi_orders_the_chain_correctly(chain_fqi):
+    assert chain_fqi.score_one([0.0, 1.0, 0.0]) > chain_fqi.score_one([1.0, 0.0, 0.0]) \
+           > chain_fqi.score_one([0.0, 0.0, 1.0])
 
 
 def test_fqi_is_deterministic_for_a_fixed_seed():
