@@ -1,5 +1,4 @@
 import hashlib
-import sys
 from datetime import date
 from pathlib import Path
 
@@ -7,9 +6,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-
-PYTHON_MODELING = Path(__file__).resolve().parents[2] / "services/python-modeling"
-sys.path.insert(0, str(PYTHON_MODELING))
 
 import event_avro
 import dead_letter_redrive

@@ -1,12 +1,9 @@
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 import math
 
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
 from quality_measurements import (  # noqa: E402
     compute_diversity,

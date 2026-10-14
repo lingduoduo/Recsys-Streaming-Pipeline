@@ -1,12 +1,7 @@
 import json
-import sys
-from pathlib import Path
 
 import pytest
 
-_MODELING = Path(__file__).parents[2] / "services" / "python-modeling"
-sys.path.insert(0, str(_MODELING))
-sys.path.insert(0, str(_MODELING / "post-training"))
 
 import ope_eval_report
 

@@ -1,13 +1,10 @@
 """Integration tests for offline fairness and safety measurement calculators."""
 
-import sys
-from pathlib import Path
 import math
 
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
 from governance_measurements import compute_fairness, compute_safety  # noqa: E402
 

@@ -1,12 +1,10 @@
 import json
 import random
-import sys
 import time
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "services" / "python-modeling"))
 
 import feature_derivations as mc  # noqa: E402
 import movie_segment_producer as mp  # noqa: E402

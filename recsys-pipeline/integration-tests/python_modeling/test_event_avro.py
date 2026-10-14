@@ -1,11 +1,5 @@
-import sys
-from pathlib import Path
-
 import pytest
 
-
-PYTHON_MODELING = Path(__file__).resolve().parents[2] / "services/python-modeling"
-sys.path.insert(0, str(PYTHON_MODELING))
 
 import event_avro
 
