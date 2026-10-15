@@ -13,94 +13,12 @@ PYTHON_MODELING = Path(__file__).resolve().parents[2] / "services/python-modelin
 import event_avro
 import archive_replay
 from archive_replay import ReplayConfig, ReplayConfigError, ReplayLimitError, run_replay, select_archive
+from archive_fakes import CANONICAL_EVENT, write_commit_manifest
 
 
-CANONICAL_EVENT = {
-    "event_id": "e-1",
-    "request_id": "request-1",
-    "session_id": "session-1",
-    "user_id": "u-1",
-    "item_id": "i-1",
-    "event_type": "click",
-    "timestamp_ms": 1718400000000,
-    "position": 2,
-    "user_features": {"tier": "vip"},
-    "item_features": {"genre": "drama"},
-    "context_features": {"device": "web"},
-    "model_version": "model-1",
-    "policy_version": "policy-1",
-    "algorithm_version": "algorithm-1",
-    "rating": 4.5,
-    "negative_feedback_reason": None,
-    "dwell_millis": 900,
-    "completion_rate": 0.75,
-    "published_at": 1718400000100,
-    "new_release": False,
-    "filter_reason": None,
-    "unsafe_label": False,
-}
 ARCHIVE_QUERY_NAMESPACE = "query-1"
 OTHER_ARCHIVE_QUERY_NAMESPACE = "query-2"
 SCHEMA_FINGERPRINT = 0x225B275F487979AB
-
-
-class FakeFuture:
-    def __init__(self, delivery_error: Exception | None = None) -> None:
-        self.delivery_error = delivery_error
-        self.timeouts = []
-
-    def get(self, timeout: float) -> None:
-        self.timeouts.append(timeout)
-        if self.delivery_error:
-            raise self.delivery_error
-
-
-class FakeProducer:
-    def __init__(
-        self,
-        fail_on_send: bool = False,
-        fail_on_delivery: bool = False,
-        fail_on_close: bool = False,
-        fail_on_send_number: int | None = None,
-    ) -> None:
-        self.fail_on_send = fail_on_send
-        self.fail_on_delivery = fail_on_delivery
-        self.fail_on_close = fail_on_close
-        self.fail_on_send_number = fail_on_send_number
-        self.sent = []
-        self.flushes = 0
-        self.closes = 0
-
-    def send(self, topic: str, *, value: bytes, key: bytes, headers=None):
-        if self.fail_on_send or self.fail_on_send_number == len(self.sent) + 1:
-            raise RuntimeError("broker unavailable")
-        self.sent.append(
-            type(
-                "Sent",
-                (),
-                {"topic": topic, "value": value, "key": key, "headers": headers},
-            )()
-        )
-        return FakeFuture(RuntimeError("delivery timed out") if self.fail_on_delivery else None)
-
-    def flush(self) -> None:
-        self.flushes += 1
-
-    def close(self) -> None:
-        self.closes += 1
-        if self.fail_on_close:
-            raise RuntimeError("close failed")
-
-
-def _commit_inventory(batch_root: Path) -> tuple[int, list[str]]:
-    inventory = []
-    row_count = 0
-    for path in sorted(batch_root.rglob("*.parquet")):
-        relative = path.relative_to(batch_root).as_posix()
-        sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-        inventory.append(f"{relative}\t{path.stat().st_size}\t{sha256}")
-        row_count += pq.ParquetFile(path).metadata.num_rows
-    return row_count, inventory
 
 
 def refresh_archive_commit(
@@ -110,16 +28,11 @@ def refresh_archive_commit(
     batch_id: int = 7,
     kind: str = "valid",
 ) -> None:
-    batch_root = root / "_queries" / query_namespace / "_batches" / str(batch_id)
-    committed_rows, inventory = _commit_inventory(batch_root)
-    (batch_root / "_COMMITTED").write_text(
-        "version=2\n"
-        f"query={query_namespace}\n"
-        f"kind={kind}\n"
-        f"batch_id={batch_id}\n"
-        f"row_count={committed_rows}\n"
-        + "".join(f"file={entry}\n" for entry in inventory),
-        encoding="utf-8",
+    write_commit_manifest(
+        root / "_queries" / query_namespace / "_batches" / str(batch_id),
+        query_namespace=query_namespace,
+        batch_id=batch_id,
+        kind=kind,
     )
 
 
@@ -207,14 +120,14 @@ def test_target_topic_is_fixed() -> None:
     assert "target_topic" not in ReplayConfig.__init__.__annotations__
 
 
-def test_row_limit_blocks_publish_before_creating_producer(tmp_path: Path) -> None:
+def test_row_limit_blocks_publish_before_creating_producer(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path, events=3)
     producer_created = False
 
-    def producer_factory(_config: ReplayConfig) -> FakeProducer:
+    def producer_factory(_config: ReplayConfig):
         nonlocal producer_created
         producer_created = True
-        return FakeProducer()
+        return make_producer()
 
     with pytest.raises(ReplayLimitError, match="3 rows exceeds max_rows=2"):
         run_replay(config(tmp_path, max_rows=2), producer_factory, lambda: 0.0, lambda _: None)
@@ -327,9 +240,9 @@ def test_selection_rejects_an_ambiguous_blank_query_namespace(tmp_path: Path) ->
         list(select_archive(config(tmp_path, archive_query_namespace="")))
 
 
-def test_replay_preserves_identity_and_writes_manifest(tmp_path: Path) -> None:
+def test_replay_preserves_identity_and_writes_manifest(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
-    producer = FakeProducer()
+    producer = make_producer()
 
     result = run_replay(config(tmp_path), lambda _: producer, lambda: 0.0, lambda _: None)
 
@@ -356,9 +269,9 @@ def test_replay_preserves_identity_and_writes_manifest(tmp_path: Path) -> None:
     assert manifest["end_date"] == "2024-06-16"
 
 
-def test_completed_operation_id_is_a_noop_on_rerun(tmp_path: Path) -> None:
+def test_completed_operation_id_is_a_noop_on_rerun(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
-    first_producer = FakeProducer()
+    first_producer = make_producer()
     first = run_replay(
         config(tmp_path), lambda _: first_producer, lambda: 0.0, lambda _: None
     )
@@ -379,9 +292,10 @@ def test_completed_operation_id_is_a_noop_on_rerun(tmp_path: Path) -> None:
 
 def test_interrupted_operation_resumes_after_durable_acknowledged_cursor(
     tmp_path: Path,
+    make_producer,
 ) -> None:
     write_archive(tmp_path, events=3)
-    interrupted = FakeProducer(fail_on_send_number=2)
+    interrupted = make_producer(fail_on_send_number=2)
 
     with pytest.raises(RuntimeError, match="broker unavailable"):
         run_replay(
@@ -396,7 +310,7 @@ def test_interrupted_operation_resumes_after_durable_acknowledged_cursor(
     assert progress["status"] == "failed"
     assert progress["acknowledged_cursor"] == 1
 
-    resumed = FakeProducer()
+    resumed = make_producer()
     result = run_replay(
         config(tmp_path), lambda _: resumed, lambda: 0.0, lambda _: None
     )
@@ -411,7 +325,7 @@ def test_interrupted_operation_resumes_after_durable_acknowledged_cursor(
 
 
 def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, make_producer
 ) -> None:
     write_archive(tmp_path, event_prefix="first", batch_id=7)
     write_archive(tmp_path, event_prefix="second", batch_id=8)
@@ -419,7 +333,7 @@ def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
     with pytest.raises(RuntimeError, match="broker unavailable"):
         run_replay(
             config(tmp_path),
-            lambda _: FakeProducer(fail_on_send_number=2),
+            lambda _: make_producer(fail_on_send_number=2),
             lambda: 0.0,
             lambda _: None,
         )
@@ -435,7 +349,7 @@ def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
         )
 
     monkeypatch.setattr(archive_replay, "open_archive", reverse_scanner_order)
-    resumed = FakeProducer()
+    resumed = make_producer()
     result = run_replay(
         config(tmp_path), lambda _: resumed, lambda: 0.0, lambda _: None
     )
@@ -453,12 +367,13 @@ def test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses(
 
 def test_interrupted_operation_refuses_changed_source_without_rewriting_manifest(
     tmp_path: Path,
+    make_producer,
 ) -> None:
     write_archive(tmp_path, events=2)
     with pytest.raises(RuntimeError, match="broker unavailable"):
         run_replay(
             config(tmp_path),
-            lambda _: FakeProducer(fail_on_send_number=2),
+            lambda _: make_producer(fail_on_send_number=2),
             lambda: 0.0,
             lambda _: None,
         )
@@ -485,9 +400,9 @@ def test_interrupted_operation_refuses_changed_source_without_rewriting_manifest
     assert manifest_path.read_bytes() == original_manifest
 
 
-def test_rate_limit_uses_monotonic_deadlines_without_real_sleep(tmp_path: Path) -> None:
+def test_rate_limit_uses_monotonic_deadlines_without_real_sleep(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path, events=3)
-    producer = FakeProducer()
+    producer = make_producer()
     now = [10.0]
     sleeps = []
 
@@ -500,11 +415,11 @@ def test_rate_limit_uses_monotonic_deadlines_without_real_sleep(tmp_path: Path) 
     assert sleeps == [0.5, 0.5]
 
 
-def test_publish_failure_records_failed_manifest_atomically(tmp_path: Path) -> None:
+def test_publish_failure_records_failed_manifest_atomically(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
 
     with pytest.raises(RuntimeError, match="delivery timed out"):
-        run_replay(config(tmp_path), lambda _: FakeProducer(fail_on_delivery=True), lambda: 0.0, lambda _: None)
+        run_replay(config(tmp_path), lambda _: make_producer(fail_on_delivery=True), lambda: 0.0, lambda _: None)
 
     manifests = list((tmp_path / "_replay_manifests").glob("*.json"))
     assert len(manifests) == 1
@@ -516,10 +431,10 @@ def test_publish_failure_records_failed_manifest_atomically(tmp_path: Path) -> N
     assert manifest["completed_at"] is None
 
 
-def test_running_manifest_has_updated_at_but_no_completed_at(tmp_path: Path) -> None:
+def test_running_manifest_has_updated_at_but_no_completed_at(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
 
-    def producer_factory(_: ReplayConfig) -> FakeProducer:
+    def producer_factory(_: ReplayConfig):
         manifest = json.loads(
             next((tmp_path / "_replay_manifests").glob("*.json")).read_text(
                 encoding="utf-8"
@@ -528,7 +443,7 @@ def test_running_manifest_has_updated_at_but_no_completed_at(tmp_path: Path) -> 
         assert manifest["status"] == "running"
         assert manifest["updated_at"]
         assert manifest["completed_at"] is None
-        return FakeProducer()
+        return make_producer()
 
     completed = run_replay(
         config(tmp_path), producer_factory, lambda: 0.0, lambda _: None
@@ -537,11 +452,11 @@ def test_running_manifest_has_updated_at_but_no_completed_at(tmp_path: Path) -> 
     assert completed.completed_at is not None
 
 
-def test_close_failure_still_records_a_failed_manifest(tmp_path: Path) -> None:
+def test_close_failure_still_records_a_failed_manifest(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
 
     with pytest.raises(RuntimeError, match="close failed"):
-        run_replay(config(tmp_path), lambda _: FakeProducer(fail_on_close=True), lambda: 0.0, lambda _: None)
+        run_replay(config(tmp_path), lambda _: make_producer(fail_on_close=True), lambda: 0.0, lambda _: None)
 
     manifest = json.loads(next((tmp_path / "_replay_manifests").glob("*.json")).read_text(encoding="utf-8"))
     assert manifest["status"] == "failed"
@@ -560,7 +475,7 @@ def test_invalid_config_writes_a_failed_manifest_before_reading_or_publishing(tm
     assert "end_date" in manifest["error"]
 
 
-def test_unknown_archive_fingerprint_blocks_publish_and_writes_failed_manifest(tmp_path: Path) -> None:
+def test_unknown_archive_fingerprint_blocks_publish_and_writes_failed_manifest(tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
     archive = next(tmp_path.rglob("*.parquet"))
     table = pq.read_table(archive).drop(["date"])
@@ -568,10 +483,10 @@ def test_unknown_archive_fingerprint_blocks_publish_and_writes_failed_manifest(t
     refresh_archive_commit(tmp_path)
     producer_created = False
 
-    def producer_factory(_: ReplayConfig) -> FakeProducer:
+    def producer_factory(_: ReplayConfig):
         nonlocal producer_created
         producer_created = True
-        return FakeProducer()
+        return make_producer()
 
     with pytest.raises(ReplayConfigError, match="schema_fingerprint"):
         run_replay(config(tmp_path), producer_factory, lambda: 0.0, lambda _: None)
@@ -604,7 +519,7 @@ def test_zero_selected_rows_skips_producer_and_completes_manifest(tmp_path: Path
     assert json.loads(result.path.read_text(encoding="utf-8"))["status"] == "completed"
 
 
-def test_replay_skips_validated_zero_row_commit_and_continues(tmp_path: Path) -> None:
+def test_replay_skips_validated_zero_row_commit_and_continues(tmp_path: Path, make_producer) -> None:
     empty = tmp_path / "_queries" / ARCHIVE_QUERY_NAMESPACE / "_batches" / "7"
     empty.mkdir(parents=True)
     (empty / "_SUCCESS").touch()
@@ -613,7 +528,7 @@ def test_replay_skips_validated_zero_row_commit_and_continues(tmp_path: Path) ->
         encoding="utf-8",
     )
     write_archive(tmp_path, batch_id=8, event_prefix="replayable")
-    producer = FakeProducer()
+    producer = make_producer()
 
     result = run_replay(
         config(tmp_path), lambda _: producer, lambda: 0.0, lambda _: None
@@ -669,7 +584,7 @@ def test_replay_rejects_same_row_count_parquet_tampering_before_publish(
         )
 
 
-def test_replay_counts_then_streams_arrow_batches_without_whole_table_materialization(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_replay_counts_then_streams_arrow_batches_without_whole_table_materialization(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, make_producer) -> None:
     write_archive(tmp_path)
     row = {**CANONICAL_EVENT, "schema_fingerprint": event_avro.schema_fingerprint(event_avro.load_schema())}
 
@@ -707,7 +622,7 @@ def test_replay_counts_then_streams_arrow_batches_without_whole_table_materializ
 
     dataset = FakeDataset()
     monkeypatch.setattr(archive_replay.ds, "dataset", lambda *_args, **_kwargs: dataset)
-    producer = FakeProducer()
+    producer = make_producer()
 
     result = run_replay(config(tmp_path), lambda _: producer, lambda: 0.0, lambda _: None)
 
