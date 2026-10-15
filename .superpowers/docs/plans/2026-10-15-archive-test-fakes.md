@@ -44,7 +44,7 @@
   - `archive_fakes.write_commit_manifest(batch_root: Path, *, query_namespace: str, batch_id: int, kind: str) -> None`
   - fixture `make_producer` → `FakeProducer` (callable with the kwargs above)
 
-- [ ] **Step 1: Branch and confirm baseline / no name collision**
+- [x] **Step 1: Branch and confirm baseline / no name collision**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -54,7 +54,9 @@ cd recsys-pipeline/integration-tests
 python -m pytest -q python_modeling/test_archive_replay.py python_modeling/test_dead_letter_redrive.py | tail -1   # 87 passed
 ```
 
-- [ ] **Step 2: Create `archive_fakes.py`**
+Observed: no `archive_fakes.py` under `services/python-modeling/`; baseline 87 passed.
+
+- [x] **Step 2: Create `archive_fakes.py`**
 
 ```python
 """Test doubles shared by test_archive_replay.py and test_dead_letter_redrive.py."""
@@ -159,7 +161,7 @@ def write_commit_manifest(
     )
 ```
 
-- [ ] **Step 3: Add the fixture to `conftest.py`** (append; keep the existing sys.path block first so services import before `archive_fakes` is used)
+- [x] **Step 3: Add the fixture to `conftest.py`** (append; keep the existing sys.path block first so services import before `archive_fakes` is used)
 
 ```python
 import pytest
@@ -175,7 +177,9 @@ def make_producer():
 
 Put `import pytest` with the other imports at the top; the `from archive_fakes import FakeProducer` line goes after the sys.path loop.
 
-- [ ] **Step 4: Replace the helpers in `test_archive_replay.py`**
+Observed: superseded after the final review (commit `2b30e86`). A module-level `from archive_fakes import FakeProducer` loads pyarrow at collection, so with pyarrow absent every `python_modeling/` test failed to collect, defeating `test_post_training_dpo.py`'s `importorskip("pyarrow")`. The import now lives inside the fixture body.
+
+- [x] **Step 4: Replace the helpers in `test_archive_replay.py`**
 
 Delete `CANONICAL_EVENT` (lines 18–41), `FakeFuture`, `FakeProducer`, `_commit_inventory` (lines 47–103). Add after the `from archive_replay import ...` line:
 
@@ -203,7 +207,7 @@ def refresh_archive_commit(
 
 Keep `import hashlib` (still used elsewhere in the file).
 
-- [ ] **Step 5: Switch producer call sites to the fixture**
+- [x] **Step 5: Switch producer call sites to the fixture**
 
 In each of these 13 tests, add `make_producer` as the last parameter, replace every `FakeProducer(` with `make_producer(`, and drop `-> FakeProducer` return annotations on inner `producer_factory` functions:
 
@@ -238,7 +242,9 @@ def test_row_limit_blocks_publish_before_creating_producer(tmp_path: Path, make_
 
 Attribute access on `sent` (`producer.sent[0].topic`, `sent.value`) is unchanged.
 
-- [ ] **Step 6: Run and verify**
+Observed: 15 constructions renamed. The scripted signature edit put `, make_producer)` on its own line for `test_resume_uses_physical_cursor_when_arrow_dataset_order_reverses` (no trailing comma); fixed by hand.
+
+- [x] **Step 6: Run and verify**
 
 ```bash
 cd recsys-pipeline/integration-tests
@@ -247,7 +253,9 @@ python -m pytest -q python_modeling/test_archive_replay.py python_modeling/test_
 python -m pytest -q python_modeling | tail -1   # 600 passed
 ```
 
-- [ ] **Step 7: Commit**
+Observed: 0 `FakeProducer` references; 87 passed; 600 passed.
+
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -255,6 +263,8 @@ test "$(git branch --show-current)" != "master" || { echo "REFUSING: on master";
 git add recsys-pipeline/integration-tests/python_modeling/{archive_fakes.py,conftest.py,test_archive_replay.py}
 git commit -m "refactor(tests): archive replay fakes from a shared module via make_producer"
 ```
+
+Observed: `adddcbe`.
 
 ### Task 2: Migrate `test_dead_letter_redrive.py`
 
@@ -264,7 +274,7 @@ git commit -m "refactor(tests): archive replay fakes from a shared module via ma
 **Interfaces:**
 - Consumes: `CANONICAL_EVENT`, `write_commit_manifest`, fixture `make_producer`, `Sent` attribute names from Task 1.
 
-- [ ] **Step 1: Replace the helpers**
+- [x] **Step 1: Replace the helpers**
 
 Delete `CANONICAL_EVENT` (lines 24–47), `FakeFuture`, `FakeProducer` (lines 64–94) and `import hashlib`. Add after the `from dead_letter_redrive import (...)` block:
 
@@ -291,7 +301,7 @@ Change the `redrive` helper's signature to drop the annotation:
 def redrive(root: Path, producer, **overrides: object):
 ```
 
-- [ ] **Step 2: Switch producer call sites and `sent` access**
+- [x] **Step 2: Switch producer call sites and `sent` access**
 
 In each of these 11 tests, add `make_producer` as the last parameter and replace `FakeProducer(` with `make_producer(` (including the `lambda _config: FakeProducer()` passed to `monkeypatch.setattr` in `test_main_reports_counts_and_the_manifest_path`):
 
@@ -322,7 +332,9 @@ assert [sent.key for sent in resumed.sent] == [b"op-1:e-3"]
 
 Check none remain: `grep -nE 'sent\["' python_modeling/test_dead_letter_redrive.py` → no output.
 
-- [ ] **Step 3: Run and verify**
+Observed: 13 constructions renamed; 7 `sent["x"]` reads converted (the list above omits `sent.key == b"op-1:e-1"` in the headers test); none remain.
+
+- [x] **Step 3: Run and verify**
 
 ```bash
 cd recsys-pipeline/integration-tests
@@ -331,7 +343,9 @@ python -m pytest -q python_modeling/test_archive_replay.py python_modeling/test_
 python -m pytest -q python_modeling | tail -1   # 600 passed
 ```
 
-- [ ] **Step 4: Commit**
+Observed: 0 `FakeProducer` references; 87 passed; 600 passed.
+
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/linghuang/Git/Recsys-Streaming-Pipeline
@@ -340,11 +354,13 @@ git add recsys-pipeline/integration-tests/python_modeling/test_dead_letter_redri
 git commit -m "refactor(tests): dead-letter redrive uses the shared fakes and make_producer"
 ```
 
+Observed: `32d0d5b`.
+
 ### Task 3: Spec success-criteria check and PR
 
 **Files:** none modified.
 
-- [ ] **Step 1: Uniqueness check (spec criterion 2)** — each line must print exactly one match, in `archive_fakes.py`:
+- [x] **Step 1: Uniqueness check (spec criterion 2)** — each line must print exactly one match, in `archive_fakes.py`:
 
 ```bash
 cd recsys-pipeline/integration-tests/python_modeling
@@ -354,13 +370,17 @@ grep -rn "^CANONICAL_EVENT = {" .
 grep -rnF 'sorted(batch_root.rglob("*.parquet"))' .
 ```
 
-- [ ] **Step 2: Scope check (spec criterion 4)**
+Observed: each pattern matched once, all in `archive_fakes.py` (lines 52, 43, 9, 90).
+
+- [x] **Step 2: Scope check (spec criterion 4)**
 
 ```bash
 git diff --stat origin/master...HEAD   # only python_modeling/{archive_fakes,conftest,test_archive_replay,test_dead_letter_redrive}.py
 ```
 
-- [ ] **Step 3: Push and open PR**
+Observed: 4 files, +182/−223 — exactly the four named.
+
+- [x] **Step 3: Push and open PR**
 
 ```bash
 test "$(git branch --show-current)" != "master" || { echo "REFUSING: on master"; exit 1; }
@@ -371,3 +391,9 @@ gh pr create --base master --title "refactor(tests): one set of archive/redrive 
 PR body (write to a scratch file): a Summary listing the new `archive_fakes.py`, the `make_producer` fixture, and the two migrated files; the duplicate count removed (CANONICAL_EVENT, FakeFuture, FakeProducer, commit-manifest writer); the one assertion-shape change (`sent["x"]` → `sent.x`); Test plan with the 87/600 counts and the four uniqueness greps; link to the spec; the repo's attribution footer.
 
 Report the PR URL and stop; do not merge.
+
+Observed: PR #292.
+
+## Delivery evidence
+
+Baseline (master `1137806`): 87 passed in the two files, 600 in `python_modeling/`. After each task and after the fix: unchanged. Fresh whole-branch review (opus): no Critical/Important; confirmed `write_commit_manifest` is byte-identical to both old writers and both services always pass `headers` as a list. Its Minor finding — `conftest.py` eagerly importing pyarrow — was re-graded and fixed in `2b30e86`: with pyarrow blocked, `test_post_training_dpo.py` went from a collection error to 29 passed, 8 skipped; suite 600/600. Deferred minor: `Sent.headers` is typed `list | None` though no caller passes `None`. CI on #292: python and scala jobs passed. Delivery: spec/plan #291, code #292, both merged 2026-10-15.
