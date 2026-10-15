@@ -1,4 +1,3 @@
-import hashlib
 from datetime import date
 from pathlib import Path
 
@@ -16,35 +15,11 @@ from dead_letter_redrive import (
     run_redrive,
     select_dead_letters,
 )
+from archive_fakes import CANONICAL_EVENT, write_commit_manifest
 
 
 ARCHIVE_QUERY_NAMESPACE = "query-1"
 INGEST_DATE = "2024-06-15"
-
-CANONICAL_EVENT = {
-    "event_id": "e-1",
-    "request_id": "request-1",
-    "session_id": "session-1",
-    "user_id": "u-1",
-    "item_id": "i-1",
-    "event_type": "click",
-    "timestamp_ms": 1718400000000,
-    "position": 2,
-    "user_features": {"tier": "vip"},
-    "item_features": {"genre": "drama"},
-    "context_features": {"device": "web"},
-    "model_version": "model-1",
-    "policy_version": "policy-1",
-    "algorithm_version": "algorithm-1",
-    "rating": 4.5,
-    "negative_feedback_reason": None,
-    "dwell_millis": 900,
-    "completion_rate": 0.75,
-    "published_at": 1718400000100,
-    "new_release": False,
-    "filter_reason": None,
-    "unsafe_label": False,
-}
 
 DEAD_LETTER_SCHEMA = pa.schema(
     [
@@ -59,37 +34,6 @@ DEAD_LETTER_SCHEMA = pa.schema(
         ("archived_at", pa.int64()),
     ]
 )
-
-
-class FakeFuture:
-    def __init__(self, delivery_error: Exception | None = None) -> None:
-        self.delivery_error = delivery_error
-
-    def get(self, timeout: float) -> None:
-        if self.delivery_error:
-            raise self.delivery_error
-
-
-class FakeProducer:
-    def __init__(self, fail_on_send_number: int | None = None) -> None:
-        self.fail_on_send_number = fail_on_send_number
-        self.sent = []
-        self.flushes = 0
-        self.closes = 0
-
-    def send(self, topic: str, *, value: bytes, key: bytes, headers=None):
-        if self.fail_on_send_number == len(self.sent) + 1:
-            raise RuntimeError("broker unavailable")
-        self.sent.append(
-            {"topic": topic, "value": value, "key": key, "headers": headers or []}
-        )
-        return FakeFuture()
-
-    def flush(self) -> None:
-        self.flushes += 1
-
-    def close(self) -> None:
-        self.closes += 1
 
 
 def encoded(**overrides: object) -> bytes:
@@ -122,19 +66,9 @@ def commit_batch(
     root: Path, *, batch_id: int, query_namespace: str, kind: str = "dead-letter"
 ) -> None:
     batch_root = root / "_queries" / query_namespace / "_batches" / str(batch_id)
-    inventory = []
-    row_count = 0
-    for path in sorted(batch_root.rglob("*.parquet")):
-        relative = path.relative_to(batch_root).as_posix()
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        inventory.append(f"{relative}\t{path.stat().st_size}\t{digest}")
-        row_count += pq.ParquetFile(path).metadata.num_rows
     (batch_root / "_SUCCESS").touch()
-    (batch_root / "_COMMITTED").write_text(
-        f"version=2\nquery={query_namespace}\nkind={kind}\n"
-        f"batch_id={batch_id}\nrow_count={row_count}\n"
-        + "".join(f"file={entry}\n" for entry in inventory),
-        encoding="utf-8",
+    write_commit_manifest(
+        batch_root, query_namespace=query_namespace, batch_id=batch_id, kind=kind
     )
 
 
@@ -334,7 +268,7 @@ def test_selection_accepts_rows_whose_fingerprint_is_unknown_or_null(
     assert len(list(select_dead_letters(config(tmp_path)))) == 2
 
 
-def redrive(root: Path, producer: FakeProducer, **overrides: object):
+def redrive(root: Path, producer, **overrides: object):
     sleeps: list[float] = []
     manifest = run_redrive(
         config(root, **overrides),
@@ -345,40 +279,40 @@ def redrive(root: Path, producer: FakeProducer, **overrides: object):
     return manifest, sleeps
 
 
-def test_published_value_is_byte_identical_to_raw_value(tmp_path: Path) -> None:
+def test_published_value_is_byte_identical_to_raw_value(tmp_path: Path, make_producer) -> None:
     payload = encoded()
     write_dead_letter_archive(tmp_path, [dead_letter(raw_value=payload)])
-    producer = FakeProducer()
+    producer = make_producer()
 
     manifest, _ = redrive(tmp_path, producer)
 
-    assert [sent["value"] for sent in producer.sent] == [payload]
+    assert [sent.value for sent in producer.sent] == [payload]
     assert manifest.status == "completed"
 
 
-def test_publishes_only_to_the_backfill_topic(tmp_path: Path) -> None:
+def test_publishes_only_to_the_backfill_topic(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(tmp_path, [dead_letter()])
-    producer = FakeProducer()
+    producer = make_producer()
 
     redrive(tmp_path, producer)
 
-    assert {sent["topic"] for sent in producer.sent} == {"recsys_events.backfill"}
+    assert {sent.topic for sent in producer.sent} == {"recsys_events.backfill"}
 
 
-def test_key_and_headers_carry_event_id_and_original_error_code(tmp_path: Path) -> None:
+def test_key_and_headers_carry_event_id_and_original_error_code(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(tmp_path, [dead_letter(error_code="unknown_fingerprint")])
-    producer = FakeProducer()
+    producer = make_producer()
 
     redrive(tmp_path, producer)
 
     sent = producer.sent[0]
-    assert sent["key"] == b"op-1:e-1"
-    assert ("replay_operation_id", b"op-1") in sent["headers"]
-    assert ("replay_event_id", b"e-1") in sent["headers"]
-    assert ("redrive_error_code", b"unknown_fingerprint") in sent["headers"]
+    assert sent.key == b"op-1:e-1"
+    assert ("replay_operation_id", b"op-1") in sent.headers
+    assert ("replay_event_id", b"e-1") in sent.headers
+    assert ("redrive_error_code", b"unknown_fingerprint") in sent.headers
 
 
-def test_counts_are_reported_for_a_mixed_batch(tmp_path: Path) -> None:
+def test_counts_are_reported_for_a_mixed_batch(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(
         tmp_path,
         [
@@ -388,7 +322,7 @@ def test_counts_are_reported_for_a_mixed_batch(tmp_path: Path) -> None:
             dead_letter(raw_value=b"more-junk", error_code="invalid_marker", kafka_offset=45),
         ],
     )
-    producer = FakeProducer()
+    producer = make_producer()
 
     manifest, _ = redrive(tmp_path, producer)
 
@@ -399,7 +333,7 @@ def test_counts_are_reported_for_a_mixed_batch(tmp_path: Path) -> None:
     assert manifest.skipped_by_error_code == {"invalid_marker": 2, "corrupt_payload": 1}
 
 
-def test_rate_limit_applies_to_published_rows_not_skipped_ones(tmp_path: Path) -> None:
+def test_rate_limit_applies_to_published_rows_not_skipped_ones(tmp_path: Path, make_producer) -> None:
     """A skipped row sends nothing, so it must not consume the rate budget.
 
     With a frozen clock the first publish never waits and each later one does. Three rows
@@ -415,12 +349,12 @@ def test_rate_limit_applies_to_published_rows_not_skipped_ones(tmp_path: Path) -
         ],
     )
 
-    _, sleeps = redrive(tmp_path, FakeProducer())
+    _, sleeps = redrive(tmp_path, make_producer())
 
     assert len(sleeps) == 1
 
 
-def test_resume_after_crash_following_a_skipped_row(tmp_path: Path) -> None:
+def test_resume_after_crash_following_a_skipped_row(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(
         tmp_path,
         [
@@ -431,7 +365,7 @@ def test_resume_after_crash_following_a_skipped_row(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RuntimeError, match="broker unavailable"):
-        redrive(tmp_path, FakeProducer(fail_on_send_number=2))
+        redrive(tmp_path, make_producer(fail_on_send_number=2))
 
     # The crash landed on row 3's send, so rows 1 and 2 are durably accounted for and the
     # cursor sits on the *skipped* row -- otherwise the resume would re-examine it.
@@ -441,19 +375,19 @@ def test_resume_after_crash_following_a_skipped_row(tmp_path: Path) -> None:
     assert crashed.status == "failed"
     assert (crashed.examined_rows, crashed.published_rows, crashed.skipped_rows) == (2, 1, 1)
 
-    resumed = FakeProducer()
+    resumed = make_producer()
     manifest, _ = redrive(tmp_path, resumed)
 
-    assert [sent["key"] for sent in resumed.sent] == [b"op-1:e-3"]
+    assert [sent.key for sent in resumed.sent] == [b"op-1:e-3"]
     assert manifest.published_rows == 2
     assert manifest.examined_rows == 3
     assert manifest.skipped_by_error_code == {"invalid_marker": 1}
     assert manifest.status == "completed"
 
 
-def test_completed_operation_rerun_is_a_no_op(tmp_path: Path) -> None:
+def test_completed_operation_rerun_is_a_no_op(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(tmp_path, [dead_letter()])
-    first, _ = redrive(tmp_path, FakeProducer())
+    first, _ = redrive(tmp_path, make_producer())
     assert first.status == "completed"
 
     def explode(_config):
@@ -475,16 +409,16 @@ def test_max_rows_raises_before_a_producer_exists(tmp_path: Path) -> None:
         run_redrive(config(tmp_path, max_rows=1), producer_factory=explode)
 
 
-def test_override_limit_allows_exceeding_max_rows(tmp_path: Path) -> None:
+def test_override_limit_allows_exceeding_max_rows(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(tmp_path, [dead_letter(), dead_letter(kafka_offset=43)])
-    producer = FakeProducer()
+    producer = make_producer()
 
     manifest, _ = redrive(tmp_path, producer, max_rows=1, override_limit=True)
 
     assert manifest.published_rows == 2
 
 
-def test_resume_rejects_a_changed_source_selection(tmp_path: Path) -> None:
+def test_resume_rejects_a_changed_source_selection(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(
         tmp_path,
         [
@@ -493,7 +427,7 @@ def test_resume_rejects_a_changed_source_selection(tmp_path: Path) -> None:
         ],
     )
     with pytest.raises(RuntimeError):
-        redrive(tmp_path, FakeProducer(fail_on_send_number=2))
+        redrive(tmp_path, make_producer(fail_on_send_number=2))
 
     write_dead_letter_archive(
         tmp_path,
@@ -502,13 +436,13 @@ def test_resume_rejects_a_changed_source_selection(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RedriveConfigError, match="source selection changed"):
-        redrive(tmp_path, FakeProducer())
+        redrive(tmp_path, make_producer())
 
 
-def test_manifest_is_written_under_the_dead_letter_root(tmp_path: Path) -> None:
+def test_manifest_is_written_under_the_dead_letter_root(tmp_path: Path, make_producer) -> None:
     write_dead_letter_archive(tmp_path, [dead_letter()])
 
-    manifest, _ = redrive(tmp_path, FakeProducer())
+    manifest, _ = redrive(tmp_path, make_producer())
 
     assert manifest.path == tmp_path / "_redrive_manifests" / "op-1.json"
     assert manifest.path.is_file()
@@ -576,7 +510,7 @@ def test_parse_args_rejects_a_malformed_ingest_date() -> None:
 
 
 def test_main_reports_counts_and_the_manifest_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, make_producer
 ) -> None:
     write_dead_letter_archive(
         tmp_path,
@@ -586,7 +520,7 @@ def test_main_reports_counts_and_the_manifest_path(
         ],
     )
     monkeypatch.setattr(
-        dead_letter_redrive, "_make_kafka_producer", lambda _config: FakeProducer()
+        dead_letter_redrive, "_make_kafka_producer", lambda _config: make_producer()
     )
 
     exit_code = dead_letter_redrive.main([
