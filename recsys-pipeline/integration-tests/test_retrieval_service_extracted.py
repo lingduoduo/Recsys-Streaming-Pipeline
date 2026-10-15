@@ -15,6 +15,8 @@ string itself, and the `not in` assertion in test_service_scripts.py.
 
 from pathlib import Path
 
+import pytest
+
 GIT_ROOT = Path(__file__).resolve().parents[2]
 NEEDLE = "java-retrieval-service"
 
@@ -27,27 +29,33 @@ BUILD_SUFFIXES = {".xml", ".yml", ".yaml", ".sh"}
 DOC_SUFFIXES = {".md", ".html"}
 
 
-def references(suffixes):
-    """Every live file with one of `suffixes` that still names the service."""
-    hits = []
+@pytest.fixture(scope="module")
+def live_texts():
+    """Every live build or document file's text, keyed by its repo-relative path."""
+    texts = {}
     for path in GIT_ROOT.rglob("*"):
-        if not path.is_file() or path.suffix not in suffixes:
+        if not path.is_file() or path.suffix not in BUILD_SUFFIXES | DOC_SUFFIXES:
             continue
         relative = path.relative_to(GIT_ROOT)
         if relative.as_posix().startswith(HISTORICAL_PREFIXES):
             continue
         if set(relative.parts) & SKIP_DIRS:
             continue
-        if NEEDLE in path.read_text(encoding="utf-8", errors="ignore"):
-            hits.append(relative.as_posix())
-    return sorted(hits)
+        texts[relative] = path.read_text(encoding="utf-8", errors="ignore")
+    return texts
 
 
-def test_no_build_file_workflow_or_script_references_the_extracted_service():
-    hits = references(BUILD_SUFFIXES)
+def references(live_texts, suffixes):
+    """Every live file with one of `suffixes` that still names the service."""
+    return sorted(relative.as_posix() for relative, text in live_texts.items()
+                  if relative.suffix in suffixes and NEEDLE in text)
+
+
+def test_no_build_file_workflow_or_script_references_the_extracted_service(live_texts):
+    hits = references(live_texts, BUILD_SUFFIXES)
     assert not hits, f"build/CI/script files still reference the service: {hits}"
 
 
-def test_no_live_document_references_the_extracted_service():
-    hits = references(DOC_SUFFIXES)
+def test_no_live_document_references_the_extracted_service(live_texts):
+    hits = references(live_texts, DOC_SUFFIXES)
     assert not hits, f"live documents still reference the service: {hits}"

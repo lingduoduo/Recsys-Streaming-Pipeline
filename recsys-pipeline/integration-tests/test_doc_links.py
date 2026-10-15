@@ -19,6 +19,8 @@ to a renamed file in Recsys-Backend-Service still breaks here silently.
 import re
 from pathlib import Path
 
+import pytest
+
 GIT_ROOT = Path(__file__).resolve().parents[2]
 
 HISTORICAL_PREFIXES = (".superpowers/", ".planning/")
@@ -42,6 +44,12 @@ def live_markdown():
         yield relative, path.read_text(encoding="utf-8")
 
 
+@pytest.fixture(scope="module")
+def live_docs():
+    """live_markdown() read once for every test in this module."""
+    return list(live_markdown())
+
+
 def slugs(path):
     """The anchors GitHub generates for a markdown file's headings.
 
@@ -62,9 +70,9 @@ def slugs(path):
     return found
 
 
-def test_every_relative_documentation_link_resolves():
+def test_every_relative_documentation_link_resolves(live_docs):
     broken = []
-    for relative, text in live_markdown():
+    for relative, text in live_docs:
         for match in LINK.finditer(text):
             target = match.group(1)
             if target.startswith(("http://", "https://", "mailto:", "#")):
@@ -109,9 +117,9 @@ def noted_fence_lines(text):
     return noted
 
 
-def test_documented_retrieval_endpoints_carry_the_service_prefix():
+def test_documented_retrieval_endpoints_carry_the_service_prefix(live_docs):
     bare = []
-    for relative, text in live_markdown():
+    for relative, text in live_docs:
         noted = noted_fence_lines(text)
         for match in BARE_ENDPOINT.finditer(text):
             line = text[: match.start()].count("\n") + 1
@@ -143,7 +151,7 @@ def test_every_flow_document_marks_the_repository_boundary():
     assert not unmarked, "flow documents that do not mark the boundary: " + ", ".join(unmarked)
 
 
-def test_no_document_claims_an_in_repo_serving_side_effect_writer():
+def test_no_document_claims_an_in_repo_serving_side_effect_writer(live_docs):
     """served_history and impressions left with the service.
 
     Neither key has a writer, a reader or a test in this checkout; they appear
@@ -151,12 +159,12 @@ def test_no_document_claims_an_in_repo_serving_side_effect_writer():
     does not have.
     """
     offenders = [
-        f"{relative}" for relative, text in live_markdown() if "in-repo serving side-effect" in text
+        f"{relative}" for relative, text in live_docs if "in-repo serving side-effect" in text
     ]
     assert not offenders, "documents claiming an in-repo serving writer: " + ", ".join(offenders)
 
 
-def test_no_document_tells_a_reader_to_cd_into_a_path_only_valid_one_level_down():
+def test_no_document_tells_a_reader_to_cd_into_a_path_only_valid_one_level_down(live_docs):
     """A bare `cd frontend` moves the reader's shell to a path relative to
     recsys-pipeline/, which is wrong from the repository root -- where readers
     actually are, since that is where the repository is cloned and where the
@@ -171,7 +179,7 @@ def test_no_document_tells_a_reader_to_cd_into_a_path_only_valid_one_level_down(
     uses it for the sbt build for that reason.
     """
     offenders = []
-    for relative, text in live_markdown():
+    for relative, text in live_docs:
         for number, line in enumerate(text.splitlines(), 1):
             if re.match(r"cd (frontend|services|scripts|docs)\b", line.strip()):
                 offenders.append(f"{relative}:{number}  {line.strip()}")
