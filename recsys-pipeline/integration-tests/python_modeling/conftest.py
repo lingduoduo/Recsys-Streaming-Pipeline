@@ -11,10 +11,10 @@ for _path in (_PIPELINE / "frontend",
               _PIPELINE / "services" / "python-modeling"):
     sys.path.insert(0, str(_path))
 
-from archive_fakes import FakeProducer
-
 
 @pytest.fixture
 def make_producer():
     """Factory for FakeProducer; call it with the failure knobs a test needs."""
+    # Imported here so pyarrow stays optional for tests that importorskip it.
+    from archive_fakes import FakeProducer
     return FakeProducer
