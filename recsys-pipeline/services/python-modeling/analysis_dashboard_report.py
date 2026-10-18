@@ -595,6 +595,3 @@ def _live_latency(live: dict) -> dict:
         return unavailable("no live requests recorded")
     coverage = safe_ratio(sum(bool(entry["count"]) for entry in rows), len(rows)) or 0.0
     return available(f"Live request and stage latency ({unit})", rows, requests, coverage)
-
-
-import html as _html

@@ -34,17 +34,15 @@ def auc(scores: list[float], labels: list[int]) -> float | None:
     if n_pos == 0 or n_neg == 0:
         return None
     order = sorted(range(len(scores)), key=lambda i: scores[i])
-    ranks = [0.0] * len(scores)
+    sum_pos = 0.0
     i = 0
     while i < len(order):
         j = i
         while j + 1 < len(order) and scores[order[j + 1]] == scores[order[i]]:
             j += 1
         avg = (i + j) / 2.0 + 1.0  # 1-based average rank for the tie group
-        for t in range(i, j + 1):
-            ranks[order[t]] = avg
+        sum_pos += avg * sum(labels[order[t]] == 1 for t in range(i, j + 1))
         i = j + 1
-    sum_pos = sum(ranks[i] for i in range(len(labels)) if labels[i] == 1)
     return (sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
 
 
@@ -132,21 +130,17 @@ def main(argv=None) -> None:
     uemb, iemb = fetch_embeddings(host, port)
 
     signal_scores = {
-        "popularity": [(float(pop.get(it, 0.0)), True) for it in items],
-        "position": [(-float(p), True) for p in positions],
-        "embedding": [((_dot(uemb.get(u), iemb.get(it)), _dot(uemb.get(u), iemb.get(it)) is not None))
+        "popularity": [float(pop.get(it, 0.0)) for it in items],
+        "position": [-float(p) for p in positions],
+        "embedding": [_dot(uemb.get(u), iemb.get(it))
                       for u, it in zip(users, items)],
     }
 
     rows = []
     total = len(labels_all)
     for name in SIGNALS:
-        sl = [(s, labels_all[i]) for i, (s, ok) in enumerate(signal_scores[name]) if ok and s is not None]
+        sl = [(s, y) for s, y in zip(signal_scores[name], labels_all) if s is not None]
         coverage = round(len(sl) / total, 4) if total else 0.0
-        if not sl:
-            rows.append({"signal": name, "n": 0, "positives": 0, "coverage": coverage,
-                         "auc": None, "logloss": None})
-            continue
         scores, labels = [s for s, _ in sl], [y for _, y in sl]
         m = evaluate_signal(scores, labels)
         rows.append({"signal": name, "coverage": coverage, **m})

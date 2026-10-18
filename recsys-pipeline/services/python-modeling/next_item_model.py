@@ -34,18 +34,19 @@ def positive_mask(df: pd.DataFrame) -> pd.Series:
     positive, and neither is used as a negative — they are simply not prediction targets.
     """
     mask = pd.Series(False, index=df.index)
-    if "clicked" in df.columns:
-        mask |= df["clicked"].fillna(0).astype(int) == 1
-    if "ordered" in df.columns:
-        mask |= df["ordered"].fillna(0).astype(int) == 1
-    if "thumb" in df.columns:
-        mask |= df["thumb"].fillna(0).astype(int) == 1
+    for column in POSITIVE_MASK_COLUMNS:
+        if column in df.columns:
+            mask |= df[column].fillna(0).astype(int) == 1
     return mask
 
 
 def load_positives(input_dir: str) -> pd.DataFrame:
     """Read the training-samples Parquet directory and keep only positive engagements."""
     df = pd.read_parquet(input_dir)
+    return _require_positives(df, input_dir)
+
+
+def _require_positives(df: pd.DataFrame, input_dir: str) -> pd.DataFrame:
     positives = df[positive_mask(df)] if len(df) else df
     if positives.empty:
         raise ValueError(
@@ -405,7 +406,7 @@ def run(
 ) -> dict:
     """Build, split, score, and write metrics.json. Returns the same dict it writes."""
     frame = pd.read_parquet(input_dir)
-    positives = load_positives(input_dir)
+    positives = _require_positives(frame, input_dir)
     timelines = build_timelines(positives)
     cutoff = resolve_cutoff(timelines, quantile=quantile, absolute=absolute_cutoff)
     split = split_timelines(timelines, cutoff)
