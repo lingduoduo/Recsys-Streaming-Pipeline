@@ -21,6 +21,7 @@ Corpus (movie title+genres) and item embeddings come from Redis (`movie:{id}:fea
 from __future__ import annotations
 
 import argparse
+import heapq
 import math
 import os
 import re
@@ -74,7 +75,13 @@ def mean_vec(vecs: list[list[float]]) -> list[float]:
 
 
 def rank_topk(scores: dict[str, float], k: int) -> list[str]:
-    return [item for item, _ in sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:k]]
+    def key(item):
+        return -scores[item], item
+
+    # Keep Python slicing semantics for callers that pass a negative k.
+    if k < 0:
+        return sorted(scores, key=key)[:k]
+    return heapq.nsmallest(k, scores, key=key)
 
 
 def rrf(rankings: list[list[str]], k0: int = 60) -> dict[str, float]:
@@ -97,7 +104,7 @@ def evaluate(clicks_by_user: dict[str, list[str]],
     sum_hit = {(m, k): 0.0 for m in METHODS for k in ks}
     users_eval = instances = 0
 
-    for user, raw in clicks_by_user.items():
+    for raw in clicks_by_user.values():
         clicks = [c for c in dict.fromkeys(raw) if c in corpus]   # dedup, must be in corpus
         if len(clicks) < 2:
             continue
