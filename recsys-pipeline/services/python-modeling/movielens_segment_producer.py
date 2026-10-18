@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Segment simulation aligned to the canonical MovieLens UserEvent demographics.
 
-Unlike segment_producer.py (which embeds invented attributes in user_features), this routes
-demographics through the REAL context path and keeps engagement on the behavior path:
+This routes demographics through the canonical context path and keeps engagement on the
+behavior path:
 
   • per user: a UserUpdated-shaped record {user_id, age:int, gender, occupation, zip_code,
     timestamp} → topic `movielens_context` → MovieLensContextCollectorStreamingJob →
@@ -26,7 +26,7 @@ import uuid
 
 from producer import make_json_producer, make_producer
 from feature_derivations import derive_age_band, derive_geo
-from feedback_schedule import FeedbackSchedule, split_slate
+from segment_producer_common import BehaviorEmitter, PLATFORMS, SlateEvents, SURFACES, SURFACE_EFF
 
 RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")
@@ -41,8 +41,6 @@ SEED = int(os.getenv("SEED", "13"))
 GENDERS = ["F", "M"]
 OCCUPATIONS = ["student", "engineer", "scientist", "educator", "technician",
                "writer", "artist", "administrator", "marketing", "retired", "other"]
-PLATFORMS = ["ios", "android", "web"]
-SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
 # One timezone per derive_geo() region. MovieLens ZIPs are US-only, so locale is fixed en-US.
 ZIP_TIMEZONE = {"Northeast": "America/New_York", "Mid-Atlantic": "America/New_York",
                 "Southeast": "America/New_York", "Midwest": "America/Chicago",
@@ -61,9 +59,6 @@ OCC_EFF = {"student": 0.04, "engineer": 0.03, "scientist": 0.03, "educator": 0.0
 REGION_EFF = {"Northeast": 0.02, "Mid-Atlantic": 0.02, "Southeast": 0.0, "Midwest": 0.0,
               "South-Central": -0.01, "Mountain": 0.0, "West": 0.03, "unknown": 0.0}
 PLATFORM_EFF = {"ios": 0.04, "android": 0.01, "web": 0.0}
-# Additive per-slate click effect, so the surface is recoverable from the report.
-SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
-               "detail_page": 0.01, "continue_watching": 0.03}
 
 
 def assign_demographics(num_users: int, rng: random.Random) -> dict[str, dict]:
@@ -143,40 +138,20 @@ def make_slate(user: str, demo: dict, items, rng: random.Random, session_id: str
         "timezone": ZIP_TIMEZONE[region],
     }
 
+    base = SlateEvents(user, request_id, session_id, {}, context).event
     events = []
     for position, item in enumerate(slate_items):
-        events.append({
-            "event_id": str(uuid.uuid4()),
-            "request_id": request_id,
-            "session_id": session_id,
-            "user_id": user,
-            "item_id": item,
-            "event_type": "impression",
-            "timestamp_ms": now_ms,
-            "position": position,
-            "user_features": {},
-            "item_features": {"bucket": f"b{int(item.split('_')[-1]) % 4}"},
-            "context_features": {},
-            **context,
-        })
+        impression = base(item, "impression", now_ms, position)
+        impression["item_features"] = {"bucket": f"b{int(item.split('_')[-1]) % 4}"}
+        events.append(impression)
 
     if rng.random() < click_prob(demo, platform, surface):
         clicked = rng.choice(slate_items)
-        events.append({
-            "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
-            "user_id": user, "item_id": clicked, "event_type": "click",
-            "timestamp_ms": now_ms + rng.randint(1, 20) * 1000,
-            "position": slate_items.index(clicked),
-            "user_features": {}, "item_features": {}, "context_features": {},
-        })
+        events.append(base(clicked, "click", now_ms + rng.randint(1, 20) * 1000,
+                           slate_items.index(clicked)))
         if rng.random() < order_prob(demo, platform):
-            events.append({
-                "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
-                "user_id": user, "item_id": clicked, "event_type": "order",
-                "timestamp_ms": now_ms + rng.randint(21, 120) * 1000,
-                "position": slate_items.index(clicked),
-                "user_features": {}, "item_features": {}, "context_features": {},
-            })
+            events.append(base(clicked, "order", now_ms + rng.randint(21, 120) * 1000,
+                               slate_items.index(clicked)))
     return events
 
 
@@ -202,7 +177,7 @@ def main() -> None:
                 sent += 1
         # Behavior is grouped into sessions: one user + a fresh session_id spanning K slates,
         # so the session report sees slates/session > 1.
-        schedule = FeedbackSchedule()
+        emitter = BehaviorEmitter(producer, RECSYS_TOPIC)
         slates = 0
         while slates < NUM_SLATES:
             user = rng.choice(users)
@@ -210,25 +185,11 @@ def main() -> None:
             for _ in range(rng.randint(1, SESSION_MAX_SLATES)):
                 if slates >= NUM_SLATES:
                     break
-                immediate, deferred = split_slate(make_slate(user, demo[user], items, rng, session_id))
-                for event in immediate:
-                    producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                    sent += 1
-                for delay, event in deferred:
-                    schedule.schedule(delay, event)
-                for event in schedule.due():
-                    producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                    sent += 1
+                sent += emitter.emit_slate(make_slate(user, demo[user], items, rng, session_id))
                 slates += 1
                 if slates % 2000 == 0:
                     print(f"  {slates}/{NUM_SLATES} slates, {sent} events", flush=True)
-        while schedule.pending():
-            wait = schedule.next_due_in()
-            if wait:
-                time.sleep(min(wait, 1.0))
-            for event in schedule.due():
-                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                sent += 1
+        sent += emitter.drain()
     finally:
         producer.flush()
         producer.close()
