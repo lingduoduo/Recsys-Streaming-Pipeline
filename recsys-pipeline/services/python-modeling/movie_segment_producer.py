@@ -27,7 +27,7 @@ import uuid
 
 from producer import make_json_producer, make_producer
 from feature_derivations import GENRES, l1, decade
-from feedback_schedule import FeedbackSchedule, split_slate
+from segment_producer_common import BehaviorEmitter, PLATFORMS, SlateEvents, SURFACES, SURFACE_EFF
 
 RECSYS_TOPIC = os.getenv("RECSYS_TOPIC", "recsys_events")
 CONTEXT_TOPIC = os.getenv("MOVIELENS_CONTEXT_TOPIC", "movielens_context")
@@ -71,11 +71,6 @@ AGE_BANDS = ("18-24", "25-34", "35-49", "50+")
 COUNTRIES = ("us", "ca", "gb", "de")
 # Additive per-user click effect, so fairness has one explainable gap to report.
 SUBSCRIPTION_EFF = {"premium": 0.03, "basic": 0.0, "free": -0.02}
-
-SURFACES = ("home_feed", "search_results", "detail_page", "continue_watching")
-# Additive per-slate click effect, so the surface is recoverable from the report.
-SURFACE_EFF = {"home_feed": 0.02, "search_results": 0.04,
-               "detail_page": 0.01, "continue_watching": 0.03}
 
 # Per-user taste. Items in a user's preferred l1 family gain AFFINITY_STRENGTH; each of the
 # other five loses a fifth as much, so the six bonuses cancel for that user AND — because the
@@ -247,27 +242,14 @@ def make_slate(user: str, user_meta: dict, items, movies: dict, rng: random.Rand
     session_id = f"sess_{uuid.uuid4().hex[:8]}"
     slate_items = rng.sample(items, min(SLATE_SIZE, len(items)))
     surface = rng.choice(SURFACES)
-    device = rng.choice(("ios", "android", "web"))
+    device = rng.choice(PLATFORMS)
     country = user_meta.get("country", "us")
     locale = user_locale(user, country)
     timezone = user_timezone(country)
 
-    def base(item: str, event_type: str, timestamp_ms: int, position: int) -> dict:
-        """One event. Request context rides on the impression only.
-
-        The joiner reads context with first(when(isImpression, ...)), so copies on feedback
-        events are ignored — but emitting them anyway makes this producer's events a different
-        shape from every other producer's and from the documented contract.
-        """
-        event = {
-            "event_id": str(uuid.uuid4()), "request_id": request_id, "session_id": session_id,
-            "user_id": user, "item_id": item, "event_type": event_type,
-            "timestamp_ms": timestamp_ms, "position": position,
-            "user_features": dict(user_meta), "item_features": {}, "context_features": {},
-        }
-        if event_type == "impression":
-            event.update(surface=surface, device=device, locale=locale, timezone=timezone)
-        return event
+    base = SlateEvents(user, request_id, session_id, user_meta,
+                       {"surface": surface, "device": device,
+                        "locale": locale, "timezone": timezone}).event
 
     events = []
     for position, item in enumerate(slate_items):
@@ -337,7 +319,7 @@ def main() -> None:
         for item in items:
             context_producer.send(CONTEXT_TOPIC, value=movie_event(item, movies[item]), key=item)
             sent += 1
-        schedule = FeedbackSchedule()
+        emitter = BehaviorEmitter(producer, RECSYS_TOPIC)
         for s in range(NUM_SLATES):
             user = rng.choice(users)
             events = make_slate(user, user_meta[user], items, movies, rng)
@@ -350,24 +332,10 @@ def main() -> None:
                     pair = (row["userId"], row["movieId"])
                     if pair not in ratings_by_pair or row["rating"] > ratings_by_pair[pair]["rating"]:
                         ratings_by_pair[pair] = row
-            immediate, deferred = split_slate(events)
-            for event in immediate:
-                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                sent += 1
-            for delay, event in deferred:
-                schedule.schedule(delay, event)
-            for event in schedule.due():
-                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                sent += 1
+            sent += emitter.emit_slate(events)
             if (s + 1) % 2000 == 0:
                 print(f"  {s + 1}/{NUM_SLATES} slates, {sent} events", flush=True)
-        while schedule.pending():
-            wait = schedule.next_due_in()
-            if wait:
-                time.sleep(min(wait, 1.0))
-            for event in schedule.due():
-                producer.send(RECSYS_TOPIC, value=event, key=event["request_id"])
-                sent += 1
+        sent += emitter.drain()
     finally:
         if ratings_writer:
             ratings_writer.writerows(ratings_by_pair.values())
