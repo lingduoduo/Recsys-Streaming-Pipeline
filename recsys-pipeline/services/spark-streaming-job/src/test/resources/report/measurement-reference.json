@@ -1,0 +1,2635 @@
+[
+  {
+    "samples": [
+      {
+        "user_id": "u0",
+        "item_id": "m0",
+        "clicked": 1,
+        "ordered": 1,
+        "reward": 0.0,
+        "rating": null,
+        "dwell_millis": 0,
+        "completion_rate": 0.0,
+        "negative_feedback_reason": "hide",
+        "published_at": 1700000000,
+        "impression_ts": 1700100000,
+        "request_id": "r0",
+        "position": 0,
+        "label": 0,
+        "filter_reason": "other",
+        "unsafe_label": true,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m1",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": 1.0,
+        "dwell_millis": 123,
+        "completion_rate": 0.125,
+        "negative_feedback_reason": null,
+        "published_at": 1699136000,
+        "impression_ts": 1700100010,
+        "request_id": "r0",
+        "position": 1,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m2",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": 1.5,
+        "dwell_millis": 246,
+        "completion_rate": 0.25,
+        "negative_feedback_reason": null,
+        "published_at": 1698272000,
+        "impression_ts": 1700100020,
+        "request_id": "r0",
+        "position": 2,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m3",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": 2.0,
+        "dwell_millis": 369,
+        "completion_rate": 0.375,
+        "negative_feedback_reason": null,
+        "published_at": 1697408000,
+        "impression_ts": 1700100030,
+        "request_id": "r0",
+        "position": 3,
+        "label": 0,
+        "filter_reason": "expired",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m4",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.0,
+        "rating": 2.5,
+        "dwell_millis": 492,
+        "completion_rate": 0.5,
+        "negative_feedback_reason": "hide",
+        "published_at": 1696544000,
+        "impression_ts": 1700100040,
+        "request_id": "r1",
+        "position": 0,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m5",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": null,
+        "dwell_millis": 615,
+        "completion_rate": 0.625,
+        "negative_feedback_reason": null,
+        "published_at": 1695680000,
+        "impression_ts": 1700100050,
+        "request_id": "r1",
+        "position": 1,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m6",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": 3.5,
+        "dwell_millis": 738,
+        "completion_rate": 0.75,
+        "negative_feedback_reason": null,
+        "published_at": 1694816000,
+        "impression_ts": 1700100060,
+        "request_id": "r1",
+        "position": 2,
+        "label": 0,
+        "filter_reason": "other",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m7",
+        "clicked": 0,
+        "ordered": 1,
+        "reward": 1.0,
+        "rating": 4.0,
+        "dwell_millis": 861,
+        "completion_rate": 0.875,
+        "negative_feedback_reason": null,
+        "published_at": 1693952000,
+        "impression_ts": 1700100070,
+        "request_id": "r1",
+        "position": 3,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m0",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.0,
+        "rating": 4.5,
+        "dwell_millis": 984,
+        "completion_rate": 0.0,
+        "negative_feedback_reason": "hide",
+        "published_at": 1700000000,
+        "impression_ts": 1700100080,
+        "request_id": "r2",
+        "position": 0,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m1",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": 5.0,
+        "dwell_millis": 1107,
+        "completion_rate": 0.125,
+        "negative_feedback_reason": null,
+        "published_at": 1699136000,
+        "impression_ts": 1700100090,
+        "request_id": "r2",
+        "position": 1,
+        "label": 0,
+        "filter_reason": "expired",
+        "unsafe_label": true,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m2",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": null,
+        "dwell_millis": 1230,
+        "completion_rate": 0.25,
+        "negative_feedback_reason": null,
+        "published_at": 1698272000,
+        "impression_ts": 1700100100,
+        "request_id": "r2",
+        "position": 2,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m3",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": 1.0,
+        "dwell_millis": 1353,
+        "completion_rate": 0.375,
+        "negative_feedback_reason": null,
+        "published_at": 1697408000,
+        "impression_ts": 1700100110,
+        "request_id": "r2",
+        "position": 3,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m4",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 0.0,
+        "rating": 1.5,
+        "dwell_millis": 1476,
+        "completion_rate": 0.5,
+        "negative_feedback_reason": "hide",
+        "published_at": 1696544000,
+        "impression_ts": 1700100120,
+        "request_id": "r3",
+        "position": 0,
+        "label": 0,
+        "filter_reason": "other",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m5",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": 2.0,
+        "dwell_millis": 1599,
+        "completion_rate": 0.625,
+        "negative_feedback_reason": null,
+        "published_at": 1695680000,
+        "impression_ts": 1700100130,
+        "request_id": "r3",
+        "position": 1,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m6",
+        "clicked": 0,
+        "ordered": 1,
+        "reward": 0.6666666666666666,
+        "rating": 2.5,
+        "dwell_millis": 1722,
+        "completion_rate": 0.75,
+        "negative_feedback_reason": null,
+        "published_at": 1694816000,
+        "impression_ts": 1700100140,
+        "request_id": "r3",
+        "position": 2,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m7",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": null,
+        "dwell_millis": 1845,
+        "completion_rate": 0.875,
+        "negative_feedback_reason": null,
+        "published_at": 1693952000,
+        "impression_ts": 1700100150,
+        "request_id": "r3",
+        "position": 3,
+        "label": 0,
+        "filter_reason": "expired",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m0",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.0,
+        "rating": 3.5,
+        "dwell_millis": 1968,
+        "completion_rate": 0.0,
+        "negative_feedback_reason": "hide",
+        "published_at": 1700000000,
+        "impression_ts": 1700100160,
+        "request_id": "r4",
+        "position": 0,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m1",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": 4.0,
+        "dwell_millis": 2091,
+        "completion_rate": 0.125,
+        "negative_feedback_reason": null,
+        "published_at": 1699136000,
+        "impression_ts": 1700100170,
+        "request_id": "r4",
+        "position": 1,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m2",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": 4.5,
+        "dwell_millis": 2214,
+        "completion_rate": 0.25,
+        "negative_feedback_reason": null,
+        "published_at": 1698272000,
+        "impression_ts": 1700100180,
+        "request_id": "r4",
+        "position": 2,
+        "label": 0,
+        "filter_reason": "other",
+        "unsafe_label": true,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m3",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": 5.0,
+        "dwell_millis": 2337,
+        "completion_rate": 0.375,
+        "negative_feedback_reason": null,
+        "published_at": 1697408000,
+        "impression_ts": 1700100190,
+        "request_id": "r4",
+        "position": 3,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m4",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.0,
+        "rating": null,
+        "dwell_millis": 2460,
+        "completion_rate": 0.5,
+        "negative_feedback_reason": "hide",
+        "published_at": 1696544000,
+        "impression_ts": 1700100200,
+        "request_id": "r5",
+        "position": 0,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m5",
+        "clicked": 1,
+        "ordered": 1,
+        "reward": 0.3333333333333333,
+        "rating": 1.0,
+        "dwell_millis": 2583,
+        "completion_rate": 0.625,
+        "negative_feedback_reason": null,
+        "published_at": 1695680000,
+        "impression_ts": 1700100210,
+        "request_id": "r5",
+        "position": 1,
+        "label": 0,
+        "filter_reason": "expired",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m6",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": 1.5,
+        "dwell_millis": 2706,
+        "completion_rate": 0.75,
+        "negative_feedback_reason": null,
+        "published_at": 1694816000,
+        "impression_ts": 1700100220,
+        "request_id": "r5",
+        "position": 2,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m7",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": 2.0,
+        "dwell_millis": 2829,
+        "completion_rate": 0.875,
+        "negative_feedback_reason": null,
+        "published_at": 1693952000,
+        "impression_ts": 1700100230,
+        "request_id": "r5",
+        "position": 3,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m0",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 0.0,
+        "rating": 2.5,
+        "dwell_millis": 2952,
+        "completion_rate": 0.0,
+        "negative_feedback_reason": "hide",
+        "published_at": 1700000000,
+        "impression_ts": 1700100240,
+        "request_id": "r6",
+        "position": 0,
+        "label": 0,
+        "filter_reason": "other",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m1",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": null,
+        "dwell_millis": 3075,
+        "completion_rate": 0.125,
+        "negative_feedback_reason": null,
+        "published_at": 1699136000,
+        "impression_ts": 1700100250,
+        "request_id": "r6",
+        "position": 1,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m2",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": 3.5,
+        "dwell_millis": 3198,
+        "completion_rate": 0.25,
+        "negative_feedback_reason": null,
+        "published_at": 1698272000,
+        "impression_ts": 1700100260,
+        "request_id": "r6",
+        "position": 2,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m3",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": 4.0,
+        "dwell_millis": 3321,
+        "completion_rate": 0.375,
+        "negative_feedback_reason": null,
+        "published_at": 1697408000,
+        "impression_ts": 1700100270,
+        "request_id": "r6",
+        "position": 3,
+        "label": 0,
+        "filter_reason": "expired",
+        "unsafe_label": true,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u0",
+        "item_id": "m4",
+        "clicked": 0,
+        "ordered": 1,
+        "reward": 0.0,
+        "rating": 4.5,
+        "dwell_millis": 3444,
+        "completion_rate": 0.5,
+        "negative_feedback_reason": "hide",
+        "published_at": 1696544000,
+        "impression_ts": 1700100280,
+        "request_id": "r7",
+        "position": 0,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u1",
+        "item_id": "m5",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 0.3333333333333333,
+        "rating": 5.0,
+        "dwell_millis": 3567,
+        "completion_rate": 0.625,
+        "negative_feedback_reason": null,
+        "published_at": 1695680000,
+        "impression_ts": 1700100290,
+        "request_id": "r7",
+        "position": 1,
+        "label": 2,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u2",
+        "item_id": "m6",
+        "clicked": 1,
+        "ordered": 0,
+        "reward": 0.6666666666666666,
+        "rating": null,
+        "dwell_millis": 3690,
+        "completion_rate": 0.75,
+        "negative_feedback_reason": null,
+        "published_at": 1694816000,
+        "impression_ts": 1700100300,
+        "request_id": "r7",
+        "position": 2,
+        "label": 0,
+        "filter_reason": "other",
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "b",
+          "device": "web"
+        }
+      },
+      {
+        "user_id": "u3",
+        "item_id": "m7",
+        "clicked": 0,
+        "ordered": 0,
+        "reward": 1.0,
+        "rating": 1.0,
+        "dwell_millis": 3813,
+        "completion_rate": 0.875,
+        "negative_feedback_reason": null,
+        "published_at": 1693952000,
+        "impression_ts": 1700100310,
+        "request_id": "r7",
+        "position": 3,
+        "label": 1,
+        "filter_reason": null,
+        "unsafe_label": false,
+        "user_features": {
+          "gender": "a",
+          "device": "web"
+        }
+      }
+    ],
+    "slates": [
+      {
+        "request_id": "s0",
+        "user_id": "u0",
+        "request_ts": 1700100000,
+        "items": [
+          {
+            "item_id": "m0",
+            "label": 0,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.0
+          },
+          {
+            "item_id": "m1",
+            "label": 1,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.125
+          },
+          {
+            "item_id": "m2",
+            "label": 2,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.25
+          },
+          {
+            "item_id": "m3",
+            "label": 0,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.375
+          }
+        ]
+      },
+      {
+        "request_id": "s1",
+        "user_id": "u1",
+        "request_ts": 1700100010,
+        "items": [
+          {
+            "item_id": "m1",
+            "label": 1,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.125
+          },
+          {
+            "item_id": "m2",
+            "label": 2,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.25
+          },
+          {
+            "item_id": "m3",
+            "label": 0,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.375
+          },
+          {
+            "item_id": "m4",
+            "label": 1,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.5
+          }
+        ]
+      },
+      {
+        "request_id": "s2",
+        "user_id": "u2",
+        "request_ts": 1700100020,
+        "items": [
+          {
+            "item_id": "m2",
+            "label": 2,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.25
+          },
+          {
+            "item_id": "m3",
+            "label": 0,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.375
+          },
+          {
+            "item_id": "m4",
+            "label": 1,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.5
+          },
+          {
+            "item_id": "m5",
+            "label": 2,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.625
+          }
+        ]
+      },
+      {
+        "request_id": "s3",
+        "user_id": "u0",
+        "request_ts": 1700100030,
+        "items": [
+          {
+            "item_id": "m3",
+            "label": 0,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.375
+          },
+          {
+            "item_id": "m4",
+            "label": 1,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.5
+          },
+          {
+            "item_id": "m5",
+            "label": 2,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.625
+          },
+          {
+            "item_id": "m6",
+            "label": 0,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.75
+          }
+        ]
+      },
+      {
+        "request_id": "s4",
+        "user_id": "u1",
+        "request_ts": 1700100040,
+        "items": [
+          {
+            "item_id": "m4",
+            "label": 1,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.5
+          },
+          {
+            "item_id": "m5",
+            "label": 2,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.625
+          },
+          {
+            "item_id": "m6",
+            "label": 0,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.75
+          },
+          {
+            "item_id": "m7",
+            "label": 1,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.875
+          }
+        ]
+      },
+      {
+        "request_id": "s5",
+        "user_id": "u2",
+        "request_ts": 1700100050,
+        "items": [
+          {
+            "item_id": "m5",
+            "label": 2,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.625
+          },
+          {
+            "item_id": "m6",
+            "label": 0,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.75
+          },
+          {
+            "item_id": "m7",
+            "label": 1,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.875
+          },
+          {
+            "item_id": "m0",
+            "label": 2,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.0
+          }
+        ]
+      },
+      {
+        "request_id": "s6",
+        "user_id": "u0",
+        "request_ts": 1700100060,
+        "items": [
+          {
+            "item_id": "m6",
+            "label": 0,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.75
+          },
+          {
+            "item_id": "m7",
+            "label": 1,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.875
+          },
+          {
+            "item_id": "m0",
+            "label": 2,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.0
+          },
+          {
+            "item_id": "m1",
+            "label": 0,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.125
+          }
+        ]
+      },
+      {
+        "request_id": "s7",
+        "user_id": "u1",
+        "request_ts": 1700100070,
+        "items": [
+          {
+            "item_id": "m7",
+            "label": 1,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.875
+          },
+          {
+            "item_id": "m0",
+            "label": 2,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.0
+          },
+          {
+            "item_id": "m1",
+            "label": 0,
+            "genres": [
+              "Comedy"
+            ],
+            "popularity": 0.125
+          },
+          {
+            "item_id": "m2",
+            "label": 1,
+            "genres": [
+              "Action",
+              "Drama"
+            ],
+            "popularity": 0.25
+          }
+        ]
+      }
+    ],
+    "live": {
+      "measurements": {
+        "freshness": {
+          "availability": "available",
+          "exposures": 10,
+          "source": "published_at",
+          "freshShare": 0.4,
+          "coverage": 0.7
+        },
+        "safety": {
+          "availability": "available",
+          "evaluatedCandidates": 20,
+          "totalDecisions": 3,
+          "policyVersion": "p",
+          "reasons": {
+            "expired": {
+              "count": 3
+            }
+          },
+          "unknownShare": 0
+        },
+        "feedbackCoverage": {
+          "availability": "available",
+          "total": 12,
+          "signals": {
+            "rating": {
+              "coverage": 0.5
+            },
+            "request_id": {
+              "coverage": 1
+            }
+          }
+        },
+        "latency": {
+          "availability": "available",
+          "endpoints": {
+            "recommend": {
+              "count": 20,
+              "p50": 1,
+              "p95": 2,
+              "p99": 3,
+              "errorRate": 0.1,
+              "timeoutRate": 0
+            }
+          },
+          "stages": {
+            "rank": {
+              "count": 20,
+              "p50": 0.5,
+              "p95": 1,
+              "p99": 2
+            }
+          }
+        }
+      }
+    },
+    "config": {
+      "now": "2026-11-05T00:00:00Z",
+      "fairness_min_support": 2,
+      "catalog_size": 20
+    },
+    "expected": {
+      "relevance": {
+        "status": "available",
+        "headline": "Graded relevance across labeled slates",
+        "sampleSize": 8,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "k": 5,
+            "ndcg_at_k": 0.7439,
+            "mrr_at_k": 0.8125,
+            "recall_at_k": 1.0,
+            "hit_rate_at_k": 1.0,
+            "evaluated_slate_count": 8,
+            "ndcg_evaluated_slate_count": 8,
+            "evaluated_user_count": 3,
+            "leave_one_out_fold_count": 8,
+            "positive_label_count": 21,
+            "label_coverage": 1.0
+          },
+          {
+            "k": 10,
+            "ndcg_at_k": 0.7439,
+            "mrr_at_k": 0.8125,
+            "recall_at_k": 1.0,
+            "hit_rate_at_k": 1.0,
+            "evaluated_slate_count": 8,
+            "ndcg_evaluated_slate_count": 8,
+            "evaluated_user_count": 3,
+            "leave_one_out_fold_count": 8,
+            "positive_label_count": 21,
+            "label_coverage": 1.0
+          },
+          {
+            "k": 20,
+            "ndcg_at_k": 0.7439,
+            "mrr_at_k": 0.8125,
+            "recall_at_k": 1.0,
+            "hit_rate_at_k": 1.0,
+            "evaluated_slate_count": 8,
+            "ndcg_evaluated_slate_count": 8,
+            "evaluated_user_count": 3,
+            "leave_one_out_fold_count": 8,
+            "positive_label_count": 21,
+            "label_coverage": 1.0
+          }
+        ]
+      },
+      "satisfaction": {
+        "status": "available",
+        "headline": "Observed user satisfaction",
+        "sampleSize": 32,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "scope": "offline",
+            "ctr": 0.3438,
+            "ctr_coverage": 1.0,
+            "order_rate": 0.1562,
+            "order_coverage": 1.0,
+            "mean_reward": 0.5,
+            "reward_coverage": 1.0,
+            "mean_rating": 2.92,
+            "rating_coverage": 0.7812,
+            "negative_feedback_rate": 0.25,
+            "negative_feedback_coverage": 0.25,
+            "mean_dwell_millis": 1906.5,
+            "dwell_coverage": 1.0,
+            "mean_completion_rate": 0.4375,
+            "completion_coverage": 1.0,
+            "users": 4,
+            "items": 8,
+            "rated_samples": 25
+          },
+          {
+            "scope": "live_service",
+            "feedback_events": 12,
+            "request_id_coverage": 1,
+            "rating_coverage": 0.5,
+            "negative_feedback_coverage": null,
+            "dwell_coverage": null,
+            "completion_coverage": null
+          }
+        ],
+        "series": [
+          {
+            "bucket_start": 1700100000.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.5,
+            "order_rate": 0.5,
+            "mean_rating": 1.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100013.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 1.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100026.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 1.0,
+            "order_rate": 0.0,
+            "mean_rating": 2.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100039.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 2.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100052.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 1.0,
+            "order_rate": 0.0,
+            "mean_rating": 3.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100065.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 1.0,
+            "mean_rating": 4.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100078.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.5,
+            "order_rate": 0.0,
+            "mean_rating": 4.75,
+            "ratings": 2
+          },
+          {
+            "bucket_start": 1700100091.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": null,
+            "ratings": 0
+          },
+          {
+            "bucket_start": 1700100104.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 1.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100117.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 1.0,
+            "order_rate": 0.0,
+            "mean_rating": 1.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100130.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.0,
+            "order_rate": 0.5,
+            "mean_rating": 2.25,
+            "ratings": 2
+          },
+          {
+            "bucket_start": 1700100143.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 1.0,
+            "order_rate": 0.0,
+            "mean_rating": null,
+            "ratings": 0
+          },
+          {
+            "bucket_start": 1700100156.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 3.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100169.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.5,
+            "order_rate": 0.0,
+            "mean_rating": 4.25,
+            "ratings": 2
+          },
+          {
+            "bucket_start": 1700100182.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 5.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100195.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": null,
+            "ratings": 0
+          },
+          {
+            "bucket_start": 1700100208.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.5,
+            "order_rate": 0.5,
+            "mean_rating": 1.25,
+            "ratings": 2
+          },
+          {
+            "bucket_start": 1700100221.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 2.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100234.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 1.0,
+            "order_rate": 0.0,
+            "mean_rating": 2.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100247.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": null,
+            "ratings": 0
+          },
+          {
+            "bucket_start": 1700100260.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.5,
+            "order_rate": 0.0,
+            "mean_rating": 3.75,
+            "ratings": 2
+          },
+          {
+            "bucket_start": 1700100273.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 1.0,
+            "mean_rating": 4.5,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100286.0,
+            "impressions": 1,
+            "users": 1,
+            "ctr": 0.0,
+            "order_rate": 0.0,
+            "mean_rating": 5.0,
+            "ratings": 1
+          },
+          {
+            "bucket_start": 1700100299.0,
+            "impressions": 2,
+            "users": 2,
+            "ctr": 0.5,
+            "order_rate": 0.0,
+            "mean_rating": 1.0,
+            "ratings": 1
+          }
+        ],
+        "series_bucket_seconds": 13.0,
+        "rating_distribution": [
+          {
+            "rating": 1.0,
+            "count": 4
+          },
+          {
+            "rating": 1.5,
+            "count": 3
+          },
+          {
+            "rating": 2.0,
+            "count": 3
+          },
+          {
+            "rating": 2.5,
+            "count": 3
+          },
+          {
+            "rating": 3.0,
+            "count": 0
+          },
+          {
+            "rating": 3.5,
+            "count": 3
+          },
+          {
+            "rating": 4.0,
+            "count": 3
+          },
+          {
+            "rating": 4.5,
+            "count": 6
+          }
+        ]
+      },
+      "freshness": {
+        "status": "available",
+        "headline": "Fresh-item exposure",
+        "sampleSize": 32,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "scope": "offline",
+            "freshness_source": "published_at",
+            "fresh_share": 0.375,
+            "freshness_coverage": 1.0,
+            "age_at_exposure_coverage": 1.0,
+            "mean_content_age_days": 36.1592,
+            "median_content_age_days": 36.1592,
+            "fresh_ctr": 0.3333,
+            "fresh_ctr_coverage": 1.0,
+            "established_ctr": 0.35,
+            "established_ctr_coverage": 1.0,
+            "fresh_mean_reward": 0.3333,
+            "fresh_reward_coverage": 1.0,
+            "established_mean_reward": 0.6,
+            "established_reward_coverage": 1.0,
+            "fresh_ctr_diff": -0.0167,
+            "fresh_ctr_diff_se": 0.1034,
+            "fresh_ctr_diff_z": -0.16,
+            "fresh_item_share": 0.375,
+            "fresh_exposure_lift": 1.0
+          },
+          {
+            "scope": "live_service",
+            "freshness_source": "published_at",
+            "fresh_share": 0.4,
+            "freshness_coverage": 0.7,
+            "exposures": 10
+          }
+        ],
+        "age_bands": [
+          {
+            "band": "0-7 d",
+            "exposures": 4,
+            "exposure_share": 0.125,
+            "items": 1,
+            "item_share": 0.125,
+            "ctr": 0.5,
+            "z": null
+          },
+          {
+            "band": "8-30 d",
+            "exposures": 8,
+            "exposure_share": 0.25,
+            "items": 2,
+            "item_share": 0.25,
+            "ctr": 0.25,
+            "z": -1.0
+          },
+          {
+            "band": "31-90 d",
+            "exposures": 20,
+            "exposure_share": 0.625,
+            "items": 5,
+            "item_share": 0.625,
+            "ctr": 0.35,
+            "z": 0.1
+          },
+          {
+            "band": "91-365 d",
+            "exposures": 0,
+            "exposure_share": 0.0,
+            "items": 0,
+            "item_share": 0.0,
+            "ctr": null,
+            "z": null
+          },
+          {
+            "band": "> 1 y",
+            "exposures": 0,
+            "exposure_share": 0.0,
+            "items": 0,
+            "item_share": 0.0,
+            "ctr": null,
+            "z": null
+          }
+        ]
+      },
+      "diversity": {
+        "status": "available",
+        "headline": "Catalog diversity across slates",
+        "sampleSize": 8,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "scope": "aggregate",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.75,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0,
+            "long_tail_popularity_cutoff": 0.7,
+            "items_served": 8,
+            "catalog_size": 20,
+            "catalog_coverage": 0.4,
+            "exposure_gini": 0.6,
+            "top_decile_exposure_share": 0.25,
+            "median_items_per_user": 8.0,
+            "user_repeat_rate": 0.2812,
+            "user_repeat_rate_uniform": 0.2151
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s0",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 1.0,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s1",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 1.0,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s2",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 1.0,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s3",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.75,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s4",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.5,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s5",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.5,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s6",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.5,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "s7",
+            "unique_genres_at_k": 3.0,
+            "normalized_genre_entropy": 0.9999999999999998,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.75,
+            "genre_coverage": 1.0,
+            "popularity_coverage": 1.0
+          }
+        ],
+        "distributions": {
+          "normalized_genre_entropy": [
+            {
+              "bin_start": 0.0,
+              "count": 0
+            },
+            {
+              "bin_start": 0.1,
+              "count": 0
+            },
+            {
+              "bin_start": 0.2,
+              "count": 0
+            },
+            {
+              "bin_start": 0.3,
+              "count": 0
+            },
+            {
+              "bin_start": 0.4,
+              "count": 0
+            },
+            {
+              "bin_start": 0.5,
+              "count": 0
+            },
+            {
+              "bin_start": 0.6,
+              "count": 0
+            },
+            {
+              "bin_start": 0.7,
+              "count": 0
+            },
+            {
+              "bin_start": 0.8,
+              "count": 0
+            },
+            {
+              "bin_start": 0.9,
+              "count": 8
+            }
+          ],
+          "intra_list_genre_distance": [
+            {
+              "bin_start": 0.0,
+              "count": 0
+            },
+            {
+              "bin_start": 0.1,
+              "count": 0
+            },
+            {
+              "bin_start": 0.2,
+              "count": 0
+            },
+            {
+              "bin_start": 0.3,
+              "count": 0
+            },
+            {
+              "bin_start": 0.4,
+              "count": 0
+            },
+            {
+              "bin_start": 0.5,
+              "count": 0
+            },
+            {
+              "bin_start": 0.6,
+              "count": 8
+            },
+            {
+              "bin_start": 0.7,
+              "count": 0
+            },
+            {
+              "bin_start": 0.8,
+              "count": 0
+            },
+            {
+              "bin_start": 0.9,
+              "count": 0
+            }
+          ]
+        },
+        "genre_exposure": [
+          {
+            "genre": "Action",
+            "exposure_share": 0.3333,
+            "served_share": 0.4286
+          },
+          {
+            "genre": "Comedy",
+            "exposure_share": 0.3333,
+            "served_share": 0.1429
+          },
+          {
+            "genre": "Drama",
+            "exposure_share": 0.3333,
+            "served_share": 0.4286
+          }
+        ],
+        "series": [
+          {
+            "bucket_start": 1700100000.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 1.0
+          },
+          {
+            "bucket_start": 1700100003.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100006.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100009.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 1.0
+          },
+          {
+            "bucket_start": 1700100012.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100015.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100018.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 1.0
+          },
+          {
+            "bucket_start": 1700100021.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100024.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100027.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100030.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.75
+          },
+          {
+            "bucket_start": 1700100033.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100036.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100039.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.5
+          },
+          {
+            "bucket_start": 1700100042.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100045.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100048.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.5
+          },
+          {
+            "bucket_start": 1700100051.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100054.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100057.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100060.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.5
+          },
+          {
+            "bucket_start": 1700100063.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100066.0,
+            "slates": 0,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null
+          },
+          {
+            "bucket_start": 1700100069.0,
+            "slates": 1,
+            "normalized_genre_entropy": 1.0,
+            "intra_list_genre_distance": 0.6667,
+            "long_tail_exposure_share": 0.75
+          }
+        ],
+        "series_bucket_seconds": 3.0
+      },
+      "fairness": {
+        "status": "available",
+        "headline": "Outcome parity across supported demographic groups",
+        "sampleSize": 32,
+        "coverage": 0.2857,
+        "window": null,
+        "warnings": [
+          "missing demographic dimension: age_band",
+          "missing demographic dimension: occupation",
+          "missing demographic dimension: geo",
+          "missing demographic dimension: country",
+          "missing demographic dimension: subscription"
+        ],
+        "rows": [
+          {
+            "dimension": "gender",
+            "evaluated_candidates": 32,
+            "overall_ctr": 0.34375,
+            "overall_order_rate": 0.15625,
+            "overall_mean_reward": 0.5,
+            "overall_ndcg": 0.7439304273777445,
+            "groups": [
+              {
+                "group": "a",
+                "support": 16,
+                "exposure_share": 0.5,
+                "ctr": 0.3125,
+                "ctr_coverage": 1.0,
+                "order_rate": 0.125,
+                "order_coverage": 1.0,
+                "mean_reward": 0.6666666666666666,
+                "reward_coverage": 1.0,
+                "ndcg": 0.9077324383928643,
+                "ndcg_evaluated_slate_count": 8,
+                "ctr_absolute_gap_from_overall": 0.03125,
+                "order_rate_absolute_gap_from_overall": 0.03125,
+                "mean_reward_absolute_gap_from_overall": 0.16666666666666663,
+                "ndcg_absolute_gap_from_overall": 0.16380201101511982
+              },
+              {
+                "group": "b",
+                "support": 16,
+                "exposure_share": 0.5,
+                "ctr": 0.375,
+                "ctr_coverage": 1.0,
+                "order_rate": 0.1875,
+                "order_coverage": 1.0,
+                "mean_reward": 0.3333333333333333,
+                "reward_coverage": 1.0,
+                "ndcg": 0.8615986575892965,
+                "ndcg_evaluated_slate_count": 8,
+                "ctr_absolute_gap_from_overall": 0.03125,
+                "order_rate_absolute_gap_from_overall": 0.03125,
+                "mean_reward_absolute_gap_from_overall": 0.16666666666666669,
+                "ndcg_absolute_gap_from_overall": 0.11766823021155204
+              }
+            ],
+            "evaluated_group_count": 2,
+            "suppressed_group_count": 0,
+            "suppressed_candidate_count": 0,
+            "ctr_max_min_gap": 0.0625,
+            "ctr_disparity_ratio": 0.8333333333333334,
+            "order_rate_max_min_gap": 0.0625,
+            "order_rate_disparity_ratio": 0.6666666666666666,
+            "mean_reward_max_min_gap": 0.3333333333333333,
+            "mean_reward_disparity_ratio": 0.5,
+            "ndcg_max_min_gap": 0.04613378080356778,
+            "ndcg_disparity_ratio": 0.9491768952476267
+          },
+          {
+            "dimension": "device",
+            "evaluated_candidates": 32,
+            "overall_ctr": 0.34375,
+            "overall_order_rate": 0.15625,
+            "overall_mean_reward": 0.5,
+            "overall_ndcg": 0.7439304273777445,
+            "groups": [
+              {
+                "group": "web",
+                "support": 32,
+                "exposure_share": 1.0,
+                "ctr": 0.34375,
+                "ctr_coverage": 1.0,
+                "order_rate": 0.15625,
+                "order_coverage": 1.0,
+                "mean_reward": 0.5,
+                "reward_coverage": 1.0,
+                "ndcg": 0.7439304273777445,
+                "ndcg_evaluated_slate_count": 8,
+                "ctr_absolute_gap_from_overall": 0.0,
+                "order_rate_absolute_gap_from_overall": 0.0,
+                "mean_reward_absolute_gap_from_overall": 0.0,
+                "ndcg_absolute_gap_from_overall": 0.0
+              }
+            ],
+            "evaluated_group_count": 1,
+            "suppressed_group_count": 0,
+            "suppressed_candidate_count": 0,
+            "ctr_max_min_gap": null,
+            "ctr_disparity_ratio": null,
+            "order_rate_max_min_gap": null,
+            "order_rate_disparity_ratio": null,
+            "mean_reward_max_min_gap": null,
+            "mean_reward_disparity_ratio": null,
+            "ndcg_max_min_gap": null,
+            "ndcg_disparity_ratio": null
+          }
+        ]
+      },
+      "safety": {
+        "status": "available",
+        "headline": "Candidate safety policy accounting",
+        "sampleSize": 32,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "scope": "offline",
+            "policy_version": "catalog-filter-v1",
+            "evaluated_candidates": 32,
+            "filter_decisions": 11,
+            "filter_decision_rate": 0.34375,
+            "reason_counts": {
+              "expired": 5,
+              "muted_product_type": 0,
+              "muted_genre": 0,
+              "muted_keyword": 0,
+              "muted_title": 0,
+              "unknown": 6
+            },
+            "unknown_share": 0.1875,
+            "unsafe_exposure_rate": 0.125,
+            "unsafe_label_coverage": 1.0
+          },
+          {
+            "scope": "live_service",
+            "policy_version": "p",
+            "evaluated_candidates": 20,
+            "filter_decisions": 3,
+            "filter_decision_rate": 0.15,
+            "reason_counts": {
+              "expired": 3
+            },
+            "unknown_share": 0
+          }
+        ]
+      },
+      "latency": {
+        "status": "available",
+        "headline": "Live request and stage latency (milliseconds)",
+        "sampleSize": 20,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "scope": "endpoint",
+            "name": "recommend",
+            "unit": "milliseconds",
+            "p50": 1,
+            "p95": 2,
+            "p99": 3,
+            "count": 20,
+            "error_rate": 0.1,
+            "timeout_rate": 0
+          },
+          {
+            "scope": "stage",
+            "name": "rank",
+            "unit": "milliseconds",
+            "p50": 0.5,
+            "p95": 1,
+            "p99": 2,
+            "count": 20,
+            "error_rate": null,
+            "timeout_rate": null
+          }
+        ]
+      },
+      "schemaVersion": "2.0"
+    }
+  },
+  {
+    "samples": [],
+    "slates": null,
+    "live": null,
+    "config": {},
+    "expected": {
+      "relevance": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing slate experiences"
+        ],
+        "rows": []
+      },
+      "satisfaction": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing satisfaction samples"
+        ],
+        "rows": []
+      },
+      "freshness": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing freshness samples"
+        ],
+        "rows": []
+      },
+      "diversity": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing slate experiences"
+        ],
+        "rows": []
+      },
+      "fairness": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing fairness samples"
+        ],
+        "rows": []
+      },
+      "safety": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing safety samples"
+        ],
+        "rows": []
+      },
+      "latency": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing live measurement snapshot"
+        ],
+        "rows": []
+      },
+      "schemaVersion": "2.0"
+    }
+  },
+  {
+    "samples": [
+      {
+        "user_id": "u",
+        "clicked": "bad",
+        "ordered": "false",
+        "reward": null,
+        "rating": null,
+        "negative_feedback_reason": "",
+        "filter_reason": " ",
+        "unsafe_label": "false",
+        "gender": null,
+        "request_id": "r",
+        "position": 1,
+        "label": 0
+      },
+      {
+        "user_id": "v",
+        "clicked": 1,
+        "ordered": 1,
+        "reward": 2,
+        "rating": 5,
+        "filter_reason": "muted_title",
+        "unsafe_label": null,
+        "gender": "g",
+        "request_id": "r",
+        "position": 0,
+        "label": 2
+      }
+    ],
+    "slates": [
+      {
+        "request_id": "partial",
+        "items": [
+          {
+            "label": 1,
+            "item_id": "a"
+          },
+          {
+            "item_id": "b"
+          }
+        ]
+      },
+      {
+        "request_id": "complete",
+        "user_id": "u",
+        "items": [
+          {
+            "label": 0,
+            "item_id": "b"
+          },
+          {
+            "label": 2,
+            "item_id": "a",
+            "genres": [
+              "Drama"
+            ],
+            "popularity": 0
+          }
+        ]
+      }
+    ],
+    "live": {
+      "latency": {
+        "availability": "available",
+        "endpoints": {
+          "empty": {
+            "count": 0
+          }
+        }
+      }
+    },
+    "config": {
+      "now": "2026-11-05T00:00:00Z",
+      "fairness_min_support": 2,
+      "catalog_size": 1
+    },
+    "expected": {
+      "relevance": {
+        "status": "available",
+        "headline": "Graded relevance across labeled slates",
+        "sampleSize": 1,
+        "coverage": 0.75,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "k": 5,
+            "ndcg_at_k": 0.6309,
+            "mrr_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "hit_rate_at_k": 1.0,
+            "evaluated_slate_count": 1,
+            "ndcg_evaluated_slate_count": 1,
+            "evaluated_user_count": 1,
+            "leave_one_out_fold_count": 1,
+            "positive_label_count": 1,
+            "label_coverage": 0.75
+          },
+          {
+            "k": 10,
+            "ndcg_at_k": 0.6309,
+            "mrr_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "hit_rate_at_k": 1.0,
+            "evaluated_slate_count": 1,
+            "ndcg_evaluated_slate_count": 1,
+            "evaluated_user_count": 1,
+            "leave_one_out_fold_count": 1,
+            "positive_label_count": 1,
+            "label_coverage": 0.75
+          },
+          {
+            "k": 20,
+            "ndcg_at_k": 0.6309,
+            "mrr_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "hit_rate_at_k": 1.0,
+            "evaluated_slate_count": 1,
+            "ndcg_evaluated_slate_count": 1,
+            "evaluated_user_count": 1,
+            "leave_one_out_fold_count": 1,
+            "positive_label_count": 1,
+            "label_coverage": 0.75
+          }
+        ]
+      },
+      "satisfaction": {
+        "status": "available",
+        "headline": "Observed user satisfaction",
+        "sampleSize": 2,
+        "coverage": 0.5,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "ctr": 1.0,
+            "ctr_coverage": 0.5,
+            "order_rate": 1.0,
+            "order_coverage": 0.5,
+            "mean_reward": 2.0,
+            "reward_coverage": 0.5,
+            "mean_rating": 5.0,
+            "rating_coverage": 0.5,
+            "negative_feedback_rate": 0.5,
+            "negative_feedback_coverage": 0.5,
+            "mean_dwell_millis": null,
+            "dwell_coverage": 0.0,
+            "mean_completion_rate": null,
+            "completion_coverage": 0.0,
+            "users": 2,
+            "items": null,
+            "rated_samples": 1
+          }
+        ],
+        "series": [],
+        "series_bucket_seconds": null,
+        "rating_distribution": [
+          {
+            "rating": 4.5,
+            "count": 1
+          }
+        ]
+      },
+      "freshness": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing published_at and new_release freshness signals"
+        ],
+        "rows": []
+      },
+      "diversity": {
+        "status": "available",
+        "headline": "Catalog diversity across slates",
+        "sampleSize": 2,
+        "coverage": 0.25,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "scope": "aggregate",
+            "unique_genres_at_k": 1.0,
+            "normalized_genre_entropy": 0.0,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": 0.0,
+            "genre_coverage": 0.25,
+            "popularity_coverage": 0.25,
+            "long_tail_popularity_cutoff": 0.0,
+            "items_served": 2,
+            "catalog_size": 1,
+            "catalog_coverage": null,
+            "exposure_gini": 0.0,
+            "top_decile_exposure_share": null,
+            "median_items_per_user": 2.0,
+            "user_repeat_rate": 0.0,
+            "user_repeat_rate_uniform": 0.5
+          },
+          {
+            "scope": "slate",
+            "slate_id": "partial",
+            "unique_genres_at_k": null,
+            "normalized_genre_entropy": null,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": null,
+            "genre_coverage": 0.0,
+            "popularity_coverage": 0.0
+          },
+          {
+            "scope": "slate",
+            "slate_id": "complete",
+            "unique_genres_at_k": 1.0,
+            "normalized_genre_entropy": 0.0,
+            "intra_list_genre_distance": null,
+            "long_tail_exposure_share": 0.0,
+            "genre_coverage": 0.5,
+            "popularity_coverage": 0.5
+          }
+        ],
+        "distributions": {
+          "normalized_genre_entropy": [
+            {
+              "bin_start": 0.0,
+              "count": 1
+            },
+            {
+              "bin_start": 0.1,
+              "count": 0
+            },
+            {
+              "bin_start": 0.2,
+              "count": 0
+            },
+            {
+              "bin_start": 0.3,
+              "count": 0
+            },
+            {
+              "bin_start": 0.4,
+              "count": 0
+            },
+            {
+              "bin_start": 0.5,
+              "count": 0
+            },
+            {
+              "bin_start": 0.6,
+              "count": 0
+            },
+            {
+              "bin_start": 0.7,
+              "count": 0
+            },
+            {
+              "bin_start": 0.8,
+              "count": 0
+            },
+            {
+              "bin_start": 0.9,
+              "count": 0
+            }
+          ],
+          "intra_list_genre_distance": []
+        },
+        "genre_exposure": [
+          {
+            "genre": "Drama",
+            "exposure_share": 1.0,
+            "served_share": null
+          }
+        ],
+        "series": [],
+        "series_bucket_seconds": null
+      },
+      "fairness": {
+        "status": "available",
+        "headline": "Outcome parity across supported demographic groups",
+        "sampleSize": 2,
+        "coverage": 0.1429,
+        "window": null,
+        "warnings": [
+          "missing demographic dimension: age_band",
+          "missing demographic dimension: occupation",
+          "missing demographic dimension: geo",
+          "missing demographic dimension: device",
+          "missing demographic dimension: country",
+          "missing demographic dimension: subscription"
+        ],
+        "rows": [
+          {
+            "dimension": "gender",
+            "evaluated_candidates": 2,
+            "overall_ctr": 1.0,
+            "overall_order_rate": 0.5,
+            "overall_mean_reward": 2.0,
+            "overall_ndcg": 1.0,
+            "groups": [],
+            "evaluated_group_count": 0,
+            "suppressed_group_count": 2,
+            "suppressed_candidate_count": 2,
+            "ctr_max_min_gap": null,
+            "ctr_disparity_ratio": null,
+            "order_rate_max_min_gap": null,
+            "order_rate_disparity_ratio": null,
+            "mean_reward_max_min_gap": null,
+            "mean_reward_disparity_ratio": null,
+            "ndcg_max_min_gap": null,
+            "ndcg_disparity_ratio": null
+          }
+        ]
+      },
+      "safety": {
+        "status": "available",
+        "headline": "Candidate safety policy accounting",
+        "sampleSize": 2,
+        "coverage": 0.75,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "policy_version": "catalog-filter-v1",
+            "evaluated_candidates": 2,
+            "filter_decisions": 1,
+            "filter_decision_rate": 0.5,
+            "reason_counts": {
+              "expired": 0,
+              "muted_product_type": 0,
+              "muted_genre": 0,
+              "muted_keyword": 0,
+              "muted_title": 1,
+              "unknown": 0
+            },
+            "unknown_share": 0.0,
+            "unsafe_exposure_rate": 0.0,
+            "unsafe_label_coverage": 0.5
+          }
+        ]
+      },
+      "latency": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "no live requests recorded"
+        ],
+        "rows": []
+      },
+      "schemaVersion": "2.0"
+    }
+  },
+  {
+    "samples": [
+      {
+        "new_release": true,
+        "clicked": 1,
+        "item_id": "a"
+      },
+      {
+        "new_release": false,
+        "clicked": 0,
+        "item_id": "b"
+      }
+    ],
+    "slates": null,
+    "live": null,
+    "config": {
+      "now": "2026-11-05T00:00:00Z",
+      "fairness_min_support": 2,
+      "catalog_size": 20
+    },
+    "expected": {
+      "relevance": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing slate experiences"
+        ],
+        "rows": []
+      },
+      "satisfaction": {
+        "status": "available",
+        "headline": "Observed user satisfaction",
+        "sampleSize": 2,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "ctr": 0.5,
+            "ctr_coverage": 1.0,
+            "order_rate": null,
+            "order_coverage": 0.0,
+            "mean_reward": null,
+            "reward_coverage": 0.0,
+            "mean_rating": null,
+            "rating_coverage": 0.0,
+            "negative_feedback_rate": null,
+            "negative_feedback_coverage": 0.0,
+            "mean_dwell_millis": null,
+            "dwell_coverage": 0.0,
+            "mean_completion_rate": null,
+            "completion_coverage": 0.0,
+            "users": null,
+            "items": 2,
+            "rated_samples": 0
+          }
+        ],
+        "series": [],
+        "series_bucket_seconds": null,
+        "rating_distribution": []
+      },
+      "freshness": {
+        "status": "available",
+        "headline": "Fresh-item exposure",
+        "sampleSize": 2,
+        "coverage": 1.0,
+        "window": null,
+        "warnings": [],
+        "rows": [
+          {
+            "freshness_source": "boolean_new_release",
+            "fresh_share": 0.5,
+            "freshness_coverage": 1.0,
+            "age_at_exposure_coverage": null,
+            "mean_content_age_days": null,
+            "median_content_age_days": null,
+            "fresh_ctr": 1.0,
+            "fresh_ctr_coverage": 1.0,
+            "established_ctr": 0.0,
+            "established_ctr_coverage": 1.0,
+            "fresh_mean_reward": null,
+            "fresh_reward_coverage": 0.0,
+            "established_mean_reward": null,
+            "established_reward_coverage": 0.0,
+            "fresh_ctr_diff": null,
+            "fresh_ctr_diff_se": null,
+            "fresh_ctr_diff_z": null,
+            "fresh_item_share": 0.5,
+            "fresh_exposure_lift": 1.0
+          }
+        ],
+        "age_bands": []
+      },
+      "diversity": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing slate experiences"
+        ],
+        "rows": []
+      },
+      "fairness": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing supported demographic dimensions"
+        ],
+        "rows": []
+      },
+      "safety": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing filter_reason and unsafe_label safety signals"
+        ],
+        "rows": []
+      },
+      "latency": {
+        "status": "unavailable",
+        "headline": "N/A",
+        "warnings": [
+          "missing live measurement snapshot"
+        ],
+        "rows": []
+      },
+      "schemaVersion": "2.0"
+    }
+  }
+]

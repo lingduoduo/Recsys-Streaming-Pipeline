@@ -1,0 +1,1423 @@
+{
+  "events": [
+    {
+      "requestId": "gold-0",
+      "action": "b",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 1,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.0,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 50,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 1.0,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-1",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 2,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.025,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 49,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.975,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-2",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 3,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.05,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 48,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.95,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-3",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 4,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.075,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 47,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.925,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-4",
+      "action": "a",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 5,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.1,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 46,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.9,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-5",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 6,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.125,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 45,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.875,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-6",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 7,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.15,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 44,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.85,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-7",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 8,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.175,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 43,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.825,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-8",
+      "action": "a",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 9,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.2,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 42,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.8,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-9",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 10,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.225,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 41,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.775,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-10",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 11,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.25,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 40,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.75,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-11",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 12,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.275,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 39,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.725,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-12",
+      "action": "b",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 13,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.3,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 38,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.7,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-13",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 14,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.325,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 37,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.675,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-14",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 15,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.35,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 36,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.65,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-15",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 16,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.375,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 35,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.625,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-16",
+      "action": "a",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 17,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.4,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 34,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.6,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-17",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 18,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.425,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 33,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.575,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-18",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 19,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.45,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 32,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.55,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-19",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 20,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.475,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 31,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.525,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-20",
+      "action": "a",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 21,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.5,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 30,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.5,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-21",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 22,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.525,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 29,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.475,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-22",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 23,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.55,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 28,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.44999999999999996,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-23",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 24,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.575,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 27,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.42500000000000004,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-24",
+      "action": "b",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 25,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.6,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 26,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.4,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-25",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 26,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.625,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 25,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.375,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-26",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 27,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.65,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 24,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.35,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-27",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 28,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.675,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 23,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.32499999999999996,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-28",
+      "action": "a",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 29,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.7,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 22,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.30000000000000004,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-29",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 30,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.725,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 21,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.275,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-30",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 31,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.75,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 20,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.25,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-31",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 32,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.775,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 19,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.22499999999999998,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-32",
+      "action": "a",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 33,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.8,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 18,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.19999999999999996,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-33",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 34,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.825,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 17,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.17500000000000004,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-34",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 35,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.85,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 16,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.15000000000000002,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-35",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 36,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.875,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 15,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.125,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-36",
+      "action": "b",
+      "reward": 1.0,
+      "clicked": 1,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 37,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.9,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 14,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.09999999999999998,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-37",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 38,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.925,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 13,
+          "clicks": 1,
+          "modelPredictions": {
+            "baseline": 0.07499999999999996,
+            "tabQ": 0
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-38",
+      "action": "a",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 39,
+          "clicks": 3,
+          "modelPredictions": {
+            "baseline": 0.95,
+            "tabQ": 0
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": true,
+          "impressions": 12,
+          "clicks": 2,
+          "modelPredictions": {
+            "baseline": 0.050000000000000044,
+            "tabQ": 1
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "gold-39",
+      "action": "b",
+      "reward": 0.0,
+      "clicked": 0,
+      "actionSpace": [
+        {
+          "item": "a",
+          "coldStart": false,
+          "impressions": 40,
+          "clicks": 4,
+          "modelPredictions": {
+            "baseline": 0.975,
+            "tabQ": 1
+          }
+        },
+        {
+          "item": "b",
+          "coldStart": false,
+          "impressions": 11,
+          "clicks": 0,
+          "modelPredictions": {
+            "baseline": 0.025000000000000022,
+            "tabQ": 0
+          }
+        }
+      ]
+    }
+  ],
+  "ope": {
+    "rows": [
+      {
+        "policy": "model:tabQ",
+        "value": 0.4163,
+        "lift_vs_logging": 0.6651,
+        "n_events": 40,
+        "estimator_auc": 0.5555555555555556,
+        "estimator_mse": 0.1936,
+        "value_ci_low": null,
+        "value_ci_high": null,
+        "lift_ci_low": null,
+        "lift_ci_high": null
+      },
+      {
+        "policy": "popularity",
+        "value": 0.2938,
+        "lift_vs_logging": 0.1754,
+        "n_events": 40,
+        "estimator_auc": 0.5555555555555556,
+        "estimator_mse": 0.1936,
+        "value_ci_low": null,
+        "value_ci_high": null,
+        "lift_ci_low": null,
+        "lift_ci_high": null
+      },
+      {
+        "policy": "random",
+        "value": 0.2839,
+        "lift_vs_logging": 0.1358,
+        "n_events": 40,
+        "estimator_auc": 0.5555555555555556,
+        "estimator_mse": 0.1936,
+        "value_ci_low": null,
+        "value_ci_high": null,
+        "lift_ci_low": null,
+        "lift_ci_high": null
+      },
+      {
+        "policy": "ctr",
+        "value": 0.2793,
+        "lift_vs_logging": 0.1172,
+        "n_events": 40,
+        "estimator_auc": 0.5555555555555556,
+        "estimator_mse": 0.1936,
+        "value_ci_low": null,
+        "value_ci_high": null,
+        "lift_ci_low": null,
+        "lift_ci_high": null
+      },
+      {
+        "policy": "model:baseline",
+        "value": 0.2628,
+        "lift_vs_logging": 0.0511,
+        "n_events": 40,
+        "estimator_auc": 0.5555555555555556,
+        "estimator_mse": 0.1936,
+        "value_ci_low": null,
+        "value_ci_high": null,
+        "lift_ci_low": null,
+        "lift_ci_high": null
+      },
+      {
+        "policy": "logging",
+        "value": 0.25,
+        "lift_vs_logging": 0.0,
+        "n_events": 40,
+        "estimator_auc": 0.5555555555555556,
+        "estimator_mse": 0.1936,
+        "value_ci_low": null,
+        "value_ci_high": null,
+        "lift_ci_low": null,
+        "lift_ci_high": null
+      }
+    ],
+    "calibration": {
+      "n_test": 12,
+      "mse": 0.1936,
+      "auc": 0.5555555555555556
+    }
+  },
+  "retrieval": {
+    "catalog": [
+      {
+        "item_id": "a",
+        "title": "Solar one",
+        "genres": [
+          "Sci-Fi"
+        ]
+      },
+      {
+        "item_id": "b",
+        "title": "Solar two",
+        "genres": [
+          "Sci-Fi"
+        ]
+      },
+      {
+        "item_id": "c",
+        "title": "River",
+        "genres": [
+          "Drama"
+        ]
+      },
+      {
+        "item_id": "d",
+        "title": "River two",
+        "genres": [
+          "Drama"
+        ]
+      },
+      {
+        "item_id": "e",
+        "title": "Solar river",
+        "genres": [
+          "Drama"
+        ]
+      }
+    ],
+    "samples": [
+      {
+        "user_id": "u",
+        "item_id": "a",
+        "clicked": 1,
+        "position": 1
+      },
+      {
+        "user_id": "u",
+        "item_id": "b",
+        "clicked": 1,
+        "position": 2
+      },
+      {
+        "user_id": "u",
+        "item_id": "c",
+        "clicked": 1,
+        "position": 3
+      },
+      {
+        "user_id": "u",
+        "item_id": "d",
+        "clicked": 0,
+        "position": 4
+      },
+      {
+        "user_id": "v",
+        "item_id": "c",
+        "clicked": 1,
+        "position": 1
+      },
+      {
+        "user_id": "v",
+        "item_id": "d",
+        "clicked": 1,
+        "position": 2
+      },
+      {
+        "user_id": "v",
+        "item_id": "e",
+        "clicked": 0,
+        "position": 3
+      },
+      {
+        "user_id": "w",
+        "item_id": "e",
+        "clicked": 1,
+        "position": 1
+      }
+    ],
+    "itemVectors": {
+      "a": [
+        1.0,
+        0.0
+      ],
+      "b": [
+        0.9,
+        0.1
+      ],
+      "c": [
+        0.0,
+        1.0
+      ],
+      "d": [
+        0.1,
+        0.9
+      ]
+    },
+    "userVectors": {
+      "u": [
+        1.0,
+        0.0
+      ]
+    },
+    "popularity": {
+      "a": 3.0,
+      "b": 3.0,
+      "c": 2.0
+    },
+    "recall": [
+      {
+        "method": "bm25",
+        "k": 1,
+        "recall_at_k": 0.8333,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "bm25",
+        "k": 2,
+        "recall_at_k": 0.8333,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "bm25",
+        "k": 3,
+        "recall_at_k": 1.0,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "embedding",
+        "k": 1,
+        "recall_at_k": 0.6667,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "embedding",
+        "k": 2,
+        "recall_at_k": 1.0,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "embedding",
+        "k": 3,
+        "recall_at_k": 1.0,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "hybrid",
+        "k": 1,
+        "recall_at_k": 0.8333,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "hybrid",
+        "k": 2,
+        "recall_at_k": 1.0,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      },
+      {
+        "method": "hybrid",
+        "k": 3,
+        "recall_at_k": 1.0,
+        "hitrate_at_k": 1.0,
+        "users_evaluated": 2,
+        "instances": 5
+      }
+    ],
+    "ranking": [
+      {
+        "signal": "popularity",
+        "coverage": 1.0,
+        "n": 8,
+        "positives": 6,
+        "auc": 0.8333333333333334,
+        "logloss": 0.5715
+      },
+      {
+        "signal": "position",
+        "coverage": 1.0,
+        "n": 8,
+        "positives": 6,
+        "auc": 0.9583333333333334,
+        "logloss": 0.4834
+      },
+      {
+        "signal": "embedding",
+        "coverage": 0.5,
+        "n": 4,
+        "positives": 3,
+        "auc": 0.6666666666666666,
+        "logloss": 0.5922
+      }
+    ]
+  }
+}

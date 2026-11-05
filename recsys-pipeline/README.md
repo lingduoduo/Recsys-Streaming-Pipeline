@@ -537,7 +537,7 @@ curl -s http://localhost:8080/api/v1/retrieval/metrics > /tmp/spark-recsys/live-
 
 # 2. offline + slate + live measurements from a run's outputs
 IN=/tmp/spark-recsys/movie-category-sim
-REDIS_HOST=localhost python frontend/export_dashboard_json.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh dashboard \
   --input "$IN/training-samples" \
   --experiences "$IN/slates" \
   --live-metrics "$IN/live-metrics.json" \
@@ -864,7 +864,7 @@ curl -s http://localhost:8080/api/v1/retrieval/metrics > /tmp/spark-recsys/live-
 
 # --experiences reads the ranked slates relevance and diversity need; the sim already wrote them
 # to Parquet under $EXPERIENCE_COLLECTOR_OUTPUT_PATH, so no manual Kafka dump is needed.
-REDIS_HOST=localhost python frontend/export_dashboard_json.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh dashboard \
   --input /tmp/spark-recsys/movie-category-sim/training-samples \
   --experiences /tmp/spark-recsys/movie-category-sim/slates \
   --live-metrics /tmp/spark-recsys/live-metrics.json \
@@ -1041,10 +1041,10 @@ touching the serving path. Run the block from the repository root.
 ```bash
 cd recsys-pipeline
 # Bandit off-policy evaluation (Direct Method) from the rl_experience replay buffer.
-# Fits a numpy logistic reward model on logged (taken-action features → observed reward),
+# Fits a Scala logistic reward model on logged (taken-action features → observed reward),
 # then re-picks each event's slate under logging / popularity / ctr / model:* / random
 # policies. Reports value, lift-vs-logging, and 95% bootstrap CIs, plus estimator AUC/MSE.
-REDIS_HOST=localhost python services/python-modeling/ope_eval_report.py --output ope_eval.csv
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh ope --output ope_eval.csv
 ```
 
 The second evaluator — offline MovieLens MDP: uniform-random vs greedy leave-one-user-out
@@ -1068,7 +1068,7 @@ existing baselines. Both are fit on the non-held-out split only, matching the re
 ```bash
 cd recsys-pipeline/services/python-modeling/post-training
 REDIS_HOST=localhost python3 post_train_q.py --output-parquet /tmp/scored_replay.parquet
-python3 ../ope_eval_report.py --parquet /tmp/scored_replay.parquet
+../../../scripts/run-analysis-report.sh ope --parquet /tmp/scored_replay.parquet
 ```
 
 The second command's table gains `model:tabQ` and `model:fqiQ` rows. The injected keys are scored
@@ -1089,7 +1089,7 @@ is the repository's BPR loss plus a reference margin.
 cd recsys-pipeline/services/python-modeling/post-training
 python3 post_train_dpo.py --parquet /tmp/scored_replay.parquet \
                           --slates <slate-parquet> --output-parquet /tmp/scored_dpo.parquet
-python3 ../ope_eval_report.py --parquet /tmp/scored_dpo.parquet
+../../../scripts/run-analysis-report.sh ope --parquet /tmp/scored_dpo.parquet
 ```
 
 Pairs come from slates rather than from the replay action space because every slate item was

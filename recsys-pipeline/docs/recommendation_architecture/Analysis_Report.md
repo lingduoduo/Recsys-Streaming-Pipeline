@@ -12,12 +12,21 @@ The commands here assume that workflow has already reached its literal `==> done
 | Keyword and subkeyword CSVs | `KeywordAnalysisReportJob` | `<input>/../report-keywords/` |
 | Query-intent CSVs | `QueryAnalysisReportJob` | `<input>/../report-queries/` |
 | Relevance CSVs | `RelevanceAnalysisReportJob` | `<input>/../report-relevance/` |
-| Recall evaluation CSV | `recall_eval_report.py` | `<input>/../report-recall-eval/recall_eval.csv` |
-| Ranking evaluation CSV | `ranking_eval_report.py` | `<input>/../report-ranking-eval/ranking_eval.csv` |
-| Off-policy evaluation CSV | `ope_eval_report.py --output <file>` | the exact `--output` path |
-| React dashboard snapshot | `frontend/export_dashboard_json.py` | `frontend/data/dashboard.json` (from `recsys-pipeline/`) |
+| Recall evaluation CSV | `RecallEvaluationReportJob` | `<input>/../report-recall-eval/recall_eval.csv` |
+| Ranking evaluation CSV | `RankingEvaluationReportJob` | `<input>/../report-ranking-eval/ranking_eval.csv` |
+| Off-policy evaluation CSV | `OffPolicyEvaluationReportJob --output <file>` | the exact `--output` path |
+| React dashboard snapshot | `AnalysisDashboardExportJob` | `frontend/data/dashboard.json` (from `recsys-pipeline/`) |
 
 The React app renders a static JSON snapshot and does not query Spark or Redis in the browser.
+All report generators below run in Scala. The Python generators remain available for compatibility;
+the optional Q/DPO post-training steps still use Python because they train policies rather than
+generate reports.
+
+Use `./scripts/run-analysis-report.sh {recall|ranking|ope|dashboard} --help` from
+`recsys-pipeline/` for each job's options. The launcher forwards arguments unchanged and uses
+`SPARK_HOME/bin/spark-submit` or `spark-submit` on PATH. `SPARK_MASTER` defaults to `local[*]`;
+`SPARK_DRIVER_MEMORY` defaults to `2g`. These finite reports collect their inputs on the driver,
+as the Python reference does; use a bounded input dataset or increase driver memory for larger runs.
 
 ## Shared definitions
 
@@ -38,8 +47,7 @@ Run the setup block from the repository root:
 
 ```bash
 cd recsys-pipeline
-python -m pip install -r services/python-modeling/requirements.txt
-python -m pip install pandas pyarrow numpy redis
+# Java 17, sbt, and Spark 3.5.1 on PATH (or set SPARK_HOME).
 (cd services/spark-streaming-job && sbt assembly)
 test -s services/spark-streaming-job/target/scala-2.12/spark-recsys-job.jar
 ```
@@ -53,14 +61,14 @@ existing directory. The examples use:
 
 Keep Redis running after the movie-category simulation:
 
-- `movie:*:features` supplies the movie title/genre corpus and fills missing Python-report
+- `movie:*:features` supplies the movie title/genre corpus and fills missing dashboard
   metadata.
 - `i2vEmb:*` and `uEmb:*` enable embedding recall and ranking.
 - `global:item_popularity` enables the ranking popularity signal.
 - `replay:recommendations` supplies feedback-completed events for off-policy evaluation.
 
 The three Scala CSV jobs use the Parquet `genres` column directly and do not enrich it from Redis.
-The Python loader can enrich rows whose `genres` array is empty from
+The Scala dashboard loader can enrich rows whose `genres` array is empty from
 `movie:{item_id}:features`. Without those hashes, keyword/query values can become `unknown`,
 category tables can be empty, and recall is unavailable. An empty Parquet input is rejected.
 
@@ -73,11 +81,11 @@ cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim/training-samples
 
 SPARK_MAIN_CLASS=com.demo.report.KeywordAnalysisReportJob \
-  KEYWORD_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+  KEYWORD_ANALYSIS_INPUT_PATH="$IN" ./scripts/run-streaming-job.sh
 SPARK_MAIN_CLASS=com.demo.report.QueryAnalysisReportJob \
-  QUERY_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+  QUERY_ANALYSIS_INPUT_PATH="$IN" ./scripts/run-streaming-job.sh
 SPARK_MAIN_CLASS=com.demo.report.RelevanceAnalysisReportJob \
-  RELEVANCE_ANALYSIS_INPUT_PATH="$IN" ./run-streaming-job.sh
+  RELEVANCE_ANALYSIS_INPUT_PATH="$IN" ./scripts/run-streaming-job.sh
 ```
 
 Outputs:
@@ -91,7 +99,7 @@ Each named output is a Spark CSV directory containing a header-bearing part file
 
 ## Recall evaluation
 
-`recall_eval_report.py` compares lexical BM25, embedding cosine similarity, and reciprocal-rank
+`RecallEvaluationReportJob` compares lexical BM25, embedding cosine similarity, and reciprocal-rank
 fusion under a leave-one-out protocol. A user needs at least two distinct clicked items
 that exist in the Redis movie corpus to be evaluated. BM25 needs `movie:*:features`; embedding and
 hybrid results additionally need `i2vEmb:*`.
@@ -101,19 +109,19 @@ Run from the repository root:
 ```bash
 cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim/training-samples
-REDIS_HOST=localhost python services/python-modeling/recall_eval_report.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh recall \
   --input "$IN" \
   --ks 5,10,20
 ```
 
-The command prints metrics per method and `k`, then writes
+The command writes
 `$IN/../report-recall-eval/recall_eval.csv` with `method`, `k`, `recall_at_k`,
 `hitrate_at_k`, `users_evaluated`, and `instances`. Use `--outdir` to override the directory.
 If Redis has no movie corpus, the script reports that it cannot evaluate and exits without a CSV.
 
 ## Ranking evaluation
 
-`ranking_eval_report.py` compares global popularity, negative impression position, and
+`RankingEvaluationReportJob` compares global popularity, negative impression position, and
 `dot(uEmb[user], i2vEmb[item])` against the click label. Position needs only Parquet input;
 popularity and embedding coverage depend on their Redis keys.
 
@@ -122,7 +130,7 @@ Run from the repository root:
 ```bash
 cd recsys-pipeline
 IN=/tmp/spark-recsys/movie-category-sim/training-samples
-REDIS_HOST=localhost python services/python-modeling/ranking_eval_report.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh ranking \
   --input "$IN"
 ```
 
@@ -132,11 +140,11 @@ signal has only one observed class; embedding metrics are empty when no rows hav
 
 ## Off-policy evaluation
 
-The dashboard's off-policy section and `ope_eval_report.py` share this estimator and read the same
+The dashboard's off-policy section and `OffPolicyEvaluationReportJob` share this estimator and read the same
 two sources: the `replay:recommendations` Redis list, written by the serving path, and a scored
 replay Parquet from `post_train_dpo.py` / `post_train_q.py --output-parquet`, which is the only
 source carrying `dpoScore`, `tabQ`, `fqiQ` and `grpoScore`. Pass `--ope-parquet` to the exporter or
-`--parquet` to `ope_eval_report.py`; both name the source they used.
+`--parquet` to `OffPolicyEvaluationReportJob`; both name the source they used.
 
 ### Populating the off-policy section
 
@@ -160,9 +168,12 @@ RECSYS_GRPO_EMIT_EVENTS=true RECSYS_GRPO_MODE=shadow ./mvnw spring-boot:run
 are published and nothing consumes them — with no error either side. Then drive some traffic:
 `run-movie-category-sim.sh` does it, or call `/api/v1/retrieval/recommend/{user}` and
 `/api/v1/retrieval/feedback` directly. Feedback is what completes an event with a reward, and
-`ope_eval_report.py` skips events that have none.
+`OffPolicyEvaluationReportJob` skips events that have none.
 
-**2. Score the replay with the post-training arms, chaining them.**
+**2. Score the replay with the post-training arms, chaining them (Python training tools).**
+
+These optional trainers retain their Python dependencies from
+`services/python-modeling/requirements.txt`; they are not needed for Scala report generation.
 
 Each arm writes the events it loaded — mutated in place with its own scores — so feeding one arm's
 output into the next accumulates them. Running them separately gives two files, each carrying one
@@ -186,7 +197,7 @@ python3 services/python-modeling/post-training/post_train_dpo.py \
 **3. Point the exporter at the scored replay.**
 
 ```bash
-REDIS_HOST=localhost python3 frontend/export_dashboard_json.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh dashboard \
   --input "$IN/training-samples" \
   --output frontend/data/dashboard.json \
   --ope-parquet "$IN/replay-scored.parquet"
@@ -196,20 +207,22 @@ The section then reports `model:tabQ`, `model:fqiQ` and `model:dpoScore` beside 
 and names its source as `parquet:<path>`. Without `--ope-parquet` it reads Redis and reports
 `redis:replay:recommendations`, which is the serving path's own scores rather than the arms'.
 
-`ope_eval_report.py` fits a dependency-light logistic reward model to logged taken-action features,
+`OffPolicyEvaluationReportJob` fits a dependency-light logistic reward model to logged taken-action features,
 then re-picks every event under logging, popularity, CTR, deterministic random, and available
 `model:*` policies. It requires feedback-completed events with an observed reward. Those events
 are normally written to `replay:recommendations` by later `POST /api/v1/retrieval/feedback` calls.
 Each event is scored once under every policy against the fixed estimator; the bootstrap resamples
 those per-event scores rather than re-picking and re-scoring the slate in every replicate.
-Reward-model fitting reuses per-fit NumPy workspaces across gradient steps, preserving the existing
-iteration count, clipping, and regularization while reducing temporary allocation.
+The Scala reward model preserves the reference iteration count, clipping, standardization, and
+regularization. Bootstrap resampling uses the JVM random generator: a fixed seed is repeatable
+within Scala, but its interval bounds need not equal the NumPy implementation's seeded bounds.
+Point-estimate formulas and CSV fields are unchanged.
 
 `post-training/post_train_q.py` fits offline Q functions on the same replay buffer and injects
 their per-candidate predictions as `tabQ` and `fqiQ`, which the evaluator discovers automatically
 as `model:tabQ` and `model:fqiQ`. Those two keys are policy scores, not observations, so
-`feature_names()` excludes them from the reward model's schema (`POLICY_ONLY_PRED_KEYS`) while
-`policy_names()` keeps them: an estimator fit on the Q values it is then asked to grade would
+`EvaluationReports.featureNames` excludes them from the reward model's schema (including `tabQ`, `fqiQ`, `dpoScore`, and `grpoScore`) while
+policy discovery keeps them: an estimator fit on the Q values it is then asked to grade would
 report lift for a policy that learned nothing.
 
 Caveats when reading those rows. The Direct Method estimator is single-step, so it cannot credit
@@ -237,7 +250,7 @@ Run the Redis-backed evaluation from the repository root:
 
 ```bash
 cd recsys-pipeline
-REDIS_HOST=localhost python services/python-modeling/ope_eval_report.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh ope \
   --key replay:recommendations \
   --output /tmp/spark-recsys/movie-category-sim/ope_eval.csv
 ```
@@ -245,13 +258,13 @@ REDIS_HOST=localhost python services/python-modeling/ope_eval_report.py \
 The CSV includes policy value, lift versus logging, event count, reward-estimator AUC/MSE, and 95%
 value/lift interval bounds. `--bootstrap-samples 0` disables intervals; `--bootstrap-seed`
 controls deterministic resampling. To evaluate an exported replay dataset instead of live Redis,
-replace `--key ...` with `--parquet /path/to/replay.parquet`. The script exits without output when
+replace `--key ...` with `--parquet /path/to/replay.parquet`. The job fails without writing a CSV when
 there are no events whose `reward` is present.
 
 ## React snapshot
 
-The canonical workflow from `recsys-pipeline/` owns snapshot generation so there is only one
-end-to-end path. Its export command uses the movie-category input and validates a positive row
+The canonical workflow from `recsys-pipeline/` generates the snapshot with
+`./scripts/run-analysis-report.sh dashboard`. Its export command uses the movie-category input and validates a positive row
 count plus a populated Keyword Gap L1 table. The output is
 `frontend/data/dashboard.json`. After regenerating it, hard-refresh `http://localhost:3000` or
 restart the development server if it still serves the old snapshot.
