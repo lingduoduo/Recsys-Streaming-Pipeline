@@ -87,7 +87,9 @@ HTML since the data is read at build time).
 
 ## Refresh the data
 
-`export_dashboard_json.py` reuses the pure `compute_*` functions from
+The preferred exporter is the Scala `AnalysisDashboardExportJob`, invoked through
+`./scripts/run-analysis-report.sh dashboard` from `recsys-pipeline/` after `sbt assembly`.
+The Python compatibility exporter `export_dashboard_json.py` reuses the pure `compute_*` functions from
 `recsys-pipeline/services/python-modeling/analysis_dashboard_report.py`, which computes the
 metrics and renders nothing. This app is the only surface that renders them:
 
@@ -101,7 +103,7 @@ metrics and renders nothing. This app is the only surface that renders them:
 # Paths below are what run-movie-category-sim.sh writes; it also captures /metrics itself.
 curl -s http://localhost:8080/api/v1/retrieval/metrics > /tmp/spark-recsys/movie-category-sim/live-metrics.json
 
-REDIS_HOST=localhost python frontend/export_dashboard_json.py \
+REDIS_HOST=localhost ./scripts/run-analysis-report.sh dashboard \
   --input /tmp/spark-recsys/movie-category-sim/training-samples \
   --output frontend/data/dashboard.json \
   --experiences /tmp/spark-recsys/movie-category-sim/slates \
@@ -163,7 +165,7 @@ frontend/
 │   ├── diagnostics.jsx   # engagement / query / recall / ranking / off-policy
 │   ├── nav.jsx           # route nav (the only client component)
 │   └── keyword-report.jsx # "use client": the Top-K keyword report
-├── data/dashboard.json   # committed snapshot (regenerate with export_dashboard_json.py)
+├── data/dashboard.json   # committed snapshot (regenerate with scripts/run-analysis-report.sh dashboard)
 ├── validate_measurements.mjs  # data-contract gate for `npm run build`
 └── export_dashboard_json.py
 ```

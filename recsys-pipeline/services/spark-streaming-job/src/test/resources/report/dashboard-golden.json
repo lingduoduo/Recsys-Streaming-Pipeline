@@ -1,0 +1,1190 @@
+{
+  "samples": [
+    {
+      "item_id": "0",
+      "genres": [
+        "Action",
+        "Comedy"
+      ],
+      "label": 0.0,
+      "release_year": 1980
+    },
+    {
+      "item_id": "1",
+      "genres": [
+        "Action",
+        "Drama"
+      ],
+      "label": 1.0,
+      "release_year": 1990
+    },
+    {
+      "item_id": "2",
+      "genres": [],
+      "label": 2.0,
+      "release_year": 2000
+    },
+    {
+      "item_id": "3",
+      "genres": [
+        "Drama",
+        "Romance"
+      ],
+      "label": 0.0,
+      "release_year": 2010
+    },
+    {
+      "item_id": "4",
+      "genres": [
+        "Horror"
+      ],
+      "label": 1.0,
+      "release_year": 1980
+    },
+    {
+      "item_id": "5",
+      "genres": [
+        "Action",
+        "Comedy"
+      ],
+      "label": 2.0,
+      "release_year": 1990
+    },
+    {
+      "item_id": "6",
+      "genres": [
+        "Comedy"
+      ],
+      "label": 0.0,
+      "release_year": 2000
+    },
+    {
+      "item_id": "7",
+      "genres": [
+        "Sci-Fi",
+        "Action"
+      ],
+      "label": 1.0,
+      "release_year": 2010
+    },
+    {
+      "item_id": "8",
+      "genres": [
+        "Drama",
+        "Action"
+      ],
+      "label": 2.0,
+      "release_year": 1980
+    },
+    {
+      "item_id": "9",
+      "genres": [
+        "Action",
+        "Thriller"
+      ],
+      "label": 0.0,
+      "release_year": 1990
+    },
+    {
+      "item_id": "10",
+      "genres": [
+        "Drama",
+        "Romance"
+      ],
+      "label": 1.0,
+      "release_year": 2000
+    },
+    {
+      "item_id": "11",
+      "genres": [
+        "Comedy",
+        "Horror"
+      ],
+      "label": 2.0,
+      "release_year": 2010
+    }
+  ],
+  "keyword": {
+    "headline": "'Action' diverges most: shown 33% vs clicked 25%",
+    "by_keyword": [
+      {
+        "keyword": "Action",
+        "movie_impressions": 4,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 0.75,
+        "movie_share": 0.3333,
+        "query_share": 0.25,
+        "divergence": -0.0833,
+        "ctr": 0.5,
+        "cvr": 0.25
+      },
+      {
+        "keyword": "Drama",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.25,
+        "query_share": 0.25,
+        "divergence": 0.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "keyword": "Comedy",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.1667,
+        "query_share": 0.125,
+        "divergence": -0.0417,
+        "ctr": 0.5,
+        "cvr": 0.5
+      },
+      {
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "query_orders": 0,
+        "mean_score": 1.0,
+        "movie_share": 0.0833,
+        "query_share": 0.125,
+        "divergence": 0.0417,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "keyword": "Sci-Fi",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "query_orders": 0,
+        "mean_score": 1.0,
+        "movie_share": 0.0833,
+        "query_share": 0.125,
+        "divergence": 0.0417,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "keyword": "unknown",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "query_orders": 1,
+        "mean_score": 2.0,
+        "movie_share": 0.0833,
+        "query_share": 0.125,
+        "divergence": 0.0417,
+        "ctr": 1.0,
+        "cvr": 1.0
+      }
+    ],
+    "by_subkeyword": [
+      {
+        "subkeyword": "none",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.25,
+        "query_share": 0.25,
+        "divergence": 0.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "subkeyword": "Action",
+        "movie_impressions": 2,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.5,
+        "movie_share": 0.1667,
+        "query_share": 0.25,
+        "divergence": 0.0833,
+        "ctr": 1.0,
+        "cvr": 0.5
+      },
+      {
+        "subkeyword": "Comedy",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.1667,
+        "query_share": 0.125,
+        "divergence": -0.0417,
+        "ctr": 0.5,
+        "cvr": 0.5
+      },
+      {
+        "subkeyword": "Romance",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "query_orders": 0,
+        "mean_score": 0.5,
+        "movie_share": 0.1667,
+        "query_share": 0.125,
+        "divergence": -0.0417,
+        "ctr": 0.5,
+        "cvr": 0.0
+      },
+      {
+        "subkeyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "query_orders": 0,
+        "mean_score": 1.0,
+        "movie_share": 0.0833,
+        "query_share": 0.125,
+        "divergence": 0.0417,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "subkeyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "query_orders": 1,
+        "mean_score": 2.0,
+        "movie_share": 0.0833,
+        "query_share": 0.125,
+        "divergence": 0.0417,
+        "ctr": 1.0,
+        "cvr": 1.0
+      },
+      {
+        "subkeyword": "Thriller",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "query_orders": 0,
+        "mean_score": 0.0,
+        "movie_share": 0.0833,
+        "query_share": 0.0,
+        "divergence": -0.0833,
+        "ctr": 0.0,
+        "cvr": 0.0
+      }
+    ],
+    "tops": {
+      "l1": [
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Action",
+          "movie_impressions": 4,
+          "query_clicks": 2,
+          "ctr": 0.5,
+          "rank": 1
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Comedy",
+          "movie_impressions": 2,
+          "query_clicks": 1,
+          "ctr": 0.5,
+          "rank": 2
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Drama",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 3
+        },
+        {
+          "l1": "Action&Adventure",
+          "keyword": "Thriller",
+          "movie_impressions": 1,
+          "query_clicks": 0,
+          "ctr": 0.0,
+          "rank": 4
+        },
+        {
+          "l1": "Comedy",
+          "keyword": "Comedy",
+          "movie_impressions": 2,
+          "query_clicks": 1,
+          "ctr": 0.5,
+          "rank": 1
+        },
+        {
+          "l1": "Comedy",
+          "keyword": "Horror",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 2
+        },
+        {
+          "l1": "Crime&Thriller",
+          "keyword": "Horror",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 1
+        },
+        {
+          "l1": "Drama&Romance",
+          "keyword": "Drama",
+          "movie_impressions": 3,
+          "query_clicks": 2,
+          "ctr": 0.6667,
+          "rank": 1
+        },
+        {
+          "l1": "Drama&Romance",
+          "keyword": "Romance",
+          "movie_impressions": 2,
+          "query_clicks": 1,
+          "ctr": 0.5,
+          "rank": 2
+        },
+        {
+          "l1": "Drama&Romance",
+          "keyword": "Action",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 3
+        }
+      ],
+      "l2": [
+        {
+          "l2": "Action",
+          "keyword": "Action",
+          "movie_impressions": 4,
+          "query_clicks": 2,
+          "ctr": 0.5,
+          "rank": 1
+        },
+        {
+          "l2": "Action",
+          "keyword": "Comedy",
+          "movie_impressions": 2,
+          "query_clicks": 1,
+          "ctr": 0.5,
+          "rank": 2
+        },
+        {
+          "l2": "Action",
+          "keyword": "Drama",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 3
+        },
+        {
+          "l2": "Action",
+          "keyword": "Thriller",
+          "movie_impressions": 1,
+          "query_clicks": 0,
+          "ctr": 0.0,
+          "rank": 4
+        },
+        {
+          "l2": "Comedy",
+          "keyword": "Comedy",
+          "movie_impressions": 2,
+          "query_clicks": 1,
+          "ctr": 0.5,
+          "rank": 1
+        },
+        {
+          "l2": "Comedy",
+          "keyword": "Horror",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 2
+        },
+        {
+          "l2": "Drama",
+          "keyword": "Drama",
+          "movie_impressions": 3,
+          "query_clicks": 2,
+          "ctr": 0.6667,
+          "rank": 1
+        },
+        {
+          "l2": "Drama",
+          "keyword": "Romance",
+          "movie_impressions": 2,
+          "query_clicks": 1,
+          "ctr": 0.5,
+          "rank": 2
+        },
+        {
+          "l2": "Drama",
+          "keyword": "Action",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 3
+        },
+        {
+          "l2": "Horror",
+          "keyword": "Horror",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 1
+        }
+      ],
+      "l3": [
+        {
+          "l3": "Action\u00b71980s",
+          "keyword": "Action",
+          "movie_impressions": 1,
+          "query_clicks": 0,
+          "ctr": 0.0,
+          "rank": 1
+        },
+        {
+          "l3": "Action\u00b71980s",
+          "keyword": "Comedy",
+          "movie_impressions": 1,
+          "query_clicks": 0,
+          "ctr": 0.0,
+          "rank": 2
+        },
+        {
+          "l3": "Action\u00b71990s",
+          "keyword": "Action",
+          "movie_impressions": 3,
+          "query_clicks": 2,
+          "ctr": 0.6667,
+          "rank": 1
+        },
+        {
+          "l3": "Action\u00b71990s",
+          "keyword": "Comedy",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 2
+        },
+        {
+          "l3": "Action\u00b71990s",
+          "keyword": "Drama",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 3
+        },
+        {
+          "l3": "Action\u00b71990s",
+          "keyword": "Thriller",
+          "movie_impressions": 1,
+          "query_clicks": 0,
+          "ctr": 0.0,
+          "rank": 4
+        },
+        {
+          "l3": "Comedy\u00b72000s",
+          "keyword": "Comedy",
+          "movie_impressions": 1,
+          "query_clicks": 0,
+          "ctr": 0.0,
+          "rank": 1
+        },
+        {
+          "l3": "Comedy\u00b72010s",
+          "keyword": "Comedy",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 1
+        },
+        {
+          "l3": "Comedy\u00b72010s",
+          "keyword": "Horror",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 2
+        },
+        {
+          "l3": "Drama\u00b71980s",
+          "keyword": "Action",
+          "movie_impressions": 1,
+          "query_clicks": 1,
+          "ctr": 1.0,
+          "rank": 1
+        }
+      ]
+    },
+    "by_decade": [
+      {
+        "decade": "1980s",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.25,
+        "query_share": 0.25,
+        "divergence": 0.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "decade": "1990s",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.25,
+        "query_share": 0.25,
+        "divergence": 0.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "decade": "2000s",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.25,
+        "query_share": 0.25,
+        "divergence": 0.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "decade": "2010s",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "query_orders": 1,
+        "mean_score": 1.0,
+        "movie_share": 0.25,
+        "query_share": 0.25,
+        "divergence": 0.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      }
+    ],
+    "genre_order": {
+      "multi_genre_movies": 9,
+      "sorted_share": 0.7778,
+      "chance_share": 0.5
+    },
+    "grid": [
+      {
+        "category": "Action&Adventure",
+        "keyword": "Action",
+        "movie_impressions": 4,
+        "query_clicks": 2,
+        "ctr": 0.5,
+        "z": -0.4977
+      },
+      {
+        "category": "Action&Adventure",
+        "keyword": "Comedy",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "category": "Action&Adventure",
+        "keyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "category": "Action&Adventure",
+        "keyword": "Thriller",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "category": "Comedy",
+        "keyword": "Comedy",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "category": "Comedy",
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "category": "Crime&Thriller",
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "category": "Drama&Romance",
+        "keyword": "Action",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "category": "Drama&Romance",
+        "keyword": "Drama",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "ctr": 0.6667,
+        "z": 0.05
+      },
+      {
+        "category": "Drama&Romance",
+        "keyword": "Romance",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "category": "SciFi&Fantasy",
+        "keyword": "Action",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "category": "SciFi&Fantasy",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      }
+    ],
+    "topic_grid": [
+      {
+        "topic": "Action",
+        "keyword": "Action",
+        "movie_impressions": 4,
+        "query_clicks": 2,
+        "ctr": 0.5,
+        "z": -0.4977
+      },
+      {
+        "topic": "Action",
+        "keyword": "Comedy",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "topic": "Action",
+        "keyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "topic": "Action",
+        "keyword": "Thriller",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Comedy",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "topic": "Comedy",
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Action",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Drama",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "ctr": 0.6667,
+        "z": 0.05
+      },
+      {
+        "topic": "Drama",
+        "keyword": "Romance",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "topic": "Horror",
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Action",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "topic": "Sci-Fi",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      }
+    ],
+    "decade_grid": [
+      {
+        "decade": "1980s",
+        "keyword": "Action",
+        "movie_impressions": 2,
+        "query_clicks": 1,
+        "ctr": 0.5,
+        "z": -0.2873
+      },
+      {
+        "decade": "1980s",
+        "keyword": "Comedy",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "decade": "1980s",
+        "keyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "1980s",
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "1990s",
+        "keyword": "Action",
+        "movie_impressions": 3,
+        "query_clicks": 2,
+        "ctr": 0.6667,
+        "z": 0.05
+      },
+      {
+        "decade": "1990s",
+        "keyword": "Comedy",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "1990s",
+        "keyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "1990s",
+        "keyword": "Thriller",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "decade": "2000s",
+        "keyword": "Comedy",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "decade": "2000s",
+        "keyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "2000s",
+        "keyword": "Romance",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "2010s",
+        "keyword": "Action",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "2010s",
+        "keyword": "Comedy",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "2010s",
+        "keyword": "Drama",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "decade": "2010s",
+        "keyword": "Horror",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      },
+      {
+        "decade": "2010s",
+        "keyword": "Romance",
+        "movie_impressions": 1,
+        "query_clicks": 0,
+        "ctr": 0.0,
+        "z": null
+      },
+      {
+        "decade": "2010s",
+        "keyword": "Sci-Fi",
+        "movie_impressions": 1,
+        "query_clicks": 1,
+        "ctr": 1.0,
+        "z": null
+      }
+    ]
+  },
+  "engagement": {
+    "headline": "impressions 12 \u00b7 CTR 67% \u00b7 CVR 33%",
+    "ctr": 0.6667,
+    "cvr": 0.3333,
+    "funnel": {
+      "impression": 12,
+      "click": 8,
+      "order": 4
+    },
+    "by_query": [
+      {
+        "query": "Comedy Horror",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 1,
+        "mean_score": 2.0,
+        "ctr": 1.0,
+        "cvr": 1.0
+      },
+      {
+        "query": "Drama Action",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 1,
+        "mean_score": 2.0,
+        "ctr": 1.0,
+        "cvr": 1.0
+      },
+      {
+        "query": "unknown",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 1,
+        "mean_score": 2.0,
+        "ctr": 1.0,
+        "cvr": 1.0
+      },
+      {
+        "query": "Action Comedy",
+        "impressions": 2,
+        "clicks": 1,
+        "orders": 1,
+        "mean_score": 1.0,
+        "ctr": 0.5,
+        "cvr": 0.5
+      },
+      {
+        "query": "Action Drama",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "mean_score": 1.0,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Horror",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "mean_score": 1.0,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Sci-Fi Action",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "mean_score": 1.0,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Drama Romance",
+        "impressions": 2,
+        "clicks": 1,
+        "orders": 0,
+        "mean_score": 0.5,
+        "ctr": 0.5,
+        "cvr": 0.0
+      },
+      {
+        "query": "Action Thriller",
+        "impressions": 1,
+        "clicks": 0,
+        "orders": 0,
+        "mean_score": 0.0,
+        "ctr": 0.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Comedy",
+        "impressions": 1,
+        "clicks": 0,
+        "orders": 0,
+        "mean_score": 0.0,
+        "ctr": 0.0,
+        "cvr": 0.0
+      }
+    ],
+    "by_genre": [
+      {
+        "genre": "Horror",
+        "impressions": 2,
+        "clicks": 2,
+        "orders": 1,
+        "mean_score": 1.5,
+        "ctr": 1.0,
+        "cvr": 0.5
+      },
+      {
+        "genre": "Action",
+        "impressions": 6,
+        "clicks": 4,
+        "orders": 2,
+        "mean_score": 1.0,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "genre": "Comedy",
+        "impressions": 4,
+        "clicks": 2,
+        "orders": 2,
+        "mean_score": 1.0,
+        "ctr": 0.5,
+        "cvr": 0.5
+      },
+      {
+        "genre": "Drama",
+        "impressions": 4,
+        "clicks": 3,
+        "orders": 1,
+        "mean_score": 1.0,
+        "ctr": 0.75,
+        "cvr": 0.25
+      },
+      {
+        "genre": "Sci-Fi",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "mean_score": 1.0,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "genre": "Romance",
+        "impressions": 2,
+        "clicks": 1,
+        "orders": 0,
+        "mean_score": 0.5,
+        "ctr": 0.5,
+        "cvr": 0.0
+      },
+      {
+        "genre": "Thriller",
+        "impressions": 1,
+        "clicks": 0,
+        "orders": 0,
+        "mean_score": 0.0,
+        "ctr": 0.0,
+        "cvr": 0.0
+      }
+    ]
+  },
+  "query": {
+    "headline": "top query 'Action Comedy' (2 impr, CTR 50%)",
+    "top_queries": [
+      {
+        "query": "Action Comedy",
+        "impressions": 2,
+        "clicks": 1,
+        "orders": 1,
+        "query_len": 13,
+        "ctr": 0.5,
+        "cvr": 0.5
+      },
+      {
+        "query": "Drama Romance",
+        "impressions": 2,
+        "clicks": 1,
+        "orders": 0,
+        "query_len": 13,
+        "ctr": 0.5,
+        "cvr": 0.0
+      },
+      {
+        "query": "Action Drama",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "query_len": 12,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Action Thriller",
+        "impressions": 1,
+        "clicks": 0,
+        "orders": 0,
+        "query_len": 15,
+        "ctr": 0.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Comedy",
+        "impressions": 1,
+        "clicks": 0,
+        "orders": 0,
+        "query_len": 6,
+        "ctr": 0.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Comedy Horror",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 1,
+        "query_len": 13,
+        "ctr": 1.0,
+        "cvr": 1.0
+      },
+      {
+        "query": "Drama Action",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 1,
+        "query_len": 12,
+        "ctr": 1.0,
+        "cvr": 1.0
+      },
+      {
+        "query": "Horror",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "query_len": 6,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "Sci-Fi Action",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 0,
+        "query_len": 13,
+        "ctr": 1.0,
+        "cvr": 0.0
+      },
+      {
+        "query": "unknown",
+        "impressions": 1,
+        "clicks": 1,
+        "orders": 1,
+        "query_len": 7,
+        "ctr": 1.0,
+        "cvr": 1.0
+      }
+    ],
+    "by_length": [
+      {
+        "bucket": "long (>10)",
+        "impressions": 9,
+        "clicks": 6,
+        "orders": 3,
+        "queries": 7,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      },
+      {
+        "bucket": "short (<=10)",
+        "impressions": 3,
+        "clicks": 2,
+        "orders": 1,
+        "queries": 3,
+        "ctr": 0.6667,
+        "cvr": 0.3333
+      }
+    ],
+    "average_query_length": 11.33
+  }
+}

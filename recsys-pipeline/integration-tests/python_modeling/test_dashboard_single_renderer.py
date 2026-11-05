@@ -34,7 +34,10 @@ def test_compute_module_exposes_no_html_rendering():
 
 def test_simulation_still_writes_the_react_snapshot():
     script = SIM.read_text()
-    assert "export_dashboard_json.py" in script, (
+    assert './scripts/run-analysis-report.sh dashboard "${export_args[@]}"' in script, (
+        "run-movie-category-sim.sh no longer invokes the Scala dashboard exporter"
+    )
+    assert '--output "frontend/data/dashboard.json"' in script, (
         "run-movie-category-sim.sh no longer exports frontend/data/dashboard.json -- "
         "that snapshot is the dashboard's only data source"
     )
